@@ -359,6 +359,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LoRA Adapter Registry, Merge, and Serving Ledger. A production LoRA case study: manifests, base-checkpoint compatibility, merge audits, hot-swap adapter caches, multi-adapter batching, and rollout gates..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'LoRA makes adaptation cheap enough that a team can create many task-specific model variants without copying the whole base model. That is the attraction: freeze the base weights, train low-rank matrices, and apply a small delta at inference or merge time.',
@@ -366,7 +375,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to store adapter files in a bucket and let each request name the adapter it wants. If the file exists, load it. If it improves a benchmark, promote it. If it becomes popular, merge it into the base model.',
         'That breaks quickly. An adapter is valid only relative to the exact base checkpoint and target module layout it was trained against. Similar model names are not enough. Tokenizer revisions, rope scaling, quantization paths, target-module names, rank caps, dtype rules, and safety status can differ while the file still looks loadable.',
@@ -374,7 +383,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to treat a LoRA adapter as a typed patch, not as a loose model artifact. The type includes the base checkpoint hash, target modules, tensor shapes, rank, scale, dtype, quantization assumptions, tokenizer compatibility, training lineage, evaluation record, trust boundary, and rollout state.',
         'Once the adapter is a typed patch, the serving decision becomes ordinary systems work. Validate the patch, choose merge or hot-swap, cache it if it stays separate, batch compatible requests, trace the result, and fail closed when identity or policy is missing.',
@@ -389,7 +398,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the registry works',
+      heading: 'How it works',
       paragraphs: [
         'A useful registry stores two things together: the adapter tensors and the manifest that gives those tensors meaning. The manifest should record base checkpoint hash, adapter hash, target modules, rank, alpha or scale, dtype, tokenizer or vocabulary assumptions, quantization requirements, training data identifier, training config, evaluation slices, owner, signature, allowed tenants, rollout percentage, and rollback pointer.',
         'The compatibility gate should fail closed. Base hash mismatch blocks. Shape mismatch blocks. Missing target modules block. Unsafe dtype casts block. Unknown signatures block. Rank above runtime cap may queue or reject. An adapter with incomplete evaluation may enter canary, but it should not quietly become production.',
@@ -413,7 +422,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked case study',
+      heading: 'Worked example',
       paragraphs: [
         'Imagine one base model serves three product lanes: SQL help, legal drafting, and support replies. SQL and support are ready adapters trained against base m7b@9f with rank 8 on q and v projections. Legal is canary with rank 16 on q, v, and o. A style adapter was trained against m7b@2a and targets all modules.',
         'The registry lets SQL and support serve immediately, lets legal serve only to its canary cohort, and blocks style because the base hash does not match. In hot-swap mode, requests for SQL are grouped into lane A, legal into lane B, and support into lane C. A support cache miss may be acceptable for batch replies but not for interactive chat.',
@@ -421,7 +430,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The registry adds operational overhead: manifests, signatures, hash checks, evaluation storage, rollout flags, cache accounting, and trace joins. That overhead is the price of safely serving many model variants on one base.',
         'Merging lowers hot-path complexity but increases checkpoint storage and promotion burden. Hot-swap lowers storage and improves flexibility but increases p99 risk, cache pressure, and security concerns. A system that supports both needs clear rules for when an adapter graduates from hot-swap to merged checkpoint.',
@@ -429,18 +438,86 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins when one base model must support many tasks, tenants, experiments, or regulated variants without copying the full model for each one. It is especially useful when adapters change often but the base model changes slowly.',
         'It fails when adapter behavior is treated as harmless because the files are small. It also fails when teams compose adapters casually, ignore evaluation slices, skip signatures, or let runtime loading bypass policy. LoRA reduces training cost; it does not remove release engineering.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: LoRA at https://arxiv.org/abs/2106.09685, QLoRA at https://arxiv.org/abs/2305.14314, Hugging Face PEFT LoRA guide at https://huggingface.co/docs/peft/en/developer_guides/lora, PEFT model merging guide at https://huggingface.co/docs/peft/developer_guides/model_merging, vLLM LoRA serving docs at https://docs.vllm.ai/en/stable/features/lora/, and Anyscale multi-LoRA serving docs at https://docs.anyscale.com/llm/serving/multi-lora.',
         'Study LoRA Fine-Tuning, Quantization, Activation-Aware Quantization Calibration Ledger, Transformer Inference Roofline, LLM Continuous Batching, Feature Flag Control Plane, Software Supply Chain Provenance Graph, Prompt Injection Threat Model, Knowledge Distillation, and SVD & Low-Rank Approximation next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for lora-adapter-registry-merge-serving-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

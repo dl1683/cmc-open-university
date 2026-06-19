@@ -244,104 +244,157 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The chmin update view walks through a range chmin(6) operation on a small tree. Each node displays four fields: sum, max1, max2 (strict second maximum), and max count. Active highlights mark the fields that decide whether the node can handle the update locally. Found highlights mark the sum field, which is the query output that must stay correct without opening children.',
+        'Watch for the moment a node stops instead of recursing. That stop is the whole point of Beats: the cap lies between max1 and max2, so only the top-layer values change, and the node can compute the exact sum adjustment in O(1). If the cap is at or below max2, the highlight moves downward because the parent lacks enough information.',
+        'The amortized view explains why expensive descents do not accumulate into bad total cost. When a descent happens, it collapses value layers inside children, which means future caps encounter less diversity and stop higher. The potential argument tracks total distinct-maximum changes across all nodes, not per-operation worst case.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A normal lazy segment tree is excellent when a whole covered interval receives the same transformation. Add 5 to every element. Assign every element to 0. Flip every bit. The parent can store a small lazy tag because the operation does not need to inspect the children.',
-        'Range chmin is different. The update chmin(x) means replace each value a[i] with min(a[i], x). Values already at or below x do not move. Values above x do move. Inside one covered interval, some leaves may change and some may not.',
-        'Segment Tree Beats exists for this gap. It keeps enough information at each node to recognize when a conditional update only affects the current top layer of values, so the tree can stop high instead of descending to every leaf.',
+        'A lazy segment tree handles range add and range assign elegantly because every element in a covered segment changes the same way. One tag captures the whole transformation. Range chmin(x) -- replace each a[i] with min(a[i], x) -- breaks that uniformity. Values above x change. Values at or below x do not. Inside one covered segment, the update is selective.',
+        'Ji (2016) introduced the "Segment Tree Beats" technique (the name comes from the Chinese competitive programming community) to handle chmin and chmax alongside sum queries without descending to every leaf. The key idea: augment each node with enough metadata -- specifically the strict second maximum -- so the tree can recognize when a conditional cap affects only the current top value layer, and stop.',
+        {
+          type: 'quote',
+          text: 'We maintain extra information in each node to avoid unnecessary recursive calls. When the maximum is the only value affected, we can update the node directly.',
+          attribution: 'Ji, "Segment Beats" (2016), translated from the original Chinese writeup',
+        },
+        'The technique extends to range chmax (using min-side metadata), range add, and historical maximum queries. It is the standard competitive programming tool for problems that mix conditional range updates with aggregate queries.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest correct implementation descends to every leaf in the update range and clamps each value. That is easy to trust, but it can turn one range update into O(k) work for k covered elements. With many large updates, it degenerates into scanning the array again and again.',
-        'The next attempt is ordinary lazy propagation: attach a pending cap tag to a covered node and push it later. The tag sounds plausible, but it is incomplete. A node cannot apply "cap at 6" to its sum unless it knows how many values are above 6 and by how much.',
-        'You can store the maximum, but maximum alone is still not enough. If the maximum is 9 and the cap is 6, the node must know whether the next value below 9 is 5 or 8. Those two cases have different consequences.',
+        'The first attempt is brute force: walk every leaf in the update range and clamp. Correct, but O(k) per update for k covered elements. Repeated large-range caps degenerate into scanning the array over and over.',
+        'The second attempt is ordinary lazy propagation with a "cap" tag. Attach a pending minimum to a covered node and push it later. This sounds workable, but the node cannot apply the cap to its sum without knowing how many values exceed the cap and by how much. The maximum alone is not enough. If max1 is 9 and the cap is 6, the sum adjustment depends on whether the next-highest value is 8 or 3 -- those are different amounts of work on different numbers of elements.',
+        'You could store additional statistics, but the question is which statistics are both sufficient for O(1) local updates and cheap to maintain across pushes and merges. That is the design problem Beats solves.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is selectivity. In [9, 5, 9, 0], chmin(6) changes only the two 9s. The sum drops by 3 + 3. In the same interval, chmin(4) changes the two 9s and the 5. The parent cannot summarize that second update as one layer change because two different value levels are affected.',
-        'That means every covered node has three possible outcomes: no-op, apply locally, or descend. Ordinary lazy propagation tries to make every fully covered node local. Segment Tree Beats accepts that some nodes must descend, then proves those descents cannot stay expensive forever for the supported operations.',
-        'This is why Beats feels unusual. The worst-looking operation may open many nodes, but the operation also collapses value structure inside those nodes. Future operations have less distinct high-value structure to fight through.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'For range chmin, store four fields at each node: the maximum value max1, the strict second maximum max2, the number of elements equal to max1, and the sum. The strict second maximum is the field that ordinary segment trees do not keep.',
-        'If x >= max1, the update does nothing. If max2 < x < max1, only the elements currently equal to max1 are affected. The node can reduce its sum by (max1 - x) * maxCount and replace max1 with x without seeing the children.',
-        'If x <= max2, the cap crosses more than the top layer. The node must push pending state and recurse. Beats is the discipline of making the easy case very cheap and making the hard case pay for itself over time.',
-      ],
-    },
-    {
-      heading: 'Reading the chmin update view',
-      paragraphs: [
-        'In the chmin update view, read each node label as a certificate. The pair max1 and max2 says whether the cap can be applied at this node. maxCount says how many leaves sit on the top layer. sum is the aggregate query value that must stay correct without opening every child.',
-        'When the cap lies strictly between max1 and max2, the node is allowed to stop. That is the central moment in the animation: the update is selective at the leaf level, but uniform over the maximum layer. If the cap is below or equal to max2, the highlight moves downward because the parent no longer has enough information to update safely.',
-        'Do not read a stopped node as skipped work. It is real work compressed into the node summary. The sum changes, max1 changes, and a later push will make children consistent if another operation needs to inspect them.',
-      ],
-    },
-    {
-      heading: 'Reading the amortized view',
-      paragraphs: [
-        'The amortized view is about why occasional descents do not destroy the data structure. A descent happens when the cap cuts through multiple value layers in a node. That is the bad case locally, but it also merges or lowers layers that used to be distinct.',
-        'Watch for nodes whose second maximum changes after a hard update. The expensive work is reducing disorder: high values are being brought closer to the rest of the interval. A later cap often hits only the new top layer and stops higher.',
-        'The proof is not the same as the simple segment-tree proof. It uses a potential argument over value changes and node structure. The practical takeaway is narrower but important: Beats is fast for specific operations whose failed fast paths reduce future complexity.',
+        'The wall is selectivity within a covered segment. Consider the interval [9, 5, 9, 0]. chmin(6) changes only the two 9s: the sum drops by 6. But chmin(4) changes the two 9s and the 5 -- two different value levels are affected. A single lazy tag cannot distinguish "cap the top layer" from "cap multiple layers" without knowing where the layers are.',
+        'Ordinary lazy propagation assumes every fully covered node can absorb the update locally. Beats relaxes this: some covered nodes must descend. The technique works because those forced descents are not free rides -- they collapse value structure inside the subtree, reducing the diversity that future operations must fight through.',
+        'This is why the complexity proof is amortized rather than worst-case. A single chmin can touch O(n) nodes in the worst case. But each expensive descent pays for itself by reducing the total number of distinct maximum levels across the tree, and that total is bounded.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Each node is built from two children. Its sum is left.sum + right.sum. Its maximum is the larger child maximum. Its maxCount is the count of maximum values across children that share that maximum. Its second maximum is the largest value strictly below the maximum, drawn from the two child summaries.',
-        'To apply chmin(x) to a node, first handle the no-op case x >= max1. Then handle the local case max2 < x < max1 by reducing sum and setting max1 to x. Otherwise push pending maximum caps to the children and recurse into the parts of the query range.',
-        'The push step is delicate. If a parent has already lowered its max1, a child whose max1 is too high must receive that cap before the child is inspected. Without this, children can keep stale maxima and later merges will rebuild incorrect summaries.',
+        'Each node stores four fields: max1 (the maximum value in the segment), max2 (the strict second maximum), maxCount (how many elements equal max1), and sum. On build, leaves have max1 = value, max2 = -infinity, maxCount = 1, and sum = value. Internal nodes merge children: sum = left.sum + right.sum, max1 = max(left.max1, right.max1), maxCount counts children sharing that maximum, and max2 is the largest value strictly below max1 drawn from both children.',
+        {
+          type: 'diagram',
+          label: 'Break / tag / skip conditions for chmin(x) at a node',
+          text: [
+            '                  chmin(x) arrives at node',
+            '                          |',
+            '              +-----------+-----------+',
+            '              |           |           |',
+            '         x >= max1   max2 < x < max1  x <= max2',
+            '              |           |           |',
+            '           SKIP        TAG          BREAK',
+            '         (no-op)   (local O(1))  (push + recurse)',
+            '                       |',
+            '              sum -= (max1 - x) * maxCount',
+            '              max1 = x',
+          ].join('\n'),
+        },
+        'The TAG case is the payoff. Because x sits strictly between max2 and max1, only the maxCount elements equal to max1 are affected. The sum adjustment is exact: (max1 - x) * maxCount. The node sets max1 = x and stores the cap as a lazy tag for children. No child is opened.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// The break condition: must push and recurse',
+            'function updateChmin(node, l, r, ql, qr, x) {',
+            '  if (x >= node.max1) return;        // SKIP: nothing to do',
+            '  if (ql <= l && r <= qr && x > node.max2) {',
+            '    // TAG: only the top layer changes',
+            '    node.sum -= (node.max1 - x) * node.maxCount;',
+            '    node.max1 = x;',
+            '    return;',
+            '  }',
+            '  // BREAK: cap crosses multiple value layers',
+            '  pushDown(node);',
+            '  let mid = (l + r) >> 1;',
+            '  updateChmin(node.left,  l,     mid, ql, qr, x);',
+            '  updateChmin(node.right, mid+1, r,   ql, qr, x);',
+            '  pullUp(node);',
+            '}',
+          ].join('\n'),
+        },
+        'The push step is critical. Before recursing, a parent that has already lowered its max1 must propagate that cap to any child whose max1 exceeds the parent cap. Without this, children keep stale maxima and later merges rebuild wrong summaries. Push order -- caps before adds -- matters when both tags coexist.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The local update is correct because max2 < x < max1 proves exactly which elements change: all and only the elements equal to max1. No lower value reaches the cap. So the node can update count * difference in the sum and keep every non-maximum value untouched.',
-        'The merge is correct because the parent fields are complete for the next decision. To answer a sum query, sum is enough. To decide a future chmin, max1, max2, and maxCount are enough to classify no-op, local update, or descent.',
-        'The amortized behavior follows from the hard case. When the update descends, it is because the cap crosses a second maximum somewhere. That operation lowers maxima and collapses value levels in child nodes. Over many operations, those collapses can be charged against the number of meaningful maximum changes rather than against the full interval size every time.',
+        'Correctness of the local update follows from the gap between max2 and max1. When max2 < x < max1, every element in the segment is either equal to max1 (and gets capped to x) or strictly below max2 (and is untouched). No element sits between max2 and max1 -- max2 is the strict second maximum by definition. So the sum change is exactly (max1 - x) * maxCount, and no non-maximum element is disturbed.',
+        'Correctness of the merge follows from completeness of the four fields. After any update, the parent recomputes sum, max1, max2, and maxCount from its two children. These four fields are sufficient to classify the next chmin as SKIP, TAG, or BREAK. No hidden state is lost.',
+        'The amortized bound uses a potential function over the number of distinct values that appear as max1 across all tree nodes. Each TAG operation does O(1) work and does not increase the potential. Each BREAK descends into children, doing O(log n) work per descent, but the descent merges or eliminates distinct maximum levels in the subtree. Ji shows the total work across m operations on an n-element array is O((n + m) log^2 n) for chmin alone, and the same bound holds when combined with range add.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Take the interval [9, 5, 9, 0]. Its summary is sum = 23, max1 = 9, max2 = 5, maxCount = 2. Apply chmin(6). Since 5 < 6 < 9, only the two maximum values change. The sum drops by (9 - 6) * 2 = 6, so the new sum is 17 and the logical interval is [6, 5, 6, 0].',
-        'Now apply chmin(4) to that same interval. The summary has max1 = 6 and max2 = 5. Since 4 <= 5, the cap affects both the 6s and the 5. The node cannot update locally. It must push to children and find smaller nodes where the cap crosses only one layer or reaches leaves.',
-        'This example is the whole method in miniature. chmin(6) is cheap because it only cuts the top layer. chmin(4) is expensive because it crosses multiple layers, but it also crushes the interval down to [4, 4, 4, 0], making many future caps trivial.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'A Segment Tree Beats implementation keeps the O(n) space shape of a segment tree but stores heavier summaries. For supported operation sets, range updates and queries are usually near-logarithmic amortized rather than worst-case logarithmic in the simple lazy-propagation sense.',
-        'The constants and bug surface are real. You must handle duplicate maxima, absent second maxima, negative values, push order, merge order, and interactions between chmin, chmax, add, min, max, and sum if your variant supports all of them.',
-        'The tradeoff is only worth it when the operation mix needs this expressiveness. If ordinary range add and range sum are enough, a lazy segment tree is smaller, easier to debug, and easier to prove.',
+        {
+          type: 'table',
+          headers: ['Structure', 'Range chmin + sum', 'Amortized per op', 'Extra node fields', 'Implementation difficulty'],
+          rows: [
+            ['Lazy segment tree', 'Not supported', '--', 'lazy tag only', 'Low'],
+            ['Segment Tree Beats', 'Supported', 'O(log^2 n)', 'max1, max2, maxCount', 'High'],
+            ['Chtholly tree (ODT)', 'Supported (assign-heavy)', 'O(n) worst case, fast with random data', 'None (interval set)', 'Low'],
+            ['Brute force', 'Supported', 'O(n)', 'None', 'Trivial'],
+          ],
+        },
+        'Space is O(n), same shape as any segment tree, but each node carries heavier metadata. The constant factor is roughly 3-4x a plain lazy tree in both memory and code volume. For the full variant supporting chmin + chmax + add + sum, each node stores max1, max2, maxCount, min1, min2, minCount, sum, and separate lazy tags for caps and additions.',
+        'When n doubles, per-operation cost grows by roughly two factors of log. In practice, n = 10^5 means about 17^2 ~ 289 units of amortized work per operation, which is fast enough for competitive programming time limits but not negligible. The constant in front of log^2 n is modest because most operations hit the TAG path and stop in O(1) per node.',
+        {
+          type: 'note',
+          text: 'The O(log^2 n) bound is for chmin alone or chmin + add. Combining chmin + chmax + add + sum is supported but the tight amortized bound is harder to prove; competitive programmers rely on it empirically passing within time limits.',
+        },
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'It wins for online range cap and floor operations such as chmin and chmax, especially when paired with sum, min, or max queries. These appear in competitive programming, constraint tightening, simulation bounds, and any workload where values are repeatedly clipped by interval constraints.',
-        'It also teaches a reusable design pattern: store the exact extra summary that proves a whole block can be updated safely. Many systems use the same idea when block metadata lets them avoid opening the block.',
+        'Competitive programming is the primary home. Problems that ask for range chmin/chmax combined with range sum queries appear regularly in Chinese and Japanese competitive programming (e.g., HDU "Gorgeous Sequence," various Codeforces problems). Before Beats, these required offline tricks or sqrt decomposition with worse constants.',
+        'Historical maximum queries are another strength. By maintaining an additional field -- the all-time historical maximum at each position -- Beats can answer "what was the largest value position i ever held across all updates?" alongside live queries. This requires a second layer of lazy tags tracking historical caps, but fits naturally into the Beats framework.',
+        'The design pattern transfers beyond competitive programming. Any system that maintains block-level summaries and skips block-interior inspection when a metadata certificate proves the update is uniform over the affected subset uses the same idea. Database page-level min/max filters that skip scanning pages, SIMD lane masks that skip unchanged lanes, and GPU warp-level predicates all echo this structure: store enough summary to prove the block is safe to shortcut.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails as a default range-query structure. Fenwick trees, sparse tables, square-root decomposition, and ordinary lazy segment trees cover many workloads with less code and less risk.',
-        'It also fails for arbitrary conditional updates. The supported operations work because their hard cases reduce future value diversity. If an operation can force repeated hard descents without simplifying the node summaries, the Beats argument does not apply.',
-        'Finally, it is a poor fit when you need persistence, easy concurrency, or simple auditability. The lazy state is subtle enough that a brute-force checker over small arrays is almost mandatory during implementation.',
+        'It fails as a general-purpose range structure. For pure range-add and range-sum, a lazy segment tree or Fenwick tree is simpler, faster, and less error-prone. For static range queries, a sparse table gives O(1) query time with zero update cost. Beats is a specialized extension, not a replacement.',
+        'It fails for arbitrary conditional updates. The amortized argument depends on hard descents collapsing value diversity. If an update can force repeated BREAK descents without simplifying node summaries -- range modulo is the classic counterexample -- the potential argument breaks and the structure degenerates to O(n) per operation.',
+        'It is brittle to implement. Interactions between chmin tags, chmax tags, and add tags create subtle ordering dependencies in pushDown. Merging max2 from two children requires careful case analysis when the children share the same max1. Off-by-one errors in the strict-second-maximum computation are common. A brute-force O(n^2) checker over small random arrays is practically mandatory during development.',
+        'Persistence and concurrency are hard. The lazy state couples parent and child in ways that make path-copying persistent trees expensive and lock-free concurrent access nearly impossible without redesigning the push protocol.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study ordinary Segment Tree and lazy propagation first, then Fenwick Tree, Sparse Table, Square-Root Decomposition, and Li Chao Tree. Segment Tree Beats should feel like a specialized extension of lazy propagation, not a replacement for simpler range structures.',
+        {
+          type: 'bullets',
+          items: [
+            'Ji, "Segment Beats" (2016) -- the original technique, presented at a Chinese competitive programming camp. The translated writeup is the primary reference for the break/tag/skip framework and the amortized potential argument.',
+            'HDU 5306 "Gorgeous Sequence" -- the canonical practice problem. Range chmin updates, range max queries, range sum queries.',
+            'Codeforces blog posts by Al.Cash and others provide English-language implementations and extensions to historical queries.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Segment Tree with lazy propagation -- you must understand push/pull and tag composition before Beats adds a second tag layer'],
+            ['Prerequisite', 'Amortized analysis -- the potential method is essential to understanding why Beats is not O(n) per operation'],
+            ['Extension', 'Li Chao Tree -- another segment tree variant for a different problem shape (convex hull trick / line container)'],
+            ['Alternative', 'Chtholly Tree (ODT) -- interval-assign structure that handles assign-heavy workloads with simpler code but no worst-case guarantee'],
+            ['Practice', 'Historical maximum queries -- extend Beats with a second lazy tag layer to track all-time maxima'],
+          ],
+        },
       ],
     },
   ],

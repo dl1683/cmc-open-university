@@ -162,6 +162,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for CSP Nonce & Hash Policy. How strict Content Security Policy uses nonces, hashes, script-src, strict-dynamic, reports, and rollout modes to reduce XSS execution..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Cross-site scripting is dangerous because a small injection can become same-origin code execution. Once attacker JavaScript runs inside the page, it can read DOM state, send authenticated requests, steal tokens exposed to script, and act as the user.',
@@ -176,7 +185,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core idea is to authorize script execution by proof, not by accident of placement. Every script candidate must match the policy before it crosses the execution boundary.',
         'A nonce proves that the server selected this script element for this response. A hash proves that the script bytes are exactly the approved bytes. `strict-dynamic` can let a nonce- or hash-authorized loader extend trust to scripts it creates, which is useful for modern bundlers but makes that loader part of the security boundary.',
@@ -184,7 +193,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'In nonce flow, follow the value from server to policy header to trusted script element. The important state change is not that the script tag exists. The important state change is that the browser can match the element nonce to the nonce listed in `script-src`.',
         'The injected node is drawn beside the trusted script because it may be in the same HTML document. CSP is not deciding based on location in the DOM. It is deciding based on proof. No matching nonce means the parser blocks execution and can emit a violation report.',
@@ -192,7 +201,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'Nonce mode is response-specific. The server generates a fresh unpredictable value, sends it in `Content-Security-Policy`, and places the same value on trusted script elements. The browser allows a matching element and blocks injected inline scripts, event handlers, and other script candidates that lack authorization.',
         'Hash mode is content-specific. The policy contains a cryptographic hash such as `sha256-...` for stable inline script bytes. At parse time, the browser hashes the candidate and allows execution only on an exact match. Whitespace and build output matter because the hash names bytes, not intent.',
@@ -217,7 +226,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Nonces add server and template plumbing. The value must be fresh and unpredictable per response, and every trusted script element has to receive it. Full-page HTML caching becomes harder when the nonce changes on every response.',
         'Hashes are brittle by design. A whitespace change, minifier change, framework upgrade, or build output change can require a policy update. That brittleness is useful for security but noisy for deployment.',
@@ -225,7 +234,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Strict CSP wins on pages where the team controls rendering and can make intended script execution explicit. Account pages, admin tools, payment flows, and authenticated dashboards benefit because a single XSS bug has high impact.',
         'It also wins during legacy cleanup. Report-only mode gives a map of old inline execution paths before enforcement breaks users. The reports show which templates, widgets, and script patterns must change.',
@@ -241,7 +250,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'A nonce reused across responses becomes closer to a password than a one-response proof. A nonce inserted into attacker-controlled HTML gives the attacker the proof they need. A policy generator that logs nonces into visible markup can leak the boundary.',
         'A hash policy can fail operationally when teams forget to update hashes after a deploy. It can fail strategically when the hashed bootstrap reads untrusted data and turns it into code.',
@@ -249,11 +258,75 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN CSP guide at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP, MDN `script-src` reference at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src, MDN nonce attribute reference at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/nonce, W3C CSP Level 3 at https://www.w3.org/TR/CSP3/, and OWASP CSP Cheat Sheet at https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html.',
         'Study Trusted Types DOM XSS Sink Guard next for client-side sink control, Subresource Integrity Hash Manifest for resource-byte integrity, CORS Preflight Cache for cross-origin request gates, Permissions Policy Feature Gate for browser capability control, and Capability Security Attenuation for the general idea of passing narrow authority instead of broad ambient power.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why CSP Nonce & Hash Policy moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

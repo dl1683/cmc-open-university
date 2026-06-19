@@ -92,81 +92,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The curve is the loss function: how wrong the model is for each possible weight w. The dot is the current weight. The arrow from one dot to the next is one gradient descent update. The label on each arrow shows the gradient computation: the slope at the current point, multiplied by the learning rate, subtracted from the current weight.',
+        'Watch the arrow directions. Left of the minimum the slope is negative, so the update moves right. Right of the minimum the slope is positive, so the update moves left. The arrow always points opposite the gradient. Near the bottom the curve flattens, so the gradient shrinks, the arrow shortens, and the steps slow down automatically.',
+        'Try the "1.05 (too big!)" learning rate. The arrows overshoot the valley on every step, each landing higher than the last. Same formula, same curve, but the step size exceeds what the local curvature can tolerate. The update rule is correct and the training still diverges. That is the visual proof that learning rate is not a detail.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Gradient descent exists because most useful models have too many parameters to tune by hand and no closed-form solution for the best setting. A neural network may have billions of weights. A recommendation model, logistic regressor, or differentiable simulator may have enough parameters that trial-and-error search is hopeless.',
-        'The way out is to define a loss: one number that says how wrong the model is on the current data. If changing a parameter slightly would raise the loss, move the parameter the other way. Repeat that simple local move many times, and the model gradually becomes less wrong.',
-        'This is why gradient descent sits underneath so much modern machine learning. Backpropagation supplies the gradient efficiently. The optimizer decides how to use it. The animation shows one weight and one curve because the real idea is easier to see in one dimension before it becomes a billion-dimensional training run.',
+        'Augustin-Louis Cauchy published the first gradient descent method in 1847 to solve systems of equations. The problem he faced is the same one we face today: given a function of many variables, find the input that makes the output as small as possible. Closed-form solutions exist only for special cases. Linear regression has the normal equation, but it requires inverting a matrix, which is O(n^3) and breaks when features number in the millions. Neural networks have no closed form at all.',
+        'Gradient descent replaces solving with searching. Define a loss function that measures error. Compute which direction makes the loss worse. Step the other way. The method needs only two things from the function: a value and a derivative. That pair is cheap to compute even when the function has billions of inputs, which is why the same algorithm Cauchy used to solve 19th-century equation systems now trains every large language model.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is random search: try many settings, keep the best one, and hope. That collapses as dimensions grow. Ten choices for each of a billion weights is not a search space; it is a refusal to train.',
-        'A second approach is manual tuning. That can work for a two-parameter toy model, but it cannot coordinate millions of interacting weights. A weight that helps one example may hurt another, and a hidden-layer weight only matters through everything downstream of it.',
-        'A third shortcut is to solve for the optimum directly. Some convex models allow this, but deep networks, large recommenders, policy models, and differentiable pipelines usually do not. Gradient descent trades a perfect one-shot answer for a cheap local step that can be repeated at scale.',
+        'Grid search: divide each parameter axis into evenly spaced values, evaluate the loss at every combination, pick the lowest. For one parameter with 100 grid points, that is 100 evaluations. Manageable. Random search: sample parameter values from some distribution, evaluate each, keep the best. Both methods require no derivatives and make no assumptions about the loss surface.',
+        'Grid search finds optima reliably in low dimensions. Random search often beats grids because it does not waste evaluations on unimportant dimensions (Bergstra & Bengio 2012 showed this for hyperparameter tuning). For a handful of parameters, both work.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that the gradient is a local instruction. It tells how the loss would change if the parameter moved a little. A positive gradient means increasing the parameter raises loss, so the update moves left. A negative gradient means increasing the parameter lowers loss, so the update moves right.',
-        'The update is w = w - learning_rate * gradient. The minus sign is the whole idea: move opposite the slope. The learning rate decides how much to trust that local slope before measuring again.',
-        'In many dimensions, the gradient is a vector with one component per parameter. It points in the direction of steepest local increase in loss, so the negative gradient points downhill. Training is not magic; it is repeated measurement and correction.',
+        'Grid search is exponential in the number of parameters. 100 grid points per axis across 10 parameters means 100^10 = 10^20 evaluations. Across a million parameters (a small neural network), the grid has more points than atoms in the observable universe. Random search scales better but has no direction: each sample is independent of the last, so a million evaluations tell you nothing about where to look next.',
+        'Both methods treat the loss as a black box. They never ask "which way is downhill?" That question has an answer: the gradient. Ignoring it wastes exponentially more compute than using it.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A training step has three phases. First, the forward pass turns inputs into predictions and a scalar loss. Second, reverse-mode autodiff applies the chain rule from the loss back to every parameter. Third, the optimizer updates the parameters using those gradients.',
-        'Full-batch gradient descent measures the gradient over the entire dataset before each update. That is often too expensive. Stochastic or minibatch gradient descent estimates the gradient from a sample of examples, making each step cheaper and noisier.',
-        'Practical optimizers add memory and control. Momentum averages recent directions. RMSProp and Adam track gradient scale. AdamW separates weight decay from the gradient update. Learning-rate schedules and warmup change step size over time so training can move quickly early and settle later.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The dot is the current parameter value, the curve is the loss, and the arrow is the update. When the dot is left of the minimum, the slope points uphill to the left, so the update moves right. When the dot is right of the minimum, the update moves left.',
-        'The large learning-rate setting proves that the formula can be correct and still fail. If the step is too large for the curvature of the loss surface, the update overshoots the valley, lands higher, and may diverge. Learning rate is not decoration; it is the control knob that decides whether the local slope is useful.',
-        'The shrinking steps near the bottom prove another important fact. The gradient gets smaller on flatter terrain, so plain gradient descent naturally takes smaller steps as it approaches a smooth minimum. Real training adds schedules because noisy, high-dimensional loss surfaces need more control than this toy parabola.',
+        'Batch gradient descent computes the update using the full dataset. Start at a random parameter vector theta. Compute the average loss over all n training examples. Compute the gradient of that average loss with respect to every parameter. Update: theta <- theta - alpha * gradient_of_L(theta). Repeat. Alpha is the learning rate. Each step scans the entire dataset, so the gradient is exact but expensive.',
+        'Stochastic gradient descent (Robbins and Monro, 1951) replaces the full-dataset gradient with the gradient from one randomly chosen example. The update is the same formula, but the gradient is noisy: it points roughly downhill on average, but any single step may point sideways or even uphill. The tradeoff: each step costs O(1) instead of O(n), so SGD can take n steps in the time batch GD takes one.',
+        'Mini-batch SGD splits the difference. Sample a batch of B examples (typically 32 to 512), compute the average gradient over the batch, update. The gradient is less noisy than single-sample SGD and far cheaper than full-batch. This is what practitioners mean by "training": mini-batch SGD over shuffled data for many epochs.',
+        'Learning rate schedules change alpha during training. A common pattern is warmup (start small, ramp up over the first few thousand steps) followed by cosine decay (gradually shrink alpha toward zero). The warmup prevents early steps from overshooting when the initial gradients are unreliable. The decay lets the optimizer settle into a minimum instead of bouncing around it.',
+        'Momentum (Polyak, 1964) adds a velocity term: v <- beta * v - alpha * gradient; theta <- theta + v. With beta = 0.9, 90% of the previous velocity carries forward. Steps that consistently point in the same direction accelerate. Steps that oscillate (because the loss surface is elongated) get dampened. Momentum turns zig-zag paths into smoother curves toward the minimum.',
+        'Adam (Kingma and Ba, 2015) combines momentum with per-parameter learning rate adaptation. It tracks both the mean gradient (first moment) and the mean squared gradient (second moment), then scales each parameter update by the ratio. Parameters with consistently large gradients get smaller effective learning rates; parameters with small gradients get larger ones. Adam is the default optimizer for most deep learning because it requires less learning rate tuning than SGD with momentum.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Gradient descent works when the loss is differentiable enough that local slope contains useful information about nearby points. The algorithm does not need to understand the whole surface. It only needs the current loss, the current gradient, and a step size small enough that the local approximation remains useful.',
-        'Backpropagation makes the method practical for deep networks. The chain rule reuses intermediate derivatives so the cost of computing all parameter gradients is roughly a small multiple of the forward pass, rather than one separate experiment per weight.',
-        'Minibatch noise can help rather than merely hurt. A noisy gradient is less exact, but it is much cheaper, and the noise can keep training from settling too early in sharp or brittle regions. This is one reason training curves are judged by trends and validation behavior, not by every individual step.',
+        'The gradient of a differentiable function at a point is a vector that points in the direction of steepest local increase. Moving opposite the gradient is the steepest local decrease. For a convex loss, every local minimum is the global minimum, so steepest descent eventually reaches it.',
+        'The convergence rate depends on the problem. For a convex loss with Lipschitz-continuous gradients and a fixed learning rate alpha = 1/L (where L is the gradient Lipschitz constant), batch GD converges at rate O(1/T): after T steps, the gap to the optimum shrinks as 1/T. For strongly convex losses (the loss curves upward everywhere by at least a constant mu), convergence is linear: the gap shrinks by a constant factor each step, so O(log(1/epsilon)) steps reach epsilon accuracy.',
+        'SGD converges at rate O(1/sqrt(T)) for convex losses because the gradient noise prevents the step size from shrinking as fast. The noise also has a benefit: for non-convex losses (like neural networks), stochastic gradients help escape sharp minima and saddle points. Empirically, SGD with momentum often finds flatter minima that generalize better than the sharp minima batch GD settles into.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Each step costs roughly one forward pass plus one backward pass. The backward pass is often about twice the forward compute because it must propagate gradients and store or recompute activations. Large models repeat that loop over enormous datasets, so a simple update rule becomes an expensive training job.',
-        'The main tradeoff is step quality versus step cost. Larger batches estimate the true gradient better but cost more memory and compute per update. Smaller batches are cheaper and noisier. Adam-style optimizers can reduce tuning pain but store extra moment tensors for every parameter, increasing memory pressure.',
-        'The learning rate is the dangerous dial. Too low wastes compute; too high overshoots and can make loss explode. Schedules, warmup, gradient clipping, weight decay, early stopping, and validation checks are the control system around the basic update.',
+        'One gradient descent step requires one forward pass (compute the loss) and one backward pass (compute the gradient via backpropagation). The backward pass costs roughly 2 to 3 times the forward pass because it must propagate gradients through every layer and store intermediate activations.',
+        'Batch GD: one step costs O(n) where n is the dataset size, because it sums gradients over all examples. For a dataset of 1 million examples, one step processes all 1 million. SGD: one step costs O(1) since it uses a single example, but it needs many more steps because each gradient is noisy. Mini-batch SGD with batch size B: one step costs O(B), typically 32 to 512.',
+        'Memory cost depends on the optimizer. Plain SGD stores one copy of the parameters. Momentum adds one velocity vector (2x parameter memory). Adam stores the first moment, second moment, and parameters (3x parameter memory). For a 7-billion-parameter model at 32-bit precision, parameters alone are 28 GB; Adam triples that to 84 GB. This is why large-model training uses mixed precision and optimizer state sharding.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Gradient descent wins whenever the objective is differentiable and parameters are too numerous for direct search. It trains image classifiers, language models, speech recognizers, diffusion models, retrieval embeddings, matrix factorization systems, recommender rankers, and logistic regression models.',
-        'It also appears outside ordinary supervised learning. Reinforcement-learning systems descend policy-gradient losses. Differentiable physics and graphics tune parameters through simulation. Representation-learning systems optimize contrastive losses so related items move closer in embedding space.',
-        'The method is most powerful when paired with a good loss, clean data, and a model class that can represent the task. Gradient descent is an optimizer, not a guarantee that the objective is worth optimizing.',
+        'Every neural network ever trained used some variant of gradient descent. Image classifiers (ResNet, ConvNeXt), language models (GPT, LLaMA), speech recognizers (Whisper), diffusion models (Stable Diffusion), protein structure predictors (AlphaFold) all reach their parameters through gradient descent on a loss function.',
+        'Outside deep learning, gradient descent trains logistic regression, linear regression (when the normal equation is too expensive), support vector machines (via subgradient methods), and matrix factorization for recommender systems. Reinforcement learning uses policy gradients to optimize expected reward. Differentiable physics simulators backpropagate through simulation steps to tune control parameters.',
+        'The pattern that makes gradient descent the right tool: the objective is differentiable (or can be made differentiable with relaxations), the parameter space is continuous, and the number of parameters makes exhaustive search impossible.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The biggest misconception is that gradient descent guarantees the global optimum. It can under some convex losses with careful step sizes. Deep networks are non-convex, so the practical promise is weaker: find a useful low-loss region, not prove the best possible parameters.',
-        'Another mistake is expecting loss to fall on every minibatch. Stochastic gradients are noisy. Short-term loss can rise while the long-term trend improves. Watch validation curves, moving averages, and downstream metrics rather than overreacting to one update.',
-        'A deeper failure is optimizing the wrong thing. If labels leak, targets are noisy, the data distribution is wrong, or the loss rewards the wrong behavior, more training only improves the wrong objective. Many training failures are specification and data failures wearing optimizer clothing.',
+        'Saddle points. In high-dimensional non-convex landscapes, saddle points (where the gradient is zero but the point is neither a minimum nor a maximum) vastly outnumber local minima. The gradient vanishes, and plain gradient descent stalls. Momentum and Adam help escape saddle points because accumulated velocity carries the optimizer through the flat region.',
+        'Plateau regions and vanishing gradients. Deep networks with sigmoid or tanh activations can produce near-zero gradients in early layers, so parameters stop updating. ReLU activations, residual connections, and careful initialization (He or Xavier) are engineering responses to this failure.',
+        'Learning rate sensitivity. Too large and the loss explodes. Too small and training takes forever. The optimal learning rate depends on the loss surface curvature, which changes during training. This is why learning rate schedules, warmup, and adaptive methods (Adam) exist: they automate what would otherwise require constant manual tuning.',
+        'Local minima in non-convex losses. Gradient descent settles into whatever basin it falls into. Different random initializations can reach different minima with different generalization behavior. Ensemble methods, multiple restarts, and stochastic noise (from mini-batching) are partial mitigations, not guarantees.',
+        'Optimizing the wrong objective. If the loss function does not capture what you actually want, gradient descent minimizes it faithfully and produces a model that is precisely wrong. Label noise, data leakage, distribution shift, and reward hacking are all cases where the optimizer succeeds but the system fails.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Read Backpropagation for the gradient engine, then Momentum, RMSProp & Adam for practical optimizer variants. Learning-Rate Schedules & Warmup and Early Stopping & Patience explain the control loop around training. Activations as 3D Origami shows why nonlinear layers reshape the surface, while The Loss Landscape, in 3D shows the terrain these updates actually cross. Then study Regularization: L1 & L2, Dropout, Logistic Regression, and Neural Network Forward Pass.',
+        'Minimize f(x) = x^2 + 4x + 4. This factors as (x + 2)^2, so the minimum is at x = -2 where f(-2) = 0. The derivative is f\'(x) = 2x + 4. Start at x = 4 with learning rate alpha = 0.1.',
+        'Step 1: f\'(4) = 2(4) + 4 = 12. Update: x = 4 - 0.1 * 12 = 2.8. Loss: f(2.8) = (2.8 + 2)^2 = 23.04.',
+        'Step 2: f\'(2.8) = 2(2.8) + 4 = 9.6. Update: x = 2.8 - 0.1 * 9.6 = 1.84. Loss: f(1.84) = (1.84 + 2)^2 = 14.7456.',
+        'Step 3: f\'(1.84) = 2(1.84) + 4 = 7.68. Update: x = 1.84 - 0.1 * 7.68 = 1.072. Loss: f(1.072) = (1.072 + 2)^2 = 9.437.',
+        'Step 4: f\'(1.072) = 2(1.072) + 4 = 6.144. Update: x = 1.072 - 0.1 * 6.144 = 0.4576. Loss: f(0.4576) = (0.4576 + 2)^2 = 6.040.',
+        'Step 5: f\'(0.4576) = 2(0.4576) + 4 = 4.9152. Update: x = 0.4576 - 0.1 * 4.9152 = -0.0339. Loss: f(-0.0339) = (-0.0339 + 2)^2 = 3.866.',
+        'After 5 steps, x moved from 4 to -0.034, closing most of the distance to the minimum at x = -2. The loss dropped from f(4) = 36 to f(-0.034) = 3.87. Each step takes a smaller bite because the gradient shrinks as x approaches the minimum: the first gradient was 12, the fifth was 4.9. The pattern: x_new = x - 0.1 * (2x + 4) = 0.8x - 0.4. Each step contracts the distance to -2 by a factor of 0.8. After 20 steps, x reaches approximately -1.96, within 0.04 of the minimum.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Cauchy, "Methode generale pour la resolution des systemes d\'equations simultanees," 1847 (gradient descent invented). Robbins and Monro, "A Stochastic Approximation Method," Annals of Mathematical Statistics, 1951 (SGD foundations). Polyak, "Some methods of speeding up the convergence of iteration methods," USSR Computational Mathematics and Mathematical Physics, 1964 (momentum). Kingma and Ba, "Adam: A Method for Stochastic Optimization," ICLR, 2015. Ruder, "An Overview of Gradient Descent Optimization Algorithms," arXiv:1609.04747, 2016 (comprehensive modern survey).',
+        'Prerequisite gaps: Loss Functions (what gradient descent minimizes), Backpropagation (how gradients are computed through a network via the chain rule). Natural extensions: Adam Optimizer (adaptive per-parameter learning rates), Learning Rate Schedules (warmup, cosine decay, step decay). Production versions: mixed-precision training, gradient accumulation, distributed data parallelism. Contrasting alternatives: evolutionary strategies (gradient-free optimization), Bayesian optimization (for expensive black-box objectives), second-order methods like L-BFGS (use curvature information but do not scale to billions of parameters).',
       ],
     },
   ],

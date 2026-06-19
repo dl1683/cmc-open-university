@@ -172,100 +172,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Each node in the tree shows a range [lo..hi] and the aggregate (sum) for that slice of the array. The root covers the full array. Leaves cover single positions. Internal nodes split their range in half between two children.',
+        'Highlighted nodes mark the recursion path. Found nodes are the canonical pieces the query collects. Visited nodes are ancestors the algorithm passed through without fully matching. Nodes the query skips entirely never appear highlighted at all; that skipped majority is where logarithmic cost comes from.',
+        'In the lazy-propagation view, pushed nodes show a deferred tag being forced one level down because a later query needs honest child values. Remaining tagged nodes are intentionally stale: no operation has needed their descendants, so the tree saves the work.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Many programs ask questions about intervals: sum positions 3 through 6, find the minimum in a time window, count active bookings in a date range, or update every element in a range after a policy change. A plain array answers by scanning the interval, which is too slow when queries and updates repeat.`,
-        `The challenge is that intervals overlap in many shapes. A data structure must answer arbitrary ranges without precomputing every possible range, and it must update ranges without touching every affected element each time.`,
+        'Arrays change. Sensor readings arrive, bookings get added, prices update. At the same time, systems need fast answers to range questions: total sales between two dates, minimum temperature in a time window, maximum load across a server rack. The data structure must handle both arbitrary range queries and updates without rescanning.',
+        'Scanning a raw array answers any range query, but costs O(n) per query. With thousands of queries on a million-element array, that is the bottleneck. Prefix sums answer range-sum in O(1), but they break the moment the array changes. A segment tree gives O(log n) for both queries and updates.',
       ],
     },
     {
-      heading: 'Context',
+      heading: 'The obvious approach',
       paragraphs: [
-        `Prefix sums solve static range sums because sum(l..r) can be written as prefix(r) minus prefix(l - 1). Fenwick trees extend that idea to point updates and prefix queries. Sparse tables solve static idempotent queries such as range minimum. Each structure is excellent when its algebra matches the job.`,
-        `Segment trees are the general workhorse when the combine operation is associative: sum, min, max, gcd, boolean OR, or a custom record that can be merged from left and right children. Lazy propagation adds efficient range updates by delaying work until a later query or update actually needs the children.`,
+        'Prefix sums precompute running totals: prefix[i] = a[0] + a[1] + ... + a[i]. Then sum(l, r) = prefix[r] - prefix[l-1]. For array [2, 1, 5, 3, 4], the prefix array is [2, 3, 8, 11, 15]. Sum of indices 1 through 3 is prefix[3] - prefix[0] = 11 - 2 = 9. One subtraction, no scanning, no tree.',
+        'This is O(n) to build and O(1) per query. If the array never changes, prefix sums are hard to beat.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
-        `The obvious approach is to scan the requested range every time. That is simple and often fine for a handful of queries. It becomes the wall when the same array receives thousands of range queries or range updates: each operation repeats work that earlier operations already made predictable.`,
-        `Precomputing every possible interval runs into a different wall. There are O(n^2) intervals, and a single update can invalidate many of them. A segment tree keeps only O(n) canonical intervals, then assembles arbitrary query ranges from those reusable pieces.`,
+        'Change a[2] from 5 to 7. Every prefix from index 2 onward must be recomputed: prefix[2] jumps from 8 to 10, prefix[3] from 11 to 13, prefix[4] from 15 to 17. That is O(n) work for a single point update.',
+        'With interleaved queries and updates, prefix sums cost O(1) on the query side but O(n) on the update side. Brute-force scanning is the reverse: O(1) updates, O(n) queries. No flat array layout delivers O(log n) for both. The problem demands a structure that decomposes ranges hierarchically so that one change only touches a small number of stored answers.',
       ],
     },
     {
-      heading: 'Core idea',
+      heading: 'The core insight',
       paragraphs: [
-        `Build a balanced binary tree over array positions. Each leaf owns one position. Each internal node owns a contiguous interval and stores the combined value of its two children. The root owns the whole array.`,
-        `Every query interval can be decomposed into a small set of canonical nodes whose ranges exactly cover the interval without overlap. The query combines those nodes and ignores everything else. Lazy propagation uses the same canonical cover for updates: update a fully covered node now, and store a tag saying its descendants still owe the same update.`,
+        'Build a balanced binary tree over the array positions. Each leaf stores one element. Each internal node stores the aggregate of its two children. The root stores the aggregate of the entire array.',
+        'The key property: any contiguous range [l, r] can be decomposed into O(log n) non-overlapping node ranges that tile it exactly. A query visits only those nodes and combines their stored values. An update changes one leaf and recomputes only the O(log n) ancestors on the path to the root. Both operations touch a thin slice of the tree, not the whole structure.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
-        `Build is bottom-up. Leaves store the original array values. Each parent stores combine(left, right). For sums, combine is addition. For minimum, combine is min. The invariant is local: every node aggregate equals the merge of its children.`,
-        `Query uses three cases. If a node range is outside the requested interval, ignore it. If it is fully inside, return the node aggregate. If it partially overlaps, recurse into both children and combine their answers. Range update follows the same shape, except a fully covered node updates its own aggregate and records a lazy tag instead of descending.`,
-      ],
-    },
-    {
-      heading: 'Lazy propagation',
-      paragraphs: [
-        `A lazy tag is deferred work attached to a whole node range. For range add, the tag can be a pending delta. If node [3..4] receives +5, its stored sum increases by 10 immediately, because the range has length 2. Its children do not need to change until someone descends into them.`,
-        `Before a query or update descends through a tagged node, it pushes the tag to the children. Pushing means update each child aggregate, compose the child's lazy tag, and clear the parent tag. This keeps fully covered node answers correct while avoiding unnecessary leaf work.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `The animation array is [3, 2, -1, 6, 5, 4, -3, 3]. The root [1..8] stores 19. Its left child [1..4] stores 10, and its right child [5..8] stores 9. Query 3..6 decomposes into [3..4] and [5..6]. Their sums are 5 and 9, so the answer is 14.`,
-        `For the lazy view, add 5 to every position in 2..7. The updated logical array is [3, 7, 4, 11, 10, 9, 2, 3], but the tree does not have to rewrite every leaf immediately. Later, query 4..5 pushes only the tags needed on that path and returns 21 from positions 4 and 5.`,
+        'Build: construct the tree bottom-up. Each leaf stores one array value. Each parent stores combine(left, right). For sums, combine is addition; for minimums, min; for maximums, max. Build visits every node once: O(n).',
+        'Query: at each node, check three cases. (1) Node range is entirely outside [l, r]: return the identity (0 for sum, +infinity for min). (2) Node range is entirely inside [l, r]: this is a canonical node, return its stored aggregate. (3) Partial overlap: recurse into both children and combine results. At most two nodes per tree level can partially overlap the query range, so total work is O(log n).',
+        'Point update: change the leaf, then walk up to the root recomputing each ancestor as combine(left, right). The path has length log n.',
+        'Lazy range update: decompose the update range into canonical nodes the same way a query does. Each fully covered node adjusts its aggregate immediately (for range-add of delta over k positions: newSum = oldSum + delta * k) and stores a lazy tag recording the deferred work. Partially overlapping nodes push any existing tag to their children before recursing deeper. Push transfers the tag one level down so child aggregates become honest before any query reads them. Amortized cost: O(log n) per range update.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The tree halves the index interval at every level. A query range can fully cover many nodes and partially overlap only near its left and right boundaries. That is why the canonical decomposition stays logarithmic for normal segment tree queries.`,
-        `Lazy propagation works because the tag is exact debt, not a hint. A fully covered node knows how the update changes its aggregate without visiting descendants. For range add and sum, the formula is newSum = oldSum + delta * length. Other operations need their own correct aggregate update and tag composition rules.`,
+        'The tree halves the index range at every level, producing O(log n) levels. A query range [l, r] can fully contain many internal nodes, but it can only partially straddle nodes along two paths: the left boundary and the right boundary. Each path has at most log n nodes. So any contiguous range decomposes into at most 2 log n canonical, non-overlapping pieces. This decomposition is the engine behind every segment tree operation.',
+        'The invariant: every node aggregate equals combine(left_child, right_child). Build establishes it bottom-up. Point update restores it by recomputing every ancestor of the changed leaf. The invariant never breaks because the update touches every affected node on the root path.',
+        'Lazy tags are exact debt. A node tagged +5 over 4 positions knows its true sum is oldSum + 20 without visiting any descendant. Tags compose: carrying +3 and receiving +5 gives +8. Push distributes the tag downward only when a later operation descends into the children, so every query reads correct state and no unnecessary work is done.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `In the build and range query view, first read the tree by ownership ranges, not by node values. The root owns [1..8], its children own [1..4] and [5..8], and the split continues to leaves. When the query asks for 3..6, the found nodes are the exact cover. Visited nodes are only the ancestors needed to reach that cover.`,
-        `In the lazy range updates view, found nodes are the covered chunks that receive the update directly. Active pushed nodes show deferred work being forced one level lower because a later query needs more detail. Remaining tagged nodes are not mistakes; they are saved work that no later operation has demanded yet.`,
+        'Build: O(n) time. The tree has exactly 2n - 1 nodes (n leaves, n - 1 internal nodes). A flat array layout allocates up to 4n slots to handle rounding to the next power of two. Space is O(n) either way.',
+        'Query: O(log n). Update (point or lazy range): O(log n). Lazy range update is O(log n) amortized because each push does constant work and each tag is pushed at most once per operation that needs it.',
+        'Doubling the array adds one tree level, adding one step to every query and update. For n = 1,000,000, log2(n) is about 20, so a query visits at most 40 nodes. For n = 1,000,000,000, that rises to about 60 nodes. The growth is barely noticeable.',
+        'The constant factor is larger than a Fenwick tree for simple sums because each segment tree node stores more metadata and the recursion branches more. But a Fenwick tree cannot do range-min, range-max, or range-gcd; those need a segment tree.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Where it wins',
       paragraphs: [
-        `Build time is O(n). Space is O(n), often implemented as about 4n array slots for a recursive heap-style layout. Standard range queries and lazy range updates are O(log n), with larger constants than Fenwick trees.`,
-        `The tradeoff is generality for complexity. Segment trees handle many range aggregates and rich node records, but the code is easier to get wrong. Fenwick trees, prefix arrays, sparse tables, and sweep-line offline methods are often better when their assumptions fit.`,
+        'Competitive programming: the segment tree is the most popular data structure for range query problems. Range-sum with point updates, range-min/max queries, lazy range-add, and range-assign cover most interval problems in contests.',
+        'Computational geometry: sweep-line algorithms use segment trees for stabbing queries (which intervals contain a given point), rectangle union area, and interval scheduling. Bentley\'s 1977 paper introduced the segment tree precisely for computing the measure of a union of rectangles.',
+        'Database range indices: aggregate indexes over mutable rows. A segment tree over a column gives fast windowed aggregation (total revenue between two dates) while accepting inserts and updates. Time-series databases use segment-tree-like structures internally for sliding-window aggregates.',
+        'Interval scheduling and capacity systems: booking engines that track how many reservations overlap at any moment, rate-limit windows that count events in a sliding time range, and live dashboards that maintain running aggregates over changing data.',
       ],
     },
     {
-      heading: 'Limits',
+      heading: 'Where it fails',
       paragraphs: [
-        `The combine operation must be associative. If merging left and right summaries is not well defined, a segment tree cannot maintain correct aggregates. Some queries also need extra information in each node, such as prefix best, suffix best, count of minimum, or maximum subarray fields.`,
-        `Lazy propagation is not universal. Range add and range assign are straightforward. Mixed assign and add require careful tag ordering. Conditional updates such as "cap every value above x" need stronger invariants and lead to Segment Tree Beats or another specialized structure.`,
+        'Static arrays with idempotent queries. A sparse table answers range-min in O(1) after O(n log n) preprocessing. If the array never changes, the segment tree pays O(log n) per query for nothing.',
+        'Simple prefix-sum workloads. If updates are rare and you only need range sums, prefix sums are simpler and faster. A Fenwick tree is better when updates are frequent but the combine is invertible (sum, xor), because it uses half the space and has smaller constants.',
+        'High dimensions. A 2D segment tree costs O(log^2 n) per query and O(n^2) space. In three or more dimensions, the constants explode. K-d trees or range trees with fractional cascading may be better choices.',
+        'Persistent segment trees use O(n log n) space because each update creates log n new nodes instead of modifying in place. For version-heavy workloads, this space cost adds up.',
+        'Not all range operations compose cleanly under lazy propagation. Range-add and range-assign are straightforward. Mixed operations (assign then add, or conditional updates like "cap values above x") require careful tag ordering or specialized variants like Segment Tree Beats.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        `The classic bug is reading a stale child. If a parent has a lazy tag and the algorithm descends without pushing it, the child aggregate is behind the logical array. The returned answer may look plausible because some ancestors are correct while deeper nodes are stale.`,
-        `Another common bug is composing tags in the wrong order. Assign then add is not the same as add then assign. A production implementation should write tag composition as a small explicit function and test overlapping updates, nested updates, disjoint ranges, single-element ranges, and full-root updates.`,
+        'Array: [2, 1, 5, 3, 4], using 0-based indexing.',
+        'Build the tree bottom-up. Leaves: node[0]=2, node[1]=1, node[2]=5, node[3]=3, node[4]=4. Internal nodes: [0..1] = 2+1 = 3, [2..3] = 5+3 = 8, [3..4] = 3+4 = 7 (only needed if the tree is built differently; in a standard layout, [0..2] covers the left half). Using a clean binary split: [0..2] has children [0..1]=3 and [2..2]=5, so [0..2]=8. [3..4]=7. Root [0..4] = 8+7 = 15. The root stores the total sum of the array.',
+        'Query sum(1, 3): we want a[1] + a[2] + a[3] = 1 + 5 + 3 = 9. Start at root [0..4]. Partial overlap, recurse into both children. Left child [0..2]: partial overlap (we need indices 1 and 2 but not 0). Recurse: [0..1] partially overlaps, so recurse again. [0..0] is outside the range, return 0. [1..1] is fully inside, return 1. Back at [0..1]: result is 1. [2..2] is fully inside, return 5. [0..2] returns 1 + 5 = 6. Right child [3..4]: partial overlap. [3..3] is fully inside, return 3. [4..4] is outside, return 0. [3..4] returns 3. Total: 6 + 3 = 9. The query collected three canonical nodes: [1..1], [2..2], [3..3].',
+        'Point update: change a[2] from 5 to 7 (delta = +2). Update leaf [2..2] to 7. Walk up: [0..2] = 3 + 7 = 10 (was 8). Root [0..4] = 10 + 7 = 17 (was 15). Two ancestor updates, O(log n).',
+        'Re-query sum(1, 3): now a[1] + a[2] + a[3] = 1 + 7 + 3 = 11. The tree decomposes the range the same way, but the affected nodes carry updated aggregates. The answer changed from 9 to 11 because only the nodes on the path from leaf [2..2] to the root were recomputed.',
       ],
     },
     {
-      heading: 'Practical use',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Segment trees fit live dashboards, booking and capacity systems, rate-limit windows, game stat ranges, compiler source spans, financial time buckets, and competitive-programming problems where intervals change over time. They are especially useful when each node stores a custom summary rather than a single number.`,
-        `Use a simple array implementation when the size is fixed and dense. Use a dynamic or implicit segment tree when the coordinate range is huge but touched sparsely. Use coordinate compression when only a finite set of endpoints matters.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Sources: CP-Algorithms Segment Tree at https://cp-algorithms.com/data_structures/segment_tree.html, HackerEarth Segment Tree and Lazy Propagation notes at https://www.hackerearth.com/practice/notes/segment-tree-and-lazy-propagation/, and Cornell segment-tree lecture notes at https://raunakkmr.github.io/files/2019_10_cornell_cs5199_segment_trees.pdf. Study Fenwick Tree, Sparse Table, Segment Tree Beats, Interval Tree, Li Chao Tree, Persistent Segment Tree, Range Tree, and Sweep Line next.`,
+        'Bentley, "Solutions to Klee\'s Rectangle Problems" (1977) introduced the segment tree for computing the measure of a union of rectangles. The competitive programming community extended the structure with lazy propagation for range updates, persistent nodes for version queries, and Segment Tree Beats (Ji, 2016) for conditional range operations.',
+        'Prerequisites if anything above was unclear: binary trees, recursion, prefix sums. Natural extensions: lazy propagation (range updates in O(log n)), persistent segment tree (answer queries about past versions of the array), Segment Tree Beats (conditional range updates like "set all values above x to x"). Alternatives worth comparing: Fenwick tree (binary indexed tree) for invertible operations with smaller constants, sparse table for O(1) static range-min/max, interval tree for overlapping interval queries rather than array range queries.',
       ],
     },
   ],

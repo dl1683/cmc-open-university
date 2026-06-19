@@ -1,4 +1,4 @@
-// Cross-encoder reranking: score query-document pairs jointly after a cheap
+﻿// Cross-encoder reranking: score query-document pairs jointly after a cheap
 // first-stage retriever has narrowed the candidate set.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -215,28 +215,37 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Cross-Encoder Reranker. A retrieval cascade pattern: retrieve cheaply, then score query-document pairs jointly with a slower but more precise Transformer..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'A cross-encoder reranker is a precision stage in a retrieval system. A first-stage retriever finds a manageable set of candidate documents or passages. The cross-encoder then scores each query-candidate pair jointly by placing the query and the candidate text into one Transformer input. Query tokens and document tokens can attend to one another inside the model, so the score can reflect exact relationships, negation, order, and context that a simple vector distance may miss.',
         'The word reranker matters. A cross-encoder is usually not responsible for searching the whole corpus. It is responsible for reordering a candidate set that was found cheaply by BM25, dense vectors, metadata filters, ColBERT, or rank fusion. In a RAG system, that reordered set decides which chunks enter the prompt. In a search product, it decides which results the user sees first. Its job is to spend expensive model attention only where it can change the final ranking.',
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious retrieval approach is to compute reusable document embeddings and search by dot product or nearest-neighbor distance. That gives excellent serving properties because document vectors are precomputed and indexed. It also has a clear limitation: the query and document do not read each other. A bi-encoder can know that two texts are semantically close, but it may miss whether a passage actually answers a specific condition such as "after the renewal invoice" or "except for enterprise plans."',
         'The opposite obvious approach is to run a powerful Transformer over every possible query-document pair. That would give rich interaction, but it is not a search engine. A corpus with ten million passages would require ten million forward passes per query. Even a small candidate pool can become expensive when chunks are long, the model is large, or traffic is spiky. The practical wall is latency and cost. Cross-encoder reranking solves only the narrowed problem: use cheap retrieval for recall, then use joint reading for precision.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that retrieval quality is a cascade, not a single model choice. Early stages should optimize for recall under tight latency and memory budgets. Later stages should optimize for precision on a smaller set. A cross-encoder belongs late because it can notice details that early stages deliberately ignore. It can compare the query condition against the candidate wording, resolve whether a passage is about the same entity, and punish passages that contain related words but miss the requested relation.',
         'The constraint is just as important as the capability. A reranker cannot recover evidence it never receives. If the first-stage retriever fails to include the supporting passage, the cross-encoder can only choose among wrong candidates. This makes candidate recall the foundation of reranking. The best systems measure retrieval depth, candidate diversity, and slice recall before celebrating reranker gains. The reranker is a precision instrument, not a replacement for a broad candidate generator.',
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'How it works',
       paragraphs: [
         'The model input commonly has the shape `[CLS] query [SEP] passage [SEP]` for BERT-style encoders, or a comparable paired-input format for T5-style rankers. The Transformer runs self-attention over the combined sequence. A score head converts the final representation into a relevance score. At serving time, the system creates one input per candidate, batches those inputs, runs the model, then sorts candidates by score. The output is a ranked list, not a generated answer.',
         'The surrounding data structures matter as much as the model. The candidate pool may come from inverted lists, HNSW neighborhoods, product-quantized vector indexes, metadata filters, or a fused heap of several retrievers. The reranker service needs pair builders, truncation rules, batching queues, timeout policies, score caches, and a top-k heap. It also needs passage identifiers and authorization metadata so sensitive documents are filtered before scoring or before insertion into a prompt.',
@@ -250,7 +259,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
         'Cross-encoder rerankers are useful when the first-stage retriever finds plausible candidates but orders them poorly. Support policy search, legal retrieval, biomedical search, financial documents, developer documentation, and internal knowledge bases often have this shape. Many passages are topically related, but only a few answer the condition in the user question. A reranker can move the truly responsive passage above generic background pages and improve the context supplied to an answer generator.',
         'They are also useful as evaluation aids. A strong reranker can provide a better offline ranking baseline for candidate sets, expose weak retrieval depth, and help build golden examples for RAG testing. In production, it often works with Multi-Index RAG: lexical search catches exact terms, vector search catches paraphrases, metadata filters enforce scope, fusion keeps diversity, and the cross-encoder makes the final ordering more sensitive to the actual query wording.',
@@ -264,18 +273,100 @@ export const article = {
       ],
     },
     {
-      heading: 'Evaluation and operational signals',
+      heading: 'How it works (2)',
       paragraphs: [
         'Evaluate the cascade in layers. First measure candidate recall: did the first-stage retriever include a supporting passage at depth 20, 50, 100, or 200? Then measure reranking quality with MRR, nDCG, precision@k, and pairwise preference accuracy. Finally measure downstream answer quality: did the generator use the ranked evidence, cite it correctly, and avoid unsupported claims? These are separate questions. A reranker can improve nDCG while the final prompt still fails because context packing or answer generation is weak.',
         'Operational signals should include candidate depth, average and maximum sequence length, batch size, queue delay, model latency, timeout rate, p95 and p99 end-to-end latency, cost per thousand queries, score distributions, and fallback usage. Quality dashboards should slice by query class, language, tenant, document source, recency, and rare entity frequency. A useful canary compares the production depth with a deeper rerank depth. If deeper reranking often changes answers, the system may be running too shallow.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Study next',
       paragraphs: [
         'Study the BERT passage reranking work by Nogueira and Cho, then multi-stage ranking systems such as monoBERT, duoBERT, monoT5, duoT5, and RankT5. In this curriculum, connect the topic to Attention Mechanism and The Transformer Block to understand why joint token interaction is expensive and expressive. Then study Embeddings and Similarity, HNSW, Product Quantization, ColBERT Late-Interaction Retrieval, and Multi-Index RAG to understand the candidate-generation stages that make reranking possible.',
         'The practical takeaway is to deploy reranking as an explicit budgeted stage. Choose the candidate depth based on recall curves, not habit. Batch pairs deliberately. Keep authorization and metadata filters outside the model score. Evaluate final answer quality separately from reranker ranking quality. A cross-encoder is one of the most useful tools in modern retrieval, but only when the system around it protects recall, controls cost, and treats the score as a ranking signal rather than a source of truth.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Cross-Encoder Reranker moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -245,94 +245,164 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The "centroid compression" view shows raw latency samples arriving in batches, then being compressed into weighted centroids ordered by mean. Active highlights mark the centroids being built or merged right now. Found highlights mark the quantile estimates (p50, p95, p99) read from the compressed summary. The CDF plot shows where each centroid sits in cumulative rank space.',
+        'The "merge quantiles" view shows four distributed shards, each building a local digest. The coordinator concatenates their centroids, sorts by mean, recompresses under the same scale rule, and reads global quantile estimates from the merged result. Watch how the billing shard contributes few centroids but its 900 ms tail still appears in the final answer because weights carry traffic volume.',
+        'At each frame, ask: how many samples does this centroid represent, what rank region does it cover, and why is that cluster allowed to be that size? The scale function is the answer to the third question every time.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        "Many systems care less about the average than about the slow tail. A web service can have a fine mean latency while one percent of users wait several seconds. A database can look healthy at p50 while p99 exposes compaction, lock contention, or a bad shard. Percentiles turn a pile of measurements into rank questions: what value is larger than 50%, 95%, or 99% of the observations?",
-        "The hard part is scale. A single host might emit millions of latencies per minute, and a fleet might emit billions. Keeping every sample just to answer p95 later is often too expensive. t-digest exists for online and distributed quantile estimation: it keeps a compact, mergeable summary that preserves enough rank information to estimate useful percentiles, with extra care near distribution tails.",
+        {
+          type: 'quote',
+          text: 'The key feature of the t-digest is that it provides high accuracy estimates of extreme quantiles such as the 99.9th percentile. This accuracy is achieved by maintaining higher resolution (smaller clusters) near q = 0 and q = 1.',
+          attribution: 'Ted Dunning, "Computing Extremely Accurate Quantiles Using t-Digests" (2019)',
+        },
+        'Most systems care less about the average than about the slow tail. A web service can report a fine mean latency while one percent of users wait several seconds. A database can look healthy at p50 while p99 exposes lock contention, compaction stalls, or a single bad shard. Percentiles turn a pile of measurements into rank questions: what value is larger than 99% of the observations?',
+        'The hard part is scale. A single host might emit millions of latency samples per minute and a fleet might emit billions. Keeping every sample just to answer p95 later is too expensive in memory, network, and storage. t-digest exists to answer rank queries from a compact, mergeable summary that preserves extra resolution where it matters most: at the distribution tails.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        "The exact method is simple: store every value, sort the values, and pick the element at rank floor(q * n). That method is not wrong. It is the definition most learners should start from, and it gives exact answers for any quantile after the data is sorted.",
-        "The exact method also has a clean distributed version in theory. Send every raw value to one place, sort the global list, and query it. That preserves the combined distribution. It also creates a hot coordinator, large network traffic, expensive storage, and a delay between measurement and answer. The method is exact because it refuses to summarize, and that is exactly why it fails in telemetry pipelines.",
+        'The exact method is simple: store every value, sort, pick the element at rank floor(q * n). It gives perfect answers for any quantile and it is the definition learners should start from. The distributed version is the same idea: ship every raw value to one coordinator, sort the global list, query it.',
+        'That preserves the full combined distribution. It also creates a hot coordinator, large network traffic, expensive storage, and a delay between measurement and answer. The method is exact because it refuses to summarize, and that refusal is exactly why it fails in telemetry pipelines that must answer "what is p99 right now?" every ten seconds across thousands of hosts.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "The first wall is memory. A stream does not end just because a dashboard query starts. If the only way to answer a percentile is to retain all samples, memory grows with traffic and retention time. A bounded monitoring agent needs a summary whose size is controlled by a parameter, not by the number of requests seen so far.",
-        "The second wall is tail detail. Equal-width histograms waste buckets in empty regions and blur the tail when values span a wide range. Averaging local p99 values is worse: percentiles are ranks in a combined distribution, so four shard p99s cannot be averaged into a correct global p99. A useful sketch must summarize locally, merge globally, and still spend more resolution where rare slow values matter.",
+        'The first wall is memory. A stream does not stop because a dashboard query starts. If the only way to answer a percentile is to retain all samples, memory grows with traffic and retention time. A bounded monitoring agent needs a summary whose size is controlled by a parameter, not by the number of requests seen so far.',
+        'The second wall is tail detail. Equal-width histograms waste buckets in empty regions and blur the tail when values span a wide range. Averaging local p99 values is worse: percentiles are ranks in a combined distribution, so four shard p99 values cannot be averaged into a correct global p99. The average of four p99s is not the p99 of the union. A useful sketch must summarize locally, merge globally, and still spend more resolution where rare slow values matter.',
+        {
+          type: 'note',
+          text: 'This is not a theoretical concern. Prometheus histogram_quantile over pre-aggregated buckets and Datadog "average of percentiles" both produce incorrect global percentiles unless the user takes explicit steps to avoid it. t-digest was designed to make the merge path correct by construction.',
+        },
       ],
     },
     {
-      heading: 'Core model',
+      heading: 'How it works',
       paragraphs: [
-        "A t-digest represents the distribution as ordered weighted centroids. A centroid has a mean and a weight. The mean says where a cluster of nearby values sits. The weight says how many samples the cluster represents. If a centroid has mean 45 ms and weight 18, it stands in for 18 observations near 45 ms.",
-        "The key invariant is not just sorted means. It is rank-shaped cluster size. Centroids near q = 0 and q = 1 should be small, often singletons at the extremes. Centroids near the middle may be larger. A scale function controls which cluster sizes are allowed at each rank. That rule makes the digest spend memory near p99 instead of treating all ranks equally.",
-      ],
-    },
-    {
-      heading: 'How updates work',
-      paragraphs: [
-        "Most practical t-digest implementations buffer new samples, sort them, and merge them into the current centroid list. Sorting matters because the digest is a rank structure. The update path walks values in order and tries to absorb a value into a nearby centroid when doing so would not violate the scale rule for that rank region.",
-        "When a value joins a centroid, the centroid mean is updated by weighted averaging and the weight increases by one. When no centroid can accept the value under the compression rule, the value starts a new centroid. Periodic compression walks the ordered list again and combines adjacent centroids where the rank budget allows it. The digest keeps throwing away exact identities while preserving approximate cumulative rank.",
-      ],
-    },
-    {
-      heading: 'How queries and merges work',
-      paragraphs: [
-        "A quantile query walks centroids in mean order while accumulating weight. The target rank is q times the total weight. When the cumulative weight reaches the target region, the implementation interpolates through the compressed cumulative distribution and returns an estimated value. The answer is not necessarily one raw observation. It is a value inferred from the weighted summary.",
-        "Merging uses the same idea. Concatenate centroids from several local digests, sort by centroid mean, and compress the combined list under the same scale rule. This is why t-digest fits map-reduce jobs, stream processors, and service telemetry. Local summaries are first-class data. A coordinator can roll up per-process digests into per-host, per-region, and global digests without replaying raw events.",
+        'A t-digest represents the distribution as an ordered list of weighted centroids. Each centroid has a mean (where a cluster of nearby values sits) and a weight (how many samples it represents). A centroid with mean 45 ms and weight 18 stands in for 18 observations near 45 ms. The centroids are kept sorted by mean at all times.',
+        {
+          type: 'diagram',
+          label: 'Centroid density across the rank space',
+          text: [
+            'rank:   0.0        0.25       0.50       0.75       1.0',
+            '        |          |          |          |          |',
+            '        * *  * *   ****  ********  ****   * *  * *  *',
+            '        ^  ^                                  ^  ^  ^',
+            '       tiny       medium centroids          tiny',
+            '       (tail)     (middle bulk)             (tail)',
+            '',
+            'Scale function controls max cluster weight at each rank.',
+            'Near q=0 and q=1: clusters must be small (high resolution).',
+            'Near q=0.5: clusters may be large (compression saves space).',
+          ].join('\n'),
+        },
+        'The scale function is the mechanism that enforces this shape. Dunning defines two main variants. k1 maps quantile q to k1(q) = (delta / 2pi) * arcsin(2q - 1), producing a cluster-size budget that is smallest at the extremes and largest in the middle. k2 uses k2(q) = (delta / 2pi) * log(q / (1 - q)), which gives even more resolution near q = 0 and q = 1. The compression parameter delta controls total centroid count: higher delta means more centroids, finer resolution, and more memory.',
+        'Updates work by buffering incoming samples, sorting them, and merging into the current centroid list. For each value in sorted order, the algorithm finds the nearest centroid and checks whether adding this value would make that centroid exceed the weight limit imposed by the scale function at its current rank. If the centroid can absorb the value, it updates its mean by weighted average and increments its weight. If not, the value starts a new centroid.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Centroid merging with k1 scale function',
+            'function compress(centroids, delta) {',
+            '  const totalWeight = centroids.reduce((s, c) => s + c.weight, 0);',
+            '  const merged = [centroids[0]];',
+            '  let cumulative = centroids[0].weight;',
+            '',
+            '  for (let i = 1; i < centroids.length; i++) {',
+            '    const c = centroids[i];',
+            '    const last = merged[merged.length - 1];',
+            '    const q = (cumulative + c.weight / 2) / totalWeight;',
+            '',
+            '    // k1 scale function: max weight at quantile q',
+            '    const maxWeight = 4 * totalWeight * q * (1 - q) / delta;',
+            '',
+            '    if (last.weight + c.weight <= maxWeight) {',
+            '      // Absorb: weighted mean update',
+            '      last.mean = (last.mean * last.weight + c.mean * c.weight)',
+            '                  / (last.weight + c.weight);',
+            '      last.weight += c.weight;',
+            '    } else {',
+            '      // Start new centroid',
+            '      merged.push({ mean: c.mean, weight: c.weight });',
+            '    }',
+            '    cumulative += c.weight;',
+            '  }',
+            '  return merged;',
+            '}',
+          ].join('\n'),
+        },
+        'The expression 4 * q * (1 - q) is the derivative of the k1 scale function. It reaches its maximum of 1.0 at q = 0.5 (allowing large clusters in the middle) and drops to zero at q = 0 and q = 1 (forcing tiny clusters at the tails). Dividing by delta means a larger delta allows more total centroids, so each one can be smaller and the sketch is more accurate.',
+        'Quantile queries walk the centroid list in order, accumulating weight until the cumulative weight reaches the target rank q * totalWeight. The answer is interpolated from the centroid means surrounding that rank. Merging two digests concatenates their centroid lists, sorts by mean, and runs compression again under the same scale rule. This is why the merging property holds: the scale function is defined over normalized rank, so it applies identically to any combined centroid set regardless of which shards produced it.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The correctness argument is approximate but concrete. If each centroid near the tail has very small weight, then crossing one centroid changes cumulative rank by very little. A p99 query may still interpolate, but it is interpolating through fine-grained tail clusters rather than through a giant bucket that contains many ranks. The tail estimate is less blurred because the representation made tail clusters small on purpose.",
-        "The merge argument depends on weighted order. A centroid is a compact claim about mass near a mean. When centroids from different shards are sorted together, their weights reconstruct an approximate global rank walk. Recompression can lose information, especially if the digest is too small or merged repeatedly with poor settings, but it preserves the same shape rule that made the local digests useful.",
+        'The correctness argument is approximate but concrete. If each centroid near the tail has weight 1 or 2, then crossing one centroid shifts cumulative rank by at most 2/n. A p99 query interpolates through these fine-grained tail clusters rather than through a giant bucket spanning many ranks. The tail estimate is accurate because the representation forced tail clusters to be small.',
+        'The scale function is the invariant that makes this possible. At every compression step, each centroid obeys its rank-dependent weight budget. Because the budget is tightest near q = 0 and q = 1, the tails always retain fine resolution regardless of how many samples arrive or how many merges occur. The middle is allowed to coarsen because a rank error near the median rarely matters for operational decisions.',
+        'The merge argument depends on weighted order. A centroid is a compact claim: "this much mass lives near this mean." When centroids from different shards are sorted together, their weights reconstruct an approximate global rank walk. Recompression under the same scale function re-enforces the same tail-resolution guarantee. Information is lost in the middle, where the budget allows it, and preserved at the tails, where it matters.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Memory is controlled by the compression parameter and implementation limits, not by stream length. Higher compression keeps more centroids. That usually improves accuracy and costs more CPU, memory, and serialized bytes. Lower compression makes the digest smaller but can hide spikes or smear tail values into larger clusters.",
-        "Update cost depends on the implementation. Buffered sorted updates are efficient because they turn many inserts into an ordered merge. Merge cost is proportional to the number of centroids being combined plus sorting and recompression. That is much smaller than merging raw samples, but it is not free. A high-cardinality metrics system can still create too many digests if it keeps one per route, customer, status, region, build, and feature flag.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Suppose four API shards each handle one minute of traffic. The first shard sees mostly 20 to 80 ms requests with a few 190 ms delays. The second sees search requests with a 420 ms tail. The third sees moderate traffic around 260 ms. The fourth is small but has 900 ms failures. Each shard builds a local t-digest with small centroids near its own slow tail.",
-        "The coordinator receives hundreds of centroids instead of millions of raw latencies. It sorts the centroids by mean, compresses them again, and asks for p99. The result is a traffic-weighted estimate from the combined distribution. That is much better than averaging the shard p99 values, because a low-traffic shard and a high-traffic shard should not contribute equally to the global rank.",
+        {
+          type: 'table',
+          headers: ['Sketch', 'Error guarantee', 'Space', 'Merge', 'Tail accuracy', 'Best for'],
+          rows: [
+            ['t-digest', 'Empirical, no formal bound', 'O(delta) centroids', 'O(delta log delta)', 'Excellent at extremes', 'p99/p99.9 latency monitoring'],
+            ['GK summary', 'Deterministic rank error eps', 'O((1/eps) log(eps*n))', 'O(n) reprocess', 'Uniform across all ranks', 'Formal rank-error contracts'],
+            ['DDSketch', 'Relative value error alpha', 'O(log(max/min)/alpha)', 'O(buckets)', 'Good for positive values', 'Relative error on latencies'],
+            ['KLL sketch', 'Probabilistic rank error eps', 'O((1/eps) sqrt(log(1/eps)))', 'O(sketch size)', 'Uniform across all ranks', 'Compact rank approximation'],
+            ['Exact sort', 'Zero error', 'O(n)', 'O(n log n)', 'Perfect', 'Small datasets, offline'],
+          ],
+        },
+        'Memory is controlled by the compression parameter delta and internal limits, not by stream length. A typical delta of 100 to 200 produces roughly 100 to 600 centroids depending on the distribution. Each centroid stores a mean (8 bytes) and a weight (4 to 8 bytes), so a digest fits in a few kilobytes. That is constant with respect to n, the number of samples seen.',
+        'Update cost for the buffered merge variant is amortized O(1) per sample with periodic O(delta log delta) compression passes when the buffer fills. Merge cost is O(c1 + c2) to concatenate plus O((c1 + c2) log(c1 + c2)) to sort and recompress, where c1 and c2 are the centroid counts of the two digests. That is much smaller than merging raw samples, but it is not free. A high-cardinality metrics system can still create too many digests if it keeps one per route, customer, status, region, build, and feature flag.',
+        'When delta doubles, centroid count roughly doubles, accuracy improves (especially in the middle), and serialized size doubles. Tail accuracy is already good at delta = 100 for most latency distributions because the tails get small centroids regardless of delta. Increasing delta helps the middle more than the extremes.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        "t-digest is a strong fit for latency dashboards, load testing, stream processors, tracing rollups, database approximate percentile functions, and SLO reporting. The common access pattern is the same: measurements arrive continuously, exact retention is too expensive, and operators need percentile queries over time windows, tags, or shards.",
-        "It is especially useful when tail ranks matter more than a perfect model of the middle. A service can maintain one digest per route and status code, merge digests for a dashboard interval, and query p50, p95, p99, and p99.9 without replaying logs. Because the summary is mergeable, it works naturally with distributed aggregation trees.",
+        'The killer use case is p99 latency monitoring in distributed systems. Each host, container, or shard maintains a local t-digest. A collector merges digests across the fleet every scrape interval and queries p50, p95, p99, and p99.9 from the merged result. No raw samples cross the network. The merge is mathematically sound because the scale function operates on normalized rank.',
+        'Elasticsearch, Apache Spark, Apache Druid, and ClickHouse all ship t-digest implementations for approximate percentile functions. Load testing tools (Gatling, k6) use t-digest to report tail latencies from millions of requests without storing every response time. Stream processors (Flink, Kafka Streams) use it to compute rolling-window quantiles over unbounded event streams.',
+        'The merging property is what separates t-digest from naive approaches. A service can maintain one digest per route and status code, merge digests for a dashboard interval, roll up per-host into per-region into global, and query any quantile at any level of the aggregation tree without replaying events. That compositional property is why t-digest became the default quantile sketch in observability infrastructure.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "t-digest is not an exact quantile data structure. It is also not the right tool when the contract requires a deterministic rank-error bound. Greenwald-Khanna and KLL-style sketches are better starting points when the guarantee itself matters more than practical tail accuracy. Different t-digest implementations, scale functions, compression values, interpolation rules, and merge patterns can produce different answers.",
-        "Aggregate percentiles can still mislead. A global p99 can look acceptable while one customer tier, endpoint, region, or shard is burning. Tiny windows are also unstable because any tail estimate has little evidence when the sample count is small. A percentile sketch does not replace dimensional breakdowns, minimum sample thresholds, incident traces, or direct inspection of raw examples.",
+        't-digest provides no formal error bound. The accuracy is empirically excellent at the tails, but "empirically excellent" is not a theorem. If the contract requires a deterministic guarantee on rank error -- for example, "the returned value has rank within eps*n of the true rank" -- then Greenwald-Khanna or KLL sketches are the right starting point. They trade tail accuracy for a provable worst-case bound.',
+        'Different implementations can give different answers for the same data. The original paper describes the algorithm in terms of the scale function and compression, but leaves room for variation in interpolation, buffer management, centroid ordering during merge, and handling of duplicate values. The reference Java implementation (MergingDigest, AVLTreeDigest) and the Go/Rust/C++ ports do not always agree on edge cases.',
+        'Aggregate percentiles can still mislead even with a correct sketch. A global p99 can look acceptable while one customer tier, endpoint, or shard is burning. Tiny time windows are unstable because the tail has very few samples. A percentile sketch does not replace dimensional breakdowns, minimum-sample thresholds, or raw traces for the worst requests. The sketch tells you the number; the rest of the observability system tells you whether that number is actionable.',
+        {
+          type: 'note',
+          text: 'A common operational trap: alerting on p99 computed from a 10-second window over a low-traffic endpoint. With 50 requests in the window, p99 is determined by the single slowest request. One GC pause fires the alert. Use p99 over enough traffic that the tail contains at least tens of observations, or switch to a count-based trigger for low-volume routes.',
+        },
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Keep the compression setting visible in metrics metadata. A percentile without the digest configuration is hard to compare across releases. Record total count, min, max, centroid count, compression parameter, implementation version, and whether the digest was merged, downsampled, or windowed.",
-        "Use t-digest as part of a measurement design. Keep separate digests for the dimensions that define user pain, but control cardinality before it explodes. Use rolling windows carefully. Alert on enough traffic to make the tail meaningful. Keep raw exemplars or traces for the worst requests so an approximate p99 can lead to a concrete diagnosis.",
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        "Study Greenwald-Khanna Quantile Summary for deterministic rank-error bounds. Study KLL sketches for compact randomized quantile summaries. Study DDSketch for relative value error over positive measurements. Study Count-Min Sketch and HyperLogLog to see how different sketches answer different questions.",
-        "Then study Tail Latency, SLO Error Budget Burn Rate Alerting, Prometheus Native Histogram Schema, OpenTelemetry Exponential Histogram Aggregation, and Distributed Tracing. The sketch tells you where a percentile sits. The surrounding observability system decides whether that number is actionable.",
+        {
+          type: 'bullets',
+          items: [
+            'Ted Dunning, "Computing Extremely Accurate Quantiles Using t-Digests," arXiv:1902.04023 (2019). The primary reference for the scale-function formulation, k1 and k2 derivations, and accuracy analysis.',
+            'Ted Dunning and Otmar Ertl, "The t-Digest: Efficient Estimates of Distributions," Software Impacts 7 (2021). The journal version consolidating the merging digest algorithm and practical guidance.',
+            'GitHub: tdunning/t-digest. The reference Java implementation with MergingDigest (production) and AVLTreeDigest (pedagogical) variants.',
+            'Michael Greenwald and Sanjeev Khanna, "Space-Efficient Online Computation of Quantile Summaries," SIGMOD 2001. The deterministic rank-error alternative.',
+            'Charles Masson, Jee E. Rim, and Homin K. Lee, "DDSketch: A Fast and Fully-Mergeable Quantile Sketch with Relative-Error Guarantees," PVLDB 2019. The relative-value-error alternative for positive measurements.',
+          ],
+        },
+        'Study Greenwald-Khanna Quantile Summary for deterministic rank-error bounds. Study KLL Sketch for compact probabilistic quantile summaries with provable guarantees. Study DDSketch for relative value error over positive measurements, which gives uniform relative accuracy across the entire range instead of focusing resolution at the tails.',
+        'Then study Count-Min Sketch and HyperLogLog to see how different sketches answer different questions: frequency estimation and cardinality estimation, respectively. For the operational context around t-digest, study Tail Latency, SLO Error Budget Burn Rate Alerting, and Distributed Tracing. The sketch tells you where a percentile sits. The surrounding system decides whether that number demands action.',
       ],
     },
   ],

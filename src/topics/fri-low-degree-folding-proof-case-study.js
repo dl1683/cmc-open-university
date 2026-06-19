@@ -171,6 +171,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for FRI Low-Degree Folding Proof Case Study. A STARK/FRI proof case study: Reed-Solomon evaluation domains, Merkle commitments, random queries, even/odd folding, low-degree tests, and verifier spot checks..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "A STARK-style proof wants a verifier to trust a large computation without redoing it. The prover turns the computation into tables of field elements and algebraic constraints. The verifier cannot read the whole table, but it needs confidence that the committed data has the low-degree structure promised by the arithmetization.",
@@ -192,7 +201,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         "FRI reduces one large low-degree claim into a sequence of smaller low-degree claims. A round splits the polynomial into even and odd parts, combines them with a random challenge, and produces a folded table over a smaller domain. If the original table came from a low-degree polynomial, the folded table should also match the corresponding lower-degree object.",
         "After enough folds, the table becomes small enough to check directly. The verifier then samples positions across the layers. For each sampled position, the prover opens values and authentication paths, and the verifier checks that adjacent layers satisfy the fold relation. The protocol turns one expensive global check into many cheap consistency checks tied together by randomness.",
@@ -216,7 +225,7 @@ export const article = {
       heading: 'Commitments and queries',
       paragraphs: [
         "Each layer is committed, commonly with a Merkle tree. The root binds the prover to that layer. After the commitments are fixed, the verifier derives or samples query positions. The prover returns opened leaves and Merkle authentication paths for the relevant positions across the FRI layers.",
-        "A query packet has two jobs. First, it proves membership: these values are the ones under the previously committed roots. Second, it proves algebra: the opened values from one layer fold into the opened value in the next layer under the verifier's challenge. Passing one query is not enough. Passing enough independent queries makes a far-from-low-degree table unlikely to survive.",
+        "A query packet has two jobs. First, it proves membership: these values are the ones under the previously committed roots. Second, it proves algebra: the opened values from one layer fold into the opened value in the next layer under the verifier\'s challenge. Passing one query is not enough. Passing enough independent queries makes a far-from-low-degree table unlikely to survive.",
       ],
     },
     {
@@ -234,14 +243,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked case study',
+      heading: 'Worked example',
       paragraphs: [
         "A zkVM prover runs a program and records a machine trace: program counters, registers, memory events, opcodes, and helper columns. The arithmetization turns transition rules and boundary conditions into polynomial constraints over evaluation domains. The prover commits to the relevant evaluation tables.",
         "FRI enters after those commitments. The prover folds the low-degree claim through several committed layers. The verifier samples positions, checks Merkle paths, checks fold equations, and finally checks the last small polynomial. The verifier never reads the full machine trace, but it gains confidence that the committed polynomial data has the low-degree structure required by the proof.",
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         "FRI is a strong fit for transparent STARK systems, zkVMs, rollup provers, and proof systems where avoiding a trusted setup is a major design goal. It pairs naturally with hash commitments and random-oracle transcript challenges. It also teaches a central proof-system idea: commitments bind large data, randomness chooses pressure points, and algebraic structure lets small checks say something global.",
         "It wins educationally because it separates two concerns that beginners often mix. Merkle trees authenticate openings. Low-degree tests establish algebraic structure. A STARK verifier needs both. Authentication alone only says the prover opened the committed row; FRI says the committed table behaves like a low-degree codeword with high probability.",
@@ -264,9 +273,59 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        "Primary sources: Fast Reed-Solomon Interactive Oracle Proofs of Proximity at https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ICALP.2018.14 and RISC Zero's FRI docs at https://dev.risczero.com/reference-docs/about-fri.",
+        "Primary sources: Fast Reed-Solomon Interactive Oracle Proofs of Proximity at https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ICALP.2018.14 and RISC Zero\'s FRI docs at https://dev.risczero.com/reference-docs/about-fri.",
         "Study Merkle Tree for authentication paths, Finite Fields for arithmetic, Reed-Solomon codes for the codeword view, ZK-SNARK Arithmetization for the constraint pipeline, zkVM Execution Trace AIR for the trace-to-polynomial bridge, and KZG Polynomial Commitments for a contrasting commitment family.",
       ],
     },
+      {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for fri-low-degree-folding-proof-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

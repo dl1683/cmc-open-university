@@ -1,4 +1,4 @@
-// MVCC internals: a database that never overwrites a row — every UPDATE
+﻿// MVCC internals: a database that never overwrites a row — every UPDATE
 // births a new version, every reader sees its own slice of history, and a
 // janitor named VACUUM sweeps up the corpses. Unless someone blocks the door.
 
@@ -16,7 +16,7 @@ export const topic = {
 };
 
 // One logical row ("balance"), three physical versions.
-// xmin = txid that created it; xmax = txid that superseded it (∞ = current).
+// xmin = txid that created it; xmax = txid that superseded it (âˆž = current).
 const VERSIONS = [
   { id: 'v1', label: 'version 1: $100', xmin: 100, xmax: 205 },
   { id: 'v2', label: 'version 2: $80', xmin: 205, xmax: 310 },
@@ -31,7 +31,7 @@ function* versions() {
       rows: VERSIONS.map(({ id, label }) => ({ id, label })),
       columns: [{ id: 'xmin', label: 'xmin (born by txn)' }, { id: 'xmax', label: 'xmax (superseded by)' }],
       values: VERSIONS.map((v) => [v.xmin, v.xmax === Infinity ? 0 : v.xmax]),
-      format: (v) => (v === 0 ? '∞ (current)' : `txid ${v}`),
+      format: (v) => (v === 0 ? 'âˆž (current)' : `txid ${v}`),
     }),
     highlight: { found: ['v3:xmax'] },
     explanation: 'This is the physical trick behind snapshot isolation. An UPDATE does not overwrite the old tuple; it creates a new physical version and stamps version metadata. xmin says which transaction created the version. xmax says which transaction replaced it, or infinity if it is still current. The animation shows one logical balance with three disk tuples. The database is not guessing history from a separate audit log; the heap itself contains the visible chain.',
@@ -49,7 +49,7 @@ function* versions() {
     }),
     highlight: { found: ['v1:s150', 'v2:s250', 'v3:s400'] },
     explanation: 'The visibility rule is small enough to memorize: a version is visible if it was born before the snapshot and had not been superseded yet. So the reader at txid 150 sees the $100 version, the reader at 250 sees $80, and the reader at 400 sees $95. Each reader gets one coherent truth without blocking the writer that made a later truth. MVCC turns reads into a historical lookup instead of a fight over the current row.',
-    invariant: 'visible(v, snap) = v.xmin ≤ snap AND v.xmax > snap — one version per row per snapshot, locks not required.',
+    invariant: 'visible(v, snap) = v.xmin â‰¤ snap AND v.xmax > snap — one version per row per snapshot, locks not required.',
   };
 
   yield {
@@ -153,81 +153,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A database is expected to answer old questions while new facts are being written. A report may scan millions of rows for a snapshot that began ten minutes ago while checkout traffic keeps updating balances, inventory, and status flags. If every reader had to block every writer, mixed workloads would collapse. If every writer overwrote the only copy of a row, old readers would see a world that changed halfway through their query.`,
-        `Multi-Version Concurrency Control, or MVCC, exists to solve that conflict. Instead of overwriting a row in place, an update creates a new physical version and leaves older versions available for transactions whose snapshots still need them. The price is cleanup. Old versions do not disappear just because they are no longer current. VACUUM is the maintenance process that proves they are no longer visible and marks their space reusable.`,
+        `The "row versions & visibility" view shows one logical row stored as three physical tuples. Each tuple carries xmin (the transaction that created it) and xmax (the transaction that replaced it). The matrix highlights which version each reader sees based on the visibility rule. Found cells mark the single version each snapshot resolves to. Compare cells show the family resemblance between MVCC, Git, LSM trees, and versioned caches.`,
+        `The "VACUUM and the bloat trap" view shows dead tuples accumulating after updates. Removed cells are tuples that are logically invisible but still physically present. Active cells mark the cleanup horizon and the configuration knobs that keep bloat under control. At each step, ask: which tuples are dead, which are reclaimable, and what is holding the horizon back.`,
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive answer is locking. A reader takes a shared lock, a writer takes an exclusive lock, and the database forces one side to wait. That can work for small critical sections, but it is painful for long scans and busy OLTP tables. A monthly report should not freeze checkout. A checkout should not wait behind a slow analyst query that started before lunch.`,
-        `The other naive answer is overwriting and hoping transaction logs can reconstruct enough history. That pushes complexity into rollback, recovery, and reader consistency. MVCC makes history part of the stored row versions themselves. Readers choose a version that matches their snapshot; writers publish a newer version; cleanup happens later when no active snapshot can still see the old one.`,
+        `Databases must answer old questions while new facts are being written. A report scanning millions of rows should not freeze every checkout touching those rows. A checkout should not wait behind a slow analytical query that started before lunch. Readers and writers need to coexist without blocking each other and without seeing half-old, half-new data.`,
+        `MVCC solves this by keeping old versions around. An UPDATE does not overwrite the row in place. It creates a new physical version and leaves the old one available for transactions that still need it. Each transaction sees a consistent snapshot of the database at its start time. The price is deferred cleanup: old versions persist until a maintenance process proves no active snapshot can still see them.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is append a new version instead of changing the old one. A logical row may have several physical tuples. Each tuple has metadata that says when it was born and when it was superseded. In PostgreSQL-style terminology, xmin is the transaction that created the tuple and xmax is the transaction that replaced or deleted it. A snapshot is a reader's view of which transactions count as visible.`,
-        `A version is visible when it was created before the snapshot and was not superseded before that snapshot. That small rule lets readers walk past writes that happened later and lets writers create new versions without destroying older truths. MVCC turns concurrency from a fight over one current value into a lookup over a version chain.`,
+        `Two-phase locking (2PL) is the textbook answer. A reader takes a shared lock on a row, a writer takes an exclusive lock, and the database forces one side to wait. This is correct. Every schedule it produces is serializable. For short critical sections on lightly contended rows, it works fine.`,
+        `The alternative is even simpler: overwrite the row in place and use an undo log to reconstruct old values when a reader needs them. This avoids explicit locks on reads but pushes complexity into rollback and crash recovery.`,
       ],
     },
     {
-      heading: `Version visibility`,
+      heading: 'The wall',
       paragraphs: [
-        `The row-versions visual shows one logical balance with several physical versions. A reader at transaction 150 sees the version born at transaction 100 and replaced at 205. A reader at 250 sees the version born at 205 and replaced at 310. A reader at 400 sees the current version born at 310. All three readers are correct because each is asking from a different snapshot.`,
-        `This is why MVCC is sometimes surprising during debugging. The table can contain several values for what feels like one row. The database is not confused. It is preserving enough history for active snapshots. The current version is only current for readers whose snapshots began after the creating transaction became visible and after older versions stopped qualifying.`,
+        `2PL serializes mixed workloads. A monthly report scanning a million rows takes shared locks on every row it touches. Every checkout that wants to update one of those rows waits for the report to finish. A burst of short writes starves the long query. Throughput drops as contention rises because reader-writer conflicts are symmetric: readers block writers and writers block readers.`,
+        `Overwriting in place is worse. If a writer changes row 500 while a reader is mid-scan, the reader may see the new balance at row 500 but the old balance at row 800. The scan is internally inconsistent. Reconstructing a consistent snapshot across millions of rows from scattered undo entries is expensive and fragile during crashes. Single-version storage forces a choice: block readers or corrupt their view.`,
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: 'How it works',
       paragraphs: [
-        `The first visual proves that one logical row can have many physical truths, and that visibility is a rule rather than a guess. The highlighted cells are not duplicates. They are the one version each snapshot is allowed to see. The xmin and xmax columns are enough to explain why readers do not need to wait for later writers in the common case.`,
-        `The VACUUM visual proves the other half of the bargain. A tuple can be logically dead and still physically present. Dead means no ordinary current query should choose it as the latest row. Reclaimable means no active snapshot anywhere could still need it. VACUUM is conservative because deleting a tuple too early would corrupt an old transaction's view of the database.`,
+        `Each write creates a new physical version of the row. In PostgreSQL, every tuple carries two metadata fields: xmin (the transaction ID that created it) and xmax (the transaction ID that replaced or deleted it, or zero if it is still live). An UPDATE stamps xmax on the old tuple and inserts a new tuple with the updating transaction as its xmin. A t_ctid pointer links old and new versions into a chain.`,
+        `Each transaction takes a snapshot when it starts. The snapshot records which transactions were committed at that moment. A version is visible to a reader if: (1) the version's xmin is committed and before the snapshot, and (2) the version's xmax is either zero, uncommitted, or after the snapshot. That two-part check is the entire visibility rule. It runs on every tuple access.`,
+        `Garbage collection removes versions that no active snapshot can see. In PostgreSQL this is VACUUM. It scans table pages, finds tuples whose xmax is committed and older than the oldest active snapshot (the xmin horizon), and marks their space reusable. Regular VACUUM does not shrink the table file; it creates reusable room inside existing pages. VACUUM FULL rewrites the table smaller but takes heavier locks. Autovacuum runs regular VACUUM in the background, waking when dead-tuple thresholds or transaction-ID freeze deadlines are hit.`,
       ],
     },
     {
-      heading: `How VACUUM works`,
+      heading: 'Why it works',
       paragraphs: [
-        `VACUUM scans table pages and finds tuples whose replacing or deleting transactions are old enough. The key question is the xmin horizon: what is the oldest active snapshot that might still see old history? If a dead tuple is newer than that horizon, VACUUM must leave it alone. If it is older, regular VACUUM can mark the space reusable for future inserts or updates.`,
-        `Regular VACUUM usually does not return table file space to the operating system. It creates reusable room inside the table. VACUUM FULL can shrink a table by rewriting it, but it takes heavier locks and is a more disruptive operation. Autovacuum runs the regular maintenance loop in the background, waking when thresholds suggest enough dead tuples have accumulated or when transaction-id freeze work is needed.`,
+        `For any snapshot S, exactly one version of each logical row is visible. The visibility rule partitions the version chain cleanly: two versions of the same row cannot both qualify because the xmax of the earlier version equals the xmin of the later one. If the later version is visible (its xmin is committed and before S), then the earlier version's xmax is before S and it is excluded.`,
+        `Write conflicts use a first-committer-wins rule. If two transactions both try to update the same row, the second writer waits for the first to commit or abort. If the first commits, the second aborts (it was working from a stale version). This prevents lost updates without read locks.`,
+        `Crash safety comes from the write-ahead log. New tuple versions are logged before heap pages are modified. After a crash, recovery replays the WAL forward. Uncommitted versions have transaction IDs that never appear in the commit log, so they are automatically invisible to all future snapshots. No explicit rollback of heap data is needed.`,
       ],
     },
     {
-      heading: `The bloat trap`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The production failure is often boring: a client opens BEGIN, runs a query, and stays idle in transaction for hours. That old snapshot pins the cleanup horizon. Other sessions keep updating rows, creating dead tuples that normal users cannot see, but VACUUM cannot remove them because the old transaction might still ask for a historical view. Autovacuum can run perfectly and reclaim almost nothing.`,
-        `The symptoms look like a storage problem at first. Table files grow, indexes get larger, scans slow down, cache hit rates fall, and disk alarms fire. Tuning autovacuum may help later, but the first fix is usually to find and end the old transaction. Then VACUUM can move the horizon forward and reclaim reusable space.`,
+        `Reads never block. Writers only conflict when two transactions update the same row. This is the core throughput win over 2PL.`,
+        `The costs are version storage, visibility-check overhead on every tuple access, index maintenance (each version may have its own index entries), and VACUUM operational burden. Updates are writes plus future cleanup. A row updated four times has one live tuple and four dead ones, all occupying pages, indexes, and cache lines until VACUUM reclaims them.`,
+        `HOT (Heap-Only Tuple) updates avoid index churn when the new tuple fits on the same page and no indexed column changed. Fillfactor reserves page space for future versions. Transaction length determines how soon cleanup becomes legal. A long-running transaction pins the xmin horizon and prevents VACUUM from reclaiming anything newer.`,
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `MVCC buys nonblocking reads, simpler snapshot semantics, and good mixed-workload behavior. It costs disk churn, visibility checks, dead tuples, index maintenance, and operational vigilance. Updates are not just writes; they are writes plus future cleanup. A high-update workload can generate garbage faster than the default maintenance loop expects.`,
-        `Engine details matter. HOT updates can avoid some index churn when an updated tuple stays on the same page and indexed columns do not change. Fillfactor can leave room for future versions on a page. Index design affects how much dead history has to be cleaned from secondary structures. Transaction length affects how soon any cleanup is legal.`,
+        `PostgreSQL stores version chains directly in the heap and uses VACUUM for cleanup. Oracle stores the latest version in the data block and reconstructs older versions from undo segments on demand. MySQL InnoDB keeps the latest version in the clustered index and builds older versions from an undo log. CockroachDB, YugabyteDB, and Spanner use MVCC timestamps for distributed snapshot reads. Every major RDBMS uses some form of MVCC because the alternative is locking readers out during writes.`,
+        `The same append-then-cleanup pattern appears outside databases. Git writes immutable objects and runs git gc. LSM trees append entries and compact later. Versioned caches publish a new key instead of mutating a value another client is reading. Copy-on-write B-trees (LMDB, btrfs) create new pages instead of mutating existing ones. The shared rule: never mutate what someone might still be reading.`,
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `MVCC wins for systems that mix short writes with many reads: OLTP databases, dashboards, API backends, reporting workloads, and applications that need repeatable reads. A user can keep browsing a consistent page of results while other users keep changing the underlying table. A report can run against a stable snapshot without freezing every row it touches.`,
-        `The same idea appears outside relational databases. Git writes new immutable objects and later runs garbage collection. LSM trees append new entries and later compact them. Versioned caches publish a new name instead of mutating a value another client may still be reading. The shared pattern is fast publication now, conservative cleanup later.`,
+        `Write skew is the correctness gap. Snapshot isolation lets two transactions each read a consistent view, make independent decisions that are locally valid, and commit without conflict because they wrote different rows. The combined result can violate a constraint that spans both rows. Two on-call doctors each see two people on call, each goes off duty, and now zero are on call. Under serializable isolation one would abort. Under snapshot isolation both succeed. PostgreSQL added Serializable Snapshot Isolation (SSI) in version 9.1 to detect these cycles, at the cost of occasional false-positive aborts.`,
+        `Long transactions are the operational failure. One idle-in-transaction session pins the xmin horizon. Every tuple replaced after that point is unreclaimable. Autovacuum runs and reclaims nothing. Table files grow, indexes bloat, scans slow, cache hit rates fall, disk alarms fire. The fix is not autovacuum tuning; it is finding and ending the old transaction. Set idle_in_transaction_session_timeout as a safety net.`,
+        `Hot rows are a subtler problem. A counter updated 1,000 times per second creates 1,000 dead tuples per second. It is not just a lock contention point; it is a dead-tuple factory. Shard the counter, append events and aggregate, or move the workload to a structure designed for high write churn.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Worked example',
       paragraphs: [
-        `The most common failure is long transactions. Set idle_in_transaction_session_timeout, monitor old snapshots, and treat idle sessions as production hazards. Another failure is the hot row. A counter, queue head, or status row updated thousands of times per second is not only a lock point; it is also a dead-tuple factory. Shard counters, append events and aggregate, or move the workload to a structure designed for high write churn.`,
-        `A quieter failure is misunderstanding space. Seeing dead tuples fall does not mean the operating system got disk back. Regular VACUUM makes space reusable inside the table. Capacity planning should track table size, n_dead_tup, autovacuum activity, old transaction age, and wraparound risk. MVCC is safe when the cleanup loop is allowed to finish its job.`,
+        `Two transactions run concurrently on an account with balance $500.`,
+        `The heap starts with one tuple: (balance=$500, xmin=50, xmax=0). Transaction T1 (txid 100) and T2 (txid 101) both start snapshots. Both see the $500 tuple because xmin=50 is committed and before both snapshots, and xmax=0 means no replacement exists.`,
+        `T1 runs UPDATE accounts SET balance = $300. PostgreSQL inserts a new tuple (balance=$300, xmin=100, xmax=0) and stamps xmax=100 on the old tuple. The heap now has two physical rows for one logical account.`,
+        `T2 reads the account. T1 has not committed yet. T2 checks the old tuple: xmin=50 is committed and visible; xmax=100 is in-progress in T2's snapshot, so the old tuple is treated as not yet dead. T2 checks the new tuple: xmin=100 is in-progress, so the new tuple is invisible. T2 sees $500.`,
+        `T1 commits. T2 still sees $500 because its snapshot was taken before T1 committed. A new transaction T3 starting now would see $300. The old $500 tuple is dead: its xmax=100 is now committed. Once T2 also commits and no active snapshot predates txid 100, VACUUM can reclaim the old tuple's space.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Transaction Isolation Levels to connect MVCC internals to user-visible promises, PostgreSQL Lock Manager and Deadlock Detector for the conflicts MVCC does not remove, PostgreSQL HOT Update Heap-Only Tuple for same-page update optimization, and PostgreSQL Autovacuum Freeze and Wraparound for why VACUUM is correctness work as well as space maintenance.`,
-        `Then study LSM Tree Compaction, Git Object Store and Garbage Collection, Copy-on-Write B-Trees, Snapshot Isolation Write Skew, Hot Rows and Append-and-Aggregate, Database Index Bloat, and Write-Ahead Log Crash Recovery. They all repeat the same lesson in different systems: immutable history improves concurrency only when reclamation is part of the design.`,
+        `David P. Reed, "Naming and Synchronization in a Decentralized Computer System," MIT PhD thesis, 1978 -- the original MVCC proposal. Michael J. Cahill, Uwe Rohm, and Alan D. Fekete, "Serializable Isolation for Snapshot Databases," SIGMOD 2008 -- the SSI algorithm PostgreSQL implements. PostgreSQL source: src/backend/access/heap/heapam_visibility.c for the visibility rule implementation. The PostgreSQL documentation chapters on MVCC and routine vacuuming are the best primary reference for operational behavior.`,
+        `Study isolation levels next to understand where snapshot isolation sits relative to read committed and serializable. Study Write-Ahead Log to see how new versions survive crashes. Study two-phase locking for the alternative MVCC replaced. Study B-trees to understand the index structures that must be maintained alongside version chains. For distributed MVCC, study hybrid logical clocks and Spanner's TrueTime.`,
       ],
     },
   ],
 };
+

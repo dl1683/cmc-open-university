@@ -1,4 +1,4 @@
-// Conformal prediction: calibrate a model's residuals on held-out data, then
+﻿// Conformal prediction: calibrate a model's residuals on held-out data, then
 // return prediction sets with finite-sample coverage guarantees.
 
 import { plotState, matrixState, InputError } from '../core/state.js';
@@ -228,67 +228,128 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Conformal prediction is a way to wrap a model so it returns a set of plausible answers with a user-chosen coverage level. A classifier does not have to return only "cat." If the evidence is ambiguous, it can return {"cat", "dog"} and still make a useful promise about how often the true label will be inside the returned set. A regression model does not have to return only a point forecast. It can return an interval around the forecast.`,
-        `The method is attractive because it is model-agnostic. It can wrap a neural network, random forest, Gradient Boosting model, nearest-neighbor system, or any predictor that produces a meaningful score. The basic split conformal recipe needs a trained model and a held-out calibration set drawn from the same process as future examples. It then uses the model's past errors on calibration data to decide how wide future intervals or label sets should be.`,
+        'The "split conformal" view walks through the full procedure: data split, calibration scoring, quantile selection, and set construction. Active cells mark the current step. Found cells mark guarantees that hold under the stated assumptions. The residual plot shows sorted calibration scores with a horizontal threshold line -- that line becomes the width of every future interval.',
+        'The "coverage calibration" view shows what happens when you change the target coverage level. The frontier plot traces the tradeoff: higher coverage means wider intervals or larger label sets. Active series mark the curve; compare markers show specific operating points.',
+        'At each frame, ask: what data produced this threshold, why is this quantile the right one, and what assumption must hold for the guarantee to transfer to new data.',
       ],
     },
     {
-      heading: `The obvious approach and the wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to trust the model's probability or error estimate. If a classifier says the top label has probability 0.92, choose it. If a regression model says the next value is 41, maybe attach a standard error or a normal-theory confidence interval. This feels natural, but it assumes the model's uncertainty numbers mean what they claim. Many modern models are overconfident. Even a calibrated model answers a different question: whether predicted probabilities match frequencies on average, not whether a returned set covers the next true label at a target rate.`,
-        `The wall appears in deployment. A doctor, reviewer, auditor, inventory planner, or safety operator needs a decision rule, not a vague confidence score. "The model is uncertain" is not enough. The system must decide whether to act, defer, widen an interval, include more labels, ask for more evidence, or route to a human. Conformal prediction gives a direct operational object: a set or interval whose long-run coverage can be checked and governed.`,
+        'Models return point predictions. A classifier says "cat." A regression model says 41.3. Neither tells you how much to trust the answer. In deployment, trust matters: a doctor routing a scan, a planner setting safety stock, a fraud analyst triaging alerts -- each needs to know not just the best guess but how wrong the guess might be.',
+        {
+          type: 'quote',
+          text: 'Conformal prediction provides a framework for producing prediction sets that are guaranteed to contain the true label with a user-specified probability, without any assumptions on the distribution of the data.',
+          attribution: 'Vladimir Vovk, Algorithmic Learning in a Random World (2005)',
+        },
+        'Conformal prediction wraps any trained model so it returns a set -- an interval for regression, a label set for classification -- with a finite-sample coverage guarantee. The guarantee is distribution-free: it requires exchangeability of the data, not normality, not correct model specification, not Bayesian priors. The method dates to Vovk, Gammerman, and Shafer (2005), but split conformal prediction (Papadopoulos et al. 2002, simplified by Lei et al. 2018) made it practical enough for production.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is to stop asking the model to know its own uncertainty perfectly. Instead, hold back data the model did not train on, measure how nonconforming the true answers were under the model's scores, and use a quantile of those scores as the future threshold. If the calibration examples are exchangeable with future examples, the rank of the next example's score among the calibration scores is controlled. That rank argument gives finite-sample marginal coverage without assuming normal residuals or knowing the model internals.`,
-        `Nonconformity is the key abstraction. A nonconformity score measures how strange the true answer looks under the model. In regression, a simple score is the absolute residual: |y - y_hat|. In classification, a score can be one minus the probability assigned to the true label, or a cumulative-probability score that supports adaptive label sets. Larger scores mean the model was more surprised. Conformal prediction turns a distribution of past surprise into a rule for future sets.`,
+        'The natural first attempt is to trust the model\'s own uncertainty estimate. If a neural network outputs softmax probabilities, threshold on the top-class probability. If a regression model has a standard error, build a normal-theory confidence interval. This is fast, requires no extra data, and feels principled.',
+        'The problem is that model-reported probabilities are often wrong. Modern deep networks are systematically overconfident -- a softmax score of 0.95 does not mean the model is right 95% of the time. Even after temperature scaling or Platt calibration, the corrected probabilities answer a different question: "do predicted probabilities match observed frequencies on average?" That is calibration. It is not a coverage guarantee for the next prediction set.',
+        {
+          type: 'table',
+          headers: ['Method', 'Assumption', 'Guarantee', 'Finite-sample?'],
+          rows: [
+            ['Conformal set', 'Exchangeability', 'P(Y in C(X)) >= 1 - alpha', 'Yes'],
+            ['Bayesian credible interval', 'Correct prior + likelihood', 'Posterior probability mass', 'Yes, given model'],
+            ['Frequentist confidence interval', 'Parametric model (e.g. normality)', 'Long-run frequency coverage', 'Asymptotic usually'],
+          ],
+        },
+        'Conformal prediction is the only row that works without distributional assumptions. The price is that it needs held-out calibration data and returns sets whose size it does not control.',
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: 'The wall',
       paragraphs: [
-        `Split conformal regression is the simplest case. First, divide data into a training split and a calibration split. Train the base model on the training split. On each calibration example, compute the absolute residual between the true value and the model prediction. Sort those residuals and choose a high quantile based on the target miscoverage alpha. For a new input, predict y_hat and return [y_hat - q_hat, y_hat + q_hat], where q_hat is the chosen calibration residual quantile.`,
-        `Classification follows the same pattern but returns labels instead of numeric intervals. The model assigns scores to candidate labels. Calibration examples show how much score mass was needed before the true label was included. At prediction time, include enough labels to satisfy the threshold. More advanced variants use adaptive scores, class-conditional calibration, conformalized quantile regression, cross-conformal methods, or online updates. The shared structure remains the same: train the predictor separately, reserve calibration evidence, compute nonconformity scores, choose a threshold, and return a set rather than a naked point prediction.`,
+        'The wall is that model confidence and actual coverage are different quantities. A model can be perfectly calibrated in the probabilistic sense and still fail to provide valid prediction sets, because calibration averages over all predictions while coverage is a promise about the next one. There is no general way to convert a model\'s internal score into a coverage guarantee without external validation data.',
+        'In deployment, the gap becomes operational. "The model is 92% confident" is not a decision rule. A safety system needs to know: if I act on every prediction set this model returns, how often will the true answer be missing? That question requires measuring the model\'s errors on data it did not train on, then using those errors to set future thresholds. That is exactly what conformal prediction does.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'How it works',
       paragraphs: [
-        `The computation is usually cheap compared with training the base model. Split conformal needs one calibration pass, a stored threshold or small collection of thresholds, and a set-construction rule at prediction time. The real cost is statistical and product discipline. Holding out calibration data reduces the data available for training. Higher target coverage increases interval width or label-set size. Smaller calibration sets produce coarser quantiles. Updating the model, features, prompts, or data filters usually means recalibrating before the old coverage claim can be trusted.`,
-        `There is also a user-interface cost. A returned set must be actionable. If a classifier returns five possible document types, the downstream workflow needs a rule for routing, asking for more information, or escalating. If a forecast interval is wide, the planner needs a policy for conservative allocation. Conformal prediction is not a decorative uncertainty badge; it changes the object the system hands to users.`,
+        'Split conformal prediction has four steps. Train the base model on a training split. Compute non-conformity scores on a held-out calibration split. Choose a quantile of those scores. At prediction time, use that quantile to build the set.',
+        {
+          type: 'diagram',
+          text: 'Data --> [Training Set] --> fit model\n     --> [Calibration Set] --> compute scores s_i = |y_i - y_hat_i|\n                             --> sort scores\n                             --> pick q_hat = quantile(scores, (1-alpha)(1 + 1/n))\n\nNew x --> y_hat = model(x) --> prediction interval = [y_hat - q_hat, y_hat + q_hat]',
+          label: 'Split conformal regression pipeline',
+        },
+        'The non-conformity score measures how surprising the true answer is under the model. For regression, the absolute residual |y - y_hat| is the standard choice. For classification, common scores include 1 minus the softmax probability of the true class, or the cumulative probability mass needed before the true class appears (the APS score used in adaptive prediction sets). Larger scores mean the model was more wrong.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Split conformal prediction in ~20 lines\nimport numpy as np\n\ndef split_conformal(model, X_cal, y_cal, X_test, alpha=0.1):\n    """Return prediction intervals with 1-alpha marginal coverage."""\n    # Step 1: compute non-conformity scores on calibration set\n    y_hat_cal = model.predict(X_cal)\n    scores = np.abs(y_cal - y_hat_cal)\n\n    # Step 2: compute the corrected quantile\n    n = len(scores)\n    q_level = np.ceil((n + 1) * (1 - alpha)) / n\n    q_hat = np.quantile(scores, min(q_level, 1.0))\n\n    # Step 3: form prediction intervals\n    y_hat_test = model.predict(X_test)\n    lower = y_hat_test - q_hat\n    upper = y_hat_test + q_hat\n    return lower, upper',
+        },
+        'Classification conformal sets work the same way. Sort candidate labels by decreasing model score. Include labels until the cumulative score crosses the calibration threshold. If the model is confident, the set contains one label. If the model is uncertain, the set grows -- that growth is the visible cost of ambiguity, not a failure. Adaptive conformal inference (Gibbs and Candes, 2021) extends this to sequential settings where exchangeability may not hold exactly, adjusting the threshold online to maintain coverage over time.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `The guarantee works because of exchangeability. Informally, the calibration examples and the future example must be reorderable draws from the same data-generating process. If that condition holds, the future nonconformity score is like one more score inserted into the calibration list. Choosing the right quantile means the future score will fall below the threshold with probability near 1 - alpha. This is a finite-sample statement. It is not an asymptotic promise that appears only with infinite data.`,
-        `The guarantee is marginal coverage. Over many future draws from the same process, the returned set contains the truth at the target rate. It does not promise coverage for every individual point, every narrow subgroup, every time period, or every adversarially chosen example. It also does not promise small sets. A weak model can be conformal and still return huge intervals or many labels. Conformal prediction does not create knowledge. It makes uncertainty visible and gives a coverage rule for handling it.`,
+        'The guarantee rests on one assumption: exchangeability. The calibration examples and the future test example must be reorderable draws from the same process. Under exchangeability, the rank of the new example\'s non-conformity score among the n calibration scores is uniformly distributed over {1, 2, ..., n+1}. Choosing q_hat as the ceil((n+1)(1-alpha))/n quantile ensures that the new score falls below q_hat with probability at least 1 - alpha. This is a finite-sample result -- it holds for any n, any model, any data distribution.',
+        'The guarantee is marginal: averaged over future draws from the exchangeable process, the set contains the truth at rate 1 - alpha. It does not promise conditional coverage (coverage within every subgroup), and it does not promise small sets. A terrible model wrapped in conformal prediction returns enormous intervals. The method makes uncertainty visible; it does not create accuracy.',
+        {
+          type: 'note',
+          text: 'Exchangeability is weaker than i.i.d. -- it allows dependence in the joint distribution as long as order does not matter. But it still rules out distribution shift, concept drift, and adversarial ordering. If tomorrow\'s data comes from a different process than the calibration set, the coverage guarantee breaks.',
+        },
       ],
     },
     {
-      heading: `Where it is useful`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Conformal prediction is useful when a workflow can act on a set. In medical triage, a large set can trigger review instead of an automatic label. In fraud operations, uncertain cases can move to a human queue. In demand forecasting, interval upper bounds can guide safety stock. In document classification, a multi-label set can request more evidence. In moderation, autonomy, law, credit, and science, a set can be safer than a confident but wrong single answer.`,
-        `It is especially practical when replacing the model is expensive. A team can keep a trained Gradient Boosting system, random forest, neural network, or retrieval classifier and add a calibration wrapper around it. That wrapper can be audited separately. The approach also teaches a useful design habit: the prediction object should match the decision. If the decision can defer, route, widen, hedge, or ask for more information, the model should not be forced to pretend one answer is always enough.`,
+        'The computational cost is negligible compared to training. Split conformal needs one forward pass over the calibration set, a sort of n scores (O(n log n)), and one quantile lookup. At prediction time, the overhead is a single comparison per candidate. Storage is one scalar (q_hat) for fixed-width regression intervals, or a small lookup table for class-conditional thresholds.',
+        'The real costs are statistical and organizational. Holding out a calibration set reduces training data -- typically 10-20% of labeled examples are reserved. Smaller calibration sets produce coarser quantiles: with 100 calibration points and alpha = 0.1, the quantile is the 91st sorted score, giving granularity of about 1%. Retraining the model, changing features, or updating preprocessing invalidates the calibration and requires a fresh split.',
+        'There is also a product cost. Returning a set changes the user interface. A classifier that returns {"cat", "dog", "fox"} needs a workflow that can handle multiple labels: route to a human, request more evidence, or display ranked options. If the downstream system expects a single answer, conformal prediction requires redesigning the decision boundary, not just adding a wrapper.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Where it wins',
       paragraphs: [
-        `The first failure is data leakage. The calibration split must not be used as ordinary training data or tuned repeatedly until the coverage looks good. If the model, threshold, prompts, features, or preprocessing are selected by peeking at calibration performance, the coverage claim weakens. The second failure is distribution shift. If tomorrow's examples do not match the calibration process, the old quantile may be stale. Exchangeability is a condition, not a slogan.`,
-        `The third failure is hidden subgroup undercoverage. Overall 90% coverage can coexist with 97% coverage for one group and 80% for another. High-stakes systems need slice-level coverage checks, and group-conditional conformal methods need enough calibration data per group. The fourth failure is unusable set size. If intervals are too wide or label sets too large, the wrapper may be statistically valid but operationally useless. The answer is not to shrink sets until they look nice. The answer is to improve the base model, gather better features, split the problem, or change the decision workflow.`,
+        'Conformal prediction is strongest when the workflow can act on a set. Medical triage: a large prediction set triggers specialist review instead of auto-labeling. Fraud detection: uncertain transactions go to a human queue. Demand forecasting: the upper bound of the interval sets safety stock. Document classification: a multi-label set triggers a request for more evidence. In each case, the set is not a nuisance -- it is the decision object.',
+        'It is also practical when the model is expensive to replace. A team with a deployed gradient boosting system, random forest, or fine-tuned LLM can add a conformal wrapper without retraining. The wrapper can be audited independently: check empirical coverage on held-out data, slice by subgroup, track coverage over time. If coverage drifts, recalibrate the wrapper instead of retraining the model.',
+        {
+          type: 'bullets',
+          items: [
+            'Model-agnostic: wraps any predictor that produces scores.',
+            'Finite-sample guarantee: no asymptotics, works with hundreds of calibration points.',
+            'Cheap to compute: one quantile, no retraining.',
+            'Auditable: coverage is a single number that can be monitored in production.',
+            'Composable: works alongside calibration, MC dropout, and ensemble methods.',
+          ],
+        },
       ],
     },
     {
-      heading: `Evaluation signals and study next`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Evaluate conformal prediction with empirical coverage, average interval width, average label-set size, conditional coverage by slice, abstention or escalation rate, calibration-set age, drift indicators, and downstream decision cost. Plot the frontier between target coverage and set size. Check whether missed examples cluster by subgroup, time, geography, class, confidence band, or input source. Compare against plain model probabilities, Calibration & Reliability Diagrams, threshold rules, and uncertainty methods such as MC dropout. A valid wrapper that nobody can use is not a successful deployment.`,
-        `Primary sources are A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification at https://arxiv.org/abs/2107.07511 and the accompanying code at https://github.com/aangelopoulos/conformal-prediction. Study Uncertainty: Teaching Models to Say "I Don't Know", Calibration & Reliability Diagrams, Threshold Optimization, Cross-Validation & Honest Evaluation, Random Forest, Gradient Boosting, Fairness Metrics, Benchmark Variance & Model Selection, and AI Audit Evidence Packet Case Study next. The central lesson is that uncertainty is not a decoration on a prediction. It is part of the prediction object.`,
+        'Data leakage kills the guarantee. If calibration data is used for training, hyperparameter tuning, or threshold selection, the quantile no longer represents held-out error. The coverage claim becomes circular. This is the most common implementation mistake.',
+        'Distribution shift breaks exchangeability. If the deployment distribution drifts from the calibration distribution, the old quantile is stale. Adaptive conformal inference (Gibbs and Candes, 2021) mitigates this in sequential settings by adjusting the threshold online, but it requires a feedback signal -- the true label must eventually arrive so coverage can be tracked.',
+        'Marginal coverage hides subgroup failures. Overall 90% coverage is compatible with 97% for one group and 78% for another. High-stakes deployments need slice-level coverage checks. Group-conditional conformal methods exist but require enough calibration data per group, which is often the bottleneck.',
+        'Unusable set size is a silent failure. If intervals are so wide or label sets so large that no one acts on them, the wrapper is statistically valid but operationally dead. The fix is not to shrink sets artificially -- that destroys the guarantee. The fix is to improve the base model, gather better features, or redesign the decision workflow to handle uncertainty explicitly.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Vovk, Gammerman, Shafer -- "Algorithmic Learning in a Random World" (2005). The foundational monograph defining conformal prediction.',
+            'Angelopoulos and Bates -- "A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification" (2021), arxiv.org/abs/2107.07511. The standard modern tutorial with code at github.com/aangelopoulos/conformal-prediction.',
+            'Lei et al. -- "Distribution-Free Predictive Inference for Regression" (2018). Formalizes split conformal for regression with finite-sample guarantees.',
+            'Romano, Patterson, Candes -- "Conformalized Quantile Regression" (2019). Produces adaptive-width intervals by combining quantile regression with conformal calibration.',
+            'Gibbs and Candes -- "Adaptive Conformal Inference Under Distribution Shift" (2021). Online threshold adjustment for sequential settings where exchangeability fails.',
+          ],
+        },
+        'Study Calibration and Reliability Diagrams to understand the difference between calibrated probabilities and coverage guarantees. Study Cross-Validation and Honest Evaluation for the data-splitting discipline that conformal prediction depends on. Study Threshold Optimization to see how conformal sets interact with downstream decision rules. Study Fairness Metrics to understand why marginal coverage can hide subgroup harm.',
       ],
     },
   ],
 };
+

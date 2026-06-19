@@ -210,109 +210,217 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The succinct-trie view shows what survives compression. Labels, has-child bits, LOUDS shape bits, and suffix bits are the four pieces that replace pointer-heavy trie nodes. Watch which encoding piece each step highlights and ask: what navigation does this piece enable?',
+        'The range-pruning view shows filtering decisions. "Definite empty" means skip the SSTable -- no disk read. "Maybe overlaps" means consult the source file. SuRF earns its memory when most range queries land on definite empty.',
+        {
+          type: 'diagram',
+          text: 'Query: any key in [app, apr]?\n\n  Trie walk:        Decision:\n  root -> a         prefix matches\n    a -> p          prefix matches\n      p -> p        interval lower bound\n      p -> r        interval upper bound\n      no path       => DEFINITE EMPTY, skip SSTable\n\n  If trie had path:\n      p -> q        falls inside [app, apr]\n                    => MAYBE, read SSTable',
+          label: 'How the filter turns a range query into a trie walk',
+        },
+        {
+          type: 'note',
+          text: 'The SSTable node in the graph is always the source of truth. SuRF is a front gate that saves work only when it can reject. It never replaces the sorted file for positive answers.',
+        },
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Storage engines often need to know whether a whole key interval can be skipped. A Bloom filter can reject one absent key, but it cannot prove that no key exists between apple and apricot. SuRF exists for ordered data where empty ranges are common and source reads are expensive.',
-        'The common setting is an LSM tree with many immutable sorted files. A point lookup asks whether one exact key might be in each file. A range scan asks a broader question: could any key in this file overlap [left, right]? If many files are cold or disjoint from the requested range, answering that question before reading blocks can save disk seeks, decompression, cache space, and CPU time.',
-        'SuRF stands for Succinct Range Filter. It keeps enough ordered key structure to reason about prefixes and intervals, while compressing the trie enough to be usable as a filter rather than a full in-memory index.',
+        'Storage engines need to know whether an entire key interval can be skipped. A Bloom filter rejects one absent key but cannot prove that no key exists between "apple" and "apricot." SuRF exists for ordered data where empty ranges are common and source reads are expensive.',
+        {
+          type: 'quote',
+          text: 'SuRF can be used as a drop-in replacement for Bloom filters to additionally support range queries, achieving significant speedups for workloads that include range queries with only a modest increase in false positive rates for point queries.',
+          attribution: 'Zhang, Lim, Leis, Andersen, Kaminsky, Keeton, Pavlo, SIGMOD 2018',
+        },
+        'The common setting is an LSM tree with many immutable sorted files. A point lookup asks whether one exact key might live in a file. A range scan asks a broader question: could any key in this file overlap [left, right]? When most files are disjoint from the query range, answering before reading blocks saves disk seeks, decompression, cache space, and CPU.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first attempt is one Bloom filter per file or block. That helps point lookups: if the exact key is absent, skip the file. Range scans still have to seek through files because the filter has no order. It hashes keys on purpose, and hashing destroys prefix and interval structure.',
-        'Another tempting approach is to store min and max keys for every file. That can reject ranges that are completely outside the file, but it cannot reject holes inside the file. If a file contains keys near a and keys near z, the min/max interval covers everything between them even if most middle prefixes are absent.',
-        'A full trie over all keys would answer richer prefix and range questions, but a pointer-heavy trie can be too large for a per-file filter. The storage engine needs a middle ground: more ordered structure than a hash filter and much less memory than a normal trie.',
+        'Attempt 1: one Bloom filter per file. That helps point lookups -- if the exact key is absent, skip the file. Range scans still must seek through every file because the filter hashes keys, and hashing destroys prefix and interval structure.',
+        'Attempt 2: store min and max keys per file. That rejects ranges completely outside the file but cannot reject holes inside. A file with keys near "a" and near "z" covers the entire alphabet even if the middle is empty.',
+        'Attempt 3: a full trie over all keys. That answers prefix and range questions, but a pointer-heavy trie is too large for a per-file filter sitting on the hot read path.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Point lookup', 'Range query', 'Memory', 'Limitation'],
+          rows: [
+            ['Bloom filter', 'Yes -- hash check', 'No -- order lost', '~10 bits/key', 'Cannot reason about intervals'],
+            ['Min/max keys', 'No', 'Coarse -- outer bounds only', '2 keys/file', 'Cannot detect internal holes'],
+            ['Full trie', 'Yes', 'Yes', 'Pointers per node', 'Too large for a hot-path filter'],
+            ['SuRF', 'Yes -- trie walk', 'Yes -- prefix navigation', '~14 bits/key typical', 'One-sided error (false positives)'],
+          ],
+        },
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'A normal trie preserves order but costs too many pointers and nodes for a compact filter. A compact hash filter saves memory but loses range reasoning. The wall is keeping enough trie order to reject ranges without storing full keys or a pointer-heavy tree.',
-        'That wall matters because filters live on the hot path. A filter that saves disk reads but doubles memory pressure can lose in the block cache. A filter that is compact but slow can add latency to every lookup. A range filter has to be small, navigable, and safe: it may return maybe too often, but it must not claim empty when a real key exists.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'Encode a trie succinctly, then truncate it carefully. The trie keeps sorted-prefix navigation, while bitvectors and rank/select replace bulky child pointers. Optional suffix bits lower false positives without storing entire keys.',
-        'The invariant is one-sided error. SuRF is allowed to say maybe for an absent point key or an empty range. It is not allowed to say definitely absent when the source table contains a matching key. The compressed trie and suffix choices must preserve that safety property.',
-        'This turns range filtering into a navigation problem. Instead of hashing a key several times, the filter walks ordered prefixes and asks whether any path in the truncated trie could land inside the query interval.',
-      ],
-    },
-    {
-      heading: 'Visual guide',
-      paragraphs: [
-        'In the succinct-trie view, focus on what order information survives compression. Labels, child bits, LOUDS shape, and suffix bits are not decorative encoding details. They are the pieces that let the filter navigate prefixes without pointer-heavy trie nodes.',
-        'In the range-pruning view, interpret maybe as a performance result, not a correctness result. A definite empty can skip the SSTable. A possible overlap must consult the source of truth. SuRF is useful because many expensive range reads become definite negatives.',
-        'The SSTable node is deliberately the source of truth. SuRF is a front gate. It saves work only when it can reject; it never replaces the sorted file for positive answers.',
+        'A normal trie preserves order but costs too many pointers. A hash filter saves memory but loses range reasoning. The wall is keeping enough trie order to reject ranges without storing full keys or a pointer-heavy tree.',
+        'Filters live on the hot path. A filter that saves disk reads but doubles memory pressure loses in the block cache. A filter that is compact but slow adds latency to every lookup. A range filter must be small, navigable, and safe: it may return "maybe" too often, but it must never claim "empty" when a real key exists.',
+        {
+          type: 'note',
+          text: 'This is the same one-sided error contract as a Bloom filter, extended from points to intervals. False positives waste work. False negatives would be correctness bugs.',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'SuRF builds a Fast Succinct Trie from sorted keys. A point lookup walks labels and suffix information. A range lookup asks whether any trie path could fall inside the interval. If no path can match, the answer is definitely empty. If a path might match, the storage engine checks the source table.',
-        'The Fast Succinct Trie stores labels in arrays and tree shape in bitvectors. Rank/select operations recover navigation that a normal trie would get from pointers. Suffix bits tune precision: real suffix bits preserve key-order information, hash suffix bits reduce point false positives, and mixed choices trade space for pruning power.',
-        'LOUDS, or level-order unary degree sequence, is one common way to encode tree shape. Instead of storing child pointers on every node, the structure stores bitvectors that describe which nodes have children and where those children appear in level order. Rank/select primitives turn positions in those bitvectors into parent-child navigation.',
-        'The build process is snapshot-oriented. Sorted keys are read, common prefixes form trie paths, the trie is encoded into compact arrays, and suffix bits are attached according to the chosen false-positive budget. This fits immutable SSTables because filters can be rebuilt when files are flushed or compacted.',
+        'SuRF builds a Fast Succinct Trie (FST) from sorted keys. The FST replaces child pointers with bitvectors and rank/select operations, compressing the trie to near information-theoretic minimum while preserving navigability.',
+        {
+          type: 'diagram',
+          text: 'Sorted keys:  ["far", "fas", "fat", "top", "toy"]\n\n  Pointer trie:              Succinct trie (FST):\n\n       root                  Labels:    [f, t]\n      /    \\                 HasChild:  [1, 1]\n     f      t                LOUDS-D:   1 1 0\n     |      |                      level 2:\n     a      o                Labels:    [a, o]\n    /|\\    / \\               HasChild:  [1, 1]\n   r  s t  p  y              LOUDS-D:   1 0 1 0\n                                   level 3:\n  Pointers: 7 nodes          Labels:    [r, s, t, p, y]\n  FST: arrays + bitvectors   HasChild:  [0, 0, 0, 0, 0]\n  Navigation via rank/select  Suffix:    (optional bits)',
+          label: 'From pointer trie to Fast Succinct Trie',
+        },
+        'A point lookup walks labels and checks suffix bits at the leaf. A range lookup [a, b] seeks the lower-bound prefix and asks whether any trie path could fall inside the interval. If no path can match, the answer is "definite empty." If a path might match, the storage engine reads the source table.',
+        {
+          type: 'table',
+          headers: ['FST component', 'Stores', 'Navigation role'],
+          rows: [
+            ['Labels array', 'Edge byte per node', 'Match query key bytes left to right'],
+            ['HasChild bitvector', '1 if node has children, 0 if leaf', 'Decide: descend or stop'],
+            ['LOUDS-Dense bits', 'Level-order child presence', 'rank/select finds child position'],
+            ['LOUDS-Sparse bits', 'Labels + child indicators for sparse levels', 'Saves space in deep, sparse trie regions'],
+            ['Suffix bits', 'Truncated key tails (real or hashed)', 'Reduce false positives without storing full keys'],
+          ],
+        },
+        'LOUDS (level-order unary degree sequence) encodes tree shape. Instead of storing child pointers, bitvectors record which nodes have children and where those children appear in level order. rank(position) counts set bits up to a position; select(k) finds the k-th set bit. These two operations replace pointer chasing.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Pseudocode: SuRF range query\ndef range_filter(surf, lo, hi):\n    """Return DEFINITE_EMPTY or MAYBE."""\n    # Walk trie to lower bound\n    node = surf.root\n    for byte in lo:\n        child = surf.find_child(node, byte)  # rank/select\n        if child is None:\n            # lo prefix not in trie => check if any key\n            # between lo and hi could exist via neighbor paths\n            return check_neighbors(surf, node, lo, hi)\n        node = child\n    # Reached a trie node matching lo prefix\n    # Check if any path from here could fall within [lo, hi]\n    if surf.has_key_in_range(node, lo, hi):\n        return MAYBE\n    return DEFINITE_EMPTY',
+        },
+        'The build process is snapshot-oriented: sorted keys are read, common prefixes form trie paths, the trie is encoded into compact arrays, and suffix bits are attached per the chosen false-positive budget. This fits immutable SSTables because filters rebuild when files flush or compact.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The one-sided guarantee comes from keeping all real key prefixes needed by the truncated trie. Truncation can make an absent key or empty range look possible, but it cannot remove a real key path in a way that would reject existing data. False positives waste reads; false negatives would be correctness bugs.',
-        'Bloom filters deliberately destroy order with hashing. SuRF preserves enough order to reason about intervals. That single difference is why a Bloom filter can say this exact key is absent, while SuRF can often say no key from this sorted file can fall inside this interval.',
-        'For point lookups, an absent key may share all stored prefix information and suffix bits with a real key, so SuRF can return maybe. For range lookups, an empty interval may still cross a truncated prefix that could hide a real key, so SuRF again returns maybe. These are safe over-approximations of the real key set.',
-        'The correctness contract is therefore simple: every stored key must remain represented by at least one navigable path through the filter. The filter may merge absent space into represented space, but it must not carve out represented keys.',
+        'The one-sided guarantee comes from keeping every real key prefix needed by the truncated trie. Truncation can make an absent key look possible (the trie merges nearby absent keys into a shared prefix), but it cannot remove a real key path. The filter over-approximates the true key set -- it never under-approximates.',
+        {
+          type: 'diagram',
+          text: 'Correctness contract:\n\n  Real keys in SSTable:  {far, fas, fat, top, toy}\n  Trie represents:       {fa*, to*}  (truncated after 2 bytes)\n\n  Query "fan":  fa* matches  =>  MAYBE  (false positive, safe)\n  Query "fog":  no match     =>  EMPTY  (true negative, correct)\n  Query "fat":  fa* matches  =>  MAYBE  (true positive, correct)\n\n  INVARIANT: real keys are always a subset of trie-represented keys.\n  The filter may widen the set. It must never shrink it.',
+          label: 'One-sided error: over-approximation is safe, under-approximation is a bug',
+        },
+        'Bloom filters destroy order with hashing. SuRF preserves enough order to reason about intervals. That single difference is why Bloom can say "this exact key is absent" while SuRF can say "no key from this file falls inside this interval."',
+        'Suffix bits control precision. Real suffix bits retain key-order information and help range pruning. Hash suffix bits reduce point false positives but do not help ordering. The suffix policy depends on whether the workload is point-heavy, range-heavy, or mixed.',
+        {
+          type: 'table',
+          headers: ['Suffix type', 'Bits stored', 'Helps point queries', 'Helps range queries', 'Tradeoff'],
+          rows: [
+            ['None (SuRF-Base)', '0', 'No', 'No', 'Smallest filter, highest FPR'],
+            ['Hash (SuRF-Hash)', 'Hash of remaining key', 'Yes', 'No -- hash has no order', 'Good for point-heavy workloads'],
+            ['Real (SuRF-Real)', 'Actual next key bytes', 'Yes', 'Yes -- preserves order', 'Best for range-heavy workloads'],
+            ['Mixed', 'Some hash + some real', 'Yes', 'Partial', 'Tunable compromise'],
+          ],
+        },
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The tradeoff is memory versus false positives. More suffix bits reduce unnecessary source reads and increase filter size. Query time follows key length and succinct navigation rather than several independent hashes. SuRF is usually built for immutable sorted files, which fits LSM engines that flush and compact SSTables.',
-        'The workload determines whether the extra structure is worth it. If most reads are exact-key gets, a simpler point filter may win. If range scans regularly touch many sorted files only to discover they are empty, SuRF earns its memory by preventing disk, decompression, and block-cache work.',
-        'False positives have different costs for points and ranges. A point false positive usually causes one table lookup. A range false positive can cause seeks, iterator setup, block reads, and downstream filtering across a larger part of a file. That is why preserving order can be worth extra implementation complexity.',
-        'Build cost matters too. SuRF is not a great fit for a highly mutable in-place set where every insert must update the filter immediately. It fits systems that already create immutable sorted runs and can build filters once per run.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Time', 'Depends on'],
+          rows: [
+            ['Build filter', 'O(n * L)', 'n = keys, L = avg key length; one pass over sorted keys'],
+            ['Point query', 'O(L)', 'Walk trie depth = key length; rank/select are O(1) with precomputed tables'],
+            ['Range query', 'O(L)', 'Seek lower bound, check neighbor paths'],
+            ['Space', '~10-14 bits/key typical', 'Depends on trie shape, suffix bits, key distribution'],
+          ],
+        },
+        'The tradeoff is memory versus false positives. More suffix bits reduce unnecessary source reads but increase filter size. At 10 bits per key with real suffixes, the SuRF paper reports point FPR around 2% and range FPR around 1% on typical string workloads.',
+        {
+          type: 'note',
+          text: 'False positives have different costs for points and ranges. A point false positive causes one table lookup. A range false positive can cause seeks, iterator setup, block reads, and downstream filtering across a large portion of a file. That asymmetry is why preserving order is worth the extra implementation complexity.',
+        },
+        'Query time follows key length and succinct navigation rather than independent hash probes. For short keys (8-32 bytes), this is comparable to Bloom. For very long keys, the trie walk is deeper but benefits from prefix sharing.',
+        'Build cost matters. SuRF is not a good fit for highly mutable in-place sets where every insert must update the filter immediately. It fits systems that already create immutable sorted runs and build filters once per run.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'A RocksDB-like LSM tree serving user_id/time scans can attach SuRF to each SSTable. A query for user 42 between 10:00 and 10:05 can skip files whose keys cannot overlap that interval. The payoff is fewer seeks, block reads, cache misses, and compaction interference.',
-        'It also wins for prefix-heavy key designs: tenant_id plus timestamp, namespace plus object key, account plus ledger position, or metric name plus time bucket. The shared prefixes make the trie meaningful, and the ordered suffix lets the filter reject many irrelevant intervals.',
-        'SuRF is especially useful when range misses are common. Dashboards, log search, time-window scans, and multi-tenant stores often ask for narrow slices that touch only a few files. A filter that can reject the rest protects both latency and shared storage resources.',
+        {
+          type: 'bullets',
+          items: [
+            'LSM tree SSTable filtering: attach SuRF to each sorted file; range scans skip files whose keys cannot overlap the query interval.',
+            'Time-series shards: a query for user 42 between 10:00 and 10:05 skips files whose time prefixes fall outside that window.',
+            'Multi-tenant key designs: tenant_id|timestamp|event_id keys share long prefixes; the trie captures that structure and prunes per-tenant ranges cheaply.',
+            'Log search and dashboard queries: narrow time-window slices typically touch few files; a range filter rejects the rest and protects latency.',
+            'Prefix scans: any workload using hierarchical keys (namespace|object, account|ledger_position, metric|time_bucket) benefits from trie-based prefix pruning.',
+          ],
+        },
+        'The pattern is any ordered key space where empty ranges are common and source reads are expensive. SuRF pays for itself when it avoids disk seeks, block decompression, cache pollution, and compaction interference.',
+        {
+          type: 'code',
+          language: 'text',
+          text: '# RocksDB-style read path with SuRF\n#\n# Query: SELECT * WHERE tenant=17 AND time BETWEEN 10:00 AND 10:05\n#\n# Level 0:  SSTable A  keys [tenant=1..tenant=10]   SuRF => EMPTY, skip\n# Level 0:  SSTable B  keys [tenant=11..tenant=20]  SuRF => MAYBE, read\n# Level 1:  SSTable C  keys [tenant=15..tenant=25]  SuRF => MAYBE, read\n# Level 1:  SSTable D  keys [tenant=30..tenant=50]  SuRF => EMPTY, skip\n# Level 2:  SSTable E  keys [tenant=1..tenant=100]  SuRF => MAYBE, read\n#\n# Without SuRF: 5 SSTable reads.  With SuRF: 3 reads.  Saved: 2 disk seeks.',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'SuRF is not a replacement for the table. Maybe still means consult the source of truth. It is also the wrong shape for unordered data or mostly single-key gets where a simpler Bloom, Ribbon-family, or Xor-style filter may be smaller or faster.',
-        'It also struggles with very wide ranges. If nearly every SSTable overlaps the requested interval, the filter cannot prune much. Range filters are best when key design clusters related data and many files occupy disjoint key intervals.',
-        'Poor key design can erase the advantage. If the leading bytes are random hashes, the trie has little useful prefix locality. If timestamps are placed before tenant ids, a tenant-specific query may scatter across many prefixes. Ordered filters reward schemas that put the most selective range dimensions early enough to prune.',
-        'Operationally, stale filters are dangerous only if the system treats them as authoritative after the underlying file changes. The usual answer is immutability: pair each filter with the exact file snapshot it summarizes, and rebuild on compaction rather than mutating the filter independently.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine an LSM level with sorted files keyed as tenant_id|timestamp|event_id. A query for tenant 17 between 10:00 and 10:05 checks many files. A point Bloom filter cannot answer whether a file has any key in that interval. SuRF can walk the tenant and time prefixes and often return definite empty for files whose key ranges fall elsewhere.',
-        'When the answer is maybe, the engine still reads the table block and checks the real keys. That is the safe part of the design. SuRF only removes work when it can prove absence under its truncated trie representation; it never invents data or hides existing keys.',
-        'If the filter stores only short prefixes, many tenant 17 time ranges may collapse into maybe. Adding real suffix bits can help range pruning because they retain more ordered information about the hidden tail. Adding hash suffix bits may improve point lookup precision but is less helpful for ordering. The right suffix policy depends on whether the workload is point-heavy, range-heavy, or mixed.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Keep the API honest. A range filter should return definite empty or maybe, not true or false as if it were the source of truth. That naming prevents callers from accidentally treating a false positive as a real hit.',
-        'Build from sorted, normalized byte keys. Locale-dependent string comparison, mixed encodings, or inconsistent separators can break the relationship between trie order and table order. The filter and SSTable comparator must agree exactly.',
-        'Measure by avoided work, not only false-positive rate. A range false positive on a large cold file is more expensive than a point false positive on a cached block. Useful metrics include filter bytes per key, point false-positive rate, range false-positive rate by interval width, skipped files, skipped blocks, and end-to-end read latency.',
+        {
+          type: 'bullets',
+          items: [
+            'Unordered or random-prefix keys: if leading bytes are random hashes, the trie has no useful prefix locality and every query hits "maybe."',
+            'Mostly single-key gets: a simpler Bloom, Ribbon, or Xor filter may be smaller, faster, and easier to implement.',
+            'Very wide ranges: if nearly every SSTable overlaps the requested interval, the filter cannot prune much. Range filters reward narrow, selective queries.',
+            'High-churn mutable sets: SuRF is snapshot-oriented. Frequent inserts require full rebuilds, not incremental updates.',
+            'Poor key schema: timestamps before tenant IDs scatter tenant-specific queries across many prefixes, erasing the advantage of ordered prefix pruning.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Stale filters are dangerous only if the system treats them as authoritative after the underlying file changes. The standard answer is immutability: pair each filter with the exact file snapshot it summarizes and rebuild on compaction.',
+        },
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Symptom', 'Mitigation'],
+          rows: [
+            ['Random-prefix keys', 'FPR approaches 100%', 'Restructure key schema; put selective dimensions first'],
+            ['Wide range queries', 'Most files return MAYBE', 'Use coarser min/max bounds as a first filter'],
+            ['Too few suffix bits', 'High FPR on narrow ranges', 'Increase real suffix bits; measure avoided-work improvement'],
+            ['Filter outlives SSTable', 'Correctness risk', 'Immutable pairing: one filter per file snapshot'],
+          ],
+        },
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: SuRF paper PDF at https://db.cs.cmu.edu/papers/2018/mod601-zhangA-hm.pdf, ACM DOI https://dl.acm.org/doi/10.1145/3183713.3196931, and SIGMOD slides at https://people.iiis.tsinghua.edu.cn/~huanchen/slides/surf-sigmod18.pdf.',
-        'Study Trie and PATRICIA Trie for prefix navigation, Rank/Select Bitvector for succinct movement, Bloom Filter and Ribbon Filter for point-filter contrast, RocksDB LSM Case Study for the storage setting, SSTable Block Index Filter for file-level filtering, and Database Indexing for the broader read-path design.',
+        {
+          type: 'quote',
+          text: 'SuRF is the first practical data structure that supports both single-key lookups and range queries using only around 14 bits per key.',
+          attribution: 'Zhang, Lim, Leis, Andersen, Kaminsky, Keeton, Pavlo, SIGMOD 2018',
+        },
+        {
+          type: 'table',
+          headers: ['Source', 'Link'],
+          rows: [
+            ['SuRF paper (SIGMOD 2018)', 'https://dl.acm.org/doi/10.1145/3183713.3196931'],
+            ['Paper PDF (CMU)', 'https://db.cs.cmu.edu/papers/2018/mod601-zhangA-hm.pdf'],
+            ['SIGMOD 2018 slides', 'https://people.iiis.tsinghua.edu.cn/~huanchen/slides/surf-sigmod18.pdf'],
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Trie and PATRICIA Trie -- prefix navigation that SuRF compresses'],
+            ['Prerequisite', 'Rank/Select Bitvector -- the movement primitives inside the FST'],
+            ['Contrast', 'Bloom Filter -- point-only filter that SuRF generalizes to ranges'],
+            ['Contrast', 'Ribbon Filter -- modern point filter with better space efficiency'],
+            ['Production context', 'RocksDB LSM Case Study -- the storage engine where SuRF deploys'],
+            ['Extension', 'SSTable Block Index Filter -- file-level filtering in the broader read path'],
+            ['Broader view', 'Database Indexing -- where range filters fit in the full index stack'],
+          ],
+        },
       ],
     },
   ],

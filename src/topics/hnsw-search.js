@@ -139,7 +139,7 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it solves',
+      heading: 'Why this exists',
       paragraphs: [
         'HNSW, short for Hierarchical Navigable Small World, is a graph index for approximate nearest-neighbor search. Given a query vector, it tries to find nearby stored vectors without comparing the query with every vector in the collection.',
         'The brute-force baseline is exact and simple: compute the distance from the query to every stored vector, then sort or select the closest k. That is fine for thousands of vectors. It is too expensive for interactive search over millions of high-dimensional embeddings unless you can spend large amounts of hardware on exact scan.',
@@ -147,7 +147,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The reasonable first attempt is exact kNN. Keep the vectors in an array, compute cosine, dot product, or L2 distance for every row, and return the closest results. It has excellent correctness and terrible scaling: query time grows with corpus size times vector dimension.',
         'A second attempt is to cluster the space and search only the closest cluster. That can work, but it adds training, partition-boundary misses, and extra tuning. HNSW takes a different route: keep the data as a graph of local neighborhoods, then navigate the graph from far away to nearby.',
@@ -155,14 +155,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core idea',
+      heading: 'The core insight',
       paragraphs: [
         'The core idea is a layered proximity graph. The bottom layer contains every vector and many short-range neighbor links. Higher layers contain exponentially fewer vectors and longer-range links. Search starts from an entry point in the top layer, greedily moves toward the query, then drops down and repeats with finer links.',
         'This is why HNSW is often compared to a skip list. A skip list adds sparse express lanes over a sorted list. HNSW adds sparse express layers over a metric neighborhood graph. The analogy is useful, but not perfect: HNSW search is approximate and depends on vector geometry, graph quality, and candidate-set width.',
       ],
     },
     {
-      heading: 'Reading the visualization',
+      heading: 'How to read the animation',
       paragraphs: [
         'The top row is the sparse highway layer. Only a few stored vectors have copies there, and the edges are long. When the active node moves across the highway, the search is using a cheap long-range comparison to get into the right neighborhood.',
         'The vertical edge is the descent. It does not move to a different vector; it moves to the same vector in a denser layer. That state change matters because the algorithm is trading stride length for precision.',
@@ -201,7 +201,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'HNSW wins for low-latency semantic search, recommendation candidate retrieval, duplicate detection, image similarity, code search, and RAG retrieval when memory is available and high recall matters. It is popular because it needs no training phase, handles incremental insertion better than many partitioned indexes, and exposes understandable knobs.',
         'It is a strong default when the corpus fits in memory or mostly in memory, vectors are reasonably well behaved, and the product can tolerate approximate recall followed by reranking. It pairs well with exact rerank over the returned candidates and with a recall-latency ledger that chooses efSearch by route.',
@@ -215,11 +215,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Malkov and Yashunin, "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs," https://arxiv.org/abs/1603.09320; hnswlib docs and parameters at https://github.com/nmslib/hnswlib; pgvector HNSW docs at https://github.com/pgvector/pgvector; and Faiss HNSW implementation docs at https://faiss.ai/cpp_api/struct/structfaiss_1_1IndexBinaryHNSW.html.',
         'Study Embeddings and Similarity before tuning distance metrics, RAG Pipeline for the retrieval application loop, Skip List for the layered-navigation analogy, Graph BFS for graph traversal basics, Product Quantization and ScaNN for alternative ANN strategies, Filtered Vector Search Bitset Gates for metadata filters, and ANN Recall-Latency Pareto Ledger for measuring efSearch instead of guessing it.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why HNSW (Vector Search at Scale) moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

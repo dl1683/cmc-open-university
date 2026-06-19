@@ -1,4 +1,4 @@
-// Beam search vs greedy decoding: how an LLM actually picks its words.
+﻿// Beam search vs greedy decoding: how an LLM actually picks its words.
 // Greedy grabs the best next token; beam search keeps k hypotheses alive —
 // and sometimes the best sentence starts with the second-best word.
 
@@ -15,7 +15,7 @@ export const topic = {
   run,
 };
 
-// A toy language model's continuation tree for the prompt "The cat…".
+// A toy language model\'s continuation tree for the prompt "The cat…".
 // Each node: token and its probability GIVEN the path so far. Rigged the way
 // real language is: the locally-best first word leads to a mediocre sentence.
 const TREE = {
@@ -87,7 +87,7 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { active: kept.map((c) => c.id), visited: pruned.map((p) => p.id) },
-      explanation: `Step ${depth}: expand every live hypothesis, multiply in each continuation's probability, ${k === 1 ? 'and keep only the single best' : 'rank them ALL together, and keep the top 2'}: ${kept.map((c) => `"…${frames.get(c.id).name}" at ${pct(c.score)}`).join(', ')}. ${pruned.length ? `Pruned ${pruned.length} weaker branch${pruned.length === 1 ? '' : 'es'} (faded).` : ''}`,
+      explanation: `Step ${depth}: expand every live hypothesis, multiply in each continuation\'s probability, ${k === 1 ? 'and keep only the single best' : 'rank them ALL together, and keep the top 2'}: ${kept.map((c) => `"…${frames.get(c.id).name}" at ${pct(c.score)}`).join(', ')}. ${pruned.length ? `Pruned ${pruned.length} weaker branch${pruned.length === 1 ? '' : 'es'} (faded).` : ''}`,
       invariant: k === 1 ? 'Greedy carries exactly one hypothesis — it can never recover from a locally-good, globally-bad pick.' : 'The beam always holds the k best COMPLETE prefixes, not the k best next words.',
     };
     beam = kept;
@@ -105,85 +105,107 @@ export function* run(input) {
     state: snapshot(),
     highlight: { returning: path },
     explanation: k === 1
-      ? `Greedy's sentence: "${sentence}" at ${pct(winner.score)} total. It took "sat" because 50% beat 30% in the moment — and walked into weak continuations. Now run BEAM (k=2) on the same model: it keeps "ran" alive and finds "The cat ran away home" at 24%, beating this. The lesson generalizes: locally optimal is not equal to globally optimal.`
-      : `Beam's winner: "${sentence}" at ${pct(winner.score)} — built on "ran", the SECOND-best first word, which greedy throws away immediately (try it). Larger beams search wider at linear cost; today's chat LLMs usually use temperature SAMPLING instead (see Softmax & Temperature), but beam search still rules translation and speech recognition, where there's one right answer to find.`,
+      ? `Greedy\'s sentence: "${sentence}" at ${pct(winner.score)} total. It took "sat" because 50% beat 30% in the moment — and walked into weak continuations. Now run BEAM (k=2) on the same model: it keeps "ran" alive and finds "The cat ran away home" at 24%, beating this. The lesson generalizes: locally optimal is not equal to globally optimal.`
+      : `Beam\'s winner: "${sentence}" at ${pct(winner.score)} — built on "ran", the SECOND-best first word, which greedy throws away immediately (try it). Larger beams search wider at linear cost; today\'s chat LLMs usually use temperature SAMPLING instead (see Softmax & Temperature), but beam search still rules translation and speech recognition, where there\'s one right answer to find.`,
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: "Why this exists",
+      heading: 'How to read the animation',
       paragraphs: [
-        "A language model emits a probability distribution for the next token, not a completed sentence. The decoder has to decide how much future possibility to keep alive. Greedy decoding chooses the best next token at every step and commits immediately. That is fast, deterministic, and often good enough for narrow tasks.",
-        "Beam search exists because the best whole sequence may start with a token that is not locally best. A translation, transcript, caption, or structured output can need one weaker prefix to survive until its later tokens make the full sequence better. Beam search keeps a small frontier of candidate prefixes instead of one path or the entire tree.",
+        "Each node is a partial sentence. The percentage on a node is the joint probability of the entire prefix up to that point — not the probability of the last token alone. Highlighted nodes are the active beam: the hypotheses the decoder is still considering. Faded nodes were expanded, scored, and pruned because a higher-scoring prefix existed.",
+        "Toggle between greedy and beam (k=2) to see the difference. Greedy keeps exactly one active node per depth level. Beam search keeps two. At the first expansion, greedy commits to 'sat' (50%) and discards 'ran' (30%). Beam search keeps both. By depth three, 'ran away home' reaches 24% total probability while greedy's path through 'sat' lands at 10%.",
+        "The returning path at the end traces the winner back to the root. The gap between greedy's result and beam's result is the price of committing too early to a locally dominant token.",
       ],
     },
     {
-      heading: "The naive approach",
+      heading: 'Why this exists',
       paragraphs: [
-        "The first naive approach is greedy decoding. For the prompt in the demo, greedy sees that `sat` has the highest first-step probability and takes it. After that, every future decision is trapped under the `sat` prefix. Greedy never asks whether the second-best first token could lead to a stronger sentence.",
-        "The other naive approach is exhaustive search. Expand every possible token at every position, score every complete sequence, and choose the best one. That is impossible for real language generation because the vocabulary can contain tens of thousands of tokens and the tree grows exponentially with length. Beam search is the practical middle ground: keep only k prefixes at each step.",
+        "An autoregressive model — a machine translator, speech recognizer, image captioner, or text generator — does not output a finished sentence. It outputs a probability distribution over the next token, one step at a time. Something has to turn that stream of distributions into a complete sequence. That something is the decoding strategy.",
+        "The output space is exponential. A vocabulary of 50,000 tokens and a sequence length of 20 produce 50,000^20 possible outputs. Exhaustive search is out of the question. The decoder must search selectively, and the question is how much of the possibility tree to keep alive at each step.",
       ],
     },
     {
-      heading: "The core insight",
+      heading: 'The obvious approach',
       paragraphs: [
-        "The core insight is frontier pruning. At depth t, the decoder does not need every possible prefix. It keeps the k best prefixes under the current scoring rule, expands only those, and repeats. k is the beam width. k = 1 is greedy. Larger k buys more search coverage at a roughly linear increase in decode work.",
-        "The score is cumulative, not local. A prefix is ranked by the probability of the whole prefix so far, usually represented as a sum of log probabilities. That is why a locally weaker token can survive. It may be below the first-place token at step one, but its later continuations can produce a better total sequence.",
+        "Greedy decoding: at every step, pick the single most probable next token, append it, and move on. One forward pass per step, no bookkeeping, no alternatives to track. For many tasks this is fast enough and good enough.",
+        "Greedy is appealing because it is the simplest thing that could work. It mirrors how a person might write — choose the best next word and keep going. And when the model is confident and the output is short, greedy often matches the result of more expensive methods.",
       ],
     },
     {
-      heading: "How it works",
+      heading: 'The wall',
       paragraphs: [
-        "At each decoding step, the model scores the vocabulary for every live hypothesis. The decoder combines each hypothesis score with each candidate next-token score, ranks the expanded candidates, and keeps the best k prefixes. The loop stops when enough beams reach end-of-sequence, a maximum length is hit, or a task-specific stopping rule fires.",
-        "Real implementations use log probabilities because multiplying many small probabilities underflows. They also use top-k selection instead of sorting every expanded candidate when possible. A beam record stores tokens, accumulated score, parent pointer, completion flag, and model cache state. In a transformer decoder, the KV Cache must be tracked per beam because each prefix has different attention history.",
-        "Most production beam decoders add scoring controls. Length normalization prevents short outputs from winning only because they contain fewer negative log probabilities. Coverage penalties help translation systems avoid ignoring source words. Constrained beam search can force required phrases or grammar states. The algorithm is simple; the scoring rule decides whether it behaves well.",
+        "Greedy fails because the best sequence does not always start with the best first token. The joint probability of a sequence is the product of every conditional token probability along the path. A first token at 30% can lead to continuations at 90% each, producing a total probability that dominates a path that started at 50% but decayed through weak continuations.",
+        "The animation shows this directly. Greedy picks 'sat' (50%) over 'ran' (30%) and ends at a total of 10%. Beam search keeps 'ran' alive and finds 'ran away home' at 24%. The locally optimal choice led to a globally inferior sequence.",
+        "The problem gets worse with longer outputs and larger vocabularies. More steps mean more chances for a weaker start to recover through stronger continuations, and more vocabulary means more alternatives that greedy never sees.",
       ],
     },
     {
-      heading: "What the visual is proving",
+      heading: 'The core insight',
       paragraphs: [
-        "The visual proves the difference between local and cumulative choice. Each node is a partial sentence with the probability of the whole prefix, not merely the probability of the last token. Greedy keeps one active path. Beam search expands all live paths, ranks the resulting prefixes together, and keeps the frontier.",
-        "The important moment is the first pruning point. In the toy tree, `ran` starts below `sat`, so greedy throws it away. Beam search with k = 2 keeps it alive. Later, `ran away home` becomes the better complete sequence. The picture is not claiming that beam search is magic. It is showing exactly what extra state buys: reversible commitment for a few alternatives.",
+        "Keep k partial sequences alive instead of one. At each step, expand all k prefixes by the full vocabulary, score every candidate by its cumulative probability, and keep only the top k. This is frontier pruning: the decoder carries a fixed-width frontier through the exponential tree, discarding everything outside the top k at each level.",
+        "The ranking is cumulative, not local. A prefix is scored by the product of all token probabilities from the start (in practice, a sum of log-probabilities to avoid underflow). A token that loses at step one can survive because its later continuations lift the total score above competitors. k = 1 recovers greedy decoding. Larger k searches wider at roughly linear cost.",
       ],
     },
     {
-      heading: "Why it works",
+      heading: 'How it works',
       paragraphs: [
-        "Beam search works when the scoring rule gives useful partial guidance. If a good final sequence tends to have good prefixes, keeping the top k prefixes preserves enough of the useful search space while discarding most of the exponential tree. It is an approximate best-first search with a hard memory cap.",
-        "It is not an optimality proof. A beam can prune the eventual best sequence early. The method only guarantees that each step keeps the best k prefixes according to the current score among candidates it generated at that step. Increasing k reduces the chance of early loss but raises cost. Infinite k becomes exhaustive search, which defeats the reason beam search exists.",
+        "Initialize with k = beam width copies of the start-of-sequence token, each with score 0 (log-probability). At each decoding step: (1) run the model forward on all k live prefixes to get next-token distributions, (2) for each prefix, combine its accumulated log-probability with each candidate token's log-probability to get k times V candidate scores, (3) select the top k candidates across all prefixes, (4) update the beam with these k new prefixes.",
+        "The loop continues until enough beams emit an end-of-sequence token, a maximum length is reached, or a task-specific stopping condition fires. Completed beams are moved to a finished set and compared against still-running beams after length normalization.",
+        "Each beam record stores its token sequence, accumulated score, parent pointer, and completion flag. In a transformer decoder, every beam also carries its own KV cache because each prefix has different attention history. Length normalization divides the log-probability by length^alpha (alpha typically 0.6 to 1.0) to prevent short outputs from winning simply because they multiplied fewer numbers less than one. Coverage penalties in translation systems penalize beams that ignore source words.",
       ],
     },
     {
-      heading: "Cost and tradeoffs",
+      heading: 'Why it works',
       paragraphs: [
-        "The rough time cost scales with output length T, beam width k, vocabulary size V, and model step cost M. A simple mental model is that beam search multiplies decoding by k, then adds selection over the vocabulary candidates. Efficient top-k operations avoid fully sorting kV candidates, but the vocabulary projection and model forward pass still dominate many systems.",
-        "Memory scales with k too. Each live beam needs tokens, score, parent links, and cached attention state. For large transformer decoders, KV cache memory can matter more than the bookkeeping arrays. Larger beams also reduce batching efficiency if beams finish at different times or require different constraints.",
-        "The behavioral tradeoff is quality versus diversity. Beam search favors high-probability sequences. In translation or transcription, that often matches the product goal. In open-ended chat, it can produce bland, repetitive, similar beams. Sampling methods such as nucleus sampling and temperature often fit open-ended generation better because they intentionally allow controlled variety.",
+        "Beam search is an approximate best-first search with a hard memory cap. It works when the scoring function provides useful partial guidance — when good final sequences tend to have good prefixes. Under that condition, keeping the top k prefixes at each level preserves enough of the useful search space while discarding most of the exponential tree.",
+        "There is no optimality guarantee. A beam can prune the globally best sequence at an early step if its prefix score falls outside the top k. The method guarantees only that each step retains the best k candidates among those it actually generated. Increasing k reduces the chance of early pruning but cannot eliminate it. In the limit, k approaching the full branching factor recovers exhaustive search — which is exactly what beam search exists to avoid.",
       ],
     },
     {
-      heading: "Where it wins",
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Beam search wins when the task has a narrow target and a strong scoring model. Neural machine translation, speech recognition, OCR, image captioning, summarization, and grammar-constrained generation are natural fits. In these settings, the system often wants one best sequence, not ten creative alternatives.",
-        "Constrained beam search is especially useful when validity matters. A decoder can require certain words, obey a JSON schema, respect a grammar, or track finite-state constraints while still ranking candidates by model score. This makes beam search a bridge between probabilistic generation and symbolic validity rules.",
+        "Time per sequence is O(k * V * T), where k is beam width, V is vocabulary size, and T is output length. Each step runs k forward passes through the model and selects the top k from k*V candidates. k = 1 is greedy. k = 5 (a common production value) costs roughly 5x greedy decoding time.",
+        "Memory scales with k. Each beam carries tokens, scores, parent pointers, and cached attention state. For large transformers, the KV cache per beam is the dominant memory cost — a 7B-parameter model with 32 layers, 32 heads, and 2048-token context can use several gigabytes of KV cache per beam. Five beams means five copies of that state.",
+        "Doubling k doubles decode cost but does not double quality. Empirically, translation quality plateaus around k = 4 to 10. Beyond that, returns diminish and can even reverse — a phenomenon called the beam search curse, where larger beams find sequences the model scores highly but humans rate lower.",
       ],
     },
     {
-      heading: "Failure modes",
+      heading: 'Real-world uses',
       paragraphs: [
-        "The most common misconception is that a larger beam is always better. It is not. Larger beams can expose mismatch between model probability and human quality. They can also make length penalties more fragile. If the score prefers short safe outputs or generic phrases, a wider beam may find those more reliably.",
-        "Beam search can also collapse. If the model distribution is low entropy, many beams become near-duplicates with tiny wording changes. Diversity-promoting beams can force variety, but then the decoder has another objective to tune. If the model itself is wrong, beam search only searches the model's mistakes more carefully.",
-        "Stopping is another source of bugs. A decoder must decide when completed beams can beat unfinished beams, how to normalize length, and how to handle end-of-sequence. Small mistakes here can make outputs too short, too long, or dependent on arbitrary tie-breaking.",
+        "Machine translation has been the flagship application since the seq2seq revolution (Sutskever et al. 2014, Bahdanau et al. 2015). Translation has a narrow correct answer space and a strong scoring model, so beam search's bias toward high-probability sequences matches the goal. Production MT systems typically use k = 4 to 8.",
+        "Speech recognition uses beam search to decode CTC or attention-based outputs, often combined with a language model score. Image captioning, summarization, and OCR also fit: all are tasks where one best output is desired and diversity is not a virtue.",
+        "Constrained decoding extends beam search to enforce structural rules — valid JSON, grammar constraints, required phrases, or finite-state output formats. The beam explores only candidates that satisfy the constraint, combining probabilistic ranking with symbolic validity. This makes beam search the natural bridge between neural generation and structured output requirements.",
       ],
     },
     {
-      heading: "Study next",
+      heading: 'Where it fails',
       paragraphs: [
-        "Study Softmax & Temperature first, because beam scores come from token probabilities. Then study KV Cache to understand why each beam carries prefix state, Transformer Block to see where logits come from, and Entropy & Information to understand why some distributions collapse to similar beams.",
-        "For search contrasts, study A* Search, Graph BFS, Tree of Thoughts Search Case Study, Self-Consistency Reasoning Vote, Process Reward Models & Verifier Search, and Speculative Decoding. Beam search keeps competing prefixes. Self-consistency samples full paths and votes. Tree of Thoughts searches semantic states. Speculative decoding targets speed rather than alternate futures.",
+        "The beam search curse: larger beams sometimes produce worse output. Koehn and Knowles (2017) showed that translation quality can degrade beyond k = 10. The cause is model-quality mismatch — the model's probability ranking does not perfectly track human quality, and wider search exposes the gap. A wider beam finds sequences the model likes but humans do not.",
+        "Repetition and blandness. Beam search maximizes probability, and high-probability text tends to be generic. Open-ended generation (dialogue, creative writing, code) benefits from controlled randomness. Nucleus sampling (top-p) and temperature scaling are preferred for these tasks because they deliberately allow lower-probability tokens, producing more diverse and natural text.",
+        "Beam collapse. When the model distribution is low-entropy, multiple beams converge to near-identical sequences with minor wording differences, wasting the extra compute. Diverse beam search (Vijayakumar et al. 2018) penalizes similarity between beams, but adds another hyperparameter to tune.",
+        "Stopping bugs. The decoder must decide when a completed beam can be compared against unfinished beams, how to normalize for length, and when all beams are finished. Small errors in these decisions produce outputs that are systematically too short, too long, or sensitive to arbitrary tie-breaking.",
       ],
-    }
-  ]
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Vocabulary: {A, B, C, <end>}. Beam width k = 2. We decode 3 steps. All probabilities are conditional on the prefix so far; joint probability is the running product.",
+        "Step 1 — expand the start token. P(A) = 0.5, P(B) = 0.3, P(C) = 0.2. Score each: log P(A) = -0.30, log P(B) = -0.52, log P(C) = -0.70. Keep top 2: A (joint 0.50) and B (joint 0.30). C is pruned.",
+        "Step 2 — expand both beams. From A: P(A|A) = 0.3, P(B|A) = 0.4, P(C|A) = 0.3. Joint scores: AA = 0.50 * 0.3 = 0.15, AB = 0.50 * 0.4 = 0.20, AC = 0.50 * 0.3 = 0.15. From B: P(A|B) = 0.6, P(B|B) = 0.2, P(C|B) = 0.2. Joint scores: BA = 0.30 * 0.6 = 0.18, BB = 0.30 * 0.2 = 0.06, BC = 0.30 * 0.2 = 0.06. All six candidates ranked: AB (0.20), BA (0.18), AA (0.15), AC (0.15), BB (0.06), BC (0.06). Keep top 2: AB (0.20) and BA (0.18). Four candidates pruned.",
+        "Step 3 — expand AB and BA. From AB: P(A|AB) = 0.2, P(B|AB) = 0.5, P(C|AB) = 0.3. Joint scores: ABA = 0.20 * 0.2 = 0.04, ABB = 0.20 * 0.5 = 0.10, ABC = 0.20 * 0.3 = 0.06. From BA: P(A|BA) = 0.3, P(B|BA) = 0.4, P(C|BA) = 0.3. Joint scores: BAA = 0.18 * 0.3 = 0.054, BAB = 0.18 * 0.4 = 0.072, BAC = 0.18 * 0.3 = 0.054. All six: ABB (0.10), BAB (0.072), ABC (0.06), BAA (0.054), BAC (0.054), ABA (0.04). Winner: ABB at joint probability 0.10.",
+        "Greedy comparison. Greedy picks A (0.50), then B (highest at 0.4, giving AB = 0.20), then B again (highest at 0.5, giving ABB = 0.10). Here greedy and beam search agree. But change step 2 so that P(A|B) = 0.9: then BA = 0.27, and beam search keeps BA alive while greedy never sees it. The beam finds BAB = 0.27 * 0.4 = 0.108, beating ABB = 0.10. Greedy cannot recover because it discarded B at step 1.",
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        "Lowerre 1976 (The HARPY Speech Understanding System) introduced beam search for speech recognition. Sutskever, Vinyals, and Le 2014 (Sequence to Sequence Learning with Neural Networks) established beam search as the standard decoder for neural seq2seq models. Freitag and Al-Onaizan 2017 (Beam Search Strategies for Neural Machine Translation) showed diminishing returns and occasional degradation with large beams. Koehn and Knowles 2017 (Six Challenges for Neural Machine Translation) documented the beam search curse. Vijayakumar et al. 2018 (Diverse Beam Search) proposed inter-beam dissimilarity penalties.",
+        "Prerequisites if unfamiliar: Softmax and Temperature (how token probability distributions are shaped before beam search explores them). Extensions: Speculative Decoding (draft-and-verify for faster generation), KV Cache (the attention state each beam must carry independently). Alternatives: top-k sampling and nucleus (top-p) sampling (controlled randomness preferred for open-ended generation), A* Search (optimal search with admissible heuristics — beam search trades optimality for bounded memory).",
+      ],
+    },
+  ],
 };
+

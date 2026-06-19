@@ -81,7 +81,7 @@ export function* run(input) {
   yield {
     state: matrixState({ title: 'Concatenate: each head contributes its slice of the output', rows, columns: dimCols, values: concat }),
     highlight: { active: ['q2:d0', 'q2:d1'], compare: ['q2:d2', 'q2:d3'] },
-    explanation: 'Each head computes its weighted mix of (its own) value vectors — real arithmetic on the patterns you just saw — and the outputs are CONCATENATED side by side: head 1 fills the first dimensions, head 2 the rest. Look at "sat"\'s row: its left half encodes "what came before me" (head 1), its right half "the noun I relate to" (head 2). One final learned matrix (W_O) then blends the slices. The accounting trick: each head works in dims/heads dimensions, so 8 heads cost the SAME total compute as one full-width head — diversity is free.',
+    explanation: 'Each head computes its weighted mix of (its own) value vectors — real arithmetic on the patterns you just saw — and the outputs are CONCATENATED side by side: head 1 fills the first dimensions, head 2 the rest. Look at "sat"\\u2019s row: its left half encodes "what came before me" (head 1), its right half "the noun I relate to" (head 2). One final learned matrix (W_O) then blends the slices. The accounting trick: each head works in dims/heads dimensions, so 8 heads cost the SAME total compute as one full-width head — diversity is free.',
   };
 
   yield {
@@ -94,105 +94,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why multiple heads exist',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Multi-head attention exists because one token usually needs several kinds of context at once. In a sentence, a token may need the previous word for local order, the subject for agreement, a distant delimiter for structure, and a repeated phrase for copying. In code, it may need the current indentation level, the matching bracket, the variable definition, and the import that made a symbol available.',
-        'A single attention head produces one normalized attention distribution per query token. That one distribution can mix information from many places, but it must express all relationships as one compromise. Multi-head attention removes that bottleneck by running several attention mechanisms in parallel. Every head sees the same input sequence, but each head has its own learned query, key, and value projections, so each can learn a different comparison space.',
-        'The design is simple but powerful: split the model width into several head-sized channels, compute attention independently in each channel, concatenate the outputs, and use a learned output projection to mix them back together. The model gets many attention patterns without making every head full-width.',
+        "Each frame shows the same four tokens scored under independent attention heads. Rows are query tokens, columns are key tokens, and cell intensity shows attention weight. Every row sums to 100% because each head applies its own softmax.",
+        "Head 1's highlights cluster near the diagonal: each token attends to its predecessor (a positional pattern). Head 2's highlights cluster on the 'cat' column: every token attends to the noun (a semantic pattern). The two heads see identical input but extract different relationships because they use different learned projections.",
+        "The concatenation frame shows the output vector split into head slices. Left columns carry head 1's positional signal, right columns carry head 2's semantic signal. Compare the highlighted and comparison cells for the same token to see that one row encodes two independent kinds of evidence.",
       ],
     },
     {
-      heading: 'The naive single-head design',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious design is one full-width attention head. Project tokens into queries, keys, and values, compute QK^T, apply a softmax, mix values, and pass the result onward. This is enough to explain attention, and it can solve toy examples. It fails as a general architecture because every query token receives only one attention row.',
-        'One row is a poor place to store incompatible needs. Suppose the token "sat" should attend strongly to "cat" because it is the subject, but it should also attend to the previous token because local order is useful for continuation. One softmax distribution can split weight between them, but it cannot separately preserve the semantic relationship and the positional relationship as two clean signals.',
-        'Making the single head wider does not fully solve the problem. More dimensions inside one head give a richer scoring space, but the head still emits one attention pattern. Multi-head attention creates several independently normalized patterns. The independence of those softmaxes is the point.',
+        "A single attention head computes one softmax distribution per query token. That one distribution must express every relationship the token needs -- word order, subject agreement, coreference, copying -- as a single weighted average. When 'sat' needs to attend strongly to its predecessor 'cat' for local order AND to a distant noun for agreement, one softmax row cannot cleanly separate the two signals. Weight given to one target is weight taken from the other.",
+        "Vaswani et al. (2017) introduced multi-head attention in 'Attention Is All You Need' to remove this bottleneck. Instead of one attention pattern per layer, the model runs h independent attention computations in parallel, each with its own learned W_Q, W_K, W_V projections. Each head is free to specialize in a different type of relationship -- syntax, position, coreference, rare-token detection -- without interfering with the others.",
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The invariant is that each head owns its own Q, K, V projections and its own row-normalized attention matrix. A head can only output weighted mixtures of its own value vectors, and each query row in that head sums to one. The heads do not vote on one shared attention map. They produce separate maps, separate value mixtures, and separate output slices.',
-        'This gives the model structured diversity. Head 1 may make adjacent-position comparisons easy. Head 2 may make noun-like tokens easy to find. Head 3 may specialize in delimiters. Head 4 may become useful for repeated-token induction. These roles are not hand-coded. They emerge because the learned projections make different relationships linearly visible in different head spaces.',
-        'If the model width is d_model and there are H heads, each head often uses d_model / H dimensions. The total width stays fixed, so multi-head attention is not simply "do H times more full attention." It is a layout that spends the same broad representation budget on several smaller relationship channels.',
+        "The obvious approach is a single wide attention head: project tokens to queries, keys, and values in the full d_model-dimensional space, compute one attention matrix, and produce one weighted mixture per token. This works. It captures the single strongest relationship pattern the training signal rewards.",
+        "For simple tasks that demand one kind of attention, a single head is enough. Early neural attention mechanisms (Bahdanau et al. 2014) used exactly this: one attention distribution between encoder and decoder, sufficient for short-sequence translation where alignment is the dominant relationship.",
       ],
     },
     {
-      heading: 'How one head works',
+      heading: 'The wall',
       paragraphs: [
-        'For one head h, the computation is softmax(Q_h K_h^T / sqrt(d_head)) V_h. Q_h, K_h, and V_h come from learned projections of the current token representations. The dot product between a query and a key is a compatibility score. Dividing by sqrt(d_head) keeps scores from becoming too large as the head dimension grows.',
-        'The softmax turns each row of scores into a probability-like distribution over source positions. That row says how much this query token will read from every value vector in the same head. The output for the token is a weighted sum of those value vectors.',
-        'The important discipline is shape discipline. For a batch of sequences, implementations usually hold attention data in shapes like batch, heads, query positions, key positions. Bugs in masks, head reshaping, or transposes can silently produce attention over the wrong axis. Multi-head attention is mathematically simple enough to write down in one line, but production correctness depends on boring tensor layout details.',
+        "The wall is the softmax bottleneck. A single head applies softmax to one row of compatibility scores, producing one probability distribution over all keys. That distribution is the token's only channel for receiving context. If 'sat' needs 80% attention on 'cat' (predecessor) AND 80% attention on a distant subject noun, the softmax forces a compromise: the two needs compete for the same probability mass.",
+        "This is not a capacity problem that wider dimensions can fix. A wider single head has a richer scoring space, but it still produces one normalized row per query. Every relationship -- syntactic, positional, semantic -- feeds into the same softmax and competes. A head that learns syntax cannot simultaneously be a clean positional tracker because the two patterns require different attention peaks, and one softmax can only express one peak pattern per row.",
+        "The problem compounds with sequence length and task complexity. In 'The cat that the dog chased sat on the mat,' 'sat' needs to track its subject 'cat' (four tokens back, past an intervening clause), the preceding verb 'chased' (local context), and the prepositional target 'mat' (forward context in bidirectional models). One distribution cannot sharply attend to all three.",
       ],
     },
     {
-      heading: 'Concatenation and mixing',
+      heading: 'The core insight',
       paragraphs: [
-        'After every head produces an output vector for every token, the model places those head outputs side by side. If there are two heads with two dimensions each, each token gets four dimensions before the output projection. In real models the numbers are larger, but the accounting is the same: concatenate head slices into one token vector.',
-        'The output projection W_O then mixes those slices. This matters because later layers do not receive a neat list of head reports. They receive a blended representation. A head can be useful because of how W_O combines it with another head, or because the following feed-forward layer turns a weak signal into a strong feature.',
-        'That is also why head interpretation is hard. An attention map shows where a head read from, not the full computation performed by the block. The value vectors, output projection, residual stream, normalization, and feed-forward sublayer all affect what the model actually uses.',
+        "Split the model width into h independent heads, each operating in d_k = d_model/h dimensions. Give each head its own W_Q, W_K, W_V projections and its own softmax. The heads produce separate attention maps, separate value mixtures, and separate output slices. Concatenate the slices and apply one learned output projection W_O to blend them.",
+        "Each head owns its own softmax, so head 1 can put 80% of attention on the previous token while head 2 simultaneously puts 80% on the subject noun. These are independent probability distributions that do not compete. The concatenation preserves both signals; W_O then mixes them so downstream layers see one representation carrying evidence from multiple relationship types.",
+        "The roles are not hand-coded. They emerge from gradient descent because each head's learned projections make different relationships linearly separable in different subspaces. Interpretability research has found heads that track syntax (dependency arcs), position (attend to predecessor or successor), coreference ('her' attending to its antecedent), induction (repeat what followed last time), and rare-token detection.",
       ],
     },
     {
-      heading: 'Positions, masks, and caches',
+      heading: 'How it works',
       paragraphs: [
-        'A head needs position information because attention over plain token embeddings is order-blind. Transformer models add positional encodings or use RoPE-style rotations in query-key space so heads can learn distance, order, and relative structure. Without position, the set of tokens would be visible but their order would be much harder to recover.',
-        'Decoder-only language models also use a causal mask. The mask prevents a token from attending to future positions during training and generation. A single bad mask can leak future tokens and create impossible training results, so mask tests are part of the core implementation, not an optional detail.',
-        'During inference, each layer stores past keys and values for each head in the KV cache. This makes generation practical because the model does not recompute K and V for the whole prefix at every step. The cost is memory: layers times sequence length times K/V head count times head dimension. Grouped-query attention and multi-query attention reduce this cost by sharing fewer key-value heads across many query heads.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The visual shows the same four tokens under two different attention patterns. One head mostly follows the previous token. Another mostly looks at "cat." Both can be useful because they answer different questions about the same sequence. The point is not that every model has exactly these two roles. The point is that one input can be scored through multiple learned attention spaces at once.',
-        'The final matrix shows the data-flow contract. The first part of each output row comes from one head and the second part comes from another head. Concatenation preserves the separate slices long enough for W_O to mix them. That is the mechanism that turns parallel relationship detectors into one representation stream.',
-        'This also explains why deleting or merging heads is not always harmless. Some heads are redundant, especially in large models, but others provide a relationship channel that later computation expects. The right question is empirical: what happens to loss, behavior, and downstream tasks when this head or head group is removed?',
+        "Start with token representations X of shape (n, d_model). For each head h, project: Q_h = X W_Qh, K_h = X W_Kh, V_h = X W_Vh, where each projection matrix is (d_model, d_k). Compute attention: A_h = softmax(Q_h K_h^T / sqrt(d_k)), yielding an (n, n) attention matrix. Multiply: O_h = A_h V_h, producing (n, d_k) output per head.",
+        "Concatenate all head outputs: O = [O_1 ; O_2 ; ... ; O_h], shape (n, h * d_k) = (n, d_model). Apply the output projection: result = O W_O, where W_O is (d_model, d_model). The result enters the residual stream -- attention does not replace the token representation, it adds a communication update.",
+        "The scaling factor 1/sqrt(d_k) prevents dot products from growing large as d_k increases, which would push softmax into saturation where gradients vanish. This is the same scaling used in single-head attention, applied per head in the smaller d_k space.",
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Multi-head attention works because it gives the model several communication channels at the same layer. A token representation can receive local order evidence, syntax evidence, copying evidence, and topic evidence before the next layer transforms it. Stacking layers then lets later heads attend over representations that already contain earlier head mixtures.',
-        'The design also works well on accelerators. Implementations usually pack Q, K, and V projections into large matrix multiplications, then reshape into heads. The architecture says "many heads," but the hardware can still see large batched tensor operations. This is why multi-head attention became practical rather than an elegant but slow loop over many tiny modules.',
-        'The residual stream makes the result even more useful. Attention does not replace the token representation; it adds a communication update that later normalization and feed-forward layers process. Multi-head attention is therefore one stage in a repeated refine-and-mix cycle, not a standalone reasoning engine.',
+        "Multi-head attention works because it gives the model h independent communication channels at the same layer. Before the next layer transforms it, a token representation has already received local-order evidence from one head, syntax evidence from another, copying evidence from a third, and topic evidence from a fourth. Stacking layers compounds this: later heads attend over representations that already contain earlier head mixtures.",
+        "The design maps cleanly onto hardware. Implementations pack all h heads' Q, K, V projections into three large matrix multiplications (X W_Q, X W_K, X W_V where each W is d_model by d_model), then reshape the result into (batch, heads, seq, d_k). The architecture says 'many heads,' but the GPU sees large batched matmuls. This is why multi-head attention is practical rather than an elegant but slow loop over tiny modules.",
+        "The residual connection is structurally important. The attention output is added to the input, not substituted. This means a head that learns nothing useful passes near-zero through W_O and does not damage the representation. The residual stream lets heads specialize without risk: a head's contribution is additive, so a weak head is harmless and a strong head is immediately useful.",
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'With d_model held constant, multi-head attention has roughly the same broad asymptotic attention cost as one full-width attention layer: about O(n^2 d_model) for attention scores and value mixing, plus O(n d_model^2) for projections. The difference is layout and memory behavior. Training may need attention probability tensors shaped by batch, heads, query tokens, and key tokens. Long context still makes the token-pair term expensive.',
-        'More heads are not automatically better. If d_model stays fixed, adding heads shrinks d_head. A very small head dimension can weaken each scoring space. Too many heads can add kernel overhead, memory pressure, or redundancy without improving quality. Production models choose head count together with width, context length, attention kernel, batch shape, and KV-cache budget.',
-        'Serving cost is often dominated by memory bandwidth. During decode, the model repeatedly reads cached keys and values. More key-value heads mean more bytes per token. Grouped-query attention keeps many query heads for expressiveness while sharing fewer K/V heads to reduce cache size and bandwidth pressure.',
+        "With d_model fixed, multi-head attention costs the same as single-head attention with the same width. Each head computes an (n, n) attention matrix costing O(n^2 d_k) and a value mix costing O(n d_k^2). Summed over h heads: h * n^2 * d_k = n^2 * d_model for scores, and h * n * d_k^2 for value mixing. The projections (Q, K, V, O) cost O(n d_model^2). The n^2 term dominates for long sequences; the d_model^2 term dominates for short ones.",
+        "Doubling the number of heads (with d_model fixed) halves d_k per head. The total parameter count stays the same: h projection matrices of size (d_model, d_k) equals one matrix of size (d_model, d_model). The total FLOP count stays the same. What changes is the expressiveness tradeoff: more heads means more independent attention patterns but each head's scoring space is narrower. GPT-3 uses 96 heads with d_k = 128; smaller models use 8-16 heads.",
+        "Serving cost is dominated by memory bandwidth, not compute. During autoregressive decoding, the model reads cached keys and values for every head at every layer at every token. More K/V heads means more bytes per generated token. Grouped-query attention (GQA) addresses this by sharing fewer K/V heads across many query heads, cutting cache size while preserving query-side expressiveness.",
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Implement QKV projection as a shape contract. Start from batch, sequence, d_model. Project to Q, K, V. Reshape to batch, heads, sequence, d_head. Apply RoPE or positional logic in the intended space. Apply masks before softmax. Multiply by V. Then transpose and reshape back to batch, sequence, d_model before W_O. Most bugs are not in the formula; they are in one mistaken reshape, mask broadcast, or cache offset.',
-        'Test tiny examples where the expected mask is obvious. A causal token should never read a future token. Padding positions should not receive attention. A cached decode step should match full-prefix recomputation within tolerance. Grouped-query attention should map query heads to the correct shared K/V heads. These tests catch failures that can otherwise look like ordinary model noise.',
-        'For performance, prefer fused attention kernels when the shapes allow them, and watch memory layout. Head dimension, dtype, sequence length, and mask type determine which kernels run. A model can be architecturally correct but slow because its head layout misses the fast path on the target hardware.',
+        "Sentence: ['the', 'cat', 'sat']. d_model = 4, h = 2, so d_k = 2. Each token starts as a 4D embedding vector.",
+        "Head 1 projects all 3 tokens through W_Q1, W_K1, W_V1 (each 4x2), producing Q_1, K_1, V_1 of shape (3, 2). Compute scores = Q_1 K_1^T / sqrt(2), a 3x3 matrix. After softmax, suppose 'sat' puts weight [0.06, 0.82, 0.12] -- 82% on 'cat', its predecessor. This head learned a positional habit. Multiply by V_1 to get a (3, 2) output where 'sat' mostly carries 'cat's value vector.",
+        "Head 2 uses its own W_Q2, W_K2, W_V2. After softmax, suppose 'sat' puts weight [0.10, 0.75, 0.15] -- 75% on 'cat' again, but for a different reason: this head finds the subject noun regardless of position. 'the' also puts 74% on 'cat'. Same token, same 75% peak, but different learned projections driving it -- positional proximity vs. semantic role.",
+        "Concatenate: each token gets a 4D vector. 'sat' = [head1_d0, head1_d1, head2_d0, head2_d1]. The left half encodes 'what came before me'; the right half encodes 'the noun I relate to.' Apply W_O (4x4) to blend the slices into one representation. Before W_O, each head's contribution is cleanly separated; after W_O, downstream layers see one vector carrying both kinds of evidence.",
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Multi-head attention wins when a representation needs several relationship types at once. Language models use heads for local order, syntax, copying, delimiters, references, and long-range topic structure. Code models use them for brackets, indentation, variable reuse, imports, and test-output context. Vision Transformers use heads over image patches. Audio models can use heads over time-frequency features.',
-        'It is especially useful when the model must combine local and distant evidence. One head can read the nearby phrase while another reaches to the start of the document. One can track punctuation while another tracks entities. The next layer receives a representation that has already collected several kinds of evidence.',
+        "Language models (GPT, Llama, Claude) run multi-head attention at every layer. GPT-3 uses 96 heads across 96 layers -- over nine thousand independent attention computations per forward pass. Interpretability researchers (Olsson et al. 2022) have cataloged head types: induction heads that copy patterns, previous-token heads, syntax heads that track dependency arcs, and rare-token detectors.",
+        "Vision Transformers (ViT, Dosovitskiy et al. 2020) apply multi-head attention over image patches. Different heads learn to attend to different spatial relationships: local texture, global shape, color consistency. Audio models (Whisper) use heads over time-frequency features for speech recognition.",
+        "The pattern extends beyond Transformers. Cross-attention in encoder-decoder models uses multi-head attention between two sequences (source and target). Perceiver IO uses it between a latent array and arbitrary input modalities. Any architecture that needs to compare elements of a sequence benefits from multiple independent comparison channels.",
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not treat one attention map as a complete explanation of a model answer. A head may be polysemantic, useful only on certain data, or important only after W_O and later layers transform its output. Some heads can be pruned with little immediate loss, but that does not prove they were meaningless during training or under distribution shift.',
-        'Do not confuse head count with context length or reasoning depth. Long context depends on position methods, attention kernels, memory bandwidth, KV-cache capacity, and training data. Reasoning depends on the whole network and the generation process. Multi-head attention gives the model richer communication channels, but it does not by itself guarantee factuality, planning, or interpretability.',
-        'Also watch for implementation failures hidden by scale. A wrong mask can let training cheat. A bad cache offset can make decode differ from prefill. A mistaken head grouping can silently reduce quality. Because models are noisy systems, these bugs may first appear as small benchmark regressions rather than obvious crashes.',
+        "Many heads are redundant. Michel et al. (2019, 'Are Sixteen Heads Really Better than One?') showed that in trained Transformers, many heads can be pruned after training with negligible loss increase. Voita et al. (2019) found that only a small fraction of heads perform identifiable specialized roles; the rest are ensemble redundancy. This is not waste -- it resembles Random Forest redundancy, providing robustness -- but it means head count is not a direct measure of model capability.",
+        "Head pruning works precisely because of this redundancy. If each head captured a unique, critical relationship, removing any head would be catastrophic. The fact that it is not tells us that heads over-provision: the model trains more heads than it strictly needs, and gradient descent distributes similar functions across several heads as insurance.",
+        "Attention maps are also misleading as explanations. A head's attention pattern shows where it read from, not what the model computed. The value vectors, output projection W_O, residual stream, layer normalization, and feed-forward sublayer all transform the signal before it affects the output. Treating a single attention heatmap as 'the model's reasoning' ignores most of the computation.",
+        "Multi-head attention does not solve long-range reasoning by itself. The O(n^2) cost per layer makes very long contexts expensive. Position encoding quality, KV cache memory, training data, and the full network depth all constrain what the model can actually use from distant context.",
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Attention Mechanism until the Q, K, V formula is automatic. Then study The Transformer Block, where multi-head attention becomes the first sublayer inside a residual stack. Read RoPE for position inside head space, KV Cache for inference memory, Grouped-Query Attention for K/V sharing, FlashAttention for kernel-level memory behavior, Transformer Layer FLOPs Cost Model for cost accounting, and Sparse Autoencoder Feature Dictionary Case Study for a stronger way to test feature-level stories.',
+        "Vaswani et al. 2017 ('Attention Is All You Need') introduced multi-head attention as part of the Transformer architecture. Michel et al. 2019 ('Are Sixteen Heads Really Better than One?') demonstrated that many heads can be pruned post-training, revealing that head count provides ensemble redundancy rather than strict necessity. Voita et al. 2019 ('Analyzing Multi-Head Self-Attention') showed heads specialize into distinct roles -- positional, syntactic, rare-token -- and only a few are critical per layer.",
+        "Prerequisite: Attention Mechanism -- single-head Q/K/V attention is the atomic building block; multi-head attention is h parallel copies of it. Natural extensions: The Transformer Block, where multi-head attention is the first sublayer inside a residual-normalize-feedforward stack. KV Cache, the memory structure that stores past keys and values per head during inference. RoPE (Rotary Embeddings), the position-encoding method that operates inside each head's query-key space. Contrasting alternative: Grouped-Query Attention, which shares K/V heads across query heads to cut cache size while preserving multi-head expressiveness.",
       ],
     },
   ],
 };
+

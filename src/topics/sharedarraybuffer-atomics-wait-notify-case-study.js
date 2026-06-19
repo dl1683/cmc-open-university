@@ -1,4 +1,4 @@
-// SharedArrayBuffer and Atomics: shared browser memory, typed-array views,
+﻿// SharedArrayBuffer and Atomics: shared browser memory, typed-array views,
 // ring-buffer coordination, wait/notify, and isolation requirements.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -241,6 +241,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for SharedArrayBuffer & Atomics. A browser shared-memory primer: SharedArrayBuffer, typed-array views, cross-origin isolation, Atomics operations, wait/notify, and ring-buffer backpressure..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Most browser concurrency is message passing. A page posts a value to a worker, the platform serializes it, and the worker receives its own copy or ownership of a transferred resource. That is the right default because it keeps mutation local. Some workloads, though, move the same bytes through many stages: audio processing, video analysis, WebAssembly threads, model inference, stream parsing, and worker pools.',
@@ -262,7 +271,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core layout',
+      heading: 'The core insight',
       paragraphs: [
         'A common design splits the buffer into control words and payload bytes. The control words use an Int32Array view because Atomics.wait and Atomics.notify operate on Int32Array or BigInt64Array views backed by SharedArrayBuffer. The payload may use a Uint8Array, Float32Array, WebAssembly memory view, or a domain-specific record layout.',
         'The core invariant is publish before notify, then recheck after wake. A producer writes payload bytes, uses Atomics.store or another atomic operation to publish the new state, and then calls Atomics.notify. A consumer wakes, reloads the control state, verifies that data is available, reads only published bytes, and advances its own control word.',
@@ -283,7 +292,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         'The shared-memory view separates three ideas that are easy to blend together: agents, bytes, and typed-array views. The main thread and worker point at the same SharedArrayBuffer. The Int32Array view is control state. The Uint8Array view is payload. Atomics belongs to the control state, not to every byte of application data.',
         'The wait/notify view shows why a ring is more than a circular array. The payload slots hold records, but head and tail define ownership. The consumer sleeps on a control value, the producer publishes by changing a control value, and wakeup only tells the consumer to inspect memory again.',
@@ -297,7 +306,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Shared memory wins when the same bytes are read and written repeatedly across agents and the copy boundary is a measured bottleneck. WebAssembly threads are the direct case. So are worker pools processing fixed-size records, media pipelines passing frame chunks, and ML or visualization code moving dense numeric arrays between compute and rendering stages.',
         'A real-time audio feature shows the access pattern. The producer writes encoded frames into a shared ring and publishes tail. The worker waits when the ring is empty, wakes when tail changes, decodes or analyzes frames, and advances head. If the ring fills, backpressure is explicit instead of silently overwriting unread data.',
@@ -317,5 +326,69 @@ export const article = {
         'Study Structured Clone & Transferables first so the default clone and ownership-transfer choices are clear. Then study Ring Buffer, Lock-Free Queue, Sequence Lock, Futex Wait Queue Case Study, WebAssembly Linear Memory Case Study, Web Workers: A Second Thread, Backpressure, Work-Stealing Deque Scheduler, and Cross-Origin Isolation: COOP, COEP & CORP.',
       ],
     },
-  ],
+      {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why SharedArrayBuffer & Atomics moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

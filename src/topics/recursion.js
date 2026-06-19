@@ -132,88 +132,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Recursion exists because many problems contain smaller copies of themselves. A folder contains folders. A tree node has child trees. A parser reads an expression made from smaller expressions. In those cases, a function that can solve the smaller case can often solve the whole case.`,
-        `Every recursive solution needs two parts: a base case that stops and a recursive case that makes the problem smaller. Without the base case, calls never bottom out. Without real progress toward it, the program burns through the call stack until it crashes.`,
+        `The animation builds a call tree. Each box is a stack frame: one invocation of the function with its own argument. An "active" frame is currently executing. A "waiting" frame has called a smaller version of itself and cannot finish until that child returns. A "returned" frame has its final value and has handed it back to its parent.`,
+        `Watch the descent first. Each new call pushes a frame, and the tree grows downward until a base case stops the growth. Then watch the unwind: base cases return values upward, and each waiting parent uses those child results to compute its own answer and return in turn. The call stack at any moment is the path from the root down to the currently active frame -- every frame on that path is paused, holding local state, waiting for something below it to finish.`,
+        `For factorial, the tree is a straight chain: each frame calls exactly one child. For Fibonacci, the tree branches: each non-base frame calls two children, and the same subproblem can appear in multiple branches. That repeated work is visible in the animation as duplicate subtrees.`,
       ],
     },
     {
-      heading: `The obvious approach and the wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach for a repeated shape is to write the answer in terms of the smaller shape. Factorial is n times the factorial of n - 1. A tree traversal visits a node, then traverses its children. This is reasonable because the code mirrors the definition of the data.`,
-        `The wall is hidden cost. Some recursion forms a straight chain, like factorial. Some forms a branching tree, like naive Fibonacci. Branching can repeat the same subproblem many times. Recursion can also fail by going too deep for the JavaScript call stack, even when the total work is otherwise simple.`,
+        `Some problems contain smaller copies of themselves. A folder holds folders. A tree node owns child trees. A mathematical expression nests sub-expressions. When the structure of the data is self-referential, a function that handles one layer by delegating the rest to itself is the most direct translation of the problem into code.`,
+        `Recursion as a programming tool dates to John McCarthy's 1960 paper "Recursive Functions of Symbolic Expressions and Their Computation by Machine," which introduced LISP. Before LISP, languages used GOTO and loops; McCarthy showed that recursive function calls could express tree-walking, list processing, and symbolic computation cleanly. The idea was borrowed from mathematical logic, where recursive definitions had been studied since the 1930s by Godel, Church, and Kleene.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `A recursive function is a promise: if smaller calls return correct answers, the current frame knows how to combine them into a correct larger answer. The base case anchors the promise. The recursive case reduces the problem until it reaches that anchor.`,
-        `The shape of the call tree matters more than the fact that the code calls itself. A chain costs one frame per level. A branching tree can grow explosively. A divide-and-conquer tree may still be efficient if each level does controlled work.`,
+        `Iteration. For problems with a flat, sequential shape, a loop with explicit state is simple and efficient. Summing an array, counting occurrences, computing a factorial -- all can be done with a variable, a counter, and a for-loop. The programmer manages exactly which values are in scope and when they change.`,
+        `Iteration works because the programmer is the bookkeeper. You declare the accumulator, update it each pass, and stop when the counter says to stop. No hidden frames, no stack growth, no function call overhead. For straight-line repeated work, this is the right tool.`,
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: 'The wall',
       paragraphs: [
-        `Inspect recursion as a call tree plus a stack. The tree shows the mathematical dependency structure: which smaller problems are being asked. The stack shows runtime reality: which frames are currently unfinished and what each frame is waiting to receive.`,
-        `The most important question is whether the call tree is a chain, a balanced divide-and-conquer tree, or a branching tree with repeated subproblems. That shape determines cost. The code may look compact while the call tree grows far larger than the input suggests.`,
+        `Tree traversal with iteration requires an explicit stack and careful bookkeeping. To visit every node in a binary tree iteratively, you push children onto a stack, pop the next node, process it, push its children, and loop. The code manages the frontier that the call stack would have managed for free. For an in-order traversal, the iterative version needs a state machine tracking whether a node has been descended-into or is ready to be visited.`,
+        `The recursive version is three lines: visit left, process node, visit right. The code mirrors the definition of the tree. Recursive descent parsers read a grammar rule by calling a function for each sub-rule. Divide-and-conquer algorithms split, recurse, and merge. In each case, the recursive code maps directly onto the problem structure, while the iterative version requires the programmer to simulate what the call stack does automatically.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'How it works',
       paragraphs: [
-        `A JavaScript function call creates a frame with arguments, local variables, and a return location. The engine pushes that frame onto the call stack. When the function calls itself, a new frame goes on top. A frame cannot finish until the frames above it finish, which is exactly the Last-In, First-Out behavior taught by Stack.`,
-        `Think of each call as an unfinished question. fact(4) asks "what is 4 times fact(3)?" and pauses. fact(3) asks the smaller version, and so on. When fact(1) returns 1, the answers unwind upward. For Fibonacci, a frame waits for two child answers before it can add them.`,
+        `Every recursive function has two parts. The base case handles the smallest input directly and returns without making another call. The recursive case takes a larger input, does a small amount of work, then calls the same function on a smaller input. Each call creates a new stack frame with its own copy of the arguments and local variables. The call stack stores the return address so the machine knows where to resume when the callee finishes.`,
+        `Factorial: factorial(n) = n * factorial(n - 1), with factorial(0) = 1. The recursive case multiplies n by the result of the smaller call. The base case returns 1 when n reaches 0. Each call shrinks n by exactly one, so after n recursive calls the base case fires and the returns begin unwinding.`,
+        `Each frame is an unfinished multiplication. factorial(5) cannot multiply until factorial(4) returns, which cannot multiply until factorial(3) returns, and so on. At the deepest point, six frames sit on the stack: factorial(5) through factorial(0). When factorial(0) returns 1, the chain collapses: factorial(1) computes 1 * 1 = 1, factorial(2) computes 2 * 1 = 2, factorial(3) computes 3 * 2 = 6, factorial(4) computes 4 * 6 = 24, factorial(5) computes 5 * 24 = 120.`,
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Correctness is usually an induction argument. The base case is correct directly. Then assume the recursive calls solve smaller inputs correctly. If the current frame combines those smaller answers according to the problem rule, the current answer is correct too.`,
-        `Factorial shows the chain version: if fact(k - 1) is correct, then k * fact(k - 1) is fact(k). Tree traversals show the structural version: if the left subtree and right subtree are traversed correctly, then visiting the current node in the chosen order builds the correct whole traversal.`,
+        `Correctness follows from structural induction, which is the recursive version of proof by induction. The argument has two parts. First, verify the base case directly: factorial(0) returns 1, which is correct because 0! = 1 by definition. Second, assume the function returns the correct answer for all inputs smaller than n (this is the inductive hypothesis), and show that the recursive case produces the correct answer for n.`,
+        `For factorial: assume factorial(n - 1) correctly returns (n - 1)!. Then factorial(n) computes n * factorial(n - 1) = n * (n - 1)! = n!. The base case is correct. The recursive case preserves correctness assuming smaller inputs are correct. By strong induction, every input is correct.`,
+        `The same argument applies to any well-founded recursion. For tree traversal: if the left and right subtrees are traversed correctly (inductive hypothesis), and the current node is visited in the right position relative to those traversals, the whole traversal is correct. The key requirement is that each recursive call operates on a strictly smaller input, guaranteeing that the chain of calls eventually reaches a base case and terminates.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost depends on the call tree. Factorial does n calls, so it is O(n) time and O(n) stack space. Naive Fibonacci is exponential, often described as O(2^n) and more tightly O(phi^n), because it recomputes the same values again and again. Memoization (Dynamic Programming) stores each Fibonacci result once, turning the time into O(n).`,
-        `Stack space is not optional. Each unfinished call needs a frame. A million-step chain may be easy for a loop and still unsafe for recursion in JavaScript because engines have finite call stacks. Big-O Growth Rates helps expose both time growth and hidden repeated work.`,
+        `Linear recursion like factorial makes n calls, each doing O(1) work. Total time: O(n). Stack space: O(n), because n frames sit on the call stack simultaneously. Doubling n doubles both the work and the stack depth.`,
+        `Balanced divide-and-conquer recursion like merge sort splits the input in half at each level. The recursion tree has O(log n) levels, each doing O(n) total work across all calls at that level. Total time: O(n log n). Stack depth: O(log n), because only one branch is active at a time. The Master theorem formalizes this: for T(n) = a * T(n/b) + O(n^d), the time depends on whether the branching factor a outgrows, matches, or is outgrown by the per-level work n^d.`,
+        `Tail call optimization (TCO) can eliminate stack growth for certain recursive patterns. When the recursive call is the very last operation in the function -- no pending work after it returns -- the current frame can be reused instead of stacking a new one. This converts O(n) stack space to O(1). The ES6 specification includes TCO, but only Safari implements it. V8 and SpiderMonkey do not, so tail recursion in JavaScript still blows the stack on deep inputs in most environments.`,
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Divide-and-conquer algorithms use recursion because the problem literally splits into smaller problems. Merge Sort sorts the left half, sorts the right half, then merges. Quick Sort partitions around a pivot, then sorts the left and right partitions. Binary Search can be written recursively too, although the iterative version uses less stack space.`,
-        `Tree-shaped data is the strongest use case. File systems, DOM trees, syntax trees, and JSON documents all contain smaller structures of the same kind. Graph algorithms need more care because graphs can have cycles; Graph BFS uses a FIFO queue explicitly, while recursive depth-first search must track a visited set or it may loop forever. Backtracking solvers for Sudoku, mazes, constraint problems, and some regex engines also fit the pattern: choose, recurse, undo, try the next choice.`,
+        `Tree and graph traversal. File systems, DOM trees, syntax trees, and JSON documents are self-similar structures. A recursive traversal visits a node, then recurses on its children. The code directly mirrors the data. Depth-first search on a graph is naturally recursive (with a visited set to handle cycles).`,
+        `Divide and conquer. Merge sort splits, recursively sorts halves, and merges. Quicksort partitions around a pivot, then recursively sorts the two sides. Binary search can be written recursively, though the iterative version uses less stack. In each case, the problem literally becomes smaller copies of itself.`,
+        `Backtracking. N-queens places a queen on each row, recurses to place the rest, and undoes the choice if it leads to a conflict. Sudoku solvers, constraint-satisfaction problems, and some regex engines use the same choose-recurse-undo pattern. The call stack remembers every decision point, making backtracking free.`,
+        `Parsing. Recursive descent parsers define one function per grammar rule. Each function recognizes its piece of syntax by calling functions for sub-rules. The call tree mirrors the parse tree.`,
+        `Mathematical definitions. Fibonacci, Ackermann's function, the Euclidean algorithm, and combinatorial formulas like C(n, k) = C(n-1, k-1) + C(n-1, k) are defined recursively. The code is a direct transcription of the definition.`,
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Recursion fails when the base case is missing, unreachable, or not getting closer. It also fails when a simple long chain exceeds the call stack. Do not rely on tail-call optimization being available across browsers and Node runtimes.`,
-        `The common misconception is that recursive code is either always elegant or always slow. Neither is true. The design question is "what call tree am I creating?" A balanced tree traversal is natural. Naive Fibonacci is a repeated-subproblem trap. A million-step linear process usually wants a loop.`,
+        `Stack overflow on deep recursion. JavaScript engines typically allow a few thousand frames. Python's default limit is 1,000. A linear recursion processing a million-element list will crash, even though the equivalent loop runs fine. The fix is iteration or an explicit stack data structure.`,
+        `Function call overhead. Each call pushes a frame, saves registers, and jumps. For tight inner loops on simple operations, this overhead is measurable. A recursive Fibonacci is slower than an iterative one even ignoring the exponential blowup, because of per-call costs.`,
+        `Duplicate computation without memoization. Naive recursive Fibonacci computes fib(3) multiple times when computing fib(5). The call tree grows exponentially -- O(phi^n), where phi is about 1.618 -- because the same subproblems are solved over and over. Memoization stores each result once, collapsing the tree to O(n) calls. Without it, the "elegant" recursive definition is a performance trap.`,
+        `Harder to debug. A deep call stack makes it difficult to inspect intermediate state. Unlike a loop where you can print the accumulator each iteration, recursive state is spread across many frames. Stack traces for deep recursion are long and repetitive.`,
       ],
     },
     {
-      heading: `Complete case study`,
+      heading: 'Worked example',
       paragraphs: [
-        `Consider rendering a nested comment thread. Each comment can have replies, and each reply can have more replies. The recursive shape is direct: render the current comment, then render the list of child comments with one more level of indentation. The base case is a comment with no replies.`,
-        `The same case has real limits. A malicious or imported thread could be thousands of levels deep and overflow the stack. A production renderer may cap depth, convert the traversal to an explicit Stack, or stream batches so the UI stays responsive. Recursion explains the structure; engineering still chooses the safe execution strategy.`,
+        `Trace factorial(5) through all six frames. The descent pushes frames. The unwind computes return values.`,
+        `Push: factorial(5) calls factorial(4). factorial(4) calls factorial(3). factorial(3) calls factorial(2). factorial(2) calls factorial(1). factorial(1) calls factorial(0). At this point, six frames are on the stack: factorial(5) at the bottom, factorial(0) at the top. Each frame except the top is paused at a multiplication it cannot yet perform.`,
+        `Base case: factorial(0) returns 1. No recursive call needed.`,
+        `Unwind: factorial(1) receives 1, computes 1 * 1 = 1, returns 1. factorial(2) receives 1, computes 2 * 1 = 2, returns 2. factorial(3) receives 2, computes 3 * 2 = 6, returns 6. factorial(4) receives 6, computes 4 * 6 = 24, returns 24. factorial(5) receives 24, computes 5 * 24 = 120, returns 120.`,
+        `The answer is 120. Six frames were created and destroyed. Maximum stack depth was six. Each frame held one number (its argument) and one pending multiplication. The total work was five multiplications -- the same as a for-loop from 1 to 5. The recursion added no extra computation, only stack overhead.`,
       ],
     },
     {
-      heading: `What to remember`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Recursion is not a style preference. It is a way to express self-similar structure while relying on the call stack to remember unfinished work. The base case, progress measure, and call-tree shape are the core of the technique.`,
-        `For course design, teach recursion beside Stack and induction. Students should learn to ask three questions before writing code: what is the base case, what gets smaller, and how many frames or repeated subproblems does this create?`,
-        `A good recursion explanation should always include the return path. Beginners often understand the descent but miss the unwind, where waiting frames receive child answers and finish their own work. The stack is not only where calls go down; it is where unfinished obligations come back up.`,
-        `When the call tree repeats the same subproblem, the next lesson is memoization. When the call depth is too large, the next lesson is an explicit Stack or Queue. Recursion is therefore a gateway topic: it teaches structure first, then forces students to choose the right execution strategy.`,
-      ],
-    },
-    {
-      heading: `Sources and study next`,
-      paragraphs: [
-        `References: MDN's recursion glossary entry at https://developer.mozilla.org/en-US/docs/Glossary/Recursion and Eloquent JavaScript's recursion discussion at https://eloquentjavascript.net/03_functions.html. Study Stack to understand the call stack directly. Then read Memoization (Dynamic Programming) to see repeated subproblems collapse from exponential to linear work. Big-O Growth Rates helps you judge the call tree. Regex Backtracking & ReDoS Case Study shows recursive choice search turning into a production latency bug. Zipper Focused Tree shows recursion turned into a navigable focus plus breadcrumbs. Dancing Links & Exact Cover shows recursive backtracking paired with reversible sparse-matrix state. Merge Sort, Quick Sort, Tree Traversals, and Graph BFS show where recursion competes with or complements explicit data structures.`,
+        `John McCarthy, "Recursive Functions of Symbolic Expressions and Their Computation by Machine, Part I" (1960) -- introduced recursive function calls in LISP, making recursion a practical programming tool. Harold Abelson and Gerald Jay Sussman, "Structure and Interpretation of Computer Programs" (1996) -- the deepest treatment of recursive thinking in a programming context.`,
+        `Prerequisite: Stack -- the call stack is a stack, and understanding LIFO order makes the push-and-unwind pattern concrete.`,
+        `Caching repeated work: Memoization and Dynamic Programming -- what happens when the recursive call tree revisits the same subproblems.`,
+        `Recursive algorithms in practice: Merge Sort (divide-and-conquer sorting), Quick Sort (partition-based divide-and-conquer), Tree Traversals (recursion's natural home), Graph DFS (recursive exploration with cycle detection), Backtracking and N-Queens (choose-recurse-undo).`,
+        `When recursion is too deep: convert to an explicit Stack or Queue. When the problem has optimal substructure and overlapping subproblems, move to Dynamic Programming.`,
       ],
     },
   ],

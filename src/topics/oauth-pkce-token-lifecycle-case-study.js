@@ -1,4 +1,4 @@
-// OAuth 2.0 authorization code with PKCE: verifier/challenge binding,
+﻿// OAuth 2.0 authorization code with PKCE: verifier/challenge binding,
 // state correlation, access tokens, refresh tokens, scopes, and rotation.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -206,6 +206,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for OAuth PKCE Token Lifecycle Case Study. A security-state case study: code verifier, code challenge, state, authorization code, access token, refresh token, scopes, and rotation..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'OAuth exists because users should not hand their passwords to every application that wants API access. A photo-printing app should be able to read selected photos without learning the user\'s account password. A CLI tool should receive limited repository access without becoming the identity provider.',
@@ -222,7 +231,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is proof by separation. The authorization code travels through the browser redirect. The code verifier stays with the client until token exchange. The authorization server stores or reconstructs a challenge derived from that verifier. A stolen code is not enough unless the attacker also has the verifier.',
         'The flow also separates identity, authorization, and resource access. The authorization server issues tokens. The resource server validates the access token, audience, issuer, expiry, and scope before serving an API request. The client should not decide its own authority.',
@@ -238,7 +247,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The PKCE-flow view proves which values are allowed to travel. The challenge can go through the browser redirect because it is derived from the verifier. The verifier stays with the client until the back-channel token exchange. The authorization code is short-lived and single-use.',
         'The token-lifecycle view proves that tokens are not interchangeable. A code, access token, refresh token, scope string, and state value all have different purposes. Losing an expired code is different from losing a refresh token that can mint new access.',
@@ -254,7 +263,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'PKCE adds state management. The client must generate and store verifiers, handle redirects, validate state, exchange codes once, track token expiry, and recover cleanly from failed flows. That complexity is the price of avoiding password sharing and front-channel tokens.',
         'Storage choices are tradeoffs, not universal answers. In-memory tokens reduce persistence but hurt user experience after reload. Cookies can be httpOnly but need careful CSRF design. LocalStorage is simple but easy to steal after XSS. Native apps have platform credential stores, but still cannot hide embedded secrets perfectly.',
@@ -270,7 +279,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'PKCE is not a client secret. It protects the code exchange against interception, but it does not make a public client confidential. It does not remove the need for exact redirect URI validation, TLS, state correlation, scope minimization, token expiry, and storage hardening.',
         'Do not put access tokens in URLs. Do not log Authorization headers. Do not request broad scopes because they are convenient. Do not store long-lived tokens where a short-lived session would work. Do not treat refresh tokens like harmless session IDs.',
@@ -283,5 +292,87 @@ export const article = {
         'Primary sources: RFC 7636 PKCE at https://datatracker.ietf.org/doc/html/rfc7636, RFC 6749 OAuth 2.0 at https://datatracker.ietf.org/doc/html/rfc6749, RFC 9700 OAuth 2.0 Security Best Current Practice at https://datatracker.ietf.org/doc/rfc9700/, OAuth.net PKCE at https://oauth.net/2/pkce/, OAuth.net OAuth 2.0 overview at https://oauth.net/2/, and OAuth.net refresh token grant overview at https://oauth.net/2/grant-types/refresh-token/. Study JWT Verification, WebAuthn Passkeys, TLS 1.3 Handshake, JSON-RPC Protocol Case Study, Model Context Protocol Case Study, Zanzibar Authorization Case Study, Macaroon Caveat Chain Case Study, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, SameSite Cookies & CSRF, IndexedDB Object Store Case Study, and Distributed Tracing next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why OAuth PKCE Token Lifecycle Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

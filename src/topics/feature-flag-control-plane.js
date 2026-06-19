@@ -1,4 +1,4 @@
-// Feature flag control plane: evaluate flags from context, route cohorts,
+﻿// Feature flag control plane: evaluate flags from context, route cohorts,
 // observe impact, and roll forward/back without deploying new code.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -209,6 +209,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Feature Flag Control Plane. Progressive delivery as a data structure: flag keys, evaluation context, providers, hooks, targeting rules, cohorts, and kill switches..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A feature flag control plane exists because deploying code and releasing behavior are different actions. A team may want the new code path deployed everywhere but enabled only for employees, one enterprise tenant, one region, or one percent of stable users. It may also need to kill a broken feature without building and shipping a new artifact.',
@@ -216,7 +225,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive switch',
+      heading: 'The obvious approach',
       paragraphs: [
         'The obvious approach is an environment variable or a boolean in a config file. That works for a single global switch in one service. It fails when a rollout needs typed values, tenant targeting, stable percentage cohorts, audit history, experiment metadata, safe defaults, provider outage behavior, and cleanup ownership.',
         'The hidden problem is distribution. Once many services evaluate a flag at runtime, a flag is no longer a scattered if-statement. It is a control plane. It needs consistent rule evaluation, context shape, fallback semantics, observability, and lifecycle management. Without those, flags become invisible branches that change production behavior with weak accountability.',
@@ -244,7 +253,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         'The evaluation-path view proves that a flag decision is a pipeline, not a global variable lookup. The application sends a key and default to the SDK. Context and provider rules meet at evaluation. The resolved variant flows back with reason metadata. Hooks record what happened.',
         'The rollout-safety view proves that exposure is gradual and observable. A dark launch may run code without user-visible behavior. Internal users test the path. A one percent canary checks guardrails. A ramp expands only if metrics hold. The flag-type table proves that release, experiment, ops, and permission flags have different lifecycles and risks.',
@@ -265,21 +274,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Feature flags buy control by adding runtime branches, provider dependencies, cache policy, metadata, and cleanup work. SDKs often cache rules or stream updates to avoid network calls on every request, but then teams must decide how stale a decision can be. Strong consistency is expensive. Eventual consistency is usually fine for release flags but risky for safety kill switches.',
         'Flags also create code debt. Release flags should expire after rollout. Experiment flags should not become permanent product policy without review. Permission flags can drift into authorization logic. Ops flags must be reliable during incidents, when the control plane itself may be under pressure.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Feature flags win when behavior needs precise exposure. They support dark launches, canaries, A/B tests, geo releases, tenant allowlists, plan entitlements, safety kills, graceful degradation, and model rollouts. They let teams decouple code deployment from business release and incident response.',
         'The same structure appears in LLM systems. A model rollout can use cohorts, shadow traffic, prompt-cache version gates, eval thresholds, and rollback proof. On-device model delivery can gate by hardware, battery, locale, and accelerator support. A new accelerator route can be enabled for a small device family before it becomes the default.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The first failure mode is an unsafe default. If the provider fails and the default enables the risky path, the flag amplifies the outage. The second is unstable targeting, where users bounce between variants because the targeting key changes. The third is stale cache behavior that keeps old rules active longer than the team expects.',
         'The fourth is flag debt. Old release flags leave dead branches that no one tests. Permission flags can contradict real authorization. Experiment flags can be read as causal truth without statistical discipline. A control plane needs owner metadata, expiry dates, audit logs, and cleanup pressure to stay useful.',
@@ -293,5 +302,87 @@ export const article = {
         'Study A/B Testing, Multi-Armed Bandits, LLM Model Rollout Shadow Canary Ledger, Cache Invalidation and Versioning, OpenTelemetry Collector Case Study, AIOps Incident Response, On-Device LLM Inference Cost Crossover, Accelerator Kernel Compatibility Matrix, Load Shedding and Graceful Degradation, Circuit Breakers, and Distributed Configuration next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Feature Flag Control Plane moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

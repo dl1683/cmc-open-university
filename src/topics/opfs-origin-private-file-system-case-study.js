@@ -1,4 +1,4 @@
-// Origin Private File System: origin-scoped directory handles, OPFS files,
+﻿// Origin Private File System: origin-scoped directory handles, OPFS files,
 // worker-only sync access handles, byte ranges, flush, quota, and privacy risk.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -324,6 +324,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for OPFS Origin Private File System. A browser storage case study: OPFS directory handles, private origin files, worker-only sync access handles, byte-range writes, flush, quota, and side-channel risk..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Some browser apps need files, not just records. An IDE wants project folders and build caches. A CAD tool wants large binary project files. A media editor wants chunks and temporary renders. A Wasm database wants pages, a journal, and byte-range writes. IndexedDB can store blobs and structured records, but it is awkward when the application wants to manage offsets, free space, and append logs directly.`,
@@ -338,7 +347,7 @@ export const article = {
       ],
     },
     {
-      heading: `Core model`,
+      heading: `The core insight`,
       paragraphs: [
         `The core model is a private directory tree plus byte-addressed files. Directory handles contain child directories and file handles. File handles point at byte content. The asynchronous File System API can create, remove, and traverse the tree. For OPFS files, createSyncAccessHandle can open a FileSystemSyncAccessHandle in a dedicated worker, giving synchronous reads and writes by offset.`,
         `That worker-only sync handle is the central design choice. Synchronous I/O is convenient for embedded databases and storage engines, but blocking the browser's main thread would freeze the UI. OPFS pushes that style of I/O into a dedicated worker, where a storage loop can own handle lifetimes, serialize operations, and answer page requests from the UI by message.`,
@@ -352,7 +361,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works`,
       paragraphs: [
         `The handle-tree visual proves the security boundary. The origin gets a private root. Directory and file handles live below that root. The nodes do not represent a user browsing local disk; they represent browser-managed storage scoped to a site. That distinction matters for permissions, backup, privacy, and user expectations.`,
         `The sync-access visual proves the concurrency boundary. The page talks to a worker, and the worker owns the handle. Reads and writes name offsets, flush marks a persistence boundary, and close releases exclusive state. The quota-and-risk visual adds the operational boundary: storage is private, but not infinite; fast, but not automatically durable; local, but still relevant to privacy analysis.`,
@@ -380,14 +389,14 @@ export const article = {
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `OPFS wins for browser IDEs, CAD tools, media editors, embedded SQLite, local search indexes, package caches, large project files, and Wasm runtimes that need byte-range I/O. A good offline app may use OPFS for file-shaped state, IndexedDB for searchable metadata, Cache Storage for HTTP-style assets, and a file picker or cloud sync path for user-owned exports.`,
         `It is less useful when the data is naturally relational or document-shaped and the app needs indexes, queries, and transactions more than byte offsets. In those cases IndexedDB may be the primary store. OPFS is also a poor fit when browser support is missing, when local data loss is unacceptable without sync, or when the team is not prepared to design recovery and compaction.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `The first failure mode is a leaked handle. If code opens a sync access handle and never closes it, other operations can block or fail. The second is quota surprise: writes fail after a project grows, and the app has no compaction or export path. The third is torn state: a crash lands between related writes, and startup has no journal or manifest rule to decide what is valid.`,
         `Privacy is another failure mode. Fast local I/O can become a side-channel surface. The FROST result described OPFS timing as a way to observe SSD contention signals from JavaScript. Storage-heavy designs should be reviewed for abuse, rate limits, timing precision, and browser mitigations. Performance features are also measurement features.`,
@@ -400,5 +409,96 @@ export const article = {
         `Study IndexedDB Object Store Case Study for record-shaped browser storage, Cache Storage Versioned Precache for HTTP response caching, Browser Storage Quota and Eviction Manager for lifecycle pressure, Web Workers: A Second Thread for worker ownership, Structured Clone and Transferables for page-worker messages, WebAssembly Linear Memory Case Study for Wasm storage clients, SQLite B-Tree and Pager for page files, Write-Ahead Log for recovery, fsync Rename Crash Consistency for durability thinking, and Data Leakage for privacy boundaries.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why OPFS Origin Private File System moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

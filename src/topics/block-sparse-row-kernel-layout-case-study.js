@@ -1,4 +1,4 @@
-// Block Sparse Row (BSR): compress sparse block rows where nonzeros appear as
+﻿// Block Sparse Row (BSR): compress sparse block rows where nonzeros appear as
 // dense tiles, improving index overhead and kernel locality.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -192,6 +192,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Block Sparse Row Kernel Layout Case Study. A block-sparse layout case study: dense tiles inside sparse rows, block pointers, block column indices, values tensors, GPU kernel fit, ragged tails, and density thresholds..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Block Sparse Row, or BSR, exists because some sparse matrices are not random dust. Their nonzeros appear in dense tiles. Scientific simulations, finite-element systems, graph blocks, and block-pruned neural networks often have structure at the block level even when the full matrix is sparse.',
@@ -207,7 +216,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The core layout',
+      heading: 'The core insight',
       paragraphs: [
         'BSR has three main arrays. `bPtr` stores offsets for block rows, like CSR row pointers. `bCol` stores the block-column index for each stored block. `vals` stores the dense block payloads, usually shaped as number-of-blocks by block-rows by block-columns.',
         'If the block size is 16 by 16, one BSR entry represents up to 256 scalar positions. That entry needs one block-column index, not 256 scalar column indices. The kernel can then multiply or accumulate the 16 by 16 tile with regular inner loops.',
@@ -231,7 +240,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'BSR wins in finite element matrices, block-structured scientific simulations, batched graph blocks, sparse linear algebra with natural vector-valued variables, and pruned neural networks whose masks are block-aligned.',
         'In AI systems, block sparsity should be treated as a kernel compatibility question. A mask pattern that looks elegant in a paper may not map to a fast available kernel. The useful question is: does this exact block shape, dtype, batch size, and hardware path beat dense or CSR after conversion costs?',
@@ -248,7 +257,7 @@ export const article = {
       ],
     },
     {
-      heading: 'A worked case',
+      heading: 'Worked example',
       paragraphs: [
         'Suppose a 64 by 64 matrix is divided into 16 by 16 blocks. There are 16 possible blocks. If only four blocks are present and each is 90 percent full, BSR stores four block-column indices and four dense tiles. CSR would store hundreds of scalar column indices. BSR likely wins because the missing blocks are skipped and the present blocks are dense enough to compute efficiently.',
         'Now change the pattern: the same number of scalar nonzeros are scattered as one or two values per 16 by 16 block. BSR now stores many mostly empty tiles. The kernel performs regular work, but much of that work is on zeros. CSR or COO may be better. The difference is not the word "sparse"; it is the distribution of the nonzeros.',
@@ -263,10 +272,79 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: SciPy sparse tutorial at https://docs.scipy.org/doc/scipy/tutorial/sparse.html, PyTorch sparse tensors at https://docs.pytorch.org/docs/stable/sparse.html, NVIDIA cuSPARSE at https://docs.nvidia.com/cuda/cusparse/, and MLIR SparseTensor dialect at https://mlir.llvm.org/docs/Dialects/SparseTensorOps/. Study COO Sparse Tensor Assembly Primer, CSC Column Sparse Matrix Primer, Structured Pruning N:M Sparsity Case Study, Accelerator Kernel Compatibility Matrix Case Study, and WebGPU Parallel Prefix Scan Compaction next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for block-sparse-row-kernel-layout-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

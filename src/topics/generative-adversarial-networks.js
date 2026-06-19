@@ -199,100 +199,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The minimax game view shows the GAN as a data-flow graph. Highlighted nodes mark which network is updating. In the discriminator step, real data and fake samples both flow into D, which adjusts its classification boundary. In the generator step, gradients flow backward from D through to G, which shifts its output distribution. The key rule: G never sees real data. Its only learning signal is the gradient that passes through D.',
+        'The mode collapse view uses a scatter plot. Real data points form four clusters. Generated points should cover all four. In the collapsed state, all generated points pile onto a single mode -- sharp-looking but missing three-quarters of the distribution. In the healthy state, generated points spread across all clusters. The visual check: does the generated cloud match the shape of the real cloud, or just overlap with a piece of it?',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A Generative Adversarial Network exists because direct likelihood modeling is not the only way to learn a data distribution. Instead of asking the model to assign a probability to every possible image, sound, or example, a GAN asks whether generated samples can become indistinguishable from real samples under an adaptive critic.',
-        'The original GAN paper changed generative modeling by turning distribution learning into a game. The generator maps random noise to fake samples. The discriminator receives real and fake samples and learns to tell them apart. The generator improves by changing its samples so the discriminator makes mistakes.',
-        'This is why GANs belong next to Variational Autoencoders, Normalizing Flows, and Diffusion Models. Each family chooses a different training signal. VAEs optimize a variational likelihood bound. Flows preserve exact invertible likelihood. Diffusion models learn denoising steps. GANs learn through a critic that keeps adapting to the generator.',
+        'Before 2014, generative models faced a hard tradeoff. Models that computed explicit likelihoods (VAEs, normalizing flows) could be trained stably but produced blurry outputs, because pixel-level reconstruction losses average over all plausible outputs. Models that produced sharp samples required hand-designed quality metrics that could not adapt as the generator improved.',
+        'Goodfellow et al. (2014) reframed the problem as a game. Instead of defining a fixed loss that measures sample quality, train a second neural network -- the discriminator -- to learn what distinguishes real from fake. The generator then chases that learned critic. The critic adapts as the generator improves, so the training signal is always fresh and always targets whatever currently looks wrong.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach to image generation is to model pixels directly: estimate the probability of the next pixel or reconstruct images from a compressed latent code. That can work, but pixel-level likelihood often rewards safe averages. The model can receive a good loss while producing blurry samples because averaging several plausible images is mathematically convenient but visually wrong.',
-        'Another obvious approach is to write a hand-coded evaluator for realism. That fails because realism is too rich. A face, building, melody, or texture can be wrong in thousands of subtle ways. GANs replace the fixed evaluator with a learned discriminator that improves as the generator improves.',
+        'The standard way to build a generative model is maximum likelihood: train the model to assign high probability to real data, then sample from the learned distribution. VAEs (Kingma and Welling, 2014) do this through a variational bound -- encode data to a latent vector, decode back, optimize the evidence lower bound (ELBO). The result is a valid density model with well-behaved training.',
+        'The decoder, however, must reconstruct every training example from a compressed latent code. When multiple valid reconstructions exist (different lighting, poses, fine textures), the optimal L2 decoder averages over them. The average of two sharp images is a blurry image. Adding perceptual losses helps at the margins but does not fix the root cause: the loss function is fixed and treats every pixel error equally, regardless of whether the error is perceptually obvious or invisible.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that adversarial training is not ordinary supervised learning. There is no fixed target function. The generator\'s loss depends on the discriminator, and the discriminator\'s loss depends on the generator. When one player changes, the other player\'s landscape changes too.',
-        'If the discriminator becomes too strong, the generator may receive gradients that are weak, saturated, or unhelpful. If the discriminator is too weak, the generator learns from a poor critic. If the generator finds one kind of sample that fools the discriminator, it can overproduce that sample and ignore the rest of the distribution. That failure is mode collapse.',
-        'The second wall is evaluation. A sample grid can look impressive while hiding missing classes, near duplicates, memorized training examples, or narrow diversity. GANs made sample quality exciting, but they also taught the field that visual cherry-picking is not measurement.',
+        'Fixed loss functions cannot capture perceptual quality. Pixel-wise MSE penalizes a one-pixel shift of an edge as harshly as a one-pixel color error in a flat region. L1 loss produces less blur but still cannot distinguish "structurally wrong" from "slightly different." Perceptual losses computed from a pretrained classifier help but remain frozen -- they cannot adapt to the specific failure modes of the current generator.',
+        'The deeper problem: what makes an image look real is not a single metric. It involves texture statistics, spatial coherence, semantic plausibility, and fine detail, and the relative importance of each changes as the generator improves. A loss function that is adequate at epoch 10 may miss the dominant artifact at epoch 1000. Generation quality requires a loss that learns alongside the generator.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Train the generator against a learned discriminator rather than a hand-written likelihood. The discriminator supplies a moving training signal: it learns what currently separates fake from real, and the generator follows the gradient that would make fake samples look more real to that discriminator.',
-        'At the ideal equilibrium, the generated distribution matches the data distribution, and the discriminator cannot do better than chance. That does not mean training literally reaches a calm equilibrium in practice. It means the game has a target shape: the generator should match the whole distribution, not only produce a few plausible examples.',
+        'Replace the hand-written loss with a learned one. Train a discriminator network D to classify inputs as real or fake. The generator G maps random noise z to synthetic samples G(z). D receives both real data x and generated samples and outputs the probability each is real. G updates to make D wrong; D updates to get better at telling them apart. The minimax objective is:',
+        'min_G max_D  E_x[log D(x)] + E_z[log(1 - D(G(z)))]',
+        'Goodfellow proved that if both networks have enough capacity and D is trained to optimality at each step, the global minimum occurs when the generator\'s distribution p_G equals the data distribution p_data. At that point D(x) = 0.5 for all x -- the discriminator cannot tell real from fake. This is the Nash equilibrium of the game.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The minimax view shows the two training updates. First the discriminator learns a supervised classification problem: real samples should score real, generated samples should score fake. Then the generator receives gradients through the discriminator and changes its output so the discriminator is more likely to call it real.',
-        'The mode-collapse view shows why good-looking samples are not enough. A generator can cover one cluster of the real distribution and produce sharp variants from that cluster. Locally those samples may look plausible. Globally the model is wrong because it misses most of the data distribution.',
-        'The important thing to watch is balance. GAN training works only while the discriminator is strong enough to teach and not so strong that the generator stops receiving useful signal. The animation is not just a diagram of two networks; it is a diagram of a coupled optimization problem.',
-      ],
-    },
-    {
-      heading: 'How the algorithm works',
-      paragraphs: [
-        'Training alternates between two updates. In the discriminator step, draw real examples from the dataset, draw noise vectors, let the generator turn those noise vectors into fake examples, and update the discriminator to separate the two groups. This is ordinary classification, except the negative examples come from the current generator.',
-        'In the generator step, draw new noise vectors, generate fake examples, pass them through the discriminator, and update the generator so those fake examples receive a higher real score. The discriminator\'s parameters are held fixed for this update; its gradients become the learning signal for the generator.',
-        'The original minimax objective can suffer from saturation when the discriminator confidently rejects fake samples. Practical GAN training often uses a non-saturating generator loss, Wasserstein objectives, gradient penalties, spectral normalization, careful architectures, and tuned update ratios. Those changes all serve the same goal: keep gradients useful and keep the game from becoming degenerate.',
-        'This is also why GAN losses are hard to read. A lower discriminator loss can mean the discriminator improved, the generator collapsed, or the game became imbalanced. A generator loss spike can mean sample quality worsened, or it can mean the discriminator learned a better boundary. The losses are game signals, not simple progress meters.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine training a toy GAN on a dataset with four clusters. The generator starts from random noise and produces points in the wrong places. The discriminator easily separates real clusters from generated points. The generator then moves its points toward regions that the discriminator currently scores as real.',
-        'Now suppose one generated cluster begins to fool the discriminator. The generator may discover that producing variations of that one cluster is enough to improve its immediate loss. If nothing in training punishes missing the other clusters, the generator can collapse to that single mode. The generated samples look sharp around one cluster and still fail the distribution.',
-        'A healthier generator spreads probability mass across all four clusters. Techniques such as minibatch discrimination, Wasserstein distance, gradient penalty, diversity-aware evaluation, and architecture changes try to preserve that coverage. None of them removes the central fact: the generator is learning from an adaptive critic, so stability must be engineered.',
+        'Training alternates between two updates. Discriminator step: sample a minibatch of real examples x and a minibatch of noise vectors z. Generate fakes G(z). Update D to maximize log D(x) + log(1 - D(G(z))). This is standard binary cross-entropy where real examples are positive and generated examples are negative.',
+        'Generator step: sample fresh noise z, generate G(z), pass through D with D\'s weights frozen. Update G to maximize log D(G(z)). This is the non-saturating variant of the loss. The original formulation minimizes log(1 - D(G(z))), but when G is weak and D is confident, that gradient saturates near zero. Maximizing log D(G(z)) provides the same optimum but with stronger gradients early in training.',
+        'The original JS-divergence objective breaks when the real and generated distributions have disjoint support, which is common early in training on high-dimensional data. The JS divergence saturates at log 2, producing zero gradient. Arjovsky et al. (2017) replaced it with the Wasserstein distance (Earth Mover\'s distance), which measures how much probability mass must move and how far, providing smooth gradients even for non-overlapping distributions. The WGAN critic must be Lipschitz-constrained -- originally enforced by weight clipping, later by a gradient penalty term (WGAN-GP, Gulrajani et al., 2017).',
+        'Stabilization techniques beyond the loss function include spectral normalization (constraining D\'s Lipschitz constant per layer), progressive growing (Karras et al., 2018 -- start training at 4x4 resolution and gradually add layers), and the style-based generator (StyleGAN, Karras et al., 2019 -- map z to an intermediate latent w that controls style at each resolution, disentangling pose, age, and lighting).',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'GANs work when the discriminator learns differences that matter and the generator can follow those gradients toward the real data manifold. The discriminator is a learned loss function. It can notice high-level structure that a hand-written pixel loss would miss, which is why GAN samples were historically much sharper than many likelihood-trained alternatives.',
-        'They also work because generation is cheap after training. A generator is usually a single forward pass from noise or condition to sample. That made GANs attractive for real-time image synthesis, super-resolution, style transfer, and simulation long before diffusion models became dominant for high-end image generation.',
-        'The mechanism is powerful but fragile. The critic must be informative, the generator must be expressive, the data must contain learnable structure, and the training schedule must keep the game from tipping too far toward one player.',
+        'For fixed G, the optimal discriminator is D*(x) = p_data(x) / (p_data(x) + p_G(x)). Substituting D* into the value function yields 2 * JSD(p_data || p_G) - log 4, where JSD is the Jensen-Shannon divergence. This is minimized when p_G = p_data, giving JSD = 0 and D*(x) = 0.5 everywhere. So the minimax game, solved exactly, recovers the data distribution.',
+        'The practical reason GANs produce sharp samples is that D is a learned loss. Pixel-level L2 penalizes all deviations equally and averages over modes, producing blur. D learns to penalize whatever currently distinguishes fake from real -- texture artifacts, color statistics, spatial coherence -- and G follows that adaptive gradient. As G improves, D shifts its attention to subtler artifacts, creating a curriculum of increasing difficulty.',
+        'Inference is fast: one forward pass through G maps noise to a sample. A StyleGAN2 generator produces a 1024x1024 face in about 25ms on a single GPU. This made GANs practical for real-time applications years before diffusion models matched their quality at 20-1000x the sampling cost.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'GANs can produce sharp samples with fast one-pass generation, but training is unstable. Teams tune generator and discriminator capacity, learning rates, update ratios, normalization, regularization, augmentations, and evaluation metrics. Small choices can decide whether a run learns, oscillates, collapses, or memorizes.',
-        'The debugging loop is harder than ordinary supervised learning because the loss curves are relational. A rising generator loss may mean the discriminator improved. A falling discriminator loss may mean progress or collapse. Serious GAN work uses fixed latent seeds, sample grids over time, diversity checks, nearest-neighbor memorization checks, and metrics such as FID with clear caveats.',
+        'Per-step training cost: one forward pass through G, two forward passes through D (on real and fake batches), plus backpropagation through both networks. Roughly 2x the cost of training a single supervised network of similar size. StyleGAN2 training on FFHQ (1024x1024 faces) took about 9 days on 8 V100 GPUs.',
+        'Generation cost: one forward pass through G. This is orders of magnitude cheaper than diffusion models. But the hidden cost is engineering stability. GAN losses are game signals, not progress indicators. A dropping D loss can mean D improved, G collapsed, or the game became degenerate. A rising G loss can mean worse samples or a stronger discriminator boundary. Practitioners monitor fixed-seed sample grids, FID (Frechet Inception Distance) trends, diversity metrics, and nearest-neighbor memorization checks.',
+        'Mode collapse is the most expensive failure mode because it can hide: cherry-picked samples look sharp, FID may improve on the covered mode, and the missing modes only surface with systematic diversity evaluation. Training a GAN to convergence often requires more hyperparameter tuning (learning rate ratio, D-to-G update ratio, regularization strength) than training a supervised model or a diffusion model of comparable size.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'GANs win when you need fast sampling and high perceptual sharpness, and when the domain is constrained enough for adversarial training to stabilize. They have been used for image synthesis, super-resolution, style transfer, domain translation, image-to-image tasks, simulation assets, representation learning, and data augmentation.',
-        'They also remain important beyond image generation. The generator-versus-critic pattern appears in domain-adversarial neural networks, adversarial robustness training, learned reward models, synthetic data review loops, and red-team systems. The general lesson is that a model trained against a judge may learn to exploit weaknesses in the judge.',
+        'Face synthesis: StyleGAN (Karras et al., 2019) generates photorealistic 1024x1024 faces with disentangled control over pose, age, lighting, and style. The single-pass generator makes interactive exploration and latent-space editing practical.',
+        'Super-resolution: SRGAN and ESRGAN use a discriminator to ensure upscaled images contain realistic high-frequency detail. An L2-trained upsampler averages over possible textures and produces blur; the discriminator learns what sharp edges in real photos look like and penalizes the generator for hallucinating the wrong texture pattern.',
+        'Image-to-image translation: Pix2Pix (Isola et al., 2017) translates paired images (sketch to photo, satellite to map). CycleGAN (Zhu et al., 2017) extends this to unpaired domains (horse to zebra, summer to winter) using cycle-consistency losses alongside adversarial losses. The adversarial term ensures outputs look like plausible members of the target domain rather than averaged approximations.',
+        'Data augmentation: when labeled training data is scarce, GANs can synthesize examples to expand the dataset. Medical imaging studies have used GANs to generate rare pathologies for classifier training. The risk is that a collapsed GAN biases the augmented set toward the modes it covers.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'GANs fail when the game becomes imbalanced. A dominating discriminator can starve the generator of useful gradients. A dominating generator can exploit the discriminator. Mode collapse can hide under good-looking examples. Memorization can masquerade as realism. Metrics can reward the wrong mixture of fidelity and diversity.',
-        'GANs are also less natural when exact likelihood, calibrated probability, or broad coverage matters more than perceptual sharpness. Diffusion models displaced GANs in many open-ended image workflows because they are easier to scale and more stable to train, even though they usually cost more sampling steps.',
+        'Training instability is the primary tax. Mode collapse can hide under sharp cherry-picked samples. Vanishing gradients can silently stall G when D becomes too strong. Oscillation can prevent convergence entirely. Even with WGAN-GP, spectral normalization, and progressive growing, GAN training demands more hyperparameter tuning than supervised learning or diffusion training.',
+        'GANs provide no density estimates. If you need the probability of a given sample under the model -- for anomaly detection, out-of-distribution detection, or calibrated uncertainty -- GANs are the wrong tool. VAEs and normalizing flows give explicit densities. Diffusion models give approximate log-likelihoods via the variational bound.',
+        'Evaluation itself is hard. FID compares Gaussian fits to Inception features of real and generated sets. It rewards both fidelity and diversity but assumes Gaussian feature distributions, depends on reference set size, and can be gamed by generators tuned specifically to the FID metric. Inception Score (IS) measures only diversity and class confidence, not fidelity to the real distribution. No single scalar captures GAN quality.',
+        'For open-ended image generation, diffusion models (DALL-E 2, Stable Diffusion, Imagen) have largely displaced GANs. Diffusion training scales more predictably, converges more stably, and handles diverse conditioning (text, layout, depth) more naturally, despite requiring 20-1000 denoising steps per sample. GANs remain competitive in constrained domains where fast single-pass inference matters: real-time super-resolution, video frame prediction, and game asset generation.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'A GAN is not just "a generator plus a discriminator." It is a distribution-matching game where the training signal is learned. That is the source of both its power and its instability.',
-        'The central question is not whether one sample looks real. The question is whether the generator covers the real distribution without memorizing it, while preserving fidelity, diversity, and controllability.',
+        'Trace three training steps on a toy 1D GAN. Real data is N(5, 1). G starts producing N(0, 1). D is a small two-layer classifier. We use the non-saturating loss.',
+        'Step 1 -- D learns the easy boundary. D trains on a batch: real samples clustered near 5, fakes clustered near 0. D learns "values near 5 are real" and achieves confident separation. D loss drops from 1.39 to 0.41. G loss is high at 2.30 because D(G(z)) is near 0 for all fakes. The gradient through D tells G: shift outputs toward the region D labels "real."',
+        'Step 2 -- G moves halfway. G updates its parameters and now produces N(2.5, 1). D retrains: real samples near 5, fakes near 2.5. Separation is harder. D loss rises to 0.58. G loss drops to 1.20 because some fakes now score D(G(z)) around 0.3. The game tightens -- each player\'s job gets harder.',
+        'Step 3 -- distributions overlap. G shifts to N(4.2, 1). Real and fake distributions now overlap substantially. D loss rises to 0.82 -- classification is difficult. G loss drops to 0.75. D(G(z)) averages about 0.47, approaching the 0.5 of a confused classifier. If training continues stably, G converges to N(5, 1) and D(x) approaches 0.5 everywhere -- the Nash equilibrium.',
+        'Mode collapse variant: real data is bimodal, N(0, 1) and N(10, 1). G might converge to N(5, 1) -- the mean of the two modes. D flags this as fake because nothing real lives near 5. G shifts to N(0, 1). D adapts. G jumps to N(10, 1). The generator oscillates between modes without covering both. This is where the Wasserstein distance helps: it provides a gradient proportional to how far G is from the full distribution, not just a binary "caught or not caught."',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Generative Adversarial Nets at https://papers.nips.cc/paper/5423-generative-adversarial-nets and the arXiv PDF at https://arxiv.org/abs/1406.2661. Study Neural Network Forward Pass, Backpropagation, Loss Landscapes & Optimization Geometry, Domain-Adversarial Neural Networks, Variational Autoencoders, Normalizing Flows, Diffusion Models, and Calibration Curves next.',
+        'Goodfellow et al., 2014, "Generative Adversarial Nets" (https://arxiv.org/abs/1406.2661) -- the original framework and convergence proof. Arjovsky et al., 2017, "Wasserstein GAN" (https://arxiv.org/abs/1701.07875) -- replaced JS divergence with Earth Mover\'s distance for smooth gradients. Gulrajani et al., 2017, "Improved Training of Wasserstein GANs" (https://arxiv.org/abs/1704.00028) -- gradient penalty replacing weight clipping. Karras et al., 2018, "Progressive Growing of GANs" (https://arxiv.org/abs/1710.10196) -- resolution-growing training. Karras et al., 2019, "A Style-Based Generator Architecture" (https://arxiv.org/abs/1812.04948) -- StyleGAN with disentangled latent control.',
+        'Prerequisites: neural networks (forward pass and backpropagation, so D\'s gradient flow to G makes sense), loss functions (cross-entropy and log-likelihood, the mathematical language of the GAN objective), and basic game theory (minimax and Nash equilibrium).',
+        'Extensions: VAEs -- variational likelihood bound, explicit densities, blurrier samples, stable training. Diffusion models -- current state-of-the-art for image generation, stable training at the cost of multi-step sampling. Adversarial examples -- a different use of adversarial optimization, attacking classifiers rather than training generators. Domain-adversarial networks -- using the adversarial idea for domain adaptation rather than generation.',
       ],
     },
   ],

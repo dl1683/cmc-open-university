@@ -1,4 +1,4 @@
-// RocksDB write stalls: compaction debt turns a local LSM backlog into global
+﻿// RocksDB write stalls: compaction debt turns a local LSM backlog into global
 // write latency through memtable, L0, and pending-byte safety triggers.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -320,6 +320,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for RocksDB Write Stalls & Compaction Debt. A production LSM case study: immutable memtables, L0 files, pending compaction bytes, delayed writes, hard stalls, and recovery levers..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why write stalls exist',
       paragraphs: [
         'A RocksDB write stall exists because an LSM tree is a deferred-work machine. Foreground writes are fast because they append to the WAL and update a memtable. They do not immediately reorganize the whole on-disk index. That bargain only works if flush and compaction later clean up the files created by those writes.',
@@ -336,7 +345,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive assumption and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The naive assumption is that background compaction will eventually catch up because it is background work. That is only true when the device, CPU, thread configuration, and compaction policy have enough sustained capacity. A short ingest burst may be absorbed by buffers. A long burst becomes debt.',
         'Another naive assumption is that a stall can be fixed by raising thresholds. Larger write buffers, more L0 files before slowdown, or larger pending-byte limits can hide the symptom for longer. They do not create disk bandwidth. If the workload keeps producing debt faster than RocksDB can compact it, larger cushions only make the eventual incident bigger.',
@@ -344,7 +353,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight: compaction debt becomes backpressure',
+      heading: 'The core insight',
       paragraphs: [
         'The first trigger family is immutable memtables. If too many full memtables wait for flush, memory pressure and recovery risk rise. A full memtable is normal. Too many unflushed immutable memtables mean the flush path is behind the write path. The relevant levers include write-buffer size, number of write buffers, flush threads, and device throughput.',
         'The second trigger family is L0 files. Too many L0 files can cause write slowdown and eventually write stop. This protects the system from unbounded overlap. L0 pressure often means flush is creating files faster than compaction can move them into lower levels. It can also mean files are too small, compaction is underprovisioned, or the lower-level shape is expensive for the workload.',
@@ -376,7 +385,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Do not disable or bypass stalls as if they were the bug. Stalls are unpleasant because they reveal a real limit. Removing the guard can trade visible write latency for invisible corruption of performance: huge L0 overlap, disk exhaustion, read amplification, or recovery that takes too long after restart.',
         'Do not blindly raise thresholds. Larger limits can be correct when the device has headroom and the workload is bursty. They are dangerous when the workload is sustained. More pending bytes mean more future compaction. More L0 files mean more overlap. More immutable memtables mean more memory pressure.',
@@ -384,7 +393,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is used',
+      heading: 'Real-world uses',
       paragraphs: [
         'RocksDB appears inside stream processors, distributed databases, metadata services, blockchains, caches, search infrastructure, and embedded applications. In all of those places, write stalls can surface as something else: request latency, checkpoint delay, replica lag, ingestion backpressure, or noisy-neighbor behavior.',
         'The same pattern applies beyond RocksDB. Any LSM-based system has a version of this problem. Fast appends create cleanup debt. Background merge capacity is finite. When the debt grows faster than repayment, the system must either slow writers, degrade reads, grow space usage, or fail operationally.',
@@ -397,5 +406,101 @@ export const article = {
         'Next topics in this curriculum: RocksDB LSM Case Study, LSM Compaction Strategies Primer, SSTable Block Index & Filter, RocksDB MANIFEST & VersionSet, LSM Tombstones & Range Deletes, Write-Ahead Log, Rate Limiter, Backpressure & Flow Control, Tail Latency & p99 Thinking, SLO Error-Budget Burn-Rate Alerting, and Database Indexing.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for rocksdb-write-stall-compaction-debt-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

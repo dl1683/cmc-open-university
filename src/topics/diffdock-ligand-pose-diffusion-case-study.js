@@ -271,7 +271,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation focus',
+      heading: 'How to read the animation',
       paragraphs: [
         'The pose-manifold view separates the state variables. Translation answers where the ligand center is. Rotation answers how the ligand faces the pocket. Torsion answers which internal shape the ligand has. The ligand graph and pocket context explain why those variables cannot be treated as unrelated numbers.',
         'The denoising frames show the ligand moving from a noisy arrangement toward better pocket contacts. The important detail is that the graph remains chemically meaningful while pose variables change. The model is not dragging independent atoms through space; it is adjusting a structured ligand pose.',
@@ -279,7 +279,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main runtime cost is sampling. If the pipeline generates K poses for each ligand and uses S denoising steps per pose, inference cost grows with K times S times model cost. Reducing samples or steps improves throughput but may reduce diversity or accuracy. Large screens need batching, GPU utilization, and clear triage thresholds.',
         'The memory cost includes protein and ligand graphs, intermediate geometric features, pose variables, and candidate ledgers. For a single ligand this may be modest. For a virtual screen over thousands or millions of molecules, storing every candidate with full provenance becomes a real data-management problem.',
@@ -288,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'DiffDock is strongest when a team needs fast candidate pose generation for many protein-ligand pairs. Virtual screening, hit triage, pose hypothesis generation, and early-stage medicinal chemistry can benefit from a model that produces ranked pose candidates quickly.',
         'It also wins when single-pose regression is too brittle. Sampling preserves alternatives, and confidence ranking gives the pipeline a way to choose which alternatives deserve attention. This is especially useful when the model is used as a front-end filter before slower computation or human review.',
@@ -311,5 +311,47 @@ export const article = {
         'Primary sources are the DiffDock arXiv paper at https://arxiv.org/abs/2210.01776, the ICLR 2023 OpenReview entry at https://openreview.net/forum?id=kKF8_K-mBbS, and the implementation repository at https://github.com/gcorso/DiffDock. Read them with the article question in mind: how does the system represent pose, how does it sample alternatives, and how does it rank uncertainty for downstream decisions?',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for diffdock-ligand-pose-diffusion-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

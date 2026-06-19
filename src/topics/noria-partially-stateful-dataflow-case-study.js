@@ -275,7 +275,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation focus',
+      heading: 'How to read the animation',
       paragraphs: [
         'The partial-state view shows the main memory decision. Hot keys remain resident and reads hit. Cold keys can be evicted to save memory. A miss does not leave the graph; it becomes an upquery that walks upstream dependencies and rebuilds the missing key.',
         'The unsafe-partial-state frame is the most important caution. Index-backed reconstruction is a good fit. A top-k operator or broad scan may not be. The question is not whether a key is cold; the question is whether the graph has enough indexed structure to rebuild that key without doing work that breaks the latency budget.',
@@ -283,7 +283,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Read cost is excellent on a hit: the application performs a lookup against maintained view state. Write cost is higher than a plain database write because updates must propagate through dependent operators. The system is buying cheaper repeated reads with more structured write-time maintenance.',
         'Memory cost is the central tradeoff. Full materialization can exceed base table size because joins and aggregates duplicate derived information. Partial state reduces that footprint by keeping a working set, but it adds eviction metadata, indexes for upqueries, and miss-handling machinery.',
@@ -292,7 +292,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Noria wins when reads dominate writes and the same derived answers are requested repeatedly. News sites, dashboards, profile pages, discussion pages, and feed-like applications often have this shape. Their access patterns are skewed, and many reads are parameterized by a natural key such as story ID or user ID.',
         'It also wins when manual cache invalidation is the engineering bottleneck. A dataflow graph turns invalidation into dependency maintenance. The application author describes the read query; the graph owns the propagation path from base-row changes to derived answers.',
@@ -315,5 +315,47 @@ export const article = {
         'For contrast, study fully maintained materialized views, manual cache invalidation, search indexes, and query planners. Noria is easiest to understand when placed between those tools: more structured than a cache, more selective than full materialization, and more dynamic than a static database view.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for noria-partially-stateful-dataflow-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

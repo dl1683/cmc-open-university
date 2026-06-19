@@ -1,4 +1,4 @@
-// Zanzibar case study: global authorization with relationship tuples,
+﻿// Zanzibar case study: global authorization with relationship tuples,
 // namespace configs, recursive checks, caveats around freshness, and zookies.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -183,14 +183,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this topic exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Zanzibar Authorization Case Study. Google Zanzibar as an authorization-system lesson: relation tuples, recursive checks, consistency tokens, and graph-shaped permissions..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         `Zanzibar exists because modern authorization is too large and too subtle for scattered if statements. A collaboration product may have users, groups, folders, documents, organizations, public links, inherited permissions, owners, editors, viewers, and temporary grants. A single page load can need many access checks, and a single revocation can become a privacy incident if stale permissions are accepted.`,
         `The core problem is not only deciding allow or deny. It is deciding allow or deny for billions of objects, across many services, with low latency, explainable policy, global replication, cache pressure, and consistency requirements after grants and revokes. Zanzibar is the case study that turns fine-grained authorization into a systems problem: data model, schema language, recursive graph evaluation, consistency tokens, storage, caching, and operational audit all have to work together.`,
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
         `The naive approach is to put authorization logic inside each service. A document service has an ACL table. A folder service has inheritance rules. A team service has group membership. A sharing service has links. Each product writes its own checks, caches its own answers, and tries to remember every edge case. This starts simple and then becomes untestable. Different services interpret policy differently, and a permission change may take effect in one path but not another.`,
         `A second naive approach is role-based access control with a few global roles. That works for coarse systems, but it does not express relationship-heavy products well. "Alice can view doc D because she is a member of team ML, which is viewer on folder F, which is parent of doc D" is not a simple global role. It is a path through a relationship graph.`,
@@ -223,14 +232,14 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works',
       paragraphs: [
         `The relationship graph visual proves that an allow decision can be a path, not a row lookup. Alice is allowed because alice is a member of team:ml, team:ml#member is viewer on folder:F, and folder:F is a parent that grants view on doc:D. The edge labels are the policy. The traversal is the proof.`,
         `The tuple matrix proves the important modeling move: the third column can be a user or a userset. That is what lets the system point from one relation to another. The consistency visual proves that the answer is not complete unless the system can say what snapshot it used. The zookie is part of the authorization result because freshness is part of correctness.`,
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The cost is graph work under latency pressure. A check may fan out through groups, folders, and inherited relations. Hot groups can appear in many checks. Deep nesting can consume budget. Cycles must be detected. Negative answers may be expensive because the engine has to prove that no valid path exists within the schema.`,
         `Caching is both necessary and dangerous. Low latency needs cached tuple reads, cached subproblem answers, and local replicas. Revocation safety needs freshness. A stale deny after a grant is usually frustrating. A stale allow after a revoke can expose private data. Production systems need explicit consistency choices, invalidation streams, tuple-versioning discipline, and observability for why a cache entry was trusted.`,
@@ -238,14 +247,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Real-world uses',
       paragraphs: [
         `Zanzibar-style systems are used or imitated in document sharing, cloud IAM, enterprise SaaS permissions, collaboration tools, organization membership, consumer media sharing, and fine-grained authorization platforms such as OpenFGA and SpiceDB. The pattern is useful whenever permissions depend on relationships rather than a few global roles.`,
         `The model is also central to enterprise AI. A RAG system should not retrieve private documents and ask the model to ignore unauthorized text. It should use authorization checks before or during retrieval, filter candidates by the current user, and log which relationship path allowed each document into context. In AI systems, Zanzibar is part of the data boundary, not a final UI check.`,
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
         `The first failure mode is bad schema design. A relation may imply too much, inheritance may flow farther than intended, or a public-link relation may bypass a product rule. The second is unbounded traversal. Nested groups and parent chains can create checks that are correct in theory but too slow in practice. The third is stale authorization after revocation. This is the failure Zanzibar's consistency model is designed to make explicit.`,
         `The fourth failure mode is poor explainability. Users and support teams need to know why access was allowed or denied. Without an explain path, authorization becomes a black box and policy bugs are hard to fix. The fifth is list-query mismatch. "Can Alice view doc D?" is not the same as "which docs can Alice view?" A production system often needs check, expand, lookup, list, and watch APIs, each with its own cost profile.`,
@@ -259,5 +268,78 @@ export const article = {
         `For practice, model a document product with users, groups, folders, and documents. Write tuples for direct owners, group membership, folder parents, and inherited viewers. Then answer three questions: can Alice view doc D, why can Alice view doc D, and what must become fresh after Alice is removed from the group? If the model cannot answer all three clearly, it is not ready for production authorization.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Zanzibar Authorization Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

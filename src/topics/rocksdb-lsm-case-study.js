@@ -211,6 +211,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for RocksDB LSM Case Study. RocksDB as the embedded-storage lesson: WAL, memtables, SSTables, compaction, block cache, and shifting bottlenecks..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         `RocksDB matters because many systems that look distributed from the outside depend on a local embedded key-value store inside each node. A database shard, stream processor task, metadata service, queue, cache, or indexing worker may expose a high-level distributed interface while using RocksDB for durable local state. When RocksDB stalls, compacts, fills cache, burns CPU, or amplifies writes, the surrounding service feels it as latency, backpressure, checkpoint cost, or storage pressure.`,
@@ -218,7 +227,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive design',
+      heading: 'The obvious approach',
       paragraphs: [
         `The naive durable key-value store uses an update-in-place structure such as a B-tree. A put operation finds the page that should contain the key, modifies it, and writes the page back. That design is excellent for many read-heavy workloads because the tree stays ordered and lookups follow a short path. But random writes can be expensive on storage devices, and small updates can dirty whole pages. With heavy write load, the engine spends much of its time rewriting pages in place.`,
         `Another naive design is an append-only log with an in-memory index. Writes are cheap because they append, but reads and recovery become harder as the log grows. Old versions and deleted keys remain in the log until some cleaner rewrites live data. Without a disciplined cleaning strategy, the system either wastes space forever or pays unpredictable cleanup costs later. RocksDB's LSM design is a structured compromise between those two extremes.`,
@@ -232,7 +241,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `RocksDB uses the log-structured merge-tree idea: make writes sequential and sorted, then repair the read and space costs with background merging. The write path first records the update in a write-ahead log for crash recovery and then inserts it into a mutable in-memory sorted structure called a memtable. When the memtable fills, it becomes immutable and is flushed as a sorted string table, or SSTable, on disk.`,
         `The disk side is organized into levels. New flushed files land in Level 0, where files may overlap in key range. Compaction later chooses files, reads their sorted contents, merges them, drops overwritten versions and expired tombstones when safe, and writes new files into lower levels. Lower levels are larger and more orderly. The result is a system that makes the common foreground write cheap while spending background work to keep reads and space under control.`,
@@ -240,7 +249,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         `A put begins with durability. The engine appends the update to the WAL. Depending on configuration, the WAL may be synced immediately or later. The update is inserted into the active memtable, usually a sorted in-memory structure. Once the write is acknowledged, a crash can recover the memtable contents by replaying the WAL. This is why the WAL and memtable appear together on the write path.`,
         `A flush moves data from memory to disk. When the memtable reaches a size threshold, RocksDB makes it immutable and starts a new mutable memtable. The immutable one is written as an SSTable. An SSTable stores sorted key-value entries in blocks, plus metadata, indexes, filters, and checksums. Sorted files make range scans and merging efficient, while block indexes and Bloom filters reduce unnecessary reads.`,
@@ -273,7 +282,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The core cost is amplification. Write amplification counts how many bytes the engine writes to storage for each byte of logical user data. Read amplification counts how many memory and disk structures a lookup must consult. Space amplification counts how much extra storage is used for old versions, tombstones, metadata, and level slack. RocksDB tuning is often the art of deciding which amplification the application can afford.`,
         `CPU is the less obvious cost. Compression, decompression, checksum verification, filter construction, comparator work, and compaction merging can dominate on fast SSDs. A configuration that saves disk may become CPU-bound. A configuration that improves p99 reads may spend memory on cache and filters that another part of the service needed.`,
@@ -281,7 +290,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `RocksDB wins when a system needs durable local key-value state with heavy writes, configurable performance, and tight embedding. It is useful under distributed databases, stream processors, metadata indexes, queues, deduplication tables, and persistent caches. The host application controls replication, sharding, consensus, request routing, and higher-level semantics, while RocksDB handles local persistence.`,
         `It is especially strong when batched background work is acceptable. If the workload can tolerate compaction as a managed maintenance process, the engine can turn random updates into sequential disk activity and preserve reasonable reads with filters, indexes, and cache. It also wins when the system operator is willing to measure workload-specific metrics instead of assuming one universal profile.`,
@@ -301,5 +310,68 @@ export const article = {
         `Study LSM Trees (How Cassandra Writes), LSM Compaction Strategies Primer, RocksDB Write Stalls & Compaction Debt, SSTable Block Index & Filter, RocksDB MANIFEST & VersionSet, LSM Tombstones & Range Deletes, Write-Ahead Log (WAL), Bloom Filter, Quotient Filter, Delta Lake Case Study, and Backpressure & Flow Control next. The strongest follow-up exercise is to take one workload and predict which amplification metric will become the first bottleneck.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why RocksDB LSM Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

@@ -1,4 +1,4 @@
-// RTP jitter buffer: reorder RTP packets by sequence number and hold them long
+﻿// RTP jitter buffer: reorder RTP packets by sequence number and hold them long
 // enough to absorb delay variation before decoder playout.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -205,6 +205,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for RTP Jitter Buffer Packet Reorder Case Study. A real-time media case study: RTP sequence numbers, timestamp clocks, packet reordering, jitter estimates, adaptive playout delay, loss concealment, and RTCP feedback..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `Real-time media has a different goal from file transfer. A video call does not need every old packet eventually; it needs the next audio frame or video frame soon enough to keep conversation intelligible. Networks do not naturally provide that shape. UDP packets can arrive late, arrive out of order, arrive in bursts, or disappear. The decoder, however, wants media in timestamp order at a steady playout rhythm.`,
@@ -213,7 +222,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive design and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The simplest receiver feeds packets to the decoder in arrival order. That fails immediately when packet 102 arrives before packet 101. The network arrival order is not the media order. A decoder that receives frames out of sequence may produce artifacts, fail to decode dependent frames, or break synchronization between audio and video.`,
         `A second simple receiver uses a FIFO queue with a fixed delay. This is better, but brittle. If the delay is too small, ordinary jitter creates late loss. If the delay is too large, every participant feels lag even on a good network. Fixed delay can be acceptable in a controlled network, but the public internet changes from minute to minute as wireless links, queues, and routes shift.`,
@@ -221,15 +230,15 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        `RTP gives the receiver two essential coordinates. The sequence number tells packet order within an RTP stream and reveals gaps. The RTP timestamp tells media time according to the payload's clock. Local arrival time tells what the network did to this packet on this path. A jitter buffer combines these coordinates to answer three different questions: what order should packets be in, when should this media be played, and how much delay variation is the network adding?`,
+        `RTP gives the receiver two essential coordinates. The sequence number tells packet order within an RTP stream and reveals gaps. The RTP timestamp tells media time according to the payload\'s clock. Local arrival time tells what the network did to this packet on this path. A jitter buffer combines these coordinates to answer three different questions: what order should packets be in, when should this media be played, and how much delay variation is the network adding?`,
         `The data structure is a bounded reorder map plus deadlines. Packets are inserted by sequence number. Adjacent packets form ranges. Gaps are tracked until the missing packet arrives or the deadline expires. At each playout tick, the buffer releases the packet or frame that corresponds to media time. If the needed packet is missing, the receiver uses packet loss concealment, requests repair when the application supports it, or skips forward.`,
         `The control policy chooses the playout delay. A fixed policy sets one delay and hopes the network fits. An adaptive policy estimates jitter and late loss, increases delay during unstable periods, and tries to shrink delay when the path improves. The best policy is not the one that preserves every packet. It is the one that produces acceptable media quality at acceptable interaction latency.`,
       ],
     },
     {
-      heading: 'How the mechanism works',
+      heading: 'How it works',
       paragraphs: [
         `Consider packets with sequence numbers 100, 101, 102, and 103. Packet 100 arrives first. Packet 102 arrives second. Packet 101 arrives third. A FIFO receiver would deliver 102 before 101. A jitter buffer inserts 102 into the reorder window, notices the gap at 101, and waits until either 101 arrives or the playout deadline for 101 passes. When 101 arrives in time, the buffer can release 101 and 102 in the correct order.`,
         `The buffer must also understand media time. Audio packets might represent 20 milliseconds each. Video packets may be fragments of a frame. RTP timestamps let the receiver map packet contents to playout moments and synchronize streams. Sequence numbers alone do not say when to play media; they only say relative packet order. Timestamps and clock recovery provide the media timeline.`,
@@ -246,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is used',
+      heading: 'Real-world uses',
       paragraphs: [
         `Jitter buffers are central to VoIP, video conferencing, WebRTC media paths, SIP/RTP systems, broadcast contribution links, remote production, telemedicine sessions, and low-latency live streaming workflows that use RTP. Any system that receives packetized real-time media over a variable-delay network needs a version of this structure.`,
         `Different products tune the policy differently. A conference call favors low mouth-to-ear delay because participants interrupt and respond to each other. A live sports contribution feed may tolerate more buffering to avoid visible artifacts. A remote control session may prefer freshness over completeness. The data structure is similar, but the target delay, repair strategy, and acceptable loss differ by use case.`,
@@ -254,7 +263,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The main tradeoff is delay versus late loss. Raising the target delay gives reordered packets more time to arrive and reduces concealment, but increases interaction latency. Lowering delay makes the session feel responsive, but turns jitter spikes into drops. A controller that only reacts upward can slowly ratchet latency higher after each burst. A controller that shrinks too aggressively can oscillate and create repeated gaps.`,
         `Common failure modes are easy to name and hard to tune. Treating reordering as permanent loss causes unnecessary concealment or repair requests. Holding late packets after their deadline wastes memory and can confuse decoder timing. Ignoring clock drift slowly misaligns capture time and playout time. Mixing audio and video policies can either delay speech too much or damage video quality. Hiding jitter-buffer metrics inside the decoder prevents the sender from adapting.`,
@@ -262,10 +271,79 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Primary sources: RTP RFC 3550 at https://datatracker.ietf.org/doc/html/rfc3550 and RTCP XR de-jitter buffer metrics RFC 7005 at https://www.rfc-editor.org/rfc/rfc7005.txt. Study Ring Buffer, TCP Reassembly + SACK Scoreboard, Backpressure, HTTP/3 QUIC Stream Multiplexing Case Study, Adaptive Bitrate Manifest Ladder Case Study, UDP, Congestion Control, and Packet Loss Concealment next.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for rtp-jitter-buffer-packet-reorder-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

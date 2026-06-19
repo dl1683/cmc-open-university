@@ -208,6 +208,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for ML-KEM Kyber Module-Lattice KEM Case Study. A post-quantum key-establishment case study: module lattices, public matrix seeds, small-noise vectors, NTT polynomial products, encapsulation, decapsulation, ciphertext checks, and parameter-set ledgers..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A network protocol needs a way for two parties to create the same secret while every byte on the wire is visible to an observer. Classical systems usually solve that with Diffie-Hellman over finite fields or elliptic curves. Those systems are compact and fast, but their security depends on algebraic problems that a large enough fault-tolerant quantum computer would threaten. Post-quantum key establishment asks for a replacement whose public information can be recorded today without becoming easy to break later.`,
@@ -216,7 +225,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why the obvious approach fails',
+      heading: 'The wall',
       paragraphs: [
         `The naive migration story is to find an elliptic-curve Diffie-Hellman call and swap in a post-quantum function. That misses the shape of the primitive. ECDH computes a shared value from two long-term or ephemeral public keys. A KEM has key generation, encapsulation, decapsulation, ciphertext transport, and carefully specified failure behavior. The wire format and the API contract are different.`,
         `A second tempting answer is to use a general public-key encryption scheme and encrypt a random session key. Modern KEMs are more disciplined than that. They specify how randomness is derived, how ciphertexts are checked, how shared secrets are bound to the ciphertext and public key, and what must happen when decapsulation receives malformed input. The invalid-ciphertext path is part of the cryptographic design, not an error-handling afterthought.`,
@@ -240,7 +249,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The core insight',
       paragraphs: [
         `During encapsulation, the sender derives coins, computes polynomial-vector products against the public key, compresses intermediate values, and emits a ciphertext. The sender also derives a shared secret from the encapsulation process. During decapsulation, the receiver uses the secret key to reconstruct the message encoded by the ciphertext, recomputes what the ciphertext should have been, and checks whether the received bytes match the expected result.`,
         `That recomputation step is central. It turns a public-key encryption style construction into a chosen-ciphertext secure KEM. If the ciphertext is valid, decapsulation returns the same shared secret as encapsulation. If the ciphertext is invalid, decapsulation must return a safe fallback value derived in a way that does not reveal the validity decision through timing, error codes, logs, or network behavior.`,
@@ -272,15 +281,15 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'How it works',
       paragraphs: [
         `A production rollout should measure bytes on the wire, CPU time, memory allocation, certificate size, handshake fragmentation, retry rate, and middlebox behavior. Post-quantum migration is partly a cryptography change and partly a systems change. The new keys and ciphertexts can interact with old packet assumptions, old load balancers, old observability limits, and old latency budgets.`,
         `A useful deployment ledger records the parameter set, implementation version, FIPS or library status, public-key fingerprint, ciphertext length, negotiated algorithm identifier, hybrid composition rule, and invalid-ciphertext policy. That ledger is not paperwork. It is how an operator answers whether two endpoints are actually using the expected primitive and whether a reported failure is cryptographic, transport-level, or configuration-level.`,
-        `Hybrid mode should be designed deliberately. Combining a classical and post-quantum secret is not the same as running two independent handshakes and hoping they compose. The transcript, algorithm identifiers, public keys, ciphertext, and both shared secrets must be bound by the protocol's key schedule so downgrade and substitution attacks do not move the connection onto weaker assumptions.`,
+        `Hybrid mode should be designed deliberately. Combining a classical and post-quantum secret is not the same as running two independent handshakes and hoping they compose. The transcript, algorithm identifiers, public keys, ciphertext, and both shared secrets must be bound by the protocol\'s key schedule so downgrade and substitution attacks do not move the connection onto weaker assumptions.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The first failure mode is conceptual: using ML-KEM as if it were encryption, a signature scheme, a password hash, or a symmetric cipher. It is a key-establishment primitive. Bulk data still belongs to symmetric encryption. Authentication still needs certificates, signatures, or another identity mechanism. Storage encryption still needs a key-management design around the secret.`,
         `The second failure mode is leaky decapsulation. Different timing, different alert codes, different retry behavior, different log lines, or different cleanup paths for invalid ciphertexts can expose information the construction is supposed to hide. This is why a constant-time comparison helper is not enough by itself; the whole endpoint behavior must avoid validity-dependent signals.`,
@@ -288,7 +297,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         `ML-KEM matters most at protocol boundaries where long-lived confidentiality is at stake. TLS-style handshakes, VPNs, service mesh channels, device provisioning, and encrypted messaging all need a plan for recorded traffic that may be attacked later. Even when a system is not ready for post-quantum-only operation, hybrid key establishment can let teams exercise the code paths and operational assumptions.`,
         `It also matters as a case study in algorithm deployment. The mathematical object is a module-lattice KEM, but the shipped system is a negotiation rule, a byte format, a constant-time implementation, a telemetry story, a parameter policy, and a recovery plan for bad releases. The security boundary is the whole path from public key generation to shared-secret use.`,
@@ -301,5 +310,64 @@ export const article = {
         `Within this curriculum, study NTT Polynomial Multiplication to understand the fast polynomial products, Hash Functions and Key Derivation to understand how shared secrets become traffic keys, Constant-Time Programming to reason about decapsulation behavior, ML-DSA for the lattice signature counterpart, SLH-DSA for a hash-based signature alternative, and Shamir Secret Sharing for a very different way to split and reconstruct secrets.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for ml-kem-kyber-module-lattice-kem-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

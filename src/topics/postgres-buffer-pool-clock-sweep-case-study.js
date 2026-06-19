@@ -1,4 +1,4 @@
-// PostgreSQL buffer pool: shared buffer descriptors, pins, usage_count, dirty
+﻿// PostgreSQL buffer pool: shared buffer descriptors, pins, usage_count, dirty
 // pages, background writer/checkpointer pressure, and clock-sweep eviction.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -166,6 +166,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for PostgreSQL Buffer Pool Clock Sweep. How PostgreSQL shared buffers use buffer descriptors, pins, usage_count, dirty flags, clock-sweep victim selection, background writes, and checkpoints..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'PostgreSQL stores tables and indexes as pages on disk, but query execution wants those pages in memory. The shared buffer pool is the database-owned cache of those pages. It lets backends reuse hot pages, coordinate access to dirty pages, and enforce write-ahead logging rules before pages are replaced or flushed.',
@@ -174,7 +183,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and why PostgreSQL avoids it',
+      heading: 'The obvious approach',
       paragraphs: [
         'The obvious cache policy is exact LRU: every access moves the page to the front of a list, and eviction removes the least-recently used page. It is easy to explain and often good in small caches.',
         'The wall is concurrency and bookkeeping. A busy database cannot afford a highly contended global list mutation on every page access. It also cannot evict a page merely because it is old. If a backend has pinned the page, the page is in active use. If the page is dirty, replacement may require writeback, and writeback is constrained by WAL ordering.',
@@ -190,7 +199,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'In the clock-sweep view, follow the distinction between lookup and replacement. The tag map finds a page if it is already cached. The descriptor fields decide whether a cached page can be kept, skipped, decremented, or replaced.',
         'When the clock hand reaches a pinned buffer, the animation skips it because a backend still depends on that memory slot. When it reaches a buffer with usage_count, the hand decrements the counter rather than evicting immediately. When it reaches a cold unpinned buffer, the victim choice becomes possible.',
@@ -198,7 +207,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'A backend requests a page by buffer tag, roughly relation identity plus fork and block number. If the tag is present, the backend pins the buffer and can use the page. The pin protects the page from eviction while the backend reads or modifies it.',
         'If the tag is absent, the buffer manager needs a free or reusable slot. The clock hand scans descriptors. Pinned buffers are not candidates. Recently used buffers have usage_count decremented. Eventually the hand finds a cold unpinned slot. That slot can hold the incoming page after any required dirty writeback.',
@@ -230,7 +239,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Clock sweep wins in a concurrent database because it gives a compact, low-contention approximation of cache value. It is good enough to protect pages with repeated use and simple enough to operate under heavy backend concurrency.',
         'It is especially useful in mixed workloads: hot indexes, hot account rows, occasional scans, background maintenance, and write traffic all sharing one finite memory budget.',
@@ -245,7 +254,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example (2)',
       paragraphs: [
         'An OLTP database has a hot customer table and a reporting query that scans old orders. Hot customer pages keep getting pinned and refreshed. The scan needs many buffer slots. The clock hand skips pinned descriptors, decrements usage_count on recently used pages, and eventually reuses cold pages.',
         'If the scan collides with many dirty pages, background writer and checkpoint behavior determine whether foreground backends wait on disk writes. The buffer pool lesson is not just caching; it is eviction plus durability.',
@@ -258,5 +267,69 @@ export const article = {
         'Study PostgreSQL WAL Checkpoint & Recovery, Readahead & Dirty Writeback, Linux Page Cache XArray, Write Caching, MVCC Internals & VACUUM, and Database Indexing next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why PostgreSQL Buffer Pool Clock Sweep moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

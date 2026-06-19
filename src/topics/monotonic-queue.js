@@ -1,4 +1,4 @@
-// Monotonic queue: keep only candidates that can still become the window max.
+﻿// Monotonic queue: keep only candidates that can still become the window max.
 
 import { sequenceState, matrixState, InputError } from '../core/state.js';
 
@@ -174,6 +174,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Monotonic Queue. A deque that keeps candidates in decreasing order so every sliding-window maximum is O(1) after amortized O(1) updates..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A monotonic queue exists for questions where the best value must be maintained while a window moves forward. The standard example is the sliding-window maximum: given a stream of numbers and a window size k, report the maximum after every step. The same shape appears in monitoring, rate limiting, image processing, and dynamic programming. The data arrives in order, old values expire, and the answer is always the best live candidate.',
@@ -181,7 +190,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The direct solution keeps the last k items and scans all of them whenever the window moves. For the array [1, 3, 2, 5, 4, 8, 7] with k = 3, it scans [1, 3, 2] to get 3, then [3, 2, 5] to get 5, then [2, 5, 4] to get 5, and so on. This is easy to write and easy to trust.',
         'The wall is repeated work. Adjacent windows overlap almost completely, but the naive algorithm throws away the previous comparisons and starts again. Its cost is O(k) per window and O(nk) over n items. That may be acceptable when k is tiny. It becomes wasteful when a service computes many rolling metrics, when k is large, or when the stream is long.',
@@ -195,7 +204,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The structure is a deque of pairs: value and index. For a sliding maximum, values in the deque are kept in decreasing order from front to back. The front is the largest live candidate. The back contains smaller candidates that may matter later after the larger values in front expire.',
         'On each new item, the queue performs two kinds of cleanup. It removes expired indexes from the front because those values are no longer in the window. It removes dominated values from the back because the new value is larger and will expire later. Then it appends the new value. After that, the answer is simply the value at the front.',
@@ -218,21 +227,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Amortized cost',
+      heading: 'Cost and behavior',
       paragraphs: [
         'One update may remove many items from the back, which can make the loop look expensive. The amortized argument is simple: every item is pushed exactly once. After it is pushed, it can be removed from the back at most once, or from the front at most once. It cannot return to the queue after removal.',
         'Across the entire input, there are n pushes and at most n pops. That makes the total work O(n), even though a single step can do several pops. The current maximum query is O(1) after cleanup because it reads the front. Space is O(k), and often smaller, because dominated values are not retained.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior (2)',
       paragraphs: [
         'The main tradeoff is specialization. A monotonic queue is excellent for one-pass sliding max or min, but it is not a general range-query engine. If queries ask for arbitrary intervals, use a segment tree, sparse table, Fenwick tree variant, or another structure that matches the update pattern. The monotonic queue earns its speed by assuming the boundary moves forward.',
         'Tie handling is also a design choice. If equal values should keep the oldest representative, remove only strictly smaller values from the back. If equal values should keep the newest representative, remove smaller-or-equal values. Both choices can be correct. The important part is that the implementation and proof agree.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern appears in time-series alerting, rolling high-water marks, rate-limit dashboards, image dilation and erosion filters, streaming analytics, and several dynamic-programming optimizations. In each case the system asks for the best value over a recent horizon. The horizon moves forward, and most old candidates become dominated before they expire naturally.',
         'Dynamic programming is the less obvious use. Some recurrences ask for the best previous state inside a bounded distance. If the candidate expression can be ordered and the window moves forward, a monotonic queue can turn an O(nk) recurrence into O(n). The structure is not only a trick for LeetCode style windows; it is a reusable dominance filter.',
@@ -246,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'Consider a metrics service that evaluates the highest CPU usage over the last 60 scrapes for every container. The naive version scans 60 samples per scrape per time series. That sounds small until there are hundreds of thousands of series and many rolling rules. A heap reduces the comparison cost but adds lazy deletion and still does not exploit full dominance.',
         'A monotonic queue per series stores CPU value and scrape index. On each scrape, the service first removes front entries older than 60 samples. Then it removes smaller values from the back until the queue is decreasing. Then it appends the new sample. The alert reads the front value and compares it to the threshold. The answer is exact, online, and linear in the number of received samples.',
@@ -254,11 +263,75 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Study queues and deques first, then the sliding-window pattern. After that, compare monotonic queues with binary heaps, segment trees, and sparse tables. The heap teaches lazy deletion and general priority queues. The segment tree teaches mutable range queries. The sparse table teaches static range maximum queries. The monotonic queue sits in the narrow but powerful case where a forward-moving window and a dominance rule make everything linear.',
         'Good practice problems include sliding-window maximum, shortest subarray variants that use a monotonic deque over prefix sums, and dynamic-programming problems where the transition asks for a max over a bounded recent range. In every case, ask the same question: when a new candidate arrives, which older candidates can never win again?',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Monotonic Queue moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

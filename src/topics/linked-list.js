@@ -74,87 +74,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Linked lists exist for ordered data that changes by relinking rather than shifting. An array stores items next to each other, so inserting or removing in the middle can move many later items. A linked list stores separate nodes and connects them with pointers, so a known position can be changed by rewiring references.`,
-        `The first node is reached through a head reference. From there, every step follows next. Lose the head and the rest of the chain becomes unreachable even if the nodes still exist in memory. That pointer ownership is the structure's main idea and its main danger.`,
+        'Each rectangle is a node. The number inside is the stored value. Arrows between nodes are next pointers -- the only thing connecting one node to the next. The leftmost node is the head; the chain ends where the last arrow would point to null.',
+        'An active (highlighted) node is the one the algorithm is currently inspecting or creating. Visited nodes have already been checked and passed over. A removed node is the one being unlinked from the chain. Watch the arrows, not the boxes: every structural change in a linked list is an arrow being redirected.',
       ],
     },
     {
-      heading: `The obvious approach and the wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is an array. Arrays are excellent when you need index lookup, compact storage, and cache-friendly scans. The wall appears when many insertions or removals happen near the front or middle, because the array must preserve contiguous order by shifting items.`,
-        `A linked list removes the shift by giving every item its own node. The tax is traversal. There is no formula for "the address of index 500" because node 500 could be anywhere in memory. To reach it, you must follow 500 pointers.`,
+        'Allen Newell, Cliff Shaw, and Herbert Simon invented linked allocation in 1955-56 while building IPL (Information Processing Language) for the Logic Theorist, the first AI program to prove mathematical theorems. They needed a way to represent symbolic expressions whose size could not be predicted at compile time. Their solution: give each piece of data its own block of memory and connect the blocks with address pointers. The idea outlived IPL and became one of the two fundamental ways to organize sequential data, alongside the array.',
+        'A linked list solves a specific problem: ordered data that changes shape frequently. When a program needs to insert or delete elements at known positions without touching the rest of the collection, pointer re-aiming costs O(1). No elements shift. No reallocation. The structure grows and shrinks one node at a time, using exactly as much memory as it currently needs.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that order can live in pointers instead of physical adjacency. A node does not need to know the whole list. It only needs a value and a pointer to the next node. Changing the list means changing which node a pointer names.`,
-        `That is why linked-list performance always depends on the reference you already have. Inserting after a known node is O(1). Removing a known node from a doubly linked list is O(1). Removing by value from a singly linked list is O(n) because you must first find the previous node.`,
+        'Store elements in an array. Arrays place values in contiguous memory, one after another. This layout gives O(1) random access: the address of element k is base + k * element_size, a single arithmetic operation. Scanning is fast because modern CPUs load cache lines of 64 bytes at a time, so reading element k pre-loads several neighbors for free.',
+        'Arrays are the right default for most sequential data. They are compact (no per-element overhead beyond the value itself), cache-friendly, and supported by every language and hardware platform.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        `Read each frame as a pointer story, not as boxes moving around a screen. During append, the active node is the one just created, but the hidden cost is the walk to the tail when no tail pointer is stored. During search, every visited node is evidence that a linked list cannot skip ahead by index. During removal, the important moment is the predecessor changing its next pointer.`,
-        `The animation is deliberately small because the rules do not change at large size. If the target is 12 in 7 -> 3 -> 12 -> 9 -> 5, the list must inspect 7, then 3, then 12. Once it finds 12, the node holding 3 points directly to the node holding 9. The value 12 is not shifted out of a contiguous block; it is simply no longer reachable from head.`,
+        'Inserting into the middle of an array forces every later element to shift one position right to preserve contiguous order. Deleting from the middle forces every later element to shift left. Both operations are O(n). For a 10,000-element array, inserting at position 0 moves all 10,000 values.',
+        'Resizing hits the same wall from a different angle. When a dynamic array runs out of capacity, it allocates a larger block and copies everything over. The amortized cost is O(1) per append, but the single worst-case copy can be expensive in latency-sensitive code, and the new block temporarily doubles memory usage.',
+        'These costs are acceptable when insertions and deletions cluster at the end. They become painful when the workload demands frequent changes at the front or middle, or when the data must never relocate in memory because other parts of the system hold pointers into it.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'How it works',
       paragraphs: [
-        `Head insertion is the simplest operation: create a node, point it at the old head, and move head to the new node. Appending at the tail is O(n) if you store only head, because you must walk until next is null. If you also store tail, append becomes O(1). Queue implementations keep both head and tail for exactly this reason.`,
-        `Removal in a singly linked list needs the previous node. To remove current, set previous.next to current.next. Removing the head is a special case because there is no previous node; head moves to the second node. A doubly linked list stores both next and previous pointers, spending more memory so known-node removal is easier.`,
-        `Searching is always a traversal. At each node, compare the value and either stop or follow next. There is no binary-search shortcut because there is no direct jump to the middle. Even sorted values do not help much if reaching the middle still costs pointer walks.`,
+        'A singly linked list stores each element in a separate node. Every node holds two things: a value and a next pointer to the following node. The last node\'s next pointer is null. A head pointer provides the only entry point into the chain.',
+        'Insert at head: create a new node, set its next to the current head, move head to the new node. Two pointer operations, O(1). Insert at a known position: given a reference to node A, create a new node N, set N.next = A.next, set A.next = N. Again O(1) -- no traversal needed because the position is already known.',
+        'Delete a node: given the predecessor, set predecessor.next = target.next. The target is now unreachable from head and can be freed. Deleting the head is a special case: move head to head.next.',
+        'Search: start at head, compare each node\'s value, follow next until a match or null. O(n) in the worst case. There is no shortcut -- even if the list is sorted, reaching the middle requires n/2 pointer follows.',
+        'A doubly linked list adds a prev pointer to every node. This costs an extra pointer per node but lets you delete a node in O(1) given only a reference to that node, without needing its predecessor. Sentinel (dummy) nodes at the head and tail of a doubly linked list eliminate edge cases: insert and delete never need to check whether the predecessor or successor is null, because the sentinels are always there.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Correctness comes from preserving the chain invariant: starting at head and following next pointers should visit exactly the live nodes in order and eventually stop. Insertion is correct when the new node points to the old successor and the previous pointer points to the new node. No reachable node is lost.`,
-        `Removal is correct when the predecessor skips the removed node and points to the removed node's successor. The removed node is no longer reachable from head, and every node before and after it remains in the same order.`,
+        'Correctness rests on the chain invariant: starting at head and following next pointers visits exactly the live nodes in order and terminates at null. Every operation must preserve this invariant.',
+        'Insertion preserves the chain because the new node adopts the old successor (N.next = A.next) before the predecessor adopts the new node (A.next = N). The order matters: if A.next were overwritten first, the reference to the old successor would be lost and the tail of the list would be orphaned.',
+        'Deletion preserves the chain because the predecessor skips directly to the removed node\'s successor. Every node before and after the removed node keeps its position and reachability. The removed node may still exist in memory until garbage collection or manual deallocation, but it is outside the logical chain.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Take the list 7 -> 3 -> 12 -> 9 -> 5 and remove 12. The search phase starts at head because the value 12 could be anywhere. It compares 7, follows next to 3, compares 3, then follows next to 12. At that point the operation has enough information: current is the node to remove and previous is the node that must be rewired.`,
-        `The actual deletion is one assignment: previous.next = current.next. After that assignment, head still reaches 7, then 3, then 9, then 5. The removed node might still exist until garbage collection or manual deallocation, but it is outside the logical list. This distinction between physical memory and reachability is central to every pointer-based structure in the course.`,
+        'Insert or delete at head: O(1). Insert or delete at a known position (pointer in hand): O(1). Append at tail: O(1) with a tail pointer, O(n) without one. Search or access by index: O(n). Space: O(n), but with per-node overhead -- each singly linked node stores one pointer (8 bytes on 64-bit systems), each doubly linked node stores two (16 bytes). For small values like integers, the pointers can exceed the data itself.',
+        'When n doubles, search time doubles. Insert and delete at known positions stay constant. This is the opposite profile from an array, where doubling n keeps random access constant but doubles the worst-case insert cost.',
+        'The hidden constant: cache behavior. An array\'s elements sit in consecutive memory addresses, so traversing them hits the L1 cache almost every time. Linked list nodes are allocated individually on the heap and can land anywhere in memory. Following a next pointer to an arbitrary address typically costs a cache miss -- roughly 5-10ns to L2, 30-50ns to L3, and 100+ ns to main memory. For sequential scans, an array can be 10-50x faster than a linked list of the same length because of this effect alone. Big-O says both scans are O(n), but the constant factor on the linked list is dramatically larger.',
       ],
     },
     {
-      heading: `Cost and tradeoffs`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Head insertion and head removal are O(1). Tail append is O(1) only with a tail pointer; otherwise it is O(n). Search, index lookup, and remove-by-value are O(n). Space is O(n), but each node stores at least one extra pointer, so the constant factor is larger than an array.`,
-        `Real machines add another cost: arrays usually win cache locality because nearby values sit in nearby memory, while linked nodes may be scattered across the heap. Big-O Growth Rates explains the asymptotic trade, but cache behavior often decides the winner for small and medium data.`,
+        'Operating system process schedulers use doubly linked lists to manage the run queue. Inserting a new process or moving one between priority levels is O(1) with a direct pointer, which matters when the scheduler runs thousands of times per second.',
+        'Memory allocators maintain free lists: chains of available memory blocks linked together by pointers embedded in the free blocks themselves. Allocation removes a block from the free list; deallocation inserts it back. No separate tracking structure is needed because the unused memory stores its own links.',
+        'LRU caches combine a hash map with a doubly linked list. The hash map provides O(1) key lookup. The doubly linked list provides O(1) move-to-front (on access) and O(1) eviction from the tail (when capacity is full). Neither structure alone is sufficient: a list without the map has O(n) lookup; a map without the list has no efficient way to track recency order.',
+        'Undo history in editors is a linked list of states. Each state points to the previous one. Undo follows the backward pointer; redo follows the forward pointer. Branching undo (where the user undoes, then makes a new edit) naturally forks the chain.',
+        'Polynomial arithmetic represents each term as a node with a coefficient and exponent. Adding two polynomials merges their sorted linked lists in O(n + m) without preallocating space for every possible exponent.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Stack can be implemented with the head as the top, giving O(1) push and pop. Queue can be implemented with head as the front and tail as the back. LRU Cache famously combines Hash Table with a doubly linked list: the table finds an item in O(1), and the list moves it to the most-recent end or evicts the least-recent end in O(1).`,
-        `Graphs often store adjacency lists: each vertex points to the neighbors it can reach. Tree Traversals and Graph BFS both rely on the idea of following references from one object to the next, although their shapes branch instead of forming one chain. Skip List extends the same base idea with extra forward pointers, creating fast "express lanes" over a sorted chain.`,
+        'Random access is O(n). There is no formula for the address of the kth node because nodes are scattered across memory. Any algorithm that needs element[k] repeatedly -- binary search, quicksort partition, matrix operations -- is a poor fit.',
+        'Cache hostility is the practical killer. On modern hardware, a sequential scan of 10,000 array elements takes microseconds. The same scan over a linked list can take 10-50x longer because each pointer follow risks a cache miss. Bjarne Stroustrup (creator of C++) demonstrated in 2012 that for sequences under a few thousand elements, arrays with O(n) insertion consistently outperform linked lists with O(1) insertion because the cache advantage of contiguous memory overwhelms the shifting cost.',
+        'Pointer overhead is nontrivial. A singly linked node carrying a 4-byte integer spends 8 bytes on the next pointer -- the metadata is twice the payload. A doubly linked node spends 16 bytes on pointers. For large collections of small values, the memory footprint can be 3-5x an equivalent array.',
+        'Pointer bugs are a common source of errors. Updating pointers in the wrong order during insert or delete can orphan the tail of the list, create cycles, or leave dangling references. Sentinel nodes and careful ordering (always set the new link before breaking the old one) prevent most of these bugs, but the surface area for mistakes is larger than with arrays.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Worked example',
       paragraphs: [
-        `The biggest misconception is that linked structures are automatically faster because insertion sounds O(1). That is only true after you already have the right position. If you must search first, the search dominates. Another common bug is pointer order during insertion or deletion: if you overwrite the only reference to the next node before saving it, you orphan the rest of the chain.`,
-        `Be careful with memory, too. Each node carries pointer overhead, allocation overhead, and worse cache behavior than an array. In high-performance code, that can make a theoretically worse array operation faster in practice. Use this structure when stable references, frequent end operations, or O(1) known-node removal matter more than random access.`,
+        'Build the list 7 -> 3 -> 12, then delete 3. Step by step:',
+        'Insert 7. The list is empty, so create a node with value 7 and set head to point to it. Chain: head -> [7] -> null.',
+        'Insert 3. Create a node with value 3. Walk from head to the last node (7), set [7].next = [3]. Chain: head -> [7] -> [3] -> null.',
+        'Insert 12. Create a node with value 12. Walk from head to the last node (3), set [3].next = [12]. Chain: head -> [7] -> [3] -> [12] -> null.',
+        'Delete 3. Start at head. Compare 7 -- no match, but save it as the predecessor candidate. Follow next to 3 -- match found. The predecessor is [7], the target is [3], the successor is [12]. Set [7].next = [12]. Chain: head -> [7] -> [12] -> null. Node [3] is now unreachable from head. One pointer update, zero shifts.',
+        'If we had deleted head (7) instead: move head to [3]. Chain: head -> [3] -> [12] -> null. Still one pointer update.',
       ],
     },
     {
-      heading: `Complete case study`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `An LRU Cache shows the linked-list trade clearly. The system needs to find a cached item by key, move it to the most-recent end, and evict the least-recent item when capacity is full. A Hash Table finds the node by key in O(1). A doubly linked list moves that known node or removes the tail in O(1).`,
-        `A plain array is weaker for this case. Finding the key by scan is O(n), and moving a middle item to the end shifts other entries. A linked list alone is also not enough because lookup by key would still be O(n). The complete design works because the hash table supplies location and the list supplies cheap reordering.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Stack and Queue to see the two cleanest uses of head and tail pointers. Then read LRU Cache for the classic interview design that fuses Hash Table lookup with linked-list eviction. Skip List shows how extra pointers can recover logarithmic search, while Tree Traversals and Graph BFS generalize pointer walking to branching structures.`,
+        'Newell, Shaw, and Simon, "The Logic Theory Machine" (1956) -- introduced linked allocation in IPL for symbolic AI. Knuth, The Art of Computer Programming, Volume 1, Section 2.2 (1997) -- the definitive treatment of linked lists, pointer manipulation, and memory allocation strategies. Stroustrup, "Why you should avoid linked lists" (Going Native 2012) -- empirical demonstration that cache effects dominate asymptotic complexity for moderate-sized collections.',
+        'Prerequisites: arrays (contiguous memory and O(1) indexing) and pointer/reference basics (a variable holding the address of another object). If either concept is unclear, the linked-list tradeoff will not make sense.',
+        'Study next: Stack and Queue for the two cleanest linked-list applications (head-only and head+tail). Doubly Linked List for the prev-pointer extension enabling O(1) known-node deletion. LRU Cache for the classic design pairing a hash map with a doubly linked list. Skip List for recovering O(log n) search over a sorted linked chain. Hash Table for understanding chaining, where each bucket is a short linked list.',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-// Binary search: halve the search range on every comparison.
+﻿// Binary search: halve the search range on every comparison.
 // Requires sorted input — that requirement is the whole trick.
 
 import { arrayState, parseNumberList, parseNumber } from '../core/state.js';
@@ -85,82 +85,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Binary-style searching finds a target in a sorted sequence by repeatedly checking the middle and throwing away the half that cannot contain the answer. If the middle value is too small, everything to its left is too small too. If the middle value is too large, everything to its right is too large too. One comparison can delete thousands, millions, or billions of candidates from consideration.`,
-        `The sorted-order requirement is non-negotiable. On unsorted data, Linear Search is the honest baseline because every position could still be the target. If you will search once, sorting first is usually wasted work. If you will search the same data many times, paying for Merge Sort or another O(n log n) sort can be worth it because each later lookup becomes logarithmic.`,
-        `The wall for linear search is that it ignores order. With one million sorted records, checking from the front can still take one million comparisons. Binary search exists because sorted order lets one comparison become a proof about every value on one side of the midpoint.`,
+        'The highlighted range is the live search interval: every position where the target could still be. The active marker is the midpoint being tested. Visited positions have been proven impossible by a prior comparison. Found means the target matched.',
+        'Watch the range, not just the midpoint. Each step should cut the highlighted region roughly in half. If the range does not shrink, the update rule is wrong. lo and hi move inward; they never move outward. The midpoint is computed as lo + floor((hi - lo) / 2) to avoid integer overflow.',
+        'For an 8-element array, the animation should finish in at most 3 comparisons. Count the steps yourself to confirm logarithmic behavior.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Keep two boundaries, lo and hi, around the range where the answer might still live. Compute mid as lo + Math.floor((hi - lo) / 2). That formula avoids integer overflow in languages with fixed-size integers, while giving the same midpoint as floor((lo + hi) / 2). Compare array[mid] with the target. Equal means done. Too small moves lo to mid + 1. Too large moves hi to mid - 1. When lo passes hi, the range is empty and the target is absent.`,
-        `The invariant is the whole proof: if the target exists, it is always inside the current boundaries. Interview variants change what "answer" means. Lower bound finds the first value greater than or equal to a target. Upper bound finds the first value greater than a target. "Search on answer" applies the same structure to any monotonic yes/no test, such as the smallest capacity that can ship packages within D days.`,
-        `Each update must remove mid itself from the next range unless mid is the answer. Keeping mid after proving it too small or too large is the classic infinite-loop bug. The algorithm is small because the invariant is doing most of the work.`,
+        'Searching sorted data is one of the oldest problems in computing. John Mauchly described the idea of halving a search range in 1946, but the first published correct implementation did not appear until Bottenbruch wrote one in 1962. The gap between "obvious idea" and "correct code" is the entire story of binary search.',
+        'The algorithm finds a target value in a sorted array by checking the middle element and discarding the half that cannot contain the answer. One comparison eliminates half the candidates. Two comparisons eliminate three quarters. Thirty comparisons are enough to search a billion elements.',
+        'The sorted-order requirement is non-negotiable. On unsorted data, Linear Search is the honest baseline because every position is equally likely. If you will search the same data many times, paying O(n log n) to sort it once makes every later lookup O(log n).',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Watch the low and high bounds, not only the midpoint. Each comparison proves that one side of the array cannot contain the answer, so the live search interval shrinks. The midpoint is just the question that buys that proof cheaply.`,
-        `The obvious wrong version is "look at the middle until it works." The correct invariant is sharper: if the target exists, it remains inside the closed interval between low and high. Every bound update must preserve that statement, including absent-target cases.`,
+        'Linear scan: start at position 0 and check every element until you find the target or reach the end. It works on any array, sorted or not, and it is simple to write correctly. For small arrays, it is fast enough.',
+        'The cost is O(n). A million elements means up to a million comparisons. A billion elements means up to a billion. The scan treats every position as equally likely and ignores any structure the data might have. When the array is sorted, that ignorance is expensive.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The wall',
       paragraphs: [
-        `Best case is O(1) when the first middle element is the target. Average and worst case are O(log n). A million sorted items need at most about 20 comparisons; a billion need about 30. Space is O(1) for the iterative version. A recursive version uses O(log n) stack frames, which is small but not free. Big-O Growth Rates makes the gap vivid: logarithmic growth barely moves while linear growth keeps climbing with every extra item.`,
+        'Linear search wastes information. Each failed comparison proves exactly one thing: this position is not the target. In a sorted array, a single comparison against the midpoint proves that half the array is impossible. Linear search never asks a question whose answer covers more than one position.',
+        'Put numbers on it. A sorted array of one billion elements: linear scan needs up to 1,000,000,000 comparisons. Binary search needs at most ceil(log2(1,000,000,000)) = 30. The gap grows with every element you add.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'The core insight',
       paragraphs: [
-        `Language libraries expose this directly: Python has bisect, C++ has lower_bound and upper_bound, and Java has Arrays.binarySearch. Database indexes use related search ideas constantly. B-Trees (How Databases Read) keep keys sorted inside disk pages so a page can be searched quickly before following the right child pointer. LSM Trees (How Cassandra Writes) store immutable sorted files, where exact lookup and range lookup both lean on sorted order.`,
-        `The same comparison pattern appears inside Binary Search Tree, but with a different storage shape. A sorted array gives excellent cache locality and O(1) access to the middle; a tree supports cheaper dynamic insertion but can become unbalanced without rotations. Two Pointers is another sorted-array technique, useful when the problem needs coordinated movement from the ends instead of halving from the middle.`,
+        'Sorted order turns one comparison into a proof about half the data. If the middle value is less than the target, every value to its left is also less, because the array is sorted. The entire left half is eliminated by a single test. The midpoint is just the question that buys that proof as cheaply as possible.',
+        'The invariant is sharper than "look at the middle until it works." The correct statement: if the target exists in the array, it lies inside the closed interval [lo, hi]. Every bound update must preserve that statement. When lo passes hi, the interval is empty and absence is proven.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'How it works',
       paragraphs: [
-        `Most bugs are boundary bugs. Mixing lo < hi with lo <= hi without changing the update rules can skip answers or loop forever. Forgetting mid + 1 or mid - 1 after ruling out mid repeats the same midpoint. Duplicates also matter: returning any matching index is easier than returning the first or last matching index.`,
-        `Another misconception is that logarithmic search always beats Hash Table. Hashing gives O(1) average exact lookup, but it does not preserve sorted order and has weaker worst-case guarantees. Sorted arrays are great for mostly-read data and range queries; hash tables are great for mutable exact-key maps. The right choice depends on update rate, ordering needs, and memory overhead, not just one Big-O label.`,
+        'Maintain two boundaries, lo and hi, around the range where the answer might live. Compute mid = lo + floor((hi - lo) / 2). The formula lo + floor((hi - lo) / 2) gives the same result as floor((lo + hi) / 2) but avoids integer overflow when lo + hi exceeds the maximum integer. Java\'s Arrays.binarySearch shipped with the overflow bug for nine years (2003-2006) before Joshua Bloch discovered and fixed it.',
+        'Compare array[mid] to the target. If they are equal, return mid. If array[mid] is less than the target, set lo = mid + 1 to discard the left half including mid. If array[mid] is greater, set hi = mid - 1 to discard the right half including mid. When lo > hi, the range is empty and the target is absent.',
+        'Three variants matter in practice. Exact match returns the index of a specific value or reports absence. Lower bound finds the first position where the value is greater than or equal to the target, which is the insertion point. Upper bound finds the first position where the value is strictly greater than the target. Lower and upper bound together answer range queries: how many elements fall between two values?',
       ],
     },
     {
-      heading: `Implementation checklist`,
+      heading: 'Why it works',
       paragraphs: [
-        `Decide which variant you are writing before coding: exact match, first value at least target, first value greater than target, last valid value under a monotonic predicate, or insertion point. Most bugs come from mixing the loop condition of one variant with the boundary update of another.`,
-        `Prefer half-open intervals for lower-bound style code: lo starts at 0, hi starts at n, and the answer is lo. Prefer closed intervals for simple exact search if that is what your team finds clearer. Do not switch between them casually inside one implementation.`,
-        `Test absent targets, targets before the first element, targets after the last element, one-element arrays, two-element arrays, and duplicates. These cases expose nearly every off-by-one error.`,
+        'The correctness proof is an invariant argument. Claim: at the top of every loop iteration, if the target exists in the array, it lies in [lo, hi]. Base case: lo = 0 and hi = n - 1 cover the entire array, so the invariant holds trivially. Inductive step: when array[mid] < target, every index from lo to mid holds a value smaller than the target (sorted order), so narrowing to [mid + 1, hi] preserves the invariant. The symmetric argument holds when array[mid] > target.',
+        'Termination: each iteration reduces hi - lo by at least 1 because mid is excluded from the next range. The range cannot shrink below zero, so the loop must terminate. When it does, either we found the target or the empty interval proves absence.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Search for 16 in [2, 4, 8, 11, 15, 16, 23, 42]. The first midpoint is 11, which is too small, so every value at or left of 11 is discarded. The next live range is [15, 16, 23, 42]. Its midpoint is 16 or 23 depending on rounding convention; either way, the invariant tells you which half remains.`,
-        `The important part is not the exact midpoint sequence. The important part is that every discarded half is justified by sorted order. Without that proof, halving would only be guessing.`,
+        'Time: O(log n) worst and average case. Every comparison halves the range, so the maximum number of comparisons is ceil(log2(n)). Concrete: 1,024 items take at most 10 comparisons. 1,000,000 items take at most 20. 1,000,000,000 items take at most 30. Doubling the input adds exactly one comparison.',
+        'Space: O(1) for the iterative version. A recursive version uses O(log n) stack frames, which is small but not free.',
+        'Binary search on arrays is cache-friendly because array elements are contiguous in memory and access is sequential within each halving step. This is one reason sorted arrays often beat binary search trees in practice for static data, even though both offer O(log n) lookup.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Binary search works because sorted order turns one comparison into a certificate about half the data. If array[mid] is smaller than the target, every index at or left of mid is also too small. No value-by-value inspection is needed.`,
-        `The invariant is stronger than the code. At the top of every loop, the answer is either inside the current interval or does not exist. Every comparison preserves that invariant while shrinking the interval. Once the interval is empty, absence has been proven.`,
+        'Standard libraries expose binary search directly. Python\'s bisect module provides bisect_left (lower bound) and bisect_right (upper bound). C++ offers std::lower_bound, std::upper_bound, and std::binary_search. Java has Arrays.binarySearch and Collections.binarySearch.',
+        'Database indexes are built on the same principle. B-Trees keep keys sorted inside wide disk-page-sized nodes so a single page read eliminates a large range of possible rows. The lookup within each node is essentially a binary search.',
+        'Git bisect uses binary search on commit history to find the first commit that introduced a bug. You mark one commit as good and one as bad; git checks out the midpoint and asks you to test it. Each answer halves the suspect range. Finding a bug among 1,024 commits takes at most 10 tests.',
       ],
     },
     {
-      heading: `Where it matters`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Binary search appears anywhere a monotonic structure exists: sorted arrays, time-series cutoffs, version lists, lower-bound joins, database page slots, answer-space optimization, and scheduling thresholds. Many uses do not look like searching for a number; they look like finding the first time a predicate becomes true.`,
-        `That generalization is why this tiny algorithm deserves serious study. The same loop can find the first bad build, the smallest capacity that satisfies a constraint, or the insertion position for a new key. The data may change, but the monotonic proof shape stays the same.`,
+        'The data must be sorted. If the array changes frequently, maintaining sorted order costs O(n) per insertion (shifting elements). A binary search tree or balanced tree is better for dynamic data.',
+        'Binary search requires random access. On a linked list, finding the midpoint requires walking n/2 nodes, destroying the O(log n) guarantee. The algorithm needs O(1) access to any index.',
+        'Off-by-one bugs are legendary. Bentley reported in Programming Pearls (1986) that 90% of professional programmers could not write a correct binary search on their first try. The common errors: using lo < hi when the update rules assume lo <= hi, forgetting to exclude mid from the next range (causing infinite loops), and the integer overflow bug in mid = (lo + hi) / 2 when lo + hi exceeds 2^31. That last bug silently shipped in Java\'s standard library for nine years.',
+        'Binary search finds one matching index, not all of them. With duplicates, returning the first or last occurrence requires the lower-bound or upper-bound variant, not the simple exact-match version. Mixing the loop condition of one variant with the update rules of another is the most common source of subtle bugs.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Review Linear Search for the unsorted baseline, then study Big-O Growth Rates until O(log n) feels concrete. Binary Search Tree and B-Trees (How Databases Read) show how ordered lookup changes when the data structure is dynamic or disk-backed. Two Pointers and Merge Sort continue the theme: sorted order is a powerful source of shortcuts.`,
+        'Array: [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]. Target: 23.',
+        'Iteration 1: lo = 0, hi = 9. mid = 0 + floor((9 - 0) / 2) = 4. array[4] = 16. 16 < 23, so the target is to the right. Set lo = 5. The range [0..4] is eliminated.',
+        'Iteration 2: lo = 5, hi = 9. mid = 5 + floor((9 - 5) / 2) = 7. array[7] = 56. 56 > 23, so the target is to the left. Set hi = 6. The range [7..9] is eliminated.',
+        'Iteration 3: lo = 5, hi = 6. mid = 5 + floor((6 - 5) / 2) = 5. array[5] = 23. Match. Return index 5.',
+        'Three comparisons to find the target in a 10-element array. A linear scan starting from the left would have needed 6 comparisons. The savings grow with array size: a 10,000-element array needs at most 14 binary search comparisons versus up to 10,000 for linear scan.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Knuth, The Art of Computer Programming, Volume 3, Section 6.2.1: the definitive analysis of binary search, including history and variant taxonomy. Bentley, Programming Pearls (1986): the "90% get it wrong" study and the overflow bug. Bloch, "Extra, Extra - Read All About It: Nearly All Binary Searches and Mergesorts are Broken" (2006): the Java overflow bug post-mortem.',
+        'Prerequisite gaps: review Linear Search for the unsorted baseline, and Big-O Growth Rates until O(log n) versus O(n) feels concrete. Natural extensions: Interpolation Search guesses the midpoint from the value distribution, reaching O(log log n) on uniform data but O(n) on skewed data. Exponential Search finds the right range to binary search when the array size is unknown. Production versions: B-Trees generalize binary search for disk-friendly nodes. Binary Search Tree applies the halving logic to a linked structure supporting dynamic insertion. Contrasting alternatives: Hash Table gives O(1) average exact lookup but loses sorted order and range query support.',
       ],
     },
   ],
 };
+

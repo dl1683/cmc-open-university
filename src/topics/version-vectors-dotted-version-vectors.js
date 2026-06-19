@@ -227,61 +227,6 @@ export function* run(input) {
   else throw new InputError('Pick a version-vector view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'A version vector is causality metadata attached to a replicated value. It tells a Dynamo/Riak-style store whether one value descends from another or whether two writes were concurrent. If the new write descends from the old one, the old value can be replaced. If neither vector dominates, both values are siblings and the application must reconcile them.',
-        'A dotted version vector refines the idea by storing a compact causal past plus a dot for the exact event that created each value. The dot lets the store know which sibling a client actually observed and intended to replace. That precision matters when many clients write through a smaller set of server replicas.',
-        'This topic builds on Clocks & Ordering, CRDTs, and Read/Write Quorums. It supplies the concrete metadata layer behind Amazon Dynamo Case Study and the sibling-resolution behavior discussed in CAP Theorem.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A version vector is a map from actor id to counter. To compare vectors, check every component. If vector X is less-than-or-equal to vector Y in every slot and strictly lower in at least one slot, then X happened before Y for that object. Y can safely replace X. If X is larger in one slot and Y is larger in another, neither write observed the other. They are concurrent and both must be retained.',
-        'The client protocol is simple: GET returns value plus context, and PUT sends back the context the client saw. The server increments the appropriate actor entry and uses comparison to decide whether to discard old values or keep siblings. This is why version vectors are not just timestamps. A timestamp picks a winner. A vector can say "these are concurrent; no automatic winner exists."',
-        'Dotted version vectors split metadata into a causal context and an event dot. The vector entry a:4 summarizes all events by actor a up through 4. The dot a:4 names only the fourth event. Storing one dot per sibling preserves which specific update created which value. When a client writes with context a:1, the store can discard a sibling whose dot is a:1, keep a sibling whose dot is a:2, and assign the new value dot a:3.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read a version vector as a compact causal summary: for each actor, what is the largest event count this replica has seen? Comparing vectors tells you whether one update happened before another or whether they are concurrent.',
-        'The dotted version-vector view separates the new event from the prior context. That matters when siblings are created and later merged: the dot identifies the precise write, while the context says which previous writes it knew about.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Client-id version vectors are precise, but metadata can grow with the number of clients that ever update a hot key. Server-id vectors are smaller, bounded by replica count, but can lose precision when one server proxies many clients. Pruning large vectors bounds space, but pruning can create false concurrency or even lost causal knowledge.',
-        'Dotted vectors add per-sibling dots and more careful update logic, but they preserve accuracy with server-sized identifiers. The 2012 dotted-version-vector paper argues that the representation grows with the number of servers that register updates for a data element, bounded by replication degree, rather than with clients or updates.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'In a shopping-cart store, Client Y writes Bob with context empty and receives dot a:1. Client X concurrently writes Sue through the same vnode and receives dot a:2. A plain merged server vector may summarize both as a:2 and forget which sibling came from which event. When Y later writes Rita with context a:1, the correct behavior is to replace Bob and keep Sue, because Y saw Bob but not Sue.',
-        "A dotted vector makes that decision mechanical. Bob is tagged a:1, Sue is tagged a:2, and Rita is assigned a:3. The incoming context a:1 covers Bob's dot, so Bob is obsolete. It does not cover Sue's dot, so Sue remains a true sibling. The final sibling set is Sue and Rita, not Bob, Sue, and Rita. That is the difference between surfacing real conflicts and manufacturing false ones.",
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Version vectors do not merge business meaning. They only reveal causal structure. If two values are concurrent, a cart can union additions, but a bank balance cannot simply keep both balances. Another misconception is that vector clocks, version vectors, and dotted version vectors are interchangeable. They share shape, but they answer different questions: event ordering across a distributed computation, replica-state comparison for an object, and precise sibling causality for optimistic key-value stores.',
-        'A final trap is hiding conflicts with last-write-wins timestamps. LWW keeps the system simple but can silently drop a real update under clock skew. Version vectors and dotted vectors make the conflict explicit so the application or a CRDT-like merge can resolve it deliberately.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Riak dotted-vector explanation at https://riak.com/posts/technical/vector-clocks-revisited-part-2-dotted-version-vectors/index.html?p=9929.html, Riak DVV product note at https://riak.com/products/riak-kv/dotted-version-vectors/index.html?p=10941.html, Dotted Version Vectors paper at https://gsd.di.uminho.pt/members/vff/dotted-version-vectors-2012.pdf, and the DVVSet reference implementation at https://github.com/ricardobcl/Dotted-Version-Vectors. Study Amazon Dynamo Case Study, CRDTs, Delta-State CRDT Anti-Entropy Case Study, CAP Theorem, Read/Write Quorums, and Clocks & Ordering next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

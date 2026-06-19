@@ -208,61 +208,6 @@ export function* run(input) {
   else throw new InputError('Pick a timestamp-cache view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'A timestamp cache is an in-memory data structure that records read high-water marks for keys or key spans. In CockroachDB-style optimistic MVCC, it helps enforce serializable ordering by pushing later conflicting writes to timestamps after earlier reads.',
-        'Read refresh is the companion mechanism. If a transaction is pushed to a later commit timestamp, the system revalidates the keys and spans it read. If the data is unchanged between the original read timestamp and the new commit timestamp, the transaction can commit without a full restart. If something changed, the transaction retries.',
-        'This topic builds on Hybrid Logical Clocks, MVCC & Vacuum, and Transaction Isolation Levels. It moves from timestamp generation to the concrete bookkeeping that makes timestamp-ordered serializability operational.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'When a leaseholder serves a read, it records the read timestamp for the key or span in the timestamp cache. If a writer later wants to write at an earlier timestamp on that same span, the write is pushed forward. That preserves the serial order: the read happened before the write, so the write timestamp must be after the read timestamp.',
-        'The cache can be bounded. Old entries can be evicted while maintaining a conservative low-water mark. On leaseholder changes or restarts, implementations can initialize conservatively so correctness is preserved at the cost of extra pushes or retries. The word cache does not mean optional; it means the structure can be rebuilt conservatively.',
-        'Read refresh enters when a transaction cannot commit at its original timestamp. Maybe it encountered another transaction, a timestamp cache entry, or a newer write. Rather than immediately abort, it validates that every key or span it read still has the same visible value at the pushed timestamp. Clean refresh means commit; dirty refresh means retry.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read the timestamp cache as remembered read evidence. If a key range was read at a later timestamp, an older write cannot sneak in afterward without violating the serial order the database promised.',
-        'The refresh step is the optimistic repair path. Instead of aborting every transaction that sees a possible conflict, the database can recheck whether the earlier reads would still be valid at a later timestamp. The animation is teaching conflict proof, not simple cache eviction.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The timestamp cache spends memory proportional to recently read spans and must support point and range lookups efficiently. Coarse spans are conservative and can push too many writers. Fine spans are precise but use more memory. Eviction, low-water marks, and lease transfers must be designed so losing cache detail never lets a write commit before a read that already happened.',
-        'Read refresh spends extra reads at commit time. It is usually cheaper than restarting a transaction, but it can fail under contention. Long-running transactions with large read sets are more expensive to refresh and more likely to see intervening writes.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Consider an inventory checkout. Transaction T1 reads stock at timestamp 50 and later tries to write an order. Transaction T2 updates the same stock at timestamp 70. If T1 is pushed to commit at timestamp 90, its old read is suspect. A read refresh checks whether stock changed between 50 and 90. It did, so T1 retries instead of committing based on stale inventory.',
-        'In a clean case, T1 may read customer metadata at timestamp 50, get pushed to 90 by an unrelated write, refresh the customer span, discover no visible changes, and commit at 90. The optimization is important: serializable isolation should reject invalid histories, not restart every transaction that merely had its timestamp adjusted.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'A timestamp cache is not a replacement for locks, MVCC, or Raft. It is one piece of concurrency control. It remembers read constraints so future writes can be ordered correctly. It also does not make every transaction succeed. Under high contention, refresh fails and retry is the correct behavior.',
-        'Another trap is treating key reads and range reads the same. A predicate such as "no row exists for this username" is a span read, not a point read. The cache and refresh machinery must protect the range where a new row could appear, or serializable uniqueness checks become unsafe.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: CockroachDB transaction-layer docs at https://www.cockroachlabs.com/docs/stable/architecture/transaction-layer, distributed transaction walkthrough at https://www.cockroachlabs.com/docs/stable/architecture/life-of-a-distributed-transaction, retry/read-refresh reference at https://www.cockroachlabs.com/docs/stable/transaction-retry-error-reference, and CockroachDB serializable isolation discussion at https://www.cockroachlabs.com/blog/serializable-lockless-distributed-isolation-cockroachdb/. Study Hybrid Logical Clocks, MVCC & Vacuum, Transaction Isolation Levels, Snapshot Isolation, and Raft Log Replication next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

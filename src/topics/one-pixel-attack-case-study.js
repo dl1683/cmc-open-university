@@ -217,59 +217,6 @@ export function* run(input) {
   else throw new InputError('Pick a one-pixel attack view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'The one-pixel attack is an adversarial machine-learning case study. It asks whether a trained image classifier can be fooled by changing only one pixel. Su, Vargas, and Kouichi showed that a tiny, black-box perturbation can flip predictions on standard image datasets. The attack is visually memorable, but the deeper lesson is about model boundaries: a classifier can be extremely sensitive in directions humans barely notice.',
-        'The attack uses Differential Evolution, a population-based black-box optimizer. A candidate is simply the pixel coordinate and color value. The model is queried, the candidate score is the target-class confidence or misclassification objective, and the population evolves toward edits that fool the classifier. No gradient access is required.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read the image grid as a tiny stand-in for a much larger pixel array. The highlighted cell is the only allowed edit. Read the confidence plot as distance to the model boundary: each accepted candidate moves the target class closer until the flip marker appears.',
-        'The robustness view is the audit layer. A single success is interesting, but success rate, confidence after the flip, reachable targets, class-pair asymmetry, and query budget explain whether the failure is isolated or systematic.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The naive check is normal accuracy on clean images. It fails because clean accuracy says little about how far the decision boundary sits from each input. The one-pixel attack probes that distance with a tiny black-box search.',
-        'For a targeted attack, the search tries to make the model predict a specific wrong class. For a non-targeted attack, it only needs the model to stop predicting the original class. Each candidate edit changes one pixel, runs the classifier, and records the resulting class probabilities. Evolutionary Search mutates and recombines better candidates until the score crosses the decision boundary.',
-        'This connects to Convolution because image classifiers build features from local pixel patterns. It connects to Adversarial Examples because the semantic object remains the same for humans while the model boundary changes. It connects to Saliency Maps because input sensitivity is the central question: which tiny changes can move the output dramatically?',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The striking part is the low resource requirement. The search space is small compared with full-image perturbations, and the attack needs only probability outputs. That makes it useful as a black-box robustness probe. However, the attack is not a universal guarantee that every image can be fooled with one pixel. Its success depends on dataset, model architecture, target class, confidence threshold, image resolution, and query budget.',
-        'Robust evaluation should report success rate, confidence, target reachability, source-target asymmetries, and query cost. A defense should be tested against adaptive variants, not only the exact original attack. Data augmentation and adversarial training can help, but robustness claims need holdout attacks and realistic threat models.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'One-pixel style attacks are mainly research probes, but the lesson reaches surveillance, medical imaging, autonomous systems, content moderation, OCR, and face recognition. The local note highlights both sides: tiny perturbations can expose unsafe classifiers, and they can also suggest ways people might resist unwanted automated recognition. In high-stakes systems, robustness is not an aesthetic property; it is part of the safety contract.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Do not overread the literal pixel count. A one-pixel success on low-resolution images does not mean the same edit works on every real camera image. Do not underread it either. The paper demonstrates that confident neural classifiers can have surprising decision boundaries under black-box search.',
-        'The invariant to test is prediction stability under small, allowed perturbations. The tradeoff is query cost and threat-model realism: stronger attacks take more evaluation budget, but weak attacks can make a fragile model look safe.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary source: One Pixel Attack for Fooling Deep Neural Networks at https://arxiv.org/abs/1710.08864. The provided local corpus note emphasizes differential evolution, low-cost evaluation, and metric design. Study Adversarial Examples, Evolutionary Search, Convolution, Saliency Maps, Logistic Regression, and Contrastive Learning: SimCLR next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

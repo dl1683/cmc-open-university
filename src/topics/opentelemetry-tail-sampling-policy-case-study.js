@@ -177,6 +177,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for OpenTelemetry Tail Sampling Policy. How tail sampling buffers spans by trace ID, waits for a decision window, applies policies, and keeps whole traces instead of random fragments..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Distributed tracing is most valuable when something unusual happens: a checkout request is slow, a downstream payment span errors, a canary route behaves differently, or one tenant has a bad experience. Those facts are often known near the end of the trace, not when the root span starts.',
@@ -184,7 +193,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approaches are collect everything or sample at the head. Collecting everything gives the best evidence but can overwhelm storage, indexing, and query budgets. Head sampling is cheap because it decides at the start, but it is blind to final latency, downstream failures, and attributes added later.',
         'The wall is that trace value is not uniformly distributed. A random early decision can keep many normal traces while dropping the one failed request that explains the incident. The sampling decision needs later evidence, but later evidence requires buffering.',
@@ -227,14 +236,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Tail sampling spends memory to buy better decisions. Traffic rate times decision_wait times spans per trace determines buffer pressure. A larger window can see more late child spans, but it increases heap use and makes the collector more sensitive to bursts.',
         'It also adds policy complexity. The selected trace set is biased toward what the rules keep, which is useful for debugging but can distort naive analysis. Operators need counters for kept, dropped, late, and evicted traces, broken down by policy, plus normal collector health metrics.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins when later trace information changes the decision: errors, slow requests, canary traffic, high-value tenants, important routes, unusual service paths, and enough baseline traffic for comparison. It is especially strong when trace storage is expensive but incident debugging still needs complete traces.',
         'It pairs well with metrics. Metrics and SLOs alert quickly; tail sampling decides which traces survive long enough to explain the alert.',
@@ -248,7 +257,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Practical sizing questions',
+      heading: 'Real-world uses (2)',
       paragraphs: [
         'Before setting a policy, estimate new traces per second, average spans per trace, p95 and p99 trace duration, burst size, and collector memory. decision_wait should be long enough for the evidence the policy needs, not copied from a default.',
         'Then decide what normal traffic baseline you still need. Keeping only errors and slow traces is useful during incidents, but it can make it harder to compare broken and healthy paths. A small probabilistic baseline gives context.',
@@ -257,11 +266,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: OpenTelemetry Sampling at https://opentelemetry.io/docs/concepts/sampling/, OpenTelemetry tail sampling blog at https://opentelemetry.io/blog/2022/tail-sampling/, and the tail sampling processor README at https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/tailsamplingprocessor/README.md.',
         'Study next: Distributed Tracing for trace trees, OpenTelemetry Collector Case Study for pipelines, Tail Latency & p99 Thinking for why slow traces matter, Reservoir Sampling for sampling intuition, SLO Error Budget Burn Rate Alert for alerting, and Metric Exemplars Trace Correlation for jumping from histograms to selected traces.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why OpenTelemetry Tail Sampling Policy moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

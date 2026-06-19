@@ -1,4 +1,4 @@
-// Modern cache eviction: SIEVE and S3-FIFO show how simple queue-based
+﻿// Modern cache eviction: SIEVE and S3-FIFO show how simple queue-based
 // policies can compete with complex recency/frequency schemes.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -204,95 +204,153 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: "Why this exists",
+      heading: 'How to read the animation',
       paragraphs: [
-        "Classic cache teaching often stops at LRU: keep a hash table, keep a recency list, move a node to the front on every hit, and evict the tail. That design is clear, but the hit path mutates shared metadata. In a busy production cache, a read can become a write to the policy state.",
-        "SIEVE and S3-FIFO exist because modern cache design has two goals, not one. The cache should keep useful objects, but it should also be cheap to run under concurrency. A policy with a slightly better miss ratio can still lose if every hit grabs a lock, rewires a list, or dirties memory that many cores contend over.",
+        'The SIEVE view shows a queue of cached objects, each carrying one visited bit. Active nodes mark the current eviction candidate under the hand pointer. Found marks the object about to be evicted -- the first candidate whose bit is zero. When a node is skipped, its bit is cleared (second chance consumed), and the hand advances.',
+        'The S3-FIFO view shows three FIFO queues: small (admission filter), main (resident set), and ghost (key-only history). Active marks the queue currently receiving or evicting an object. Found marks the object being dropped or promoted. Watch objects enter small, prove reuse to reach main, and leave metadata behind in ghost.',
+        {
+          type: 'note',
+          text: 'Both views show policy state, not data flow. The animation proves that a cache hit need not mutate ordering metadata -- it can be as cheap as flipping one bit or appending to a queue tail.',
+        },
       ],
     },
     {
-      heading: "The naive improvement path",
+      heading: 'Why this exists',
       paragraphs: [
-        "The obvious response to LRU's weaknesses is to add more intelligence. Add frequency counters. Add ghost histories. Add segments. Add adaptive weights. These techniques can help, especially against scans and mixed workloads, but they can also make the implementation harder to reason about and harder to scale.",
-        "A second naive response is to keep FIFO because it is simple. Insert at one end, evict from the other, and never mutate entries on hit. Plain FIFO has a fatal flaw: it forgets reuse. A hot object inserted long ago can be evicted just because time passed, while a stream of cold newcomers receives equal treatment.",
+        'Every cache must answer two questions: what to keep and what to evict. LRU answers both with a single recency list -- on every hit, move the accessed object to the front; on eviction, remove the tail. The logic is simple and the hit rate is good when temporal locality dominates.',
+        'The problem is the hit path. Every cache hit in strict LRU requires removing a node from its current position and reinserting it at the head. That is a linked-list splice: update four pointers, acquire a lock (or use a lock-free list with CAS retries), and dirty at least two cache lines. When the cache serves millions of requests per second across 32+ cores, the hit path becomes the bottleneck. The miss ratio might be excellent, but throughput collapses under contention.',
+        'SIEVE (Zhang et al., NSDI 2024) and S3-FIFO (Yang et al., SOSP 2023) attack this problem from the same direction: replace per-hit promotion with cheaper evidence accumulation, and defer the real work to eviction time. Both achieve competitive miss ratios while making the common-case hit path nearly free of shared-state mutation.',
       ],
     },
     {
-      heading: "The core question",
+      heading: 'The obvious approach',
       paragraphs: [
-        "SIEVE and S3-FIFO ask whether FIFO-like simplicity can be repaired without returning to full LRU-style promotion. The goal is not to pretend recency and frequency do not matter. The goal is to encode enough reuse evidence with much cheaper state transitions.",
-        "This changes the design lens. Instead of asking which policy is most elegant on paper, ask which policy gives a good hit rate per byte of metadata, per hit-path mutation, and per unit of implementation complexity. That is why these algorithms are interesting even when LRU remains a useful baseline.",
+        'The natural response to LRU contention is to add sophistication. ARC (Megiddo and Modha, 2003) maintains two LRU lists plus two ghost lists and adapts the split between recency and frequency online. 2Q (Johnson and Shasha, 1994) separates a short-term FIFO from a long-term LRU. W-TinyLFU (Einziger et al., 2017) uses a Count-Min Sketch to gate admission into a segmented LRU. These designs improve miss ratios on mixed workloads, but each one adds per-hit bookkeeping: frequency counters, ghost lookups, adaptive parameters, or multi-list promotions.',
+        'A second instinct is to go simpler: use plain FIFO. Insert at the tail, evict from the head, never touch an entry on hit. FIFO has zero hit-path cost, but its miss ratio is terrible. A hot object inserted early gets evicted just because time passed, while a burst of cold objects fills the cache. FIFO has no memory of reuse.',
+        'The design space looks like a tradeoff between hit-rate intelligence and hit-path cost. More intelligence means more metadata mutation on the hot path. Less mutation means forgetting which objects matter.',
       ],
     },
     {
-      heading: "SIEVE in one pass",
+      heading: 'The wall',
       paragraphs: [
-        "SIEVE keeps a queue plus one visited bit per object. A hit does not move the object. It only sets the bit. On eviction, a hand scans candidate victims. If it sees an object with the bit set, it clears the bit and gives the object a second chance. The first unvisited object becomes the victim.",
-        "This is deliberately lazy. Recency is not updated on every hit. Reuse evidence accumulates as a bit and is consumed only when the eviction hand reaches the object. A hot object must keep receiving hits before the hand arrives; otherwise it eventually loses its second chance and leaves.",
+        'The wall is scan resistance. Consider a cache of size 4 holding objects {A, B, C, D}, all frequently reused. A sequential scan of 5 new objects {X1, X2, X3, X4, X5} arrives -- none will ever be requested again. Under plain FIFO, the scan evicts all four hot objects and fills the cache with one-hit garbage. Under strict LRU, each scan object is promoted to the head, pushing hot objects toward the tail. After the scan, the cache holds {X2, X3, X4, X5} and every future request for A-D is a miss.',
+        'This is the one-hit-wonder problem. In production traces (CDN logs, block-storage traces, key-value workloads), 60-80% of objects are accessed exactly once. Any policy that gives a newcomer equal standing with a proven resident will waste most of its capacity on objects that will never return.',
+        {
+          type: 'note',
+          text: 'The wall is not "LRU is slow." LRU is often fast enough. The wall is that per-hit promotion is simultaneously too expensive for throughput AND too generous for one-hit objects. You pay a high price on the hot path to maintain an ordering that scan traffic immediately destroys.',
+        },
       ],
     },
     {
-      heading: "S3-FIFO in one pass",
+      heading: 'How it works',
       paragraphs: [
-        "S3-FIFO uses FIFO queues as a filter pipeline. A small queue receives new objects and catches bursts. Objects that show reuse can move toward a larger main queue. A ghost queue remembers recently rejected or evicted keys without storing their values, so a repeated key can be treated differently from a pure one-hit object.",
-        "The point is that FIFO is not the whole policy. The queues define stages. The small queue absorbs noise. The main queue protects objects that have earned longer residence. The ghost queue supplies memory about recent losers. Together they approximate reuse discrimination while keeping queue operations simple.",
+        'SIEVE keeps all cached objects in a single FIFO queue. Each object carries one visited bit, initially zero. On a cache hit, the only mutation is setting that bit to 1 -- no list movement, no lock on shared structure. On eviction, a hand pointer walks the queue from its current position. If the candidate has visited=1, the hand clears the bit (second chance) and advances. If visited=0, the object is evicted and the hand stops.',
+        {
+          type: 'diagram',
+          label: 'SIEVE lazy promotion with hand pointer',
+          text: 'Queue (insertion order, oldest on left):\n\n  [A:1] [B:0] [C:1] [D:0] [E:1]\n   ^\n   hand\n\nEviction walk:\n  A has visited=1 -> clear to 0, advance hand\n  B has visited=0 -> EVICT B, hand stays at C\n\nAfter eviction:\n  [A:0] [C:1] [D:0] [E:1] [F:0]   (F is the new insert)\n         ^\n         hand',
+        },
+        'S3-FIFO splits the cache into three FIFO queues. The small queue (typically 10% of cache capacity) receives all new objects. When small is full, objects at its head are examined: if the object was re-accessed (its frequency bit is set), it moves to the main queue; otherwise it is evicted immediately. The main queue (90% of capacity) holds proven objects. When main is full, evicted keys (not values) go to the ghost queue. If a new miss hits a key in the ghost queue, the object enters main directly, bypassing the small-queue filter.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// SIEVE eviction -- the complete policy in ~30 lines\nfunction sieveEvict(cache) {\n  // cache.hand points to current candidate in the circular queue\n  // cache.queue is a doubly-linked list in insertion order\n  // each node has: key, value, visited (boolean)\n\n  let candidate = cache.hand;\n  while (candidate.visited) {\n    // Second chance: clear the bit, advance\n    candidate.visited = false;\n    candidate = candidate.next || cache.queue.head; // wrap around\n  }\n\n  // candidate.visited === false -- evict it\n  cache.hand = candidate.next || cache.queue.head;\n  cache.map.delete(candidate.key);\n  cache.queue.remove(candidate);\n  cache.size--;\n  return candidate;\n}\n\n// Hit path -- this is the whole point\nfunction sieveAccess(cache, key) {\n  const node = cache.map.get(key);\n  if (node) {\n    node.visited = true;  // no list movement, no lock needed\n    return node.value;\n  }\n  return undefined; // miss -- caller handles insertion + eviction\n}',
+        },
       ],
     },
     {
-      heading: "What the visual is proving",
+      heading: 'Why it works',
       paragraphs: [
-        "The SIEVE visual is proving that a cache hit can be recorded without promotion. The key event is not a node moving to the front; it is a bit flip that the eviction hand will interpret later. This matters because the common case in a good cache is a hit, and SIEVE keeps that path small.",
-        "The S3-FIFO visual is proving that FIFO can be a structured admission and retention system, not just a dumb line. Watch where a new object first lands, what evidence lets it survive, and what metadata remains after its value leaves. The queues are a policy pipeline.",
+        'SIEVE works because one bit of reuse evidence, consumed lazily, is enough to separate one-hit objects from reusable ones. The invariant: an object survives eviction if and only if it was accessed at least once between the previous time the hand passed it and the current pass. Hot objects accumulate visited=1 repeatedly and survive repeated hand sweeps. Cold objects inserted by a scan never get their bit set and are evicted on the first pass.',
+        'This is a form of the CLOCK algorithm (Corbato, 1968), but with a key difference. Classic CLOCK walks a circular buffer and treats all entries equally. SIEVE keeps insertion order and walks candidates from old to new, which gives newer objects more time to prove reuse before the hand reaches them. The Zhang et al. paper shows this ordering bias improves miss ratios by 10-40% over standard CLOCK on production traces.',
+        'S3-FIFO works because the small queue acts as a probationary filter. Most objects in skewed workloads are one-hit wonders. By confining newcomers to a small region (10% of capacity), the policy ensures that one-hit objects consume little space and leave quickly. Only objects that prove reuse within the small queue earn promotion to main. The ghost queue adds a second chance for objects that were evicted from main -- if they return, they bypass the filter, reflecting learned reuse.',
+        {
+          type: 'note',
+          text: 'The correctness argument is not about optimal eviction. No online algorithm can match the offline optimal (Belady MIN) without future knowledge. The argument is that these policies filter noise cheaply enough that the remaining eviction decisions are good enough, while the hit-path savings compound across billions of requests.',
+        },
       ],
     },
     {
-      heading: "Why these policies work",
+      heading: 'Cost and complexity',
       paragraphs: [
-        "SIEVE works because many cache objects only need one extra test. If an object is touched again before eviction pressure reaches it, the visited bit records that fact. If it is not touched, it remains a cheap victim. The policy filters one-hit noise without paying full promotion cost on every hit.",
-        "S3-FIFO works because many workloads have a large population of objects that are requested once and a smaller population that repeats. A staged FIFO design can make one-hit objects die in a small region, while repeated objects escape into stronger residence. The ghost queue improves adaptation by remembering recent mistakes.",
+        {
+          type: 'table',
+          headers: ['Policy', 'Hit rate', 'Hit-path cost', 'Eviction cost', 'Metadata per object', 'Implementation complexity'],
+          rows: [
+            ['LRU', 'Good (baseline)', 'O(1) but list splice + lock', 'O(1) remove tail', 'Two pointers (prev/next) + hash entry', 'Low -- but concurrency is hard'],
+            ['CLOCK', 'Fair (~LRU - 5-15%)', 'O(1) set bit', 'O(1) amortized hand scan', 'One bit + circular buffer slot', 'Very low'],
+            ['2Q', 'Good-to-strong', 'O(1) but may promote across lists', 'O(1) per list', 'Two list pointers + queue membership', 'Medium -- two lists, threshold tuning'],
+            ['ARC', 'Strong (adaptive)', 'O(1) but ghost lookup + list move', 'O(1) + adaptation', 'Four lists + ghost entries', 'High -- patents, parameter adaptation'],
+            ['SIEVE', 'Strong (~LRU or better)', 'O(1) set one bit', 'O(1) amortized hand scan', 'One bit + queue position', 'Very low -- ~30 lines of core logic'],
+            ['S3-FIFO', 'Strong (often best on traces)', 'O(1) set freq bit', 'O(1) amortized queue ops', 'Freq bit + queue membership + ghost key', 'Medium -- three queues, size tuning'],
+          ],
+        },
+        'SIEVE costs one bit per cached object and zero pointer mutations on hit. Eviction cost is amortized O(1): the hand may scan multiple visited entries before finding a victim, but each scan clears a bit that will not be scanned again until the next cycle. Worst case for a single eviction is O(n) if every object was recently hit, but this is rare in practice and each cleared bit reduces future scan cost.',
+        'S3-FIFO costs one frequency bit per object in the small and main queues, plus one key entry per ghost slot (no stored value). The ghost queue is typically bounded at 10-50% of cache capacity in key count. Total metadata overhead is modest compared to ARC (which stores ghost entries with full key metadata across four lists) or W-TinyLFU (which maintains a Count-Min Sketch of 8-10 counters per cache slot).',
+        'Both policies share a critical advantage: the hit path does not acquire a global lock or modify shared pointers. This means the hit path can be made lock-free with a single atomic bit-set, or batched with a lightweight per-thread buffer. LRU cannot do this without fundamentally changing its data structure (e.g., approximation via sampling, as in Redis).',
       ],
     },
     {
-      heading: "Implementation details",
+      heading: 'Where it wins',
       paragraphs: [
-        "The practical attraction is that the hot path can be small. In SIEVE, a hit can be reduced to finding the resident object and setting a visited flag. The policy avoids removing and reinserting a node for every successful lookup, which is exactly the operation that makes LRU expensive under contention.",
-        "S3-FIFO shifts complexity into queue boundaries. The implementation must decide the sizes of the small, main, and ghost queues, and it must update membership consistently as objects move or leave. Those operations are still simpler than maintaining a total recency order for every resident item.",
+        'High-throughput in-memory caches are the primary win. Meta adopted S3-FIFO in CacheLib, their unified caching framework serving billions of requests per day across CDN, social graph, and storage workloads. The Yang et al. paper reports that S3-FIFO matches or beats state-of-the-art policies on 6,594 production traces from 14 companies while using simpler data structures.',
+        'CDN edge caches benefit because CDN traffic is heavily skewed: a small fraction of objects account for most hits, while the long tail of one-hit objects (unique URLs, bot crawls, cache-busting query strings) creates constant scan pressure. SIEVE and S3-FIFO filter this noise without paying per-hit promotion cost.',
+        {
+          type: 'bullets',
+          items: [
+            'Block storage caches: S3-FIFO tested on MSR Cambridge traces (enterprise file server, email, web server) -- consistently competitive with ARC and 2Q.',
+            'Key-value stores: the SIEVE paper demonstrates integration with production-grade caches (libCacheSim benchmarks across Twitter, Meta, Tencent, WikiCDN traces).',
+            'Any system where the hit:miss ratio is high (>90% hit rate) and the cache serves many concurrent readers. The savings on the hit path multiply across cores.',
+            'Systems where the cache policy must be simple enough to audit. SIEVE is about 30 lines of core logic -- easier to verify than ARC or W-TinyLFU.',
+          ],
+        },
+        'The scaling advantage is real. The SIEVE paper shows 2-3x throughput improvement over promotion-heavy LRU under 16-thread contention, because the hit path avoids pointer mutation entirely. S3-FIFO shows similar concurrency gains because FIFO append is cheaper than LRU splice.',
       ],
     },
     {
-      heading: "Costs and tradeoffs",
+      heading: 'Where it fails',
       paragraphs: [
-        "The main benefit is reduced hit-path work. SIEVE changes a hit into a bit write instead of a list splice. S3-FIFO uses simple queue movement and small metadata instead of fully ordering all residents by recent access. That can improve throughput, lock behavior, and memory locality.",
-        "The cost is that these policies are less directly intuitive than textbook LRU. Eviction can do more work because the hand may scan visited entries. Queue sizes and thresholds matter. Ghost metadata consumes space. A clean paper algorithm still needs careful engineering around sharding, counters, item weights, and concurrent updates.",
+        'LRU is not obsolete. When temporal locality is the dominant signal (recently accessed objects are overwhelmingly likely to be accessed again), LRU is hard to beat because its ordering perfectly captures the relevant information. Small caches, single-threaded applications, or workloads without scan pressure may see no benefit from switching.',
+        'SIEVE can struggle with looping access patterns. If the working set is slightly larger than the cache and access is cyclic (A, B, C, D, E, A, B, C, D, E... with cache size 4), the hand may clear bits for objects that are about to be needed, leading to thrashing. LRU also thrashes here, but SIEVE does not improve on it.',
+        {
+          type: 'bullets',
+          items: [
+            'Variable-size objects: both papers evaluate primarily by object count, not byte weight. A policy that evicts many small objects to keep one large object may waste capacity. Production caches need byte-aware eviction, which neither paper fully addresses.',
+            'Expiration and invalidation: cache policies decide what to evict under capacity pressure. They do not handle TTL expiry, explicit invalidation, write-through consistency, or stale-while-revalidate. These are orthogonal concerns.',
+            'Ghost queue sizing in S3-FIFO: too small and the ghost provides little memory; too large and it wastes metadata space. The paper uses 10% of cache size, but optimal sizing depends on the workload.',
+            'Adversarial access: a carefully crafted access pattern can force SIEVE to scan the entire queue on every eviction by keeping all bits set. This is unlikely in production but relevant for security-sensitive caches.',
+          ],
+        },
+        'Neither policy is a drop-in replacement for all use cases. They are strongest where the workload is skewed, the cache is large, and concurrency matters. For a 100-entry cache in a single-threaded script, use a hash map and a doubly-linked list.',
       ],
     },
     {
-      heading: "Reading benchmark results",
+      heading: 'Sources and study next',
       paragraphs: [
-        "Cache papers often report miss ratios, but a production reader should also ask what was counted as cost. A policy that wins by a tiny miss-ratio margin may lose after accounting for locks, allocations, metadata writes, and cache-line traffic. The right comparison includes throughput and latency, not only misses.",
-        "Trace diversity matters as well. A policy can look excellent on scans, weak on looping working sets, or sensitive to object-size distributions. The lesson is to replay traces from the target service whenever possible, then inspect the losing requests instead of trusting an average alone.",
-      ],
-    },
-    {
-      heading: "Real uses and evaluation",
-      paragraphs: [
-        "These policies are most relevant for high-throughput in-memory caches, storage caches, CDN edges, and service caches where hit rate and policy overhead both matter. They are also useful as research baselines because they challenge the assumption that sophisticated list movement is required for competitive performance.",
-        "Evaluation must use real traces. Synthetic traces can make almost any policy look good if the access distribution matches its bias. A serious comparison reports object hit rate, byte hit rate, update cost, memory overhead, concurrency behavior, tail latency, and sensitivity to object-size skew.",
-      ],
-    },
-    {
-      heading: "Failure modes and limits",
-      paragraphs: [
-        "Do not read SIEVE or S3-FIFO as a declaration that LRU is obsolete. LRU remains easy to explain, easy to implement, and strong when temporal locality is the dominant signal. If the cache is small, single-threaded, or not performance critical, simpler textbook LRU may be the right answer.",
-        "Queue-based policies can still fail under workload shifts, adversarial scans, poor sizing, or value-size skew. They also do not solve expiration, invalidation, write ordering, stale data, or admission cost by themselves. A cache policy is one part of a service contract, not the contract itself.",
-      ],
-    },
-    {
-      heading: "Study next",
-      paragraphs: [
-        "Primary sources: SIEVE is Simpler than LRU at https://www.usenix.org/conference/nsdi24/presentation/zhang-yazhuo and FIFO Queues Are All You Need for Cache Eviction at https://www.pdl.cmu.edu/ftp/Storage/FIFOqueues-SOSP23_abs.shtml. Read them for both miss-ratio results and implementation motivation.",
-        "Study LRU Cache first to understand the baseline mutation cost. Then study W-TinyLFU Cache Admission for admission-vs-eviction separation, Count-Min Sketch for compact frequency evidence, Cache Invalidation for correctness boundaries, Tail Latency for service impact, and Load Balancer for another example where simple state transitions can beat clever but expensive control.",
+        {
+          type: 'bullets',
+          items: [
+            'SIEVE: "SIEVE is Simpler than LRU: an Efficient Turn-Key Eviction Algorithm for Web Caches" -- Zhang et al., NSDI 2024. https://www.usenix.org/conference/nsdi24/presentation/zhang-yazhuo',
+            'S3-FIFO: "FIFO Queues Are All You Need for Cache Eviction" -- Yang et al., SOSP 2023. https://dl.acm.org/doi/10.1145/3600006.3613147',
+            'CacheLib: Meta\'s production caching engine where S3-FIFO is integrated. https://cachelib.org/',
+            'ARC: "ARC: A Self-Tuning, Low Overhead Replacement Cache" -- Megiddo and Modha, FAST 2003.',
+            'CLOCK: Corbato, 1968 -- the original second-chance page replacement algorithm that SIEVE extends.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'LRU Cache', 'Understand the baseline: doubly-linked list + hash map, per-hit promotion cost, and why it is the default teaching policy.'],
+            ['Prerequisite', 'Hash Table', 'The O(1) lookup that every cache policy depends on for the resident-set check.'],
+            ['Extension', 'W-TinyLFU Cache Admission', 'Admission control as a separate concern from eviction -- uses a Count-Min Sketch to gate entry.'],
+            ['Extension', 'Count-Min Sketch', 'The probabilistic frequency counter that W-TinyLFU and other frequency-aware policies rely on.'],
+            ['Contrast', 'Cache Invalidation', 'The correctness boundary that eviction policies do not address: when cached data becomes stale.'],
+            ['Production', 'Tail Latency', 'Cache misses hit the tail -- understanding P99 impact of eviction policy choices.'],
+          ],
+        },
       ],
     },
   ],
 };
+

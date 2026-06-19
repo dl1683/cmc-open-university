@@ -190,7 +190,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Schema Registry Case Study. Event contracts for streaming systems: register versioned schemas, enforce compatibility, serialize by schema id, and evolve producers safely..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         `Event streams become shared APIs. Producers evolve fields, consumers deploy on different schedules, and old messages remain in logs. Without a contract control plane, one producer change can silently break many readers.`,
         `A schema registry stores versioned schemas, assigns schema ids, and enforces compatibility rules so producers and consumers can evolve messages without synchronized deploys.`,
@@ -198,14 +207,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The Obvious Approach and the Wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious approach is to document JSON shapes or share generated classes. That works while one team controls both ends and messages disappear quickly.`,
         `The wall is independent evolution. A Kafka topic can retain old events for days or forever, and consumers may read old and new messages in the same run. The wire format needs to say which schema wrote each message, and the registry needs to reject unsafe changes before they hit the topic.`,
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The core insight',
       paragraphs: [
         `Separate schema identity from payload bytes. A serializer registers or looks up the schema, writes a compact schema id with encoded data, and consumers use that id to fetch or cache the writer schema.`,
         `Compatibility is checked at the subject boundary. Subjects create namespaces for evolution, versions create history, and compatibility modes define which producer and consumer upgrade orders are allowed.`,
@@ -213,14 +222,14 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         `In the write-path view, follow the producer record into the serializer. The serializer is the point where application data becomes bytes plus schema identity. It looks up or registers the schema, gets an id, and writes compact encoded data to Kafka. Consumers later use that id to decode with the correct writer schema.`,
         `In the evolution-safety view, the compatibility node is the gate. A new schema version is not accepted just because it is syntactically valid. It must satisfy the subject's upgrade policy. That is how the system prevents one producer deploy from breaking old consumers or old retained messages.`,
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works (2)',
       paragraphs: [
         `A producer has a record and a schema. The serializer checks whether the schema is registered under a subject such as orders-value. If not, it attempts to register a new version. The registry checks compatibility. If the schema passes, the serializer writes schema id plus encoded bytes.`,
         `Consumers read the id, fetch or cache the writer schema, and decode. The registry is not on every field access, but it is on the contract path where unsafe evolution is blocked.`,
@@ -228,7 +237,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         `The registry works because readers can decode using the writer schema, and compatibility rules prevent changes that known reader upgrade orders cannot handle. Adding an optional field with a default is safe in many modes; renaming or changing types is not automatically safe.`,
         `This turns event evolution into a staged rollout. Add the new field, update readers, keep the old field during migration, then remove it only when compatibility policy and ownership allow it.`,
@@ -236,14 +245,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         `An orders service publishes OrderPlaced with fields order_id and total_cents. Later it wants to add currency. If currency is optional or has a default, new consumers can read old events and old consumers can usually ignore the new field. The registry accepts the change under a compatible policy.`,
         `Now imagine the producer renames total_cents to amount without a migration. Old consumers looking for total_cents break, and old retained events do not match the new shape. A registry compatibility check should reject that direct change. The safer path is add amount, write both for a while, update consumers, then remove the old field only when policy allows.`,
       ],
     },
     {
-      heading: 'Cost and Behavior',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Schema registries add an operational dependency. Outages can affect producer startup, schema registration, or cold consumer caches depending on client behavior. Teams need caching, availability planning, compatibility policy, CI checks, and subject ownership.`,
         `Compatibility is format-specific. Avro, Protobuf, and JSON Schema have different evolution rules, and the registry only enforces the rules it can see.`,
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'How it works (3)',
       paragraphs: [
         `Put schema checks in CI before producers deploy. A registry that rejects bad schemas only at runtime is still useful, but a failed production deploy is a late place to learn that a field rename breaks backward compatibility. CI should test the proposed schema against the subject's real compatibility mode.`,
         `Assign subject ownership. Every subject should have a team, a compatibility policy, documentation for field meaning, and a migration path for deprecations. Without ownership, schemas become a pile of syntactically valid records whose business meaning drifts over time.`,
@@ -266,14 +275,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Schema registries fit Kafka and CDC ecosystems where events are retained, replayed, and consumed by independent teams. They are especially useful with Debezium, transactional outbox streams, data contracts, and analytics pipelines.`,
         `They also reduce payload size by putting schema ids on the wire instead of repeating schema definitions in every message.`,
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         `A registry is not a data catalog by itself and not a replacement for documentation. It cannot know that a field named status changed business meaning for billing.`,
         `Optional fields can still be misused, compatibility settings can be weakened under pressure, and subject naming strategies can fragment contracts. The registry is plumbing; contract ownership is the operating model.`,
@@ -281,10 +290,73 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Official sources: Schema Registry overview at https://docs.confluent.io/platform/current/schema-registry/index.html, schema evolution and compatibility at https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html, and data contracts at https://docs.confluent.io/platform/current/schema-registry/fundamentals/data-contracts.html. Study Base-128 Varint & ZigZag Encoding, Protobuf Wire Format, Avro Binary Encoding & Schema Resolution, Kafka Log Case Study, Debezium CDC Case Study, Transactional Outbox, Idempotency, and Flink Checkpointing Case Study next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Schema Registry Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

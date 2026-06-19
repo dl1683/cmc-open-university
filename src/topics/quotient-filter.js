@@ -219,28 +219,37 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Quotient Filter. A compact approximate-membership filter: split fingerprints into quotient slots and stored remainders, then scan runs..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Approximate-membership filters sit in front of expensive truth sources. A database page check, object-store shard lookup, stream dedupe table, or cache miss path wants to reject keys that are definitely absent without reading the full backing structure.',
         'The filter must be small, fast, and honest about uncertainty. A negative answer must be exact for inserted keys. A positive answer can only mean maybe present, because the filter stores fingerprints rather than full keys.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious solution is a Bloom filter. Hash the key several ways, set bits, and answer maybe-present only when all required bits are set. That is simple and often good enough.',
         'The wall appears when the system wants entry-like behavior. Bloom evidence is smeared across unrelated bit positions, so deletion needs counters or extra structure. Locality is weak because one lookup touches several independent positions. Merging and resizing are possible in some designs, but not as direct as moving compact stored fingerprints.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The core insight',
       paragraphs: [
         'A quotient filter stores the evidence for a key as a compact remainder in a quotient-indexed table. Hash the key to a fingerprint. Split the fingerprint into a quotient and a remainder. The quotient selects a canonical slot; the table stores the remainder near that slot.',
         'Collisions become runs. Metadata bits tell the decoder which quotients are occupied, which slots continue a run, and which entries have been shifted away from their canonical slot. The result is still approximate, but the filter now has local entries it can scan, shift, and delete.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'Insertion computes a p-bit fingerprint, uses the high q bits as the quotient, and stores the remaining r bits as the remainder. If the canonical slot is free, the remainder can sit there. If the slot is part of a cluster, the insertion places the remainder into the correct quotient run and shifts later entries forward.',
         'Lookup first checks whether the quotient is marked occupied. If not, no inserted key with that quotient exists, so the answer is definitely absent. If the quotient is occupied, the decoder locates the cluster, finds the run for that quotient, and scans the run for the queried remainder.',
@@ -263,7 +272,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoff',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Lookup is expected O(1) when the load factor keeps clusters short. It is also cache-friendly because the scan stays near the quotient slot. Insert and delete are more expensive than Bloom updates because they can shift clustered entries and update metadata.',
         'Space is the stored remainder bits plus metadata bits per slot. Increasing the remainder length lowers false positives. Increasing load saves space but grows clusters, raises scan cost, and makes metadata repair more delicate.',
@@ -277,21 +286,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Testing the invariant',
+      heading: 'Why it works (2)',
       paragraphs: [
         'A useful test suite builds hostile clusters on purpose. Insert several fingerprints with the same quotient, delete from the front, middle, and back of the run, then verify that every remaining inserted fingerprint is still found. Random tests should compare the filter against an exact set and assert no false negatives across thousands of insert/delete sequences.',
         'Measure cluster length, load factor, false-positive rate, and delete-repair behavior. The structure is small enough that a bug may pass casual examples while corrupting one metadata bit in a dense cluster. That single bit can make later lookups decode the wrong run.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'A quotient filter is not an exact set. A positive answer must be verified against the backing store when correctness matters. It is also not a free mutable index: high load, long clusters, or incorrect metadata updates can turn a small local structure into a source of missed entries.',
         'Deletion is the sharp edge. Removing the right remainder is not enough; the implementation must preserve decodable run boundaries for every later quotient in the cluster. Tests should include clustered inserts, deletes from the middle of runs, and deletes that collapse cluster edges.',
       ],
     },
     {
-      heading: 'Practical use',
+      heading: 'Real-world uses',
       paragraphs: [
         'Use quotient filters when locality, compact fingerprints, or deletion support matter more than the absolute simplicity of a Bloom filter. They fit storage-engine page guards, cache front doors, duplicate detection windows, streaming membership summaries, and merge-oriented approximate-membership designs.',
         'They are useful to study beside Bloom, cuckoo, xor, and binary-fuse filters because they show a different design point: quotient-indexed runs with local scans and metadata, not scattered bits or alternate buckets.',
@@ -299,7 +308,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works (2)',
       paragraphs: [
         'In the fingerprint-layout view, start with the split table. The quotient column explains the home slot; the remainder column explains what is actually stored. When two keys share quotient 2, the slot table shows why a run forms instead of overwriting one entry with another.',
         'In the lookup-and-delete view, compare the quotient-2 lookup with the quotient-4 lookup. Quotient 2 must scan a run for the remainder. Quotient 4 can stop at an unoccupied canonical slot. In the delete frame, focus on the shift and repair rows; those are the steps that keep future lookups from losing the rest of the cluster.',
@@ -312,5 +321,68 @@ export const article = {
         'Study Bloom Filter, Counting Bloom Filter, Cuckoo Filter, Cuckoo Hashing, Hash Table, Xor Filter, Binary Fuse Filter, Ribbon Filter, LSM Trees, and Count-Min Sketch next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Quotient Filter moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

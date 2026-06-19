@@ -1,4 +1,4 @@
-// Sigstore keyless signing: OIDC identity, ephemeral key, Fulcio certificate,
+﻿// Sigstore keyless signing: OIDC identity, ephemeral key, Fulcio certificate,
 // artifact signature, Rekor transparency entry, TUF trust root, and policy verification.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -189,6 +189,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Sigstore Keyless Signing Transparency. A code-signing case study: bind an OIDC identity to an ephemeral key, issue a short-lived Fulcio certificate, log the signing event in Rekor, and verify by policy..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Sigstore is a modern software-signing stack. Its keyless flow lets a user or workload sign artifacts without managing a long-lived signing key. Instead, the signer authenticates through OIDC, Fulcio issues a short-lived certificate binding identity to an ephemeral public key, and Rekor records the signing event in a transparency log.',
@@ -196,14 +205,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'The obvious approach',
       paragraphs: [
         'The traditional answer to artifact signing is to create a long-lived private key, store it in CI or a release machine, and use it to sign builds. That is understandable, but it creates a custody problem. Keys must be generated, backed up, rotated, revoked, scoped, audited, and protected from every workflow that can reach them.',
         'Another weak answer is to rely on package names, registry tags, or checksums posted in release notes. Tags can be moved. Accounts can be compromised. Checksums prove bytes match a posted value, but not who produced that value or whether the event was visible to auditors. Sigstore moves the trust record from hidden key custody toward short-lived identity-bound signing plus public transparency.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that many build systems already have strong workload identity at the moment of release. A CI job can prove it is a specific repository, workflow, branch, or runner through OIDC. Fulcio can turn that temporary identity into a short-lived signing certificate for an ephemeral key. The artifact can then be signed without storing a permanent private key in the pipeline.',
         'Rekor adds a second property: visibility. A signing event is placed in an append-only transparency log so verifiers and monitors can detect what identities signed what artifacts. The verification question becomes a policy question: did the expected identity sign this digest, at a valid time, with evidence recorded under trusted roots?',
@@ -224,7 +233,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A GitHub Actions workflow builds a container image. The workflow receives an OIDC identity from GitHub, uses cosign keyless signing to get a Fulcio certificate for the workflow identity, signs the image digest, and records the signature in Rekor. The deployment gate later verifies that the image digest matches, the certificate issuer and subject match the expected workflow, the Rekor evidence is valid, and the SLSA provenance says the expected builder produced the image.',
         'If an attacker steals a registry password and uploads a new image under the same tag, the signature check fails for the new digest. If an attacker signs with a personal identity, the cryptography may pass but policy rejects the wrong subject. If Rekor contains an unexpected certificate for the release identity, monitoring should raise an incident even before a deployment uses it.',
@@ -232,7 +241,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The signing-flow view is proving that the key is not the identity. The ephemeral key signs the artifact, but the certificate binds that key to an OIDC identity and a short validity window. The transparency entry then records evidence that the event happened. The result is a packet a verifier can inspect without trusting a private release machine.',
         'The verification-flow view is proving that cryptography alone is not authorization. A valid signature from the wrong workflow should fail policy. A logged event proves visibility, not approval. A trusted root tells the verifier which Fulcio and Rekor records to trust, not whether the artifact is safe. The deployment gate must combine signature validity, identity policy, digest match, timestamp evidence, and provenance expectations.',
@@ -246,14 +255,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Sigstore shifts operational burden rather than deleting it. Teams must secure CI permissions, scope OIDC trust, write verifier policy, monitor transparency logs, manage TUF roots, and decide how to respond to suspicious entries. A weak policy that accepts any valid Sigstore signature is barely better than accepting any signed binary.',
         'There is also ecosystem complexity. Offline verification may require bundles. Air-gapped environments need root and log material handled carefully. Incident response must answer whether a bad signature was caused by compromised CI identity, a malicious workflow change, a policy gap, or a dependency artifact signed by an unexpected maintainer.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Keyless does not mean identity-free. It shifts trust from stored private keys to identity providers, Fulcio, Rekor, TUF roots, and policy. That is often easier to operate, but it still needs identity scoping, monitoring, and incident response.',
         'Another mistake is treating transparency inclusion as approval. Rekor proves a signing event was logged. It does not prove the signer was authorized for a particular package or that the signed artifact is safe. A deployment system must reject signatures from unexpected subjects even when all cryptographic checks pass.',
@@ -261,10 +270,83 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Sigstore keyless signing overview at https://docs.sigstore.dev/cosign/signing/overview/, Sigstore security model at https://docs.sigstore.dev/about/security/, Sigstore threat model at https://docs.sigstore.dev/about/threat-model/, and Sigstore home at https://www.sigstore.dev/. Study JWT Verification, TLS 1.3 Handshake, TUF Update Metadata Case Study, Transparency Log Witnessing Case Study, SLSA Build & Source Trust Ladder, Software Supply Chain Provenance Graph, and Kubernetes Admission Policy Gate next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Sigstore Keyless Signing Transparency moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

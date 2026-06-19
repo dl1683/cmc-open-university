@@ -48,7 +48,7 @@ export function* run(input) {
   yield {
     state: matrixState({ title: 'The pretrained weight matrix W — FROZEN', rows, columns: cols, values: W }),
     highlight: {},
-    explanation: `Fine-tuning a 7B model the brute-force way means training EVERY weight: gradients and optimizer state for all of them (3–4× the model's own memory), and a full 28 GB copy per task you tune. This 6×6 matrix stands in for one 4096×4096 layer (16.7 MILLION parameters). LoRA's opening move: freeze it. No gradients, no optimizer state, never modified.`,
+    explanation: `Fine-tuning a 7B model the brute-force way means training EVERY weight: gradients and optimizer state for all of them (3–4× the model\'s own memory), and a full 28 GB copy per task you tune. This 6×6 matrix stands in for one 4096×4096 layer (16.7 MILLION parameters). LoRA\'s opening move: freeze it. No gradients, no optimizer state, never modified.`,
   };
 
   const A = A_COLS.slice(0, rank);
@@ -61,7 +61,7 @@ export function* run(input) {
       values: [...A.map((col) => col.map(r2)), ...B.map((row) => row.map(r2))],
     }),
     highlight: { active: A.map((_, k) => `a${k}`).concat(B.map((_, k) => `b${k}`)) },
-    explanation: `The insight (Hu et al., 2021): the CHANGE a fine-tune makes to W is approximately LOW-RANK — it has far less structure than W itself. So don't train a 6×6 correction; train a skinny pair: A (${N}×${rank}) and B (${rank}×${N}) — ${2 * N * rank} numbers instead of ${N * N}. At real scale: rank 8 on a 4096×4096 layer is 65,536 trainable parameters instead of 16.7 million — 0.4%.`,
+    explanation: `The insight (Hu et al., 2021): the CHANGE a fine-tune makes to W is approximately LOW-RANK — it has far less structure than W itself. So don\'t train a 6×6 correction; train a skinny pair: A (${N}×${rank}) and B (${rank}×${N}) — ${2 * N * rank} numbers instead of ${N * N}. At real scale: rank 8 on a 4096×4096 layer is 65,536 trainable parameters instead of 16.7 million — 0.4%.`,
   };
 
   const delta = Array.from({ length: N }, (_, i) =>
@@ -92,103 +92,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation shows four frames. The first is a frozen weight matrix W, colored to show it never changes. The second shows the two skinny trainable matrices A and B that form the LoRA adapter. The third multiplies A and B into a full-size correction. The fourth adds that correction to the frozen base, producing the adapted layer.',
+        'Frozen means no gradients, no optimizer state, no modification. Trainable means these values receive gradient updates during fine-tuning. The rank control lets you compare rank 1 (one direction of change, every row a scaled copy of the same pattern) against rank 2 (two directions, richer corrections). Watch how few numbers move to reshape the entire layer.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Full fine-tuning a large model is expensive because every weight becomes trainable. You need gradients, optimizer state, checkpoints, and often a separate full model copy for every task or customer. For a 7B-parameter model, that quickly turns into a memory, storage, and serving problem.',
-        'LoRA exists because many useful fine-tuning changes appear to live in a much smaller subspace than the full weight matrix. Instead of updating a huge matrix W directly, freeze W and learn a small low-rank correction beside it. The base model keeps its broad pretrained behavior; the adapter learns a task or style adjustment.',
-        'The result changed the economics of model adaptation. A team can keep one frozen base model and train, store, ship, audit, merge, or hot-swap small adapters. That is why LoRA sits at the center of modern open-source LLM fine-tuning and many diffusion-model style adapters.',
+        'Large pretrained models already know a lot. GPT-3 learned syntax, facts, and reasoning from 300 billion tokens. A ResNet-50 trained on ImageNet learned edges, textures, shapes, and object parts from 1.2 million images. Training anything like that from scratch demands data, hardware, and time that most practitioners do not have.',
+        'Transfer learning is the fix: take a model pretrained on a broad task and adapt it to your specific problem. Fine-tuning is the most common form. Replace the final layer, lower the learning rate, train on your data. BERT fine-tuned on 10,000 movie reviews reaches 94% sentiment accuracy in under an hour on one GPU. Training a comparable model from scratch on the same data would overfit badly because 10,000 examples cannot teach a model what language is.',
+        'But full fine-tuning has its own cost problem. A 7B-parameter model needs gradients and Adam optimizer states for every weight: roughly 56 GB of GPU memory just for training state, on top of the 14 GB model itself. Each downstream task produces a separate 14 GB checkpoint. LoRA exists because the useful change a fine-tune makes to a weight matrix usually has far less structure than the matrix itself.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is full fine-tuning: unfreeze the model and update all parameters on the new dataset. That gives maximum flexibility, but it is costly and risky. It can overfit small datasets, forget useful base behavior, and produce a full-size checkpoint for every variant.',
-        'Another obvious approach is prompt engineering or retrieval. Those are often enough when the base model already knows the behavior and only needs context. They are weaker when the desired behavior is repeated, stylistic, domain-specific, or needs to become part of the model\'s default response pattern.',
+        'The first thing to try is full fine-tuning. Unfreeze the pretrained model, attach a task-specific head, and train everything end-to-end with a small learning rate. This works well and is the gold standard when hardware and data allow it. BERT fine-tuned for question answering, GPT models fine-tuned for instruction following, ResNets fine-tuned for medical imaging: full fine-tuning set most benchmarks.',
+        'A lighter variant is feature extraction: freeze the entire pretrained model and only train a new classifier head on top. This is cheap and fast but limited. The frozen model cannot learn new behaviors, only map its existing representations to new labels. For generation tasks or tasks far from the pretraining domain, the frozen features are not enough.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is optimizer memory. Adam-style training stores extra state for every trainable parameter. A model that fits for inference may not fit for full fine-tuning. Even if it fits, saving many full fine-tuned checkpoints is operationally wasteful.',
-        'The second wall is serving. If every customer or task requires a separate full model, fleet utilization and rollout discipline become painful. A serving system wants one base model loaded once, plus small task-specific artifacts that can be selected, cached, merged, or rolled back.',
-        'The third wall is data. Many adaptation datasets are not large enough to justify changing every parameter. A constrained update can act as a useful regularizer: it gives the model room to adapt without letting a small dataset rewrite everything.',
+        'The wall is memory. Adam stores two extra values (first and second moment estimates) per trainable parameter. For a 7B model, that is 28 billion extra floats: roughly 56 GB in FP16. A model that fits comfortably for inference at 14 GB needs 70+ GB for full fine-tuning. An A100 has 80 GB. A consumer GPU has 24 GB.',
+        'The second wall is serving. If every customer, language, or task requires a separate 14 GB checkpoint, a fleet serving ten tasks stores ten copies of nearly identical weights. Rollback, A/B testing, and audit become painful because every variant is a full model.',
+        'The third wall is data. Many adaptation datasets have 1,000 to 50,000 examples. Updating 7 billion parameters with 10,000 examples invites overfitting. The model has enough capacity to memorize the training set instead of learning the task. A constrained update space acts as implicit regularization.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Freeze the pretrained weight matrix W and learn a low-rank delta. For a layer with W, LoRA adds a correction such as B A scaled by alpha / r. A and B are skinny matrices, and r is the adapter rank. Only those matrices receive gradients.',
-        'If W is 4096 by 4096, full fine-tuning touches 16,777,216 weights in that layer. A rank-8 LoRA update uses roughly 4096 * 8 + 8 * 4096 trainable numbers, or 65,536. That is a 256x reduction for the adapted part of the layer.',
-        'The low-rank bet is that task adaptation often changes behavior along a limited number of directions. The adapter does not need to relearn the base model. It only needs to steer it.',
+        'Hu et al. (2022) observed that the weight change produced by fine-tuning is approximately low-rank. A 4096-by-4096 weight matrix has 16.7 million entries, but the fine-tuning delta can be well-approximated by the product of two skinny matrices: A (r-by-4096) and B (4096-by-r), where r is 4, 8, or 16. The delta has rank at most r.',
+        'Freeze W. Train only A and B. The forward pass becomes y = Wx + (alpha/r) * B(Ax). The frozen W carries general knowledge. The skinny product BA carries task-specific steering. For rank 8, that is 65,536 trainable parameters per layer instead of 16.7 million: a 256x reduction.',
+        'The bet is that useful adaptation lives in a low-dimensional subspace. The adapter does not relearn the language or the visual hierarchy. It redirects what the base model already knows toward a new objective.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The first frame shows the base matrix W frozen. That is the operational decision. No gradients, no optimizer moments, and no task-specific overwrite of the base weights.',
-        'The adapter frame shows the trainable part: two skinny matrices. Multiplying them creates a full-size delta, but the number of learned parameters is small because the delta is constrained to low rank.',
-        'The merge frame shows the serving choice. You can merge W plus the adapter delta into one effective matrix for inference, or keep the adapter separate so the same loaded base can serve many tasks by swapping adapters.',
-      ],
-    },
-    {
-      heading: 'How the mechanism works',
-      paragraphs: [
-        'For an input x and a linear layer y = W x, LoRA changes the layer to y = W x + scale * B A x, depending on notation and matrix orientation. W is frozen. A and B are trained. The scale often includes alpha / r so rank changes do not wildly change update magnitude.',
-        'A is commonly initialized randomly and B to zeros, or by another convention that makes the initial adapter contribution near zero. That means training starts from the base model behavior and gradually learns the adapter delta.',
-        'LoRA is usually applied to selected projection matrices in attention or MLP blocks, not necessarily every parameter. Common targets include query, key, value, output, and feed-forward projections. The target choice is part of the adaptation budget.',
-        'At inference, merged adapters add no extra matrix multiplications because the delta is folded into W. Unmerged adapters add small extra multiplies but allow dynamic adapter switching. Serving systems choose between latency simplicity and operational flexibility.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'In the visualization, a 6 by 6 matrix stands in for a much larger layer. Full fine-tuning would update all 36 entries. Rank-1 LoRA learns two vectors: one column-like factor and one row-like factor. Their product creates a full 6 by 6 update, but every row is a scaled version of the same pattern.',
-        'Rank 2 adds another pattern. The update can now mix two base directions, so it can express richer changes while still using far fewer parameters than a full matrix. At real model sizes, the difference is dramatic: rank 8 on a 4096 by 4096 layer trains 65,536 parameters instead of 16.7 million.',
-        'That is why adapter rank is not a cosmetic setting. Low rank may underfit a broad behavior change. Higher rank gives more capacity but uses more memory and can overfit. The right rank depends on dataset size, task difficulty, target layers, and acceptable serving cost.',
+        'Pick which weight matrices receive adapters. The original paper targeted query and value projections in attention blocks. Later work showed that including key, output, and MLP projections can help, with diminishing returns per additional target.',
+        'Initialize A from a random normal distribution and B to zeros. At the start of training, the adapter contribution is exactly zero: the model behaves identically to the pretrained base. Training gradually moves A and B away from this starting point.',
+        'Train with a standard optimizer (Adam, typically) at a learning rate of 1e-4 to 3e-4. Only A and B parameters receive gradients. The frozen base needs no gradient computation for its own weights, though activations still flow through it for the forward and backward pass.',
+        'At inference, merge: W_adapted = W + (alpha/r) * BA. The result is a single matrix, same shape as W, with zero extra compute at serving time. Alternatively, keep the adapter separate and hot-swap it: one base model in GPU memory, a 30 MB adapter file per task loaded on demand.',
+        'The alpha/r scaling factor ensures that changing the rank does not wildly change the magnitude of the update. Typical practice sets alpha = 2r.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'LoRA works when the pretrained model already contains most of the knowledge and capabilities needed for the task. The adapter does not create the model from scratch. It nudges internal transformations so the existing model expresses different behavior.',
-        'It also works because low-rank structure is common in useful updates. Many changes in high-dimensional systems can be approximated by a small number of directions. This is the same broad intuition behind SVD, low-rank approximation, and matrix factorization.',
-        'The frozen base acts as a strong prior. A small dataset is less able to damage all model weights because it can only train through the adapter subspace. That can improve stability, though it is not a substitute for good data.',
+        'Transfer learning works because early layers learn universal features. In vision, the first convolutional layers learn edge detectors, Gabor filters, and color blobs regardless of whether the model was trained on ImageNet, medical scans, or satellite imagery. In language models, early transformer layers encode syntax, positional relationships, and common word patterns that are useful for any text task. These features transfer because the structure of the world is shared across domains.',
+        'LoRA adds a specific claim on top: not only do the base features transfer, but the residual change needed for a new task is low-rank. Aghajanyan et al. (2021) showed empirically that fine-tuning operates in a low intrinsic dimension, often 100 to 1000 even for models with millions of parameters. LoRA operationalizes that finding by constraining the update to rank r directly.',
+        'The frozen base also acts as a strong prior. With a rank-8 adapter, the model can only change behavior along 8 directions per layer. A small dataset cannot corrupt the full weight matrix because it never touches it. This implicit regularization is why LoRA often matches full fine-tuning on tasks where the domain gap is moderate.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The savings scale with rank and target coverage. If rank is 8 or 16 and only selected matrices receive adapters, trainable parameters can be under one percent of the base model. Optimizer memory and checkpoint size shrink accordingly.',
-        'QLoRA pushes the economy further by keeping the frozen base in low-bit quantized form while training LoRA adapters. Quantization compresses the base model; LoRA supplies the trainable path. Together they made serious fine-tuning possible on much smaller hardware.',
-        'The behavior depends on adapter lifecycle. Separate adapters are easy to share and swap, but adapter composition can conflict. Merged adapters simplify inference, but the merge must be tracked so teams know exactly what base and adapter produced a model.',
+        'Full fine-tuning a LLaMA-7B model: 70+ GB GPU memory, 8 hours on 8 A100s, produces a 14 GB checkpoint per task. LoRA fine-tuning the same model at rank 16: 18 GB GPU memory, 3 hours on 1 A100, produces a 30 MB adapter file. That is a 10-100x reduction in compute, memory, and storage.',
+        'QLoRA (Dettmers et al. 2023) goes further. Quantize the frozen base to 4-bit NormalFloat, train the LoRA adapter in FP16. A 65B model fits in 24 GB. A 7B model fits on a consumer RTX 4090. Quality lands within 1-2% of full fine-tuning on most benchmarks.',
+        'Inference cost is unchanged after merging. The adapted model is the same size and speed as the original. Unmerged adapters add one extra small matrix multiply per adapted layer, negligible for typical ranks.',
+        'The hidden cost is hyperparameter search. Rank, alpha, target modules, learning rate, and training duration all interact. A rank too low underfits the task. A rank too high overfits or wastes memory. Typical starting points: r=8 for simple tasks (sentiment, NER), r=16-64 for complex tasks (instruction following, code generation), r=256 when approaching full fine-tuning quality.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'LoRA wins for domain adaptation, style adaptation, instruction tuning, customer-specific behavior, tool-use formats, code style, legal or medical terminology, and diffusion-model style adapters. It is especially useful when many variants should share one base model.',
-        'It also wins in governance. Small adapters are easier to store, scan, evaluate, roll back, and compare than full checkpoints. A registry can track base model hash, adapter rank, target modules, training data, evaluation score, and merge status.',
+        'ImageNet-pretrained CNNs fine-tuned for medical imaging. CheXpert (chest X-rays) and ISIC (skin lesion classification) both achieved state-of-the-art accuracy by fine-tuning ResNets and DenseNets pretrained on ImageNet, despite the domain gap between natural photos and medical scans. The shared edge and texture detectors transfer directly.',
+        'BERT and GPT fine-tuning for NLP. Sentiment analysis, named entity recognition, question answering, summarization, translation: nearly every NLP task since 2018 starts from a pretrained language model. Fine-tuning BERT-base on SST-2 (sentiment) takes 20 minutes on one GPU and reaches 93% accuracy.',
+        'LoRA specifically wins when many variants share one base. A company serving ten customers with different style requirements keeps one LLaMA-70B in GPU memory and loads a 50 MB adapter per request. Civitai hosts thousands of Stable Diffusion LoRA adapters that each modify image style, character, or concept without duplicating the 2 GB base model.',
+        'It also wins for governance. Each adapter is small enough to hash, version, diff, audit, and roll back independently. A model registry can track base model version, adapter rank, target modules, training data fingerprint, and evaluation metrics as a lightweight record.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'LoRA fails when the desired change is too broad for the chosen rank or target modules. Full fine-tuning can still win for major behavior changes, small models, abundant data, or settings where every parameter must adapt.',
-        'It also fails when teams treat parameter efficiency as data quality. Bad instruction data, duplicated examples, leakage, weak labels, and unsafe targets still produce bad adapters. LoRA makes training cheaper; it does not make the training objective wiser.',
-        'Adapter stacking can also create conflict. Two adapters trained for different goals may push the same layer in incompatible directions. Production systems need compatibility tests instead of assuming adapters compose cleanly.',
+        'Negative transfer. When the source and target domains are too different, pretrained features hurt more than they help. A language model pretrained on English Wikipedia adapts poorly to protein sequences. An ImageNet model fine-tuned on radio spectrograms may learn slower than training from scratch because the low-level features (edges, textures) are irrelevant.',
+        'Catastrophic forgetting. Fine-tuning (full or LoRA) can overwrite general capabilities. A chat model fine-tuned heavily on legal text may lose its ability to hold casual conversation. LoRA limits this by constraining the update, but a high-rank adapter trained for many epochs on narrow data can still cause forgetting.',
+        'Rank limitation. Some tasks require broad changes that low-rank updates cannot express. Changing a model from English to Chinese, or from text to code, may need full fine-tuning because the required weight delta has high intrinsic rank. In these cases, LoRA underfits even at r=256.',
+        'Adapter composition conflicts. Two LoRA adapters trained independently for different objectives may push the same layer in incompatible directions. Merging them (by adding the deltas) can degrade both tasks. Production systems need compatibility testing, not blind stacking.',
+        'Data quality is orthogonal. LoRA makes training cheaper but does not fix bad labels, duplicated examples, data leakage, or unsafe training targets. A cheap bad adapter is still bad.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'LoRA freezes the base and trains a low-rank delta. The base carries broad capability. The adapter carries task steering.',
-        'The practical questions are rank, target modules, data quality, merge policy, adapter registry, and evaluation. Those choices decide whether LoRA is a clean adaptation layer or a pile of hard-to-audit variants.',
+        'Fine-tune BERT-base for sentiment analysis using LoRA. BERT has 12 transformer layers, each with query, key, value, and output projections of size 768-by-768. Full fine-tuning updates 110M parameters.',
+        'Apply rank-8 LoRA to query and value projections in all 12 layers. Each adapter pair: A is 8-by-768 (6,144 params) and B is 768-by-8 (6,144 params). Two projections per layer, 12 layers: 2 * 2 * 6,144 * 12 = 294,912 trainable parameters. That is 0.27% of the full model.',
+        'Dataset: 10,000 movie reviews labeled positive or negative. Train for 3 epochs with learning rate 2e-4, batch size 32, alpha=16. Total training time: 8 minutes on one V100. Validation accuracy: 93.1%, compared to 93.5% for full fine-tuning.',
+        'The adapter file is 1.2 MB. Store the frozen BERT-base once (440 MB). Each new sentiment task (product reviews, tweet sentiment, app-store ratings) adds another 1.2 MB adapter. Ten tasks cost 452 MB total instead of 4.4 GB for ten full checkpoints.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Neural Network Forward Pass to see where W + B A is applied, Backpropagation to follow gradients into adapters, SVD & Low-Rank Approximation for the low-rank bet, Quantization for QLoRA, Attention Mechanism for common target matrices, Knowledge Distillation for teacher-generated adaptation data, and LoRA Adapter Registry, Merge, and Serving Ledger for production operations.',
+        'Hu et al. 2022, "LoRA: Low-Rank Adaptation of Large Language Models," introduced rank-constrained weight updates for efficient fine-tuning. Aghajanyan et al. 2021, "Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning," showed that fine-tuning operates in a low-dimensional subspace. Dettmers et al. 2023, "QLoRA: Efficient Finetuning of Quantized Language Models," combined 4-bit quantization with LoRA to fine-tune 65B models on a single GPU. Houlsby et al. 2019, "Parameter-Efficient Transfer Learning for NLP," introduced bottleneck adapter layers, the predecessor approach LoRA simplified.',
+        'Study next: Quantization (QLoRA combines quantized bases with LoRA adapters), Knowledge Distillation (compress a large model into a smaller one instead of adapting a large one), Transformer Block (LoRA targets attention projection matrices inside transformers), SVD (the mathematical backbone of low-rank factorization), Domain Adaptation (when source and target distributions differ enough that simple fine-tuning fails).',
       ],
     },
   ],

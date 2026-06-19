@@ -179,7 +179,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for BFCache Page Lifecycle. How back/forward cache stores live page snapshots, fires pagehide/pageshow with persisted flags, restores state instantly, and rejects unsafe pages..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Back and Forward are normal navigation paths, not edge cases. People bounce between search results and product pages, documentation pages and examples, inboxes and messages, dashboards and detail views, forms and confirmation screens. A full reload on Back repeats work the browser may have done seconds ago: network requests, parsing, script startup, layout, scroll restoration, and app boot.',
         'Back/forward cache exists to make that return feel instant. Instead of destroying the old page and rebuilding it later, the browser can keep a frozen live snapshot attached to the session history entry. That snapshot can include the DOM, JavaScript heap, scroll position, form values, rendering state, and local UI context.',
@@ -187,7 +196,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Obvious Approach and Its Wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious implementation is normal teardown. When the user leaves page A, destroy it. When the user presses Back, request the URL again, recreate the document, run the scripts, rebuild app state, and try to restore scroll. This is simple because every return begins as a fresh load.',
         'The wall is user-visible latency and incomplete restoration. Recreating the page can lose expanded panels, in-memory form edits, client-side caches, pending UI context, and exact scroll position. Application-level state restoration can help, but it still has to rebuild the page before it can restore anything.',
@@ -195,7 +204,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core Insight and Invariant',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that a session history entry can hold a suspended live document. A BFCache hit is not an HTTP cache hit. It does not fetch a response from disk cache and replay page construction. It resumes the exact frozen document that was kept in memory.',
         'The invariant for application code is simple: preserve stable local UI state, recheck volatile external state. Scroll position, typed form text, selected tabs, expanded panels, and client-side render state are usually good snapshot state. Auth, inventory, permissions, WebSocket freshness, locks, and payment readiness must be revalidated or reacquired after restore.',
@@ -203,7 +212,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the Visual Model Teaches It',
+      heading: 'How it works',
       paragraphs: [
         'The restore path view separates the active page from the frozen page. Page A moves through `pagehide`, then freeze, then the BF node while page B becomes active. That split is the central idea: page A can be suspended while another document runs, then return through `pageshow` and resume.',
         'The restore tasks table keeps the app work narrow. Data may need a freshness check. A socket may need reopening. Analytics may need a navigation event. The UI snapshot should usually remain intact. The point is not to rerun application startup; the point is to repair the pieces that depend on time or external systems.',
@@ -211,7 +220,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works (2)',
       paragraphs: [
         'On navigation away, the browser fires `pagehide`. If the document is eligible and the browser has enough resources, it can freeze the page and attach the snapshot to the session history entry. Timers stop running, queued work is suspended or constrained, and the next page becomes active.',
         'On Back or Forward, the browser can restore the snapshot and fire `pageshow`. If `event.persisted` is true, the app came from BFCache. The restore handler should be narrow: revalidate volatile data, reopen transient channels if needed, update analytics, and leave stable UI state alone.',
@@ -227,7 +236,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'BFCache works because the browser owns both the session history stack and the document lifecycle. It can keep a document snapshot in memory, stop hidden work from running normally, associate the snapshot with one history entry, and restore that snapshot only when the matching entry becomes active again.',
         'The page works because it accepts the pause-and-resume contract. Stable local state remains in the snapshot. Volatile state gets a restore check. That separation avoids the two bad extremes: rebuilding everything on every Back navigation, or trusting an old page as if no time had passed.',
@@ -235,7 +244,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'A user scrolls through a product list, applies filters, expands a comparison drawer, opens a product page, then presses Back. With a BFCache hit, the list returns with the same DOM, filters, expanded drawer, form state, and scroll position. The app does not rebuild the list before the user can continue browsing.',
         'A checkout flow needs more care. The checkout page pauses polling on `pagehide`, avoids `unload`, releases resources that cannot remain open, and stores no assumption that payment is still safe. On `pageshow` with `persisted` true, it rechecks auth, cart contents, price, inventory, and payment eligibility before enabling the pay button.',
@@ -243,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The browser pays memory to keep a live snapshot. Under pressure it may evict entries, decline to cache a page, or keep only a small number of history entries. The application cannot demand a BFCache hit. It can only avoid common blockers and behave correctly when a hit occurs.',
         'The application pays lifecycle complexity. Code that assumed `load` means fresh page and `unload` means final cleanup has to move toward resumable `pagehide` and `pageshow` handling. Teams also need tests that cover Back and Forward traversal, not only first load and link clicks.',
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure Modes and Limits',
+      heading: 'Where it fails',
       paragraphs: [
         'The common failure is treating a restored page as freshly loaded. A restored page can show old in-memory state until the app checks external truth. That is harmless for a collapsed accordion and dangerous for payment, auth, permissions, or security-sensitive decisions.',
         'The opposite failure is rebuilding too much on restore. If a `pageshow` handler tears down and recreates the whole app, it defeats the user benefit. A good restore handler is small, specific, and tied to volatility: refresh what can become stale, leave local interaction state alone.',
@@ -259,7 +268,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'How it works (3)',
       paragraphs: [
         'Use BFCache-aware lifecycle code where return navigation matters: search results, catalogs, documentation, long forms, multi-step flows, dashboards, inboxes, and read-heavy applications. The user expectation is not just speed; it is returning to the same place with the same local context.',
         'Prefer `pagehide` over `unload`. Pause polling, release or mark transient resources, and avoid destructive cleanup that assumes the page will never return. On `pageshow` with `persisted` true, revalidate volatile data, reconnect channels that were closed, refresh auth-sensitive decisions, and send navigation analytics without rerunning full startup.',
@@ -267,10 +276,82 @@ export const article = {
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: web.dev BFCache guide at https://web.dev/articles/bfcache, Chrome Page Lifecycle API guide at https://developer.chrome.com/docs/web-platform/page-lifecycle-api, MDN pagehide at https://developer.mozilla.org/en-US/docs/Web/API/Window/pagehide_event, and MDN pageshow at https://developer.mozilla.org/en-US/docs/Web/API/Window/pageshow_event. Study History API Session Stack, URL Parser & Origin Tuple, Service Workers & Offline-First, Web Locks API Lock Manager, AbortController Cancellation Graph, HTTP Cache ETag Revalidation, and Browser Rendering next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why BFCache Page Lifecycle moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

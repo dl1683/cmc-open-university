@@ -1,4 +1,4 @@
-// LLM inference cost stack: map each serving optimization to the phase,
+﻿// LLM inference cost stack: map each serving optimization to the phase,
 // resource, and workload shape it actually improves.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -215,6 +215,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Inference Cost Stack Case Study. A phase-by-phase map of inference cost levers: batching, paged KV cache, prefix reuse, quantization, kernels, and speculation..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'LLM inference costs money because each request consumes scarce accelerator time, high-bandwidth memory, network bandwidth, cache state, and scheduler attention. A model server is not only running matrix multiplication. It is admitting requests, batching them, processing prompts, storing KV cache, streaming output tokens, handling retries, and deciding which work deserves priority before a deadline expires.',
@@ -229,14 +238,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is phase fit. Every inference optimization should be attached to the phase, resource, and workload shape it improves. Batching is mostly an occupancy lever. Paged KV is mostly a memory-fragmentation and concurrency lever. Prefix caching is a repeated-prefill lever. Quantization is a byte and bandwidth lever. Kernel fusion and CUDA graphs reduce overhead and memory traffic. Speculation reduces serial decode steps only when the draft model predicts tokens that the target model accepts.',
         'The invariant is: measure the phase before choosing the lever. Queueing, prefill, KV residency, decode, routing, and output streaming should be reported separately. Otherwise a team can optimize decode while users are waiting on retrieval, or optimize prompt prefill while the real bill is idle GPU time caused by poor batching.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'A request first enters routing and admission. The system estimates prompt tokens, output budget, deadline, model choice, tenant priority, KV pressure, and fallback options. LLM Serving Admission-Control Goodput Gate is the related topic: a request is not useful if it is accepted into a queue where it will miss its service objective.',
         'Prefill processes the prompt and writes KV cache state. Transformer Layer FLOPs Cost Model explains the prompt-side arithmetic, while Transformer Inference Roofline explains why prefill and decode stress hardware differently. Decode then streams one token at a time, repeatedly reading weights and KV state. KV Cache Concurrency Capacity Model explains why live context becomes the concurrency budget. LLM Continuous Batching admits and removes requests at iteration boundaries so the accelerator stays occupied while individual users receive streams.',
@@ -266,7 +275,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works (2)',
       paragraphs: [
         'A serious deployment should report queue age, admission rejects, time to first token, inter-token latency, output tokens per second, prefill tokens per second, decode batch size, KV bytes resident, cache hit rate, eviction rate, prefix reuse, quantization quality slices, speculative acceptance length, GPU utilization, HBM pressure, retry rate, fallback use, and dollars per successful task.',
         'Report those metrics by workload class, not only globally. RAG prompts, coding-agent traces, short chat, long summarization, and offline batch jobs exercise different parts of the stack. A single average hides which users are subsidizing the system and which users are breaking it. Tail Latency and p99 Thinking is the right companion topic because inference optimizations often move the tail before they move the mean.',
@@ -281,7 +290,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Cost accounting needs more columns than average tokens per second. Time to first token sees queueing, routing, retrieval, and prefill. Time per output token sees decode. Aggregate throughput sees batching and occupancy. Tail latency sees scheduler fairness, long prompts, stragglers, and outliers. Dollars per useful task sees all of those plus idle GPU time, cache misses, failed generations, retries, fallbacks, and quality regressions.',
         'Every lever has a companion risk. Continuous batching can raise throughput while hurting p99. Prefix caching can look good on templated workloads and do little on ad hoc prompts. Quantization can lower cost while degrading rare tasks. Speculation can slow down if the draft model disagrees too often. Tiered offload can save HBM only if promotion latency and bandwidth stay within the time-to-first-token budget. Autoscaling can add GPUs too late if model-load delay and warm-cache state were ignored.',
@@ -295,11 +304,102 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: vLLM at https://arxiv.org/abs/2309.06180, SGLang at https://arxiv.org/abs/2312.07104, DistServe at https://arxiv.org/abs/2401.09670, Speculative Decoding at https://arxiv.org/abs/2211.17192, AWQ at https://arxiv.org/abs/2306.00978, and Efficiently Scaling Transformer Inference at https://arxiv.org/abs/2211.05102.',
         'Study Transformer Layer FLOPs Cost Model, Transformer Inference Roofline, KV Cache, KV Cache Concurrency Capacity Model, LLM Serving Admission-Control Goodput Gate, LLM Serving Autoscaling Warm Pool, Chunked Prefill Token Budget Scheduler, KV Cache Transfer Fabric Case Study, KV Cache Tiered Offload Store Case Study, SLO-Aware LLM Request Router, Grouped-Query Attention, Sliding-Window Attention Context Policy, LLM Continuous Batching, Length-Aware Batching for LLM Serving, LLM Serving: PagedAttention, Prefill/Decode Disaggregation Case Study, Prefix Caching and RadixAttention, Semantic Cache for LLMs, LLM Response Cache Safety Ledger, Inference Kernel Fusion and CUDA Graphs, CUDA Graph Shape Cache, Quantization, Speculative Decoding, Chain of Draft Reasoning Token Budget Case Study, LLM Unit Economics Ledger Case Study, LLM Inference Scaling Playbook, On-Device LLM Inference Cost Crossover, and Tail Latency and p99 Thinking next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why LLM Inference Cost Stack Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

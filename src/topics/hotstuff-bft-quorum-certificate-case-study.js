@@ -1,4 +1,4 @@
-// HotStuff BFT consensus: quorum certificates, chained commits, leader
+﻿// HotStuff BFT consensus: quorum certificates, chained commits, leader
 // rotation, timeout certificates, and the production shape behind DiemBFT.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -352,6 +352,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for HotStuff BFT Quorum Certificate Case Study. A production BFT consensus case study: 3f+1 validators, signed votes, quorum certificates, chained commit rules, pacemakers, timeout certificates, and Diem/Aptos-style descendants..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'HotStuff exists because replicated services need one ordered history even when some validators lie, crash, stall, or send different messages to different peers. A crash-fault protocol such as Raft or Paxos assumes failed nodes simply stop or lag. A Byzantine protocol must handle validators that equivocate, sign conflicting data, withhold messages, or try to make honest clients believe different histories are final.',
@@ -368,7 +377,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The core insight',
       paragraphs: [
         'The safety invariant is quorum intersection plus disciplined voting. In a 3f + 1 committee, a QC needs 2f + 1 votes. Any two 2f + 1 quorums intersect in at least f + 1 voting power. Since at most f can be Byzantine, at least one honest validator is in the overlap. If honest validators refuse to sign conflicting proposals that violate their lock, two conflicting certified commit histories cannot both form.',
         'That invariant is stronger than "the leader said it was safe" and stronger than "most validators seemed happy." The invariant lives in durable local state. A validator remembers the highest QC it has seen, the lock or commit rule required by the protocol version, and the exact message it is signing. A signature is a scarce resource. Once a validator spends it for a round and proposal, the safety module must make it impossible to spend an equivalent signature on a conflicting proposal after a crash, restart, retry, or malicious replay.',
@@ -400,7 +409,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked production case',
+      heading: 'Worked example',
       paragraphs: [
         'DiemBFT is the useful production case because it shows the module boundaries. Validators receive transactions through mempool, form blocks, execute proposed blocks speculatively, vote through safety rules, store blocks and QCs, and eventually commit a prefix to the replicated database. The protocol is not just "some validators vote." It is a pipeline of queues, timers, signature checks, graph storage, execution roots, and client proofs.',
         'That split turns the abstract BFT problem into testable components. Mempool is a data-availability and ordering-input problem. Round state is a timer and timeout problem. Safety rules are a small persistent state machine that must prevent double-signing. Block store is a tree or DAG of parent pointers, QCs, missing ancestors, and pruning boundaries. Execution produces a state root that validators can sign so the committed order and resulting state stay tied together.',
@@ -417,7 +426,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'HotStuff-style protocols win when a known validator set needs fast finality under Byzantine assumptions. Permissioned ledgers, validator-based blockchains, replicated databases with adversarial operators, and cross-organization control planes are natural fits. The appeal is the simple proof pipeline: votes become QCs, QCs become a certified chain, and a commit rule turns that chain into finality.',
         'The linear communication story also matters. The leader aggregates votes into one certificate and carries that certificate forward. In a healthy round, validators do not need all-to-all chatter for every phase. That makes the protocol easier to scale than older BFT designs, though data dissemination, signature verification, and networking can still dominate in production.',
@@ -438,5 +447,83 @@ export const article = {
         'For adjacent case studies, read Narwhal Bullshark DAG Mempool Case Study, Transparency Log Witnessing Case Study, KZG Polynomial Commitments, Ethereum Merkle-Patricia Trie Case Study, Distributed Tracing, and Rate Limiter. For primary sources, read the HotStuff paper, DiemBFT reports, and Jolteon/Ditto after the invariant in this article feels routine.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for hotstuff-bft-quorum-certificate-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

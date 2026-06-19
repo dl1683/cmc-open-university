@@ -383,6 +383,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for B+ Tree Leaf Sibling Scan Case Study. A page-index case study: internal separators route lookups, leaves hold entries, sibling links make range scans sequential, and splits publish new separators safely..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why B+ trees exist',
       paragraphs: [
         'A B+ tree is the ordered index shape that makes databases good at equality lookup, range lookup, and ordered traversal over page-sized storage. It exists because a binary search tree is the wrong mental model for disk and buffer pools. A binary tree makes one small decision per node. A database page can hold hundreds of keys, so one page read should narrow the search across hundreds of ranges.',
@@ -391,7 +400,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The naive way to support lookup is a sorted array. Binary search finds a key quickly, but insertion in the middle requires shifting entries, and the array does not naturally scale across pages. Another naive approach is a pointer-heavy binary search tree. It supports updates, but it wastes page locality and becomes too tall. A million entries should not require roughly twenty scattered node reads when a few page reads can do the job.',
         'The naive way to support a range query is repeated point lookup: find the first key, then search again for the next key, and so on. That throws away the sorted-page advantage. A database range cursor should seek once, then advance through adjacent entries. B+ tree leaves make that possible because the next leaf pointer is part of the index structure.',
@@ -423,7 +432,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete case study',
+      heading: 'Worked example',
       paragraphs: [
         'Consider a billing table with columns customer_id, invoice_date, invoice_id, amount, status, and a large JSON audit payload. The product dashboard needs the last 90 days of invoices for one customer, ordered by date, showing amount and status. An index on (customer_id, invoice_date) INCLUDE (amount, status) fits the access pattern. The engine seeks to the first matching leaf entry, follows leaf siblings while the customer and date range match, and returns the displayed columns directly from the index.',
         'The same index is weaker for an export job that selects the audit payload for every invoice in the year. The B+ tree still finds matching row locators in order, but now each entry requires a base-table fetch. If the table is not clustered by the same order, those fetches may be scattered. The right answer may be a different covering index, a clustered layout, a columnar export path, or a batch job that avoids using a narrow OLTP index as a bulk data pipeline.',
@@ -431,7 +440,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The first tradeoff is read speed versus write cost. Every extra B+ tree index makes some reads faster and every write more expensive. Inserts and updates must maintain each affected index. Splits add page writes. WAL volume increases. Cache pressure increases because more pages compete for memory.',
         'The second tradeoff is covering power versus size. Adding included columns can avoid heap fetches, but larger leaf entries reduce fanout and increase write cost. Cover everything and the index becomes a second copy of the table. Cover nothing and range scans may drown in random row lookups.',
@@ -445,5 +454,113 @@ export const article = {
         'Next topics in this curriculum: B-Trees, Binary Search, Database Indexing, SQLite B-Tree & Pager Case Study, PostgreSQL HOT Update Heap-Only Tuple, Write-Ahead Log, MVCC Internals & VACUUM, B-Epsilon Tree Write-Optimized Index, Bw-Tree Delta Chain & Mapping Table, LSM Tree, LSM Compaction Strategies Primer, Adaptive Radix Tree, ALEX Adaptive Learned Index, and Block Range Index Zone Maps.',
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why B+ Tree Leaf Sibling Scan Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

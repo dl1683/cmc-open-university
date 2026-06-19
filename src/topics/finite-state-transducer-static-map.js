@@ -224,88 +224,138 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A finite-state transducer static map is for large read-only dictionaries where keys are strings or byte sequences and each key has an associated value. Search engines map terms to ordinals or block pointers. Autocomplete systems map prefixes to ranges. Lexicons and URL tables need exact lookup while preserving sorted order.`,
-        `A hash table can answer exact lookup, but it loses lexicographic structure. A trie keeps the structure, but a pointer-heavy trie can be too large. An FST keeps trie-like traversal, shares more structure than a trie, and emits compact output while it walks the key.`,
+        'The "lookup path" view traces a single key through the FST. Active nodes are the current stage of the pipeline: key bytes enter, arcs are followed, output fragments accumulate, and the final state decides hit or miss. Found markers show values that are now determined. Compare markers show sibling keys whose paths share arcs with the current lookup.',
+        'The "build and minimize" view traces construction. Active nodes are the builder stages: sorted terms feed a trie frontier, frozen suffixes enter a register, equivalent states merge, and the minimal FST emerges. The output factoring frame shows how nearby values share a common prefix on early arcs and leave only small deltas on later arcs.',
+        'In both views, a missing transition is proof of absence. If the automaton has no arc for the next input byte, the key is not in the dictionary. This is stronger than a hash miss, which only says the slot is empty.',
       ],
     },
     {
-      heading: `Naive Baseline`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The first baseline is a hash table from key to value. It is simple and fast for exact lookup, but it does not naturally support ordered iteration, prefix traversal, or "next term after this prefix" operations.`,
-        `The second baseline is a trie. It supports prefix operations and sorted traversal, but ordinary tries mostly share prefixes. If many keys have equivalent suffix behavior, a trie repeats those suffix subgraphs. The node and transition overhead can dominate the actual key bytes.`,
+        'Search engines store millions of terms and need to map each term to a block pointer, ordinal, or posting list offset. The term dictionary sits in memory and is hit on every query. It must be compact enough to fit, ordered enough to support prefix and range queries, and fast enough to not dominate query latency.',
+        'The same problem appears in autocomplete indexes, URL routing tables, lexicons for NLP pipelines, and static key-value stores where the key set is known at build time. The shared constraint: a large, static, sorted set of string keys, each associated with a compact value, queried far more often than it changes.',
+        {
+          type: 'quote',
+          text: 'An FST is like a trie, except that it also shares suffixes, not just prefixes, and it can associate an output value with each key.',
+          attribution: 'Andrew Gallant, "Index 1,600,000,000 Keys with Automata and Rust" (2015)',
+        },
       ],
     },
     {
-      heading: `The Wall`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The wall appears when the dictionary is static, huge, and queried constantly. The system wants the navigational behavior of a trie, the compactness of a compressed automaton, and a value lookup at the end of the path.`,
-        `A plain minimal automaton can compact the accepted keys, but a map also needs outputs. Storing one external value object per key gives back much of the memory savings. The structure has to compress both the accepted language and the values associated with that language.`,
+        'A hash map gives O(1) exact lookup but destroys sorted order. You cannot iterate terms alphabetically, find "all terms starting with comp," or answer "what is the next term after this prefix." These are not niche features; a search engine uses them constantly for wildcard queries, fuzzy matching, and block-level seeking.',
+        'A trie preserves sorted order and supports prefix operations naturally. Each shared prefix is stored once. But a trie only shares prefixes. If thousands of terms end in "-tion," "-ment," or "-ing," the trie builds a separate suffix subtree for each prefix that reaches that ending. Node pointers, transition arrays, and per-node bookkeeping add up. A naive trie over English Wikipedia terms can exceed the term bytes themselves in pointer overhead.',
+        'A sorted array with binary search is compact and ordered, but lookup is O(log n) string comparisons, each touching memory at unpredictable locations. For millions of variable-length strings, cache behavior is poor and there is no way to share common substrings.',
       ],
     },
     {
-      heading: `Core Insight`,
+      heading: 'The wall',
       paragraphs: [
-        `Build a minimal acyclic automaton for the sorted keys, then make it a transducer by placing output fragments on arcs or final states. Lookup consumes the key symbols and accumulates those fragments. If it reaches an accepting final state, the accumulated output is the value or a pointer to the value.`,
-        `The invariant is state equivalence. Two states may merge when every possible remaining suffix from them has the same accept/reject behavior and compatible output behavior. Once merged, one suffix subgraph can represent many different prefixes without changing any lookup result.`,
+        'The wall is simultaneous pressure from three directions. The dictionary must be ordered (rules out hash maps). It must be compact (rules out pointer-heavy tries). And it must carry values, not just membership (rules out plain minimal automata like DAWGs, which can compress the key set but have nowhere to put the associated data).',
+        'A DAWG (directed acyclic word graph) solves the first two: it shares both prefixes and suffixes, producing a minimal acyclic automaton far smaller than a trie. But a DAWG is a recognizer, not a map. It answers "is this key present?" but not "what value does this key map to?" Bolting an external value array back on reintroduces per-key storage and throws away much of the compression.',
+        'The structure needs to carry output data inside the automaton itself, accumulating value fragments along the path so that lookup returns a result without a separate table.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
-        `In the "lookup path" view, follow the graph from key bytes through the FST, output accumulation, slot, and answer. The tiny static map frame shows the concrete contract: car, card, care, and dog are accepted paths, and each path emits a value such as 10, 11, 12, or 30.`,
-        `In the "build and minimize" view, focus on the register. Sorted terms let the builder freeze suffixes that will never receive more children, compare them with already seen suffix states, and merge equivalent ones. The output factoring frame shows why nearby ordinals can share a common output prefix and leave only small deltas on later arcs.`,
+        'A finite-state transducer is a finite automaton where each transition carries an input label and an output label. A Mealy machine puts outputs on transitions; a Moore machine puts outputs on states. FST-based static maps use the Mealy convention: each arc carries an input byte and an output fragment. Lookup reads the key byte by byte, follows arcs, and sums the output fragments. If it reaches an accepting final state, the accumulated sum is the value.',
+        {
+          type: 'diagram',
+          label: 'FST with shared suffixes and output weights',
+          text: [
+            '       c:10        a:0        r:0',
+            '  (0) -------> (1) -----> (2) -----> (3) [final, out=0]',
+            '   |                                   |  \\',
+            '   |  d:20                        d:1  |   e:2',
+            '   +---------> (4) --o--> (5)    (6)  |   (7)',
+            '                g:0        [final]  [final] [final]',
+            '',
+            '  Keys and values:',
+            '    car  = 10+0+0+0 = 10     dog = 20+0+0 = 20',
+            '    card = 10+0+0+1 = 11     ',
+            '    care = 10+0+0+2 = 12',
+            '',
+            '  States (3), (6), (7) share the same suffix structure:',
+            '  no outgoing arcs, all final. The minimizer merges them.',
+          ].join('\n'),
+        },
+        'Construction uses Daciuk\'s algorithm (incremental construction of minimal acyclic finite-state automata). Keys must arrive in sorted order. The builder maintains a trie-like frontier. When a new key diverges from the previous one, the suffix of the previous key that will never receive new children is frozen. The builder checks a register of already-built states: if an equivalent state exists (same outgoing arcs, same finality, same output behavior), the frozen suffix is redirected to the existing state instead of creating a duplicate.',
+        'Output factoring happens during construction. When multiple keys sharing a prefix map to nearby values, the builder pushes the greatest common output prefix toward the root arc and stores only residual deltas on later arcs. For example, if car=10, card=11, care=12, the arc for "c" can carry output 10, and the arcs for "d" and "e" carry deltas 1 and 2. This lets suffix states merge even when they carry different values, because the difference has already been absorbed by earlier arcs.',
       ],
     },
     {
-      heading: `Mechanics`,
+      heading: 'Why it works',
       paragraphs: [
-        `A practical builder reads keys in lexicographic order. It appends the new key's unmatched suffix to the current trie-like frontier. The part of the previous key that is no longer shared with future keys becomes fixed. The builder canonicalizes that fixed suffix by looking it up in a register of already built states.`,
-        `If an equivalent state already exists, the builder redirects the parent transition to the existing state. If not, it stores the new state in the register. This online minimization produces a compact acyclic automaton without first materializing a full trie.`,
-        `Outputs are factored during construction. If several outgoing paths share the same output prefix, that common piece can move earlier in the path, and only the residual deltas stay later. Lookup adds outputs as it traverses arcs, then checks final acceptance before returning the accumulated result.`,
+        'Correctness of the automaton rests on state equivalence. Two states are equivalent when they accept exactly the same set of suffixes. Merging equivalent states preserves the accepted language: every key that was accepted before is still accepted by the same path of input labels, and every key that was rejected still hits a missing transition or a non-final state.',
+        'Correctness of the transducer rests on output path sums. Moving a common output fragment from later arcs to an earlier shared arc does not change the total output accumulated along any complete key path. The sum of fragments along each accepted path is invariant under factoring. A formal proof uses induction on the number of factoring steps, showing that each step preserves the path sum for every key.',
+        'Minimality follows from the Myhill-Nerode theorem applied to acyclic automata. The register-based construction produces the unique minimal automaton for the key language. No smaller acyclic DFA accepts exactly the same set of strings.',
       ],
     },
     {
-      heading: `Correctness`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The automaton part is correct because equivalent states have identical futures. For every suffix that can be read from one state, the other state accepts or rejects the same suffix. Replacing duplicate equivalent states with one representative therefore preserves the accepted key set.`,
-        `The transducer part is correct when output factoring preserves path sums. Moving a common output fragment earlier on a shared arc and subtracting it from later deltas does not change the total output accumulated along any complete key path. Each accepted key still reaches the same value; missing transitions or non-final states still prove absence.`,
+        {
+          type: 'table',
+          headers: ['Operation', 'FST', 'Trie', 'Hash map', 'Sorted array'],
+          rows: [
+            ['Exact lookup', 'O(|key|)', 'O(|key|)', 'O(|key|) avg', 'O(|key| log n)'],
+            ['Prefix iteration', 'Yes', 'Yes', 'No', 'Binary search + scan'],
+            ['Range scan', 'Yes (ordered)', 'Yes (ordered)', 'No', 'Yes'],
+            ['Space', 'Minimal (shared prefixes + suffixes)', 'Shared prefixes only', 'Keys + values + table', 'Keys + values'],
+            ['Construction', 'O(n |key|), sorted input required', 'O(n |key|)', 'O(n |key|) avg', 'O(n |key| log n)'],
+            ['Updates', 'Rebuild or segment merge', 'O(|key|) insert', 'O(|key|) avg insert', 'O(n) insert'],
+            ['Carries values', 'Yes (output on arcs)', 'External', 'Yes', 'Yes'],
+            ['Proves absence', 'Missing arc', 'Missing edge', 'Empty slot (needs key check)', 'Binary search miss'],
+          ],
+        },
+        'Lookup touches one byte of input per transition, like a trie. The practical speed depends on how transitions are encoded. Lucene uses a packed byte array with variable-length arc encodings, optimized for sequential scan of low-fanout states. The Rust fst crate uses a similar packed representation. Both avoid pointer chasing by laying out the automaton in a contiguous byte buffer.',
+        'Space savings over a trie are proportional to suffix sharing. Natural-language term sets share heavily: "-tion," "-ing," "-ment," "-ed," "-ly" suffixes collapse thousands of subtrees into one. Lucene reports FST sizes 10-20x smaller than the raw term bytes for English indexes. The exact ratio depends on the key distribution; random byte strings share little and compress poorly.',
+        'Construction requires sorted input and is O(n * average key length). The register lookup at each suffix freeze is O(1) amortized with a hash-based register. The builder allocates states and arcs incrementally and never materializes a full trie. Memory during construction is proportional to the longest common prefix between consecutive keys, not the entire key set.',
       ],
     },
     {
-      heading: `Cost and Tradeoffs`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Lookup is O(length of key), like a trie. The constants depend on transition encoding: linear scan is small for low-degree states, binary search helps sorted transition arrays, and packed encodings improve locality at the cost of decoding work.`,
-        `Space depends on how much prefix and suffix sharing the key set has, how compactly transitions are encoded, and how well outputs factor. Construction is heavier than hashing because the builder must maintain canonical states and output deltas. Updates are usually rebuilds or segment merges, not cheap in-place edits.`,
+        'Lucene\'s BlockTree terms dictionary is the canonical production use. Every Lucene/Elasticsearch/Solr index builds an FST that maps terms to block file pointers in the terms file. The FST sits in memory; the postings data stays on disk. A term lookup walks the FST to find the right block, then reads one disk block to find the exact term and its posting list metadata. Tantivy (the Rust search engine) uses the same design via the fst crate.',
+        'The pattern generalizes to any system that needs a compact, ordered, in-memory index over a large, static key set: URL routing tables where millions of URL prefixes map to handler IDs; NLP lexicons where word forms map to lemma IDs; static configuration stores where string keys map to integer offsets; and autocomplete indexes where prefixes map to suggestion-list pointers.',
+        {
+          type: 'note',
+          text: 'FSTs are strongest when the key set is built once and queried many times. If keys change frequently, the rebuild cost dominates and a mutable structure like a B-tree or skip list is a better fit.',
+        },
       ],
     },
     {
-      heading: `Worked Example`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Take the keys car -> 10, card -> 11, care -> 12, and dog -> 30 from the animation. The car, card, and care paths share the prefix c-a-r. A trie would already share that prefix. The FST can also share equivalent final behavior and can place the common output 10 near the shared path, then use deltas 0, 1, and 2 for the related keys.`,
-        `Lookup for card reads c, a, r, d. Along the way it accumulates the output fragments attached to the traversed arcs. The final state must be accepting; otherwise a prefix such as ca would not count as a key. If the final state accepts, the accumulated output is 11 or a pointer that leads to the real payload.`,
+        'If sorted order does not matter and you only need exact lookup, a hash map or minimal perfect hash function is simpler and often faster. A perfect hash maps n keys to n slots with no collisions and O(1) lookup; it does not support prefix queries but uses less memory than an FST when order is irrelevant.',
+        'If you only need probabilistic membership ("is this term in the dictionary, probably?"), a Bloom filter or binary fuse filter is far smaller. An FST is exact but pays for that exactness in construction complexity and space.',
+        'FSTs are brittle to input normalization changes. The automaton encodes the exact byte sequences of its keys. Changing case folding rules, Unicode normalization forms, or locale-specific sort order invalidates the entire structure. There is no way to patch an FST; you rebuild from the new sorted key set. For systems where normalization rules evolve (e.g., adding new Unicode characters), this rebuild cost is a real operational burden.',
+        'Large values do not belong inside the FST. The output on each arc is typically a small integer (ordinal, delta, block pointer). If each key maps to a large payload, store the payloads externally and let the FST map keys to payload offsets. Embedding large outputs inflates the automaton and defeats the compression.',
       ],
     },
     {
-      heading: `Where It Wins`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `FST static maps win for large ordered dictionaries with values: Lucene-style term dictionaries, URL sets, byte-key maps, lexicons, static routing tables, and autocomplete indexes. They are strongest when the key set is sorted, mostly immutable, and useful to traverse by prefix or range.`,
-        `They also work well when the output is an ordinal, delta, block pointer, weight, or payload id rather than a large value blob. Large external payloads can stay outside the FST while the FST stores the compact route to them.`,
-      ],
-    },
-    {
-      heading: `Where It Fails`,
-      paragraphs: [
-        `If the workload only needs exact lookup and can verify keys externally, a hash table or minimal perfect hash static dictionary may be simpler. If it only needs cheap negative tests, a Bloom filter or binary fuse filter may be smaller.`,
-        `FSTs also require disciplined input normalization. Byte order, case folding, Unicode normalization, separator conventions, and sorted-build order are part of the data contract. Changing any of those details changes the accepted language and may require a rebuild.`,
-      ],
-    },
-    {
-      heading: `Study Next`,
-      paragraphs: [
-        `Study Trie and Finite State Machine for the baseline concepts, then Minimal Perfect Hash Static Dictionary for a contrasting exact-lookup structure. Study LOUDS Succinct Trie for a compact trie that keeps topology instead of minimizing suffixes. Study Inverted Index and FM-Index to see why compact ordered dictionaries matter in search systems.`,
-        `Useful references include Daciuk et al., Incremental Construction of Minimal Acyclic Finite-State Automata at https://aclanthology.org/J00-1002.pdf, Lucene FST package docs at https://lucene.apache.org/core/9_12_3/core/org/apache/lucene/util/fst/package-summary.html, Mike McCandless on Lucene FSTs at https://blog.mikemccandless.com/2010/12/using-finite-state-transducers-in.html, OpenFst at https://www.openfst.org/, and the Rust fst writeup at https://blog.burntsushi.net/transducers/.`,
+        {
+          type: 'bullets',
+          items: [
+            'Daciuk, Mihov, Watson, Watson, "Incremental Construction of Minimal Acyclic Finite-State Automata" (Computational Linguistics, 2000) -- the algorithm behind sorted-order FST construction. https://aclanthology.org/J00-1002.pdf',
+            'Mihov and Maurel, "Direct Construction of Minimal Acyclic Subsequential Transducers" (2001) -- extends Daciuk to transducers with outputs.',
+            'Mike McCandless, "Using Finite State Transducers in Lucene" (2010) -- the blog post that introduced FSTs to the Lucene community. https://blog.mikemccandless.com/2010/12/using-finite-state-transducers-in.html',
+            'Andrew Gallant, "Index 1,600,000,000 Keys with Automata and Rust" (2015) -- practical guide to the Rust fst crate, with benchmarks. https://blog.burntsushi.net/transducers/',
+            'Lucene FST package documentation. https://lucene.apache.org/core/9_12_3/core/org/apache/lucene/util/fst/package-summary.html',
+            'OpenFst library (general-purpose weighted FST toolkit). https://www.openfst.org/',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Mealy vs Moore: a Mealy machine puts outputs on transitions (arcs); a Moore machine puts outputs on states. Lucene and the Rust fst crate use the Mealy convention with an additional final-state output. The distinction matters when you read FST literature -- "output on arc" means Mealy.',
+        },
+        'Prerequisite: study Trie for prefix sharing and Finite State Machine for automaton fundamentals. Extension: study LOUDS Succinct Trie for a different compact trie encoding that preserves topology rather than minimizing suffixes. Contrast: study Minimal Perfect Hash for the case where sorted order is unnecessary and only exact lookup matters. Application: study Inverted Index to see how FST term dictionaries fit into the larger search-engine pipeline.',
       ],
     },
   ],

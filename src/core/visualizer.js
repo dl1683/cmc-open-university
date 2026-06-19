@@ -570,7 +570,14 @@ function applyInput(form, controls, input) {
   }
 }
 
-export function createTopicRuntime({ root, topic, initialInput = {}, renderExplanation }) {
+export function createTopicRuntime({
+  root,
+  topic,
+  initialInput = {},
+  renderExplanation,
+  onStep,
+  onStepsPrepared,
+}) {
   const setExplanation = renderExplanation ?? ((el, text) => { el.textContent = text; });
   const form = root.querySelector('[data-topic-controls]');
   const vis = root.querySelector('[data-visualization]');
@@ -586,7 +593,7 @@ export function createTopicRuntime({ root, topic, initialInput = {}, renderExpla
   let player = null;
   let currentSteps = [];
 
-  function onStep(step, index, total) {
+  function renderCurrentStep(step, index, total) {
     renderStep(vis, step);
     setExplanation(explanationEl, step.explanation);
     if (step.invariant) {
@@ -598,6 +605,7 @@ export function createTopicRuntime({ root, topic, initialInput = {}, renderExpla
     progressText.textContent = `Step ${index + 1} of ${total}`;
     slider.max = String(total - 1);
     slider.value = String(index);
+    if (typeof onStep === 'function') onStep({ step, index, total, player });
   }
 
   function onPlayState(playing) {
@@ -611,7 +619,8 @@ export function createTopicRuntime({ root, topic, initialInput = {}, renderExpla
       const steps = validateSteps(collectSteps(topic.run(input), topic.id), topic.id);
       currentSteps = steps;
       if (player) player.pause();
-      player = createPlayer(steps, { onStep, onPlayState });
+      player = createPlayer(steps, { onStep: renderCurrentStep, onPlayState });
+      if (typeof onStepsPrepared === 'function') onStepsPrepared({ steps, player, topicId: topic.id });
       player.reset();
       onPlayState(false);
     } catch (error) {

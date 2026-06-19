@@ -208,6 +208,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Activation Checkpointing. Save only selected activations during the forward pass, then recompute missing intermediates during backward to fit larger models..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why it matters',
       paragraphs: [
         'Activation checkpointing exists because training memory is not just model weights. Backpropagation needs intermediate activations from the forward pass, and in deep transformers with long sequences those activations can dominate GPU memory. A model can have enough compute available and still fail because the backward pass cannot keep the live activation set.',
@@ -215,21 +224,21 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious wall',
+      heading: 'The wall',
       paragraphs: [
         'The naive training strategy stores every activation that backward might need. It is fast because gradients can read saved tensors directly, but it scales poorly with depth, sequence length, batch size, and attention shape.',
         'The other naive reaction is to checkpoint everything. That may fit, but it can replay expensive kernels so much that the job becomes slower than necessary. Good checkpointing is selective: save boundaries that are worth keeping and replay interiors that are cheap enough to recompute.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Imagine a model as a chain of blocks. Without checkpointing, each block output stays alive until backward reaches it. With checkpointing, the runtime saves the input or output boundary of a region, drops interior activations, and later reruns that region forward during backward to rebuild the exact intermediates needed for gradient formulas.',
         'The recomputed activations are temporary. They exist just long enough to compute gradients for that segment, then they can be freed. The memory win comes from keeping fewer tensors live across the whole forward-to-backward gap. The compute cost comes from executing parts of the forward pass twice.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'In the save-versus-recompute view, the ordinary timeline shows every stored cell filled. That is the fast but memory-heavy baseline. The checkpointed timeline has saved boundary cells and recompute cells. Read the blanks as tensors that are deliberately not kept alive.',
         'In the checkpoint-placement view, the graph is a chain of blocks. Saved nodes are restart points. Dropped nodes are rebuilt when backward needs them. The placement tables are there to make the real decision visible: checkpoint large activation regions, avoid replaying expensive or unsafe work, and handle randomness deliberately.',
@@ -250,14 +259,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Checkpointing is usually a memory optimization that costs time. If the model already fits and compute is the bottleneck, it can make training slower for no benefit. Poor boundaries can save little memory while replaying expensive attention or matmul work.',
         'Correctness depends on replay semantics. The recomputed forward must match the original forward. Randomness, dropout masks, global state, mutation, detached tensors, data-dependent control flow, and hidden side effects can make gradients wrong in ways that are hard to spot.',
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Real-world uses',
       paragraphs: [
         'Start with a memory ledger: parameters, gradients, optimizer state, activations, temporary workspace, and communication buckets. Use checkpointing when activations are the limiting row. If optimizer state is the limiting row, ZeRO or FSDP may be the first move instead.',
         'Pick boundaries that save large activations and replay tolerable compute. Validate peak memory, step time, loss parity, and RNG determinism on a small run before scaling up. Keep the policy documented so later changes to dropout, attention kernels, or block structure do not silently break replay.',
@@ -271,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What to watch in production',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The first production question is whether activations are actually the limiting row in the memory ledger. If optimizer state, gradients, parameters, communication buffers, or temporary workspaces dominate peak memory, checkpointing may slow the job without solving the real bottleneck.',
         'The second question is replay safety. Dropout, random augmentations, mutable module state, custom kernels, detached tensors, and data-dependent branches can make recomputation differ from the original forward pass. Frameworks provide RNG handling, but teams still need parity checks because silent gradient drift is possible.',
@@ -295,9 +304,34 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Training a neural network requires a forward pass (compute activations) then a backward pass (compute gradients using those activations). The naive strategy: store ALL intermediate activations from the forward pass. For a 100-layer network with batch size 32, each layer stores roughly 100 MB of activations, totaling 10 GB. GPT-3 with 96 layers: activations alone can exceed 100 GB per batch, more than the model weights. This is why you run out of GPU memory during training even with a small batch size.',
+        'Gradient checkpointing (Chen et al. 2016): do not store all activations. Divide layers into segments. Only store activations at segment boundaries, the checkpoints. During the backward pass, recompute activations within each segment from the checkpoint. Memory: O(sqrt(n)) instead of O(n) for n layers. Cost: one extra forward pass through each segment. Time increases roughly 33% but memory drops roughly 10x.',
+        'Optimal placement: sqrt(n) evenly spaced checkpoints for n layers. For 100 layers: 10 checkpoints, store 10 activations, recompute up to 10 layers per segment. Memory: 10x reduction. Compute: roughly 33% overhead. This is what makes training large transformers feasible on limited GPU memory.',
+      ],
+    },
+    {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PyTorch activation checkpointing docs at https://docs.pytorch.org/docs/2.9/checkpoint.html and Training Deep Nets with Sublinear Memory Cost at https://arxiv.org/abs/1604.06174. Study Activation Rematerialization Budget Planner, Backpropagation, Batch Size Scaling, ZeRO Optimizer, Tensor Parallelism, Pipeline Parallelism, and Transformer Block next.',
+        'Chen et al. 2016, Training Deep Nets with Sublinear Memory Cost (https://arxiv.org/abs/1604.06174), the foundational gradient checkpointing paper. Griewank and Walther 2000, Algorithm 799: Revolve, the optimal checkpointing schedule.',
+        'Study next: Backpropagation (activation checkpointing modifies the backward pass), Transformer Block (the layers being checkpointed), Gradient Accumulation (complementary memory-saving technique), Mixed Precision Training (another memory optimization), Flash Attention (reduces attention activation memory).',
+      ],
+    },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        '4-layer network: layers L1, L2, L3, L4. Naive: forward stores a1, a2, a3, a4 (4 activations). Backward uses a4 for L4 grad, a3 for L3 grad, and so on. Memory: 4 units.',
+        'Checkpointing with 1 checkpoint (after L2): forward stores a2 (checkpoint). Memory: 1 unit. Backward: L4 grad needs a4, which is not stored. Recompute: run forward from a2 through L3, L4 to get a3, a4. Compute L4 grad using a4. Free a4. Compute L3 grad using a3. Free a3. Now need a1 for L1 grad: recompute from input through L1.',
+        'Total recomputation: layers L3, L4 (once), L1 (once). Memory peak: 2 activations (checkpoint + 1 recomputed). 2x memory reduction for 75% recomputation overhead. With sqrt(4) = 2 checkpoints, this is optimal.',
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Selective checkpointing: not all layers have equal activation sizes. Attention layers store the n-by-n attention matrix, which is huge. FFN layers store smaller intermediate activations. Strategy: checkpoint attention layers (free the n-by-n matrix), keep FFN activations (small). This reduces memory more than uniform checkpointing with the same recomputation cost.',
+        'In practice: PyTorch\'s torch.utils.checkpoint.checkpoint() wraps any module. Usage: wrap each transformer block. During forward, inputs to each block are saved, internal activations are freed. During backward, recompute the block\'s internal activations from saved inputs.',
+        'Gradient accumulation combo: with checkpointing (10x memory reduction) + gradient accumulation over 8 micro-batches, the effective batch size is 8x larger while using 10x less activation memory. This is how you train a 7B model on a single A100 80GB.',
       ],
     },
   ],

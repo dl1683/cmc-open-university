@@ -1,4 +1,4 @@
-// Entropy: surprise measured in bits. It is the floor under lossless
+﻿// Entropy: surprise measured in bits. It is the floor under lossless
 // compression, the loss behind language-model training, and the shared unit
 // for reasoning about uncertainty.
 
@@ -115,88 +115,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The surprise curve plots -log2(p) against probability. Watch how the curve explodes as p approaches zero: that is the penalty for confident wrong predictions made visible. A coin flip at p = 0.5 costs 1 bit of surprise. A rare event at p = 0.01 costs 6.6 bits. The shape of this curve is the entire engine behind cross-entropy loss.',
+        'The entropy table shows three distributions over four weather outcomes and their entropies. Active cells highlight H, the average surprise. Certain distributions have H = 0 because nothing is unknown. Uniform distributions have maximal H because every outcome is equally surprising. The skewed distribution lands between, because common outcomes contribute little surprise while rare ones contribute a lot.',
+        'The cross-entropy frame compares reality p against a model q. The gap between H(p, q) and H(p) is KL divergence: the bits wasted because the model is wrong. When the animation replaces weather labels with tokens, the same table becomes language-model training loss.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Entropy exists because engineers need a unit for uncertainty. If an event has probability p, its information content is -log2(p) bits. A certain event has zero information because it does not change what you know. A fair coin flip has one bit because it resolves a two-way uncertainty. A one-in-a-hundred event carries about 6.64 bits because learning that it happened removes much more uncertainty.`,
-        `The entropy of a distribution averages that surprise over all possible outcomes: H(p) = sum p(x) * -log2 p(x). It is not a metaphor for messiness. It is a precise claim about expected code length when the probabilities are known. The practical problem is shared across compression, prediction, and model evaluation: how many bits should it cost to describe what happened?`,
+        'A loss function collapses every prediction a model makes into a single number: how wrong is it? Gradient descent needs this number to be differentiable so it can compute a direction to improve. Without a loss function, there is no gradient, and without a gradient, there is no learning.',
+        'Entropy and cross-entropy solve the specific problem of measuring wrongness for probability distributions. A classifier outputs probabilities over classes. A language model outputs probabilities over tokens. The loss must say not just "right or wrong" but "how far from right," and it must do so in a way that gradient descent can act on. Cross-entropy is the standard answer for classification, and the reason traces back to Shannon 1948: it measures the cost, in bits, of believing the wrong distribution.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious way to measure uncertainty is to count how many outcomes are possible. Four weather labels seem like they should need two bits because two bits can name four states. That answer is right only when the four labels are equally likely. If one outcome happens 99 percent of the time and the others are rare, a fixed two-bit name for every report wastes the structure in the source.`,
-        `The wall is that possibility alone ignores probability. A source with ten possible symbols can be easy to predict, and a source with two possible symbols can be maximally uncertain. Counting labels gives an upper bound for a uniform source, not a general measure of information. Entropy fixes the measure by charging rare events more bits and common events fewer bits, then taking the probability-weighted average.`,
+        'The natural way to measure a classifier is accuracy: count how many predictions match the label, divide by total. A model that gets 95 out of 100 right scores 0.95. Accuracy is intuitive, directly interpretable, and what you ultimately care about in deployment.',
+        'For regression, the obvious loss is the raw error: |y - y_hat|. Subtract prediction from target, take the absolute value, average across samples. Both accuracy and absolute error make immediate sense to anyone looking at the results.',
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'The wall',
       paragraphs: [
-        `The logarithm is the key. Independent probabilities multiply: if two fair coin flips both need to be described, the joint event has probability 1/4. Information should add across independent choices, so the measure must turn multiplication into addition. The function -log2(p) does exactly that. Two fair flips carry two bits, three fair flips carry three bits, and a thousand fair flips carry a thousand bits.`,
-        `This additivity is why bits are a useful unit instead of a decorative number. If one part of a message costs 20 bits and an independent part costs 7 bits, the combined description costs 27 bits. Compression algorithms, decision trees, language-model losses, and coding theory can then talk in the same currency. Entropy is the expected number of binary questions needed by an ideal code for the source.`,
+        'Accuracy is a step function. A model that predicts P(cat) = 0.51 and one that predicts P(cat) = 0.99 both get the same accuracy score: 1. The derivative of a step function is zero everywhere except at the boundary, where it is undefined. Gradient descent cannot use it. There is no slope to follow.',
+        'Accuracy also hides magnitude. A model that assigns P(cat) = 0.51 to a cat image is barely right, but accuracy treats it identically to P(cat) = 0.99. Worse, a model that assigns P(cat) = 0.49 is counted as completely wrong despite being almost right. The loss function must distinguish near-misses from catastrophic failures, because the gradient needs to know which direction to push and how hard.',
+        'Absolute error |y - y_hat| is differentiable almost everywhere, but its derivative is constant (+1 or -1), providing no information about distance from the target. A prediction that is off by 0.01 gets the same gradient magnitude as one off by 100.',
       ],
     },
     {
-      heading: 'The distribution is the data structure',
+      heading: 'How it works',
       paragraphs: [
-        `To compute entropy, you need an alphabet and a probability distribution over that alphabet. The alphabet might be bytes, characters, words, tokens, labels, image residuals, or branch outcomes. The distribution might be known from a model, estimated from counts, smoothed to handle unseen symbols, or updated online as the stream changes. The formula is small, but the modeling decision is the real data-structure choice.`,
-        `A practical entropy table stores each symbol, its count or probability, its surprise, and its contribution p * -log2(p). Zero-probability terms are skipped because impossible events do not occur in the expectation. Very small probabilities matter because their surprise is large, but they may contribute little if they rarely occur. This is why a long tail can be operationally important without dominating average entropy.`,
-      ],
-    },
-    {
-      heading: 'Compression floor',
-      paragraphs: [
-        `Entropy gives a lower bound for lossless compression. If a source has entropy 1.4 bits per symbol, no lossless code can average far below 1.4 bits per symbol over a long stream from that source. A naive fixed-length code for four symbols uses two bits every time. A better code gives short names to common symbols and long names to rare symbols, pushing the average toward the entropy floor.`,
-        `Huffman coding shows the integer-length version of the idea. A symbol with probability 1/2 wants a one-bit code, a symbol with probability 1/8 wants a three-bit code, and so on. Arithmetic coding and ANS go closer to fractional-bit efficiency over whole messages. The source still cannot be compressed below its entropy without losing information or exploiting a better model of the source.`,
-      ],
-    },
-    {
-      heading: 'Cross-entropy and learning',
-      paragraphs: [
-        `Entropy asks how expensive the true distribution is under an optimal code. Cross-entropy asks how expensive reality becomes when you use a different distribution q to encode events drawn from p. The formula is H(p, q) = sum p(x) * -log2 q(x). If q gives high probability to what actually happens, the cost is low. If q is confident in the wrong places, the cost rises quickly.`,
-        `This is the loss behind ordinary classification and language-model training. The model emits a probability distribution over labels or next tokens. Training penalizes the negative log probability assigned to the observed answer. Averaged over data, that is an empirical cross-entropy. Perplexity is the same idea re-expressed as an effective branching factor: a model with lower cross-entropy is acting as though it has fewer plausible next choices.`,
+        'For regression, mean squared error replaces accuracy: L = (1/n) * sum((y_i - y_hat_i)^2). Squaring makes the function differentiable everywhere, and the gradient dL/dy_hat = -2(y - y_hat)/n is proportional to the error. Large errors produce large gradients; small errors produce small gradients. The optimizer naturally focuses effort where the model is most wrong.',
+        'For classification, cross-entropy replaces accuracy. Given C classes, the true label is a one-hot vector y and the model outputs a probability distribution y_hat (typically via softmax). The loss is: L = -sum(y_c * log(y_hat_c)) for c = 1 to C. With one-hot labels, this simplifies to L = -log(y_hat_correct), the negative log of the probability assigned to the true class.',
+        'Binary cross-entropy handles the two-class case directly: L = -[y * log(p) + (1 - y) * log(1 - p)]. When y = 1, only the -log(p) term survives. When y = 0, only the -log(1 - p) term survives. The logarithm is the key: -log(0.9) = 0.105, a small penalty for being right. -log(0.1) = 2.303, a harsh penalty for being wrong. -log(0.01) = 4.605, catastrophic. The log curve makes confident wrong predictions orders of magnitude more expensive than uncertain ones.',
+        'Softmax converts raw logits z into probabilities: p_c = exp(z_c) / sum(exp(z_j)). In practice, softmax and cross-entropy are computed together for numerical stability. The combined gradient has a clean form: dL/dz_c = p_c - y_c. For the correct class, this is (p_correct - 1), pushing the logit up. For wrong classes, this is p_wrong, pushing them down. The gradient vanishes only when p_correct = 1 and all others are 0, which is the perfect prediction.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Entropy works because it matches the economics of distinguishability. A code must assign enough bit patterns to cover the high-probability mass of the source. Common events deserve short descriptions because they are paid often. Rare events can tolerate long descriptions because they are paid seldom. The optimal average is governed by probabilities, not by the visual names of the symbols.`,
-        `The same reasoning explains information gain in decision trees. A split is useful when it reduces the expected entropy of the remaining labels. A question that separates a mixed population into purer groups saves future bits. This is not separate magic from compression. It is the same accounting applied to uncertainty before and after a question.`,
+        'Cross-entropy is the negative log-likelihood of the observed data under the model distribution. Minimizing cross-entropy is equivalent to maximizing the likelihood that the model assigns to the correct labels. This is not a coincidence or a convenience: it is a direct consequence of how log-likelihood decomposes over independent samples.',
+        'From information theory: cross-entropy H(p, q) = -sum(p_c * log(q_c)) measures the expected number of bits needed to encode events from p using a code optimized for q. The entropy H(p) = -sum(p_c * log(p_c)) is the minimum achievable cost. The difference, KL(p || q) = H(p, q) - H(p), is the KL divergence: the extra bits wasted because q is not p. Since H(p) is constant for fixed labels, minimizing cross-entropy is exactly minimizing KL divergence, which is zero only when q = p. The model is trained to match the true distribution.',
+        'The log also has a calibration property. A model trained with cross-entropy learns to output calibrated probabilities: if it says 0.7 for many examples, roughly 70% of them should be correct. This happens because the log-likelihood objective is a proper scoring rule. It is uniquely minimized when the predicted distribution matches the true conditional distribution.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `In systems work, useful signals include bits per symbol, compression ratio versus entropy estimate, cross-entropy on held-out data, calibration error, perplexity, and drift in the estimated distribution. A compressor that performs far above the entropy estimate may have implementation overhead, block-size waste, weak modeling, or metadata cost. A model whose training loss improves while validation cross-entropy worsens is memorizing the training distribution rather than learning a better predictor.`,
-        `Always keep the unit attached. Bits per byte, bits per token, bits per pixel, and bits per label are not interchangeable. A tokenizer can change token entropy without changing the underlying text. A class distribution can have low entropy because one class dominates, yet a classifier can still be useless on the rare classes. Entropy is a measurement tool, not the whole evaluation.`,
+        'Computing cross-entropy costs O(C) per sample for C classes: one log evaluation per class, one multiply, one sum. For ImageNet with 1,000 classes, that is 1,000 operations per image. For a language model with a 50,000-token vocabulary, the softmax denominator (sum of 50,000 exponentials) dominates, not the loss itself. Approximations like sampled softmax or hierarchical softmax exist to reduce this bottleneck.',
+        'Numerical stability matters. Computing log(softmax(z)) naively can overflow (exp of large logits) or underflow (log of tiny probabilities). The log-sum-exp trick subtracts max(z) before exponentiating: log(softmax(z_c)) = z_c - max(z) - log(sum(exp(z_j - max(z)))). This keeps all intermediate values in a safe floating-point range. Every deep learning framework implements this fused operation (log_softmax or cross_entropy_with_logits) for exactly this reason.',
+        'Label smoothing (Szegedy 2016) replaces the hard one-hot target [1, 0, 0] with a soft target [0.9, 0.05, 0.05]. The model no longer needs to drive logits to infinity to minimize loss, which prevents overconfidence and improves generalization. The cost is a slightly higher minimum achievable loss, since H(p) > 0 for smoothed labels.',
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Where it wins',
       paragraphs: [
-        `Choose the event space before computing the number. Byte entropy, token entropy, branch entropy, label entropy, and pixel-residual entropy answer different questions. If the alphabet changes, the entropy changed its meaning. Document the alphabet, smoothing rule, sample window, and conditioning variables beside the result.`,
-        `Use held-out data when entropy becomes a model-quality claim. A compressor can estimate a low source entropy on its training block and still fail on a new block. A classifier can reduce average cross-entropy while getting rare labels wrong. Report tail behavior, calibration, subgroup loss, and drift together with the average bit cost.`,
-        `When comparing models or codecs, convert to the same unit. Bits per token can favor one tokenizer, bits per byte can hide semantic errors, and perplexity numbers are only comparable under the same tokenization and evaluation set. Entropy is clean math, but the measurement frame is an engineering choice.`,
-      ],
-    },
-    {
-      heading: 'Where it is useful',
-      paragraphs: [
-        `Entropy is useful wherever a system must price uncertainty: lossless compression, entropy coding, feature selection, decision-tree splits, active learning, uncertainty reporting, language-model evaluation, anomaly detection, cryptographic randomness checks, and telemetry compression. It gives different mechanisms a shared question: how many bits are needed to state what happened, given what was already known?`,
-        `It is especially useful in a curriculum because it prevents separate topics from looking unrelated. Huffman coding, arithmetic coding, softmax loss, KL divergence, random forests, and knowledge distillation all ask how probability mass is arranged and how expensive it is to be surprised. Once that connection is clear, many algorithms become variations on distribution accounting.`,
+        'Cross-entropy is the default loss for classification in every neural network framework. Image classifiers (ResNet, ViT), language models (GPT, BERT), speech recognition, recommendation systems, and medical diagnosis all train with cross-entropy. Whenever the output is a probability distribution over discrete choices, cross-entropy is the standard objective.',
+        'Language modeling is the largest-scale use case. Next-token prediction is cross-entropy: the model outputs a distribution over the vocabulary, the loss is -log(p_observed_token), averaged over all positions in the sequence. Perplexity, the standard evaluation metric, is 2^(cross-entropy): a model with cross-entropy 3.0 bits per token has perplexity 8, meaning it is as uncertain as choosing uniformly among 8 options.',
+        'MSE is the standard for regression: predicting house prices, stock returns, sensor readings, or any continuous target. It is the maximum-likelihood loss when errors are Gaussian, and its gradient is proportional to the residual.',
+        'Focal loss (Lin et al. 2017) extends cross-entropy for class imbalance by multiplying by (1 - p_correct)^gamma. Easy examples with high p_correct contribute almost nothing to the gradient. Hard examples dominate. This made single-stage object detectors (RetinaNet) competitive with two-stage methods.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Entropy fails as a standalone judgment when the event space is poorly chosen. Byte entropy, token entropy, pixel entropy, and label entropy answer different questions. A high-entropy encrypted file and a high-entropy compressed file may look similar to a byte histogram even though they mean different things operationally. A low-entropy dataset can still be hard if the rare cases matter.`,
-        `It also fails when probability estimates are bad. Small samples, nonstationary streams, hidden conditioning variables, and distribution shift can make the computed entropy a property of the estimator rather than the source. In machine learning, low average cross-entropy can hide poor calibration, bad tail behavior, or unacceptable subgroup performance. The number is reliable only when the modeling frame is explicit.`,
+        'MSE is sensitive to outliers because the squared term amplifies large errors. A single target value that is off by 100 contributes 10,000 to the loss, dominating the gradient for that batch. Huber loss fixes this by switching from quadratic to linear beyond a threshold delta, combining MSE smoothness near zero with outlier robustness far from zero.',
+        'Cross-entropy assumes correct labels. Noisy labels (human annotation errors, crowdsourced disagreements) poison the training signal because cross-entropy heavily penalizes confident predictions that disagree with the label, even when the label is wrong. Label smoothing, mixup, and noise-robust losses (symmetric cross-entropy, generalized cross-entropy) mitigate this.',
+        'Class imbalance breaks standard cross-entropy. If 99% of samples are negative, the model learns to predict negative for everything and achieves low average loss. Weighted cross-entropy scales the loss per class inversely to frequency. Focal loss down-weights easy examples. Both are patches on the same underlying problem: the average does not reflect what you care about.',
+        'Adversarial robustness requires different objectives entirely. Cross-entropy on clean data does not teach the model to resist small adversarial perturbations. Adversarial training (Madry et al. 2018) replaces the clean loss with a worst-case loss over a perturbation set, which is more expensive and produces different internal representations.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Huffman Coding for prefix codes with integer lengths, Arithmetic & ANS Coding for coders that approach the entropy floor more closely, and LZ77 or DEFLATE for complete compressors that first build a better source model. Then study Softmax & Temperature, Cross-Entropy Loss, KL Divergence, Decision Trees, Random Forests, Calibration, and Knowledge Distillation to see the same bit accounting inside learning systems.`,
+        'Binary classification. True label y = 1 (positive). Model predicts p = 0.9. Cross-entropy: L = -log(0.9) = 0.105 nats. Gradient with respect to p: dL/dp = -1/p = -1.11. The gradient pushes p upward toward 1.',
+        'Same label y = 1, but model predicts p = 0.1. Now L = -log(0.1) = 2.303 nats, twenty-two times larger. Gradient: dL/dp = -1/0.1 = -10. The gradient is ten times stronger, driving p hard toward 1. The log curve makes the penalty and the corrective force both scale with the severity of the mistake.',
+        'Three-class problem. True label: cat (one-hot [1, 0, 0]). Model A outputs [0.7, 0.2, 0.1]: L = -log(0.7) = 0.357 nats. Model B outputs [0.4, 0.4, 0.2]: L = -log(0.4) = 0.916 nats. Model C outputs [0.1, 0.5, 0.4]: L = -log(0.1) = 2.303 nats. Only the probability assigned to the true class matters. Model C is most wrong and pays most. The softmax-cross-entropy gradient for Model C is [0.1 - 1, 0.5, 0.4] = [-0.9, 0.5, 0.4]: a strong push to increase the cat logit and decrease the others.',
+        'Full cross-entropy with soft labels. True distribution p = [0.7, 0.2, 0.1], model q = [0.6, 0.3, 0.1]. H(p, q) = -0.7 * log(0.6) - 0.2 * log(0.3) - 0.1 * log(0.1) = 0.358 + 0.241 + 0.230 = 0.829 nats. Entropy H(p) = 0.802 nats. KL divergence = 0.829 - 0.802 = 0.027 nats. The 0.027 nats is the cost of the model being wrong about the distribution shape.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Shannon 1948, "A Mathematical Theory of Communication," defined entropy and the information-theoretic framework. Kullback and Leibler 1951, "On Information and Sufficiency," formalized KL divergence. Lin et al. 2017, "Focal Loss for Dense Object Detection," introduced focal loss for class imbalance. Szegedy et al. 2016, "Rethinking the Inception Architecture," introduced label smoothing. Goodfellow et al. 2016, "Deep Learning" (Chapter 6), covers loss functions and maximum likelihood in depth.',
+        'Prerequisites: logarithms (log turns products into sums), probability distributions (probabilities sum to one), and basic calculus (derivatives of log and exp). Study Gradient Descent to see how cross-entropy gradients drive parameter updates. Study Softmax to understand the function that produces the probability distribution cross-entropy consumes. Study Backpropagation for how loss gradients flow through layers. Study Activation Functions for the nonlinearities between layers. Study Logistic Regression as the simplest model trained with binary cross-entropy. Study Focal Loss for the class-imbalance extension.',
       ],
     },
   ],
 };
+

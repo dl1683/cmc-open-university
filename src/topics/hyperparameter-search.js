@@ -1,4 +1,4 @@
-// Hyperparameter search: the model learns its weights, but somebody must
+﻿// Hyperparameter search: the model learns its weights, but somebody must
 // choose the knobs — lr, λ, depth. Grid search wastes most of its budget,
 // random search embarrassingly beats it, and smarter methods learn as they go.
 
@@ -51,8 +51,8 @@ function* race() {
         }))),
     }),
     highlight: { compare: ['g00', 'g01', 'g02'], active: ['g10', 'g11', 'g12'] },
-    explanation: `GRID SEARCH: the tidy instinct — 3 values of lr × 3 values of λ, every combination, 9 trials. Now count what was actually LEARNED about the dimension that matters: the nine trials contain only THREE distinct learning rates, each tested three times against λ values that change nothing. Six of nine trials are duplicates in disguise. Best found: lr = 0.03 at ${accOf(0.03).toFixed(3)} — the peak at 0.1 fell between the grid lines, and no budget remains to look.`,
-    invariant: 'A k×k grid tests only k distinct values per dimension — the rest of the budget re-asks answered questions.',
+    explanation: `GRID SEARCH: the tidy instinct — 3 values of lr Ã— 3 values of λ, every combination, 9 trials. Now count what was actually LEARNED about the dimension that matters: the nine trials contain only THREE distinct learning rates, each tested three times against λ values that change nothing. Six of nine trials are duplicates in disguise. Best found: lr = 0.03 at ${accOf(0.03).toFixed(3)} — the peak at 0.1 fell between the grid lines, and no budget remains to look.`,
+    invariant: 'A kÃ—k grid tests only k distinct values per dimension — the rest of the budget re-asks answered questions.',
   };
 
   yield {
@@ -66,13 +66,13 @@ function* race() {
       })),
     }),
     highlight: { found: ['r4'], visited: RANDOM_LR.map((_, i) => `r${i}`).filter((_, i) => i !== 4) },
-    explanation: `RANDOM SEARCH: same nine trials, every knob drawn independently at random (log-uniform — knobs that span orders of magnitude are searched in log space, always). Now every trial carries a FRESH learning rate: nine distinct values probe the axis that matters, and trial five lands at lr = 0.09 — accuracy ${accOf(0.09).toFixed(3)}, a whisker from the true optimum. This is the Bergstra & Bengio (2012) result that retired grid search: when only a few dimensions matter (the usual case), random search explores each important dimension k× more densely for the same budget. Projection is the whole proof: project the grid onto the lr axis and 9 points collapse to 3; project random and all 9 survive.`,
+    explanation: `RANDOM SEARCH: same nine trials, every knob drawn independently at random (log-uniform — knobs that span orders of magnitude are searched in log space, always). Now every trial carries a FRESH learning rate: nine distinct values probe the axis that matters, and trial five lands at lr = 0.09 — accuracy ${accOf(0.09).toFixed(3)}, a whisker from the true optimum. This is the Bergstra & Bengio (2012) result that retired grid search: when only a few dimensions matter (the usual case), random search explores each important dimension kÃ— more densely for the same budget. Projection is the whole proof: project the grid onto the lr axis and 9 points collapse to 3; project random and all 9 survive.`,
   };
 
   yield {
     state: matrixState({
       title: 'Nine trials, two strategies',
-      rows: [{ id: 'grid', label: 'grid 3×3' }, { id: 'random', label: 'random ×9' }],
+      rows: [{ id: 'grid', label: 'grid 3Ã—3' }, { id: 'random', label: 'random Ã—9' }],
       columns: [{ id: 'distinct', label: 'distinct lr values probed' }, { id: 'best', label: 'best accuracy found' }],
       values: [[3, accOf(0.03)], [9, accOf(0.09)]],
       format: (v) => (v <= 9 ? String(v) : v.toFixed(3)),
@@ -161,99 +161,157 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Hyperparameter search chooses the knobs the model does not learn: learning rate, Regularization: L1 & L2 strength, depth, batch size, tree count, dropout rate. Each trial usually means training a model and scoring it with Cross-Validation & Honest Evaluation, so the budget is precious. The demo hides a truth curve where accuracy depends strongly on learning rate and barely on lambda, then asks grid search and random search to spend the same nine trials. That setup mirrors real work: a few knobs matter, many barely move the score, and you do not know which is which in advance.`,
+        'The first view races grid search against random search on an identical budget of nine trials. A hidden accuracy curve depends strongly on learning rate and barely on the regularization knob lambda. Neither searcher can see this curve; each can only spend trials and observe scores. Watch the scatter plots: each dot is one trial. Project both scatter plots onto the learning-rate axis and count distinct values -- that projection is the entire argument.',
+        'The second view shows two smarter ideas. Bayesian optimization fits a surrogate belief curve (mean plus uncertainty band) and picks the next trial where expected improvement is highest. Successive halving starts many candidates cheaply and promotes only survivors. The matrix at the end shows the protocol card: the rules that keep a search honest.',
+        'Colors: "found" (green) marks the best configuration discovered. "Visited" (blue) marks evaluated candidates. "Compare" (orange) highlights the structural contrast between strategies. "Active" (yellow) marks the current evaluation step.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Grid search tries a tidy 3 by 3 lattice: three learning rates crossed with three lambdas. The problem is projection. Those nine trials contain only three distinct learning rates, and six trials mostly repeat already answered questions. The best grid value is lr = 0.03, while the true peak near 0.1 sits between grid lines. Random search draws nine independent log-scale learning rates, so all nine project to different places on the important axis; one lands near 0.09 and nearly matches the hidden optimum.`,
-        `Bayesian optimization learns from previous trials. It fits a surrogate belief curve with mean and uncertainty, then chooses the next point by an acquisition score. That is Thompson Sampling style explore/exploit in configuration space. Successive halving attacks the training budget: 27 configs for 1 epoch, 9 for 3, 3 for 9, 1 for 27. The demo cost is 108 epoch-units, the price of four full 27-epoch trainings, while screening 27 candidates.`,
+        'A model learns its weights by gradient descent, but someone must choose the knobs above the learning: learning rate, regularization strength, depth, batch size, dropout rate. These are the hyperparameters. Each evaluation costs a full training run plus cross-validation scoring, so a budget of nine trials is realistic. Spending them well is an optimization problem in its own right -- one where you cannot take gradients, each function evaluation is expensive, and the landscape is noisy.',
+        'The core tension: most hyperparameter spaces have low effective dimensionality. One or two knobs dominate the score; the rest barely matter. But you do not know which knobs matter until after you have searched. A search strategy that wastes budget re-asking answered questions along irrelevant axes leaves the important axes undersampled.',
+        {
+          type: 'quote',
+          text: 'For most data sets only a few of the hyperparameters really matter, but ... different hyperparameters are important on different data sets. This phenomenon makes grid search a poor choice for configuring algorithms.',
+          attribution: 'James Bergstra & Yoshua Bengio, "Random Search for Hyper-Parameter Optimization," JMLR 2012',
+        },
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `In the first view, ignore the hidden accuracy curve at first and count trials projected onto the learning-rate axis. Grid spends nine runs but only tests three distinct learning rates; random spends the same nine runs and tests nine. That projection is the whole reason random search is a serious baseline.`,
-        `In the smarter-search view, separate two questions. Bayesian optimization asks what to try next by balancing predicted score and uncertainty. Successive halving asks how long a weak candidate deserves to train. Real AutoML systems often combine both, then report the search budget because tuning itself can overfit validation.`,
+        'Grid search is the tidy instinct. Pick k values for each of d knobs, train every combination, pick the winner. It feels fair, exhaustive, and reproducible. For two knobs with three values each, you get a clean 3x3 lattice of nine trials.',
+        'The other naive approach is manual tuning: try a setting, inspect the loss curve, tweak a knob, repeat. Experts can be surprisingly effective at this, but the process is impossible to reproduce, impossible to parallelize, and easy to overfit to a favorite validation slice. A serious search treats the trial budget as part of the experimental protocol.',
+        {
+          type: 'diagram',
+          label: 'Grid vs random coverage in 2D (important axis = lr)',
+          text: [
+            'Grid search (3x3 = 9 trials):       Random search (9 trials):',
+            '',
+            'lambda |  x     x     x              lambda |     x',
+            '       |                                     |  x        x',
+            '       |  x     x     x                     |        x',
+            '       |                                     |  x  x',
+            '       |  x     x     x                     |           x  x',
+            '       +--+-----+-----+-- lr                +--+-+-+--+-+-+--+-- lr',
+            '          |     |     |                        | | |  | | |  |',
+            '       3 distinct lr values               9 distinct lr values',
+          ].join('\n'),
+        },
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'The wall',
       paragraphs: [
-        `The obvious approach is grid search. Pick a few values for each knob, train every combination, and choose the best validation score. That feels fair and organized, but it wastes budget when only a few dimensions matter. A 3 by 3 grid in two dimensions tests only three learning rates, even though learning rate may be the dominant knob.`,
-        `The other naive approach is manual tuning. Try a setting, look at the curve, change a knob, and repeat. That can work for experts, but it is hard to reproduce and easy to overfit to a favorite validation slice. A serious search treats the trial budget as part of the experiment.`,
+        'Grid search hits the curse of dimensionality in a way unique to hyperparameter spaces. A k-per-dimension grid in d dimensions costs k^d trials. With five knobs and five values each, the grid demands 3,125 full training runs. But the real damage is subtler than combinatorial explosion.',
+        'Project a 3x3 grid onto the learning-rate axis: nine trials collapse to three distinct values. Six of the nine trials differ only along lambda, which barely affects the score. The grid spends two-thirds of its budget re-asking already-answered questions. If the true optimum falls between grid lines -- lr = 0.1 sitting between 0.03 and 1.0 -- no budget remains to look there.',
+        'This is the effective dimensionality problem. In most real search spaces, a small subset of knobs explains nearly all the variance in the score. Grid search cannot exploit this structure because it commits its budget uniformly across all dimensions before seeing a single result. The important axis gets k samples regardless of whether it deserves k^d.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'How it works',
       paragraphs: [
-        `Hyperparameter search is expensive black-box optimization. You cannot take a gradient through "train a model and score it later" in the simple way gradient descent updates weights. The search strategy has to decide where to spend trials under noise, partial information, and limited budget.`,
-        `Random search is strong because many spaces are sparse in importance. If one or two knobs matter and the rest barely move the score, random sampling gives more distinct values on the important axes than a grid with the same trial count.`,
+        'Random search draws each knob independently from its range. For knobs spanning orders of magnitude (learning rate from 1e-4 to 1), sample in log space so each decade gets equal coverage. Nine random trials yield nine distinct learning rates, nine distinct lambdas -- every trial is fresh along every axis.',
+        {
+          type: 'code',
+          language: 'python',
+          text: [
+            '# Random search with log-uniform sampling',
+            'import numpy as np',
+            '',
+            'def log_uniform(lo, hi):',
+            '    """Sample uniformly in log space: each decade gets equal probability."""',
+            '    return np.exp(np.random.uniform(np.log(lo), np.log(hi)))',
+            '',
+            'def random_search(n_trials, train_and_eval):',
+            '    best_score, best_config = -np.inf, None',
+            '    for _ in range(n_trials):',
+            '        config = {',
+            '            "lr": log_uniform(1e-4, 1.0),',
+            '            "weight_decay": log_uniform(1e-5, 1e-1),',
+            '            "dropout": np.random.uniform(0.0, 0.5),',
+            '            "depth": np.random.randint(2, 8),',
+            '        }',
+            '        score = train_and_eval(config)',
+            '        if score > best_score:',
+            '            best_score, best_config = score, config',
+            '    return best_config, best_score',
+          ].join('\n'),
+        },
+        'Bayesian optimization (BO) makes the search learn from its history. After each trial, fit a cheap surrogate model -- a Gaussian process (GP-BO) or tree-structured Parzen estimator (TPE) -- that predicts the score at untried points plus an uncertainty band. An acquisition function (expected improvement, upper confidence bound) picks the next trial where the surrogate predicts either high score (exploit) or high uncertainty (explore). This is the same explore/exploit tradeoff from Thompson Sampling and multi-armed bandits, played over a continuous configuration space.',
+        'Successive halving attacks the per-trial cost. Start 27 candidates with one epoch each. Keep the top third, triple their budget, repeat. Total cost: 4 rungs x 27 epoch-units = 108 epochs, the price of four full 27-epoch trainings, but 27 candidates were screened. Hyperband hedges the early-stopping aggressiveness by running multiple halving brackets in parallel: one aggressive (many candidates, tiny initial budget), one conservative (few candidates, long initial budget).',
+        'BOHB (Bayesian Optimization and Hyperband) combines both: TPE chooses which configurations to sample, Hyperband decides how long each one trains. Population-Based Training (PBT) goes further -- it mutates hyperparameters during training, letting a population of models share discoveries in real time rather than restarting from scratch.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Random search works by preserving projection coverage. In a grid, many trials differ only along dimensions that may not matter, so the important dimension receives few distinct values. Independent random draws give every trial a new chance to land near a good value on each important axis.`,
-        `Bayesian and halving methods work by using evidence rather than treating every trial equally. Bayesian optimization spends the next trial where the model predicts high value or high uncertainty. Successive halving spends little budget on many candidates and moves real budget only to survivors. Both are ways to buy more information per unit of training cost.`,
+        'Random search works because of projection. In a k-per-dimension grid, projecting onto any single axis collapses k^(d-1) trials onto the same k points. Independent random draws preserve all n distinct values along every axis. When only a few dimensions matter (the usual case), random search explores each important dimension n times more densely than a grid with the same total budget. The proof is geometric: draw both scatter plots, project onto the dominant axis, and count.',
+        'Bayesian optimization works because the surrogate model concentrates trials in promising regions while maintaining uncertainty-driven exploration. The GP posterior is exact at observed points (zero uncertainty) and uncertain in unexplored gaps. The acquisition function balances known-good regions against unknown ones, preventing the search from either exploiting too greedily or exploring too wastefully.',
+        'Successive halving works because early performance correlates with final performance for most configurations. A configuration that scores poorly after one epoch rarely recovers to beat the leaders at epoch 27. This correlation is not guaranteed -- some architectures need warmup, some learning-rate schedules look bad early and good late -- which is why Hyperband hedges across brackets with different aggression levels.',
       ],
     },
     {
-      heading: `Complete case study`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A team tunes a classifier with learning rate, weight decay, dropout, depth, and batch size. A full grid is impossible. They start with random log-scale sampling for learning rate and weight decay, wide ranges for dropout and depth, and cross-validation on a fixed split plan. The first pass finds that learning rate dominates.`,
-        `The second pass narrows learning rate, keeps the test set sealed, and uses successive halving to stop bad configurations early. The final report includes the winning config, the search space, the number of trials, failed runs, validation variance, and the untouched test score. That report is the artifact that makes the result credible.`,
+        {
+          type: 'table',
+          headers: ['Method', 'Trial cost', 'Overhead', 'Parallelism', 'When to use'],
+          rows: [
+            ['Grid search', 'k^d full trainings', 'None', 'Fully parallel', 'Tiny spaces (1-2 knobs, few values)'],
+            ['Random search', 'n full trainings', 'None', 'Fully parallel', 'Default baseline; always run first'],
+            ['Bayesian (GP-BO)', 'n full trainings', 'O(n^3) surrogate fit', 'Sequential (but batch BO exists)', 'Expensive models, small budgets (<100 trials)'],
+            ['Bayesian (TPE)', 'n full trainings', 'O(n log n) density estimation', 'Sequential', 'High-dimensional spaces; Optuna default'],
+            ['Hyperband', 'n partial trainings', 'Bracket bookkeeping', 'Parallel within brackets', 'Cheap early signal; budget-constrained'],
+            ['BOHB', 'n partial trainings', 'TPE + bracket bookkeeping', 'Parallel within brackets', 'Best of both; modern AutoML default'],
+            ['PBT', 'Population x full training', 'Mutation + migration', 'Fully parallel', 'Long training; schedules that co-adapt'],
+          ],
+        },
+        'Grid cost explodes exponentially with dimensionality: five knobs at five values each is 3,125 trials. Random and Bayesian cost exactly what you budget. The surrogate fitting cost in GP-BO is O(n^3) per trial, but n is usually tens or hundreds -- trivial compared to a full model training run. The real cost metric is wall-clock time, which depends on parallelism: random search is embarrassingly parallel, while sequential BO must wait for each trial to finish before choosing the next.',
+        'Successive halving is budget-efficient but not free. A 4-rung bracket with factor-of-3 reduction screens 27 candidates for the cost of ~4 full trainings. The hidden cost is infrastructure: you need checkpointing, metric reporting at each rung, and a scheduler that can pause and resume jobs. Hyperband multiplies this by running several brackets.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Grid cost is k^d full trainings. Random cost is exactly the number of sampled trials. Bayesian optimization adds surrogate fitting, often O(n^3) for a Gaussian process, but n is usually small compared with model-training cost. Hyperband and halving spend unevenly, giving cheap tests to many configs and real budget only to survivors. The accounting must include failed runs too; a leaderboard result that ignores the search bill is not an honest engineering number.`,
+        'Random search is the universal baseline. It is trivially parallelizable, requires zero implementation beyond a loop and a random sampler, and is surprisingly hard to beat at budgets under 20 trials. The Bergstra-Bengio result showed it matching or beating grid search in less wall-clock time across multiple neural network tasks -- not because random is clever, but because grid is structurally wasteful.',
+        'Bayesian optimization dominates when each trial is expensive (hours or days of training) and the budget is small (10-100 trials). Drug discovery, material science, and large-model fine-tuning all fit this profile. TPE-based tools like Optuna and Hyperopt have made BO accessible without understanding GP internals.',
+        'Hyperband and BOHB dominate when early stopping is informative -- most deep learning and gradient boosting workflows. They screen orders of magnitude more candidates than sequential BO for the same compute budget. Real AutoML services (Google Vizier, AWS SageMaker, Ray Tune) use variants of BOHB internally.',
+        'PBT wins in long-running training where hyperparameters should change over time -- learning-rate schedules, data augmentation strength, loss weights. DeepMind used PBT to tune AlphaGo and population-based agents in StarCraft.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Random search is the baseline because it is parallel, simple, and hard to embarrass at small budgets. Bayesian search appears in AutoML systems when each model is expensive. Halving is natural when early metrics predict final quality, which is why Early Stopping & Patience feels like the one-model version. Gradient Boosting and Random Forest workflows tune depth, tree count, learning rate, and subsampling this way. Deep-learning teams often combine random exploration, a range test, and a final local sweep.`,
+        'Every search method fails when the space is badly designed. If the optimal learning rate is outside your chosen range, no strategy will find it. If you sample linearly over a range spanning four orders of magnitude, 99% of trials land in the top decade and the bottom three decades are nearly unsampled. Log-uniform sampling is mandatory for magnitude-spanning knobs.',
+        'Bayesian optimization fails in high dimensions (above ~20 knobs). The surrogate model struggles to fit a useful surface, acquisition optimization becomes its own hard problem, and the overhead per trial grows. For very large spaces, random search or population methods are more robust.',
+        'Successive halving fails on slow starters: a configuration that needs learning-rate warmup or a schedule that ramps up late will look bad at rung one and get killed. Hyperband mitigates this by running a conservative bracket, but cannot eliminate the risk entirely.',
+        'The deepest failure is overfit through search itself. Every trial is a chance to exploit noise in the validation set. A 9,000-trial search that reports its best score is practicing multiple testing at industrial scale -- the forking-paths problem from A/B testing. The test set must stay sealed until the search is complete, and the search budget must be reported alongside the final number. A model that "reaches 94%" after 9 trials and one that "reaches 94%" after 9,000 trials are making different claims.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Always report the search budget. A 94% model after nine trials and a 94% model after 9,000 trials are not the same claim. Every trial is also another chance to overfit validation, the forking-paths danger from A/B Testing & p-values and Multiple Testing & False Discoveries. Use log scales for magnitude knobs, keep the test set sealed, and beat random before celebrating fancy search. Be careful with slow starters: aggressive halving can kill a configuration that needs warmup before it shines.`,
-      ],
-    },
-    {
-      heading: `Operational signals`,
-      paragraphs: [
-        `Track trial id, config, seed, data version, code version, training budget, early-stop reason, validation score, score variance, runtime, memory, and failure mode. A tuning run without that ledger cannot be audited or resumed intelligently.`,
-        `Also track marginal value of additional trials. If the best score has not improved after many trials and variance is larger than the gain, the right move may be to improve data or evaluation rather than keep searching the same space.`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `Search fails when the space is badly designed. If the best learning rate is outside the chosen range, no search strategy can find it. If all values are sampled linearly for a knob that spans orders of magnitude, most trials waste resolution in the wrong place.`,
-        `It also fails when the validation protocol is weak. A search can exploit noise, benchmark quirks, or data leakage because every trial is another chance to get lucky. That is why the final test set must stay sealed and why repeated searches should be reported honestly.`,
-      ],
-    },
-    {
-      heading: `What to remember`,
-      paragraphs: [
-        `Hyperparameter search is part of the model claim. The result depends on the space, budget, random seeds, evaluation protocol, and early-stopping rule. Report those details or the score is not comparable.`,
-        `For course design, teach random search before Bayesian optimization. Students should understand why grid wastes projections, why log scales matter, and why the test set stays sealed until the search is complete.`,
-        `The best search strategy cannot rescue a bad measurement. Before spending hundreds of trials, make sure the validation set reflects the real task, the baseline is strong, and the score variance is small enough that improvements are meaningful.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Gaussian Process Bayesian Optimization Primer for the surrogate model behind Bayesian search, then Learning-Rate Schedules & Warmup for the most sensitive knob. Then focus on evaluation discipline and early-budget pruning. The key mental shift is that hyperparameter tuning is optimization without gradients: expensive, noisy, and easy to overclaim unless the protocol is written down before the search begins.`,
-        `For students, the practical default is simple: run a random baseline, log every trial, and keep the final test set untouched until the search is over. Reproducible tuning beats clever tuning.`,
+        {
+          type: 'bullets',
+          items: [
+            'Bergstra & Bengio, "Random Search for Hyper-Parameter Optimization," JMLR 2012 -- the paper that retired grid search with a clean geometric argument.',
+            'Li et al., "Hyperband: A Novel Bandit-Based Approach to Hyperparameter Optimization," JMLR 2018 -- successive halving with multi-bracket hedging.',
+            'Falkner et al., "BOHB: Robust and Efficient Hyperparameter Optimization at Scale," ICML 2018 -- combines TPE with Hyperband.',
+            'Jaderberg et al., "Population Based Training of Neural Networks," DeepMind 2017 -- in-training hyperparameter adaptation.',
+            'Snoek, Larochelle & Adams, "Practical Bayesian Optimization of Machine Learning Algorithms," NeurIPS 2012 -- GP-based Bayesian optimization for ML.',
+          ],
+        },
+        'Prerequisite: study Cross-Validation & Honest Evaluation to understand why each trial must be scored carefully, and Gradient Descent to see what the hyperparameters are controlling. Extension: study Gaussian Process Bayesian Optimization Primer for the surrogate model inside BO, and Learning-Rate Schedules & Warmup for the single most sensitive knob. Contrast: study Multi-Armed Bandits and Thompson Sampling to see the explore/exploit framework that acquisition functions generalize.',
+        {
+          type: 'note',
+          text: 'The practical default is simple: start with random search, sample magnitude-spanning knobs in log space, log every trial, keep the test set sealed, and report the search budget. Beat that baseline before reaching for Bayesian or halving methods.',
+        },
       ],
     },
   ],
 };
+

@@ -1,4 +1,4 @@
-// Infini-attention: local masked attention plus a compressive memory that
+﻿// Infini-attention: local masked attention plus a compressive memory that
 // carries older context with bounded storage.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -310,14 +310,14 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why compressive memory exists',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Infini-attention exists because long-context models face a harsh storage question: should every old token remain exactly available, or should old context be compressed into bounded state? Exact history is attractive because the model can directly compare the current query to old keys and values. The cost is that memory and compute keep growing. Compressed history is cheaper, but compression can forget, blur, or distort details.',
         'The architecture tries to split the difference. Recent tokens get ordinary masked local attention, preserving exact nearby detail. Older context is stored in a compressive memory that can be read by later segments. The word "infinite" should be read as a bounded-memory design goal, not as a promise of perfect recall across unlimited text.',
       ],
     },
     {
-      heading: 'The naive designs and their walls',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first naive design is full attention over the entire prefix. It gives the cleanest semantics: every token can attend to every previous token. The wall is resource use. Very long sequences consume large KV caches, large attention computation, and serving capacity that could otherwise support more users or higher throughput.',
         'The second naive design is a hard sliding window. Keep only the recent past and discard old tokens. That is cheap, but it fails when an old definition, instruction, source quote, or entity mention must be recovered exactly. A model can appear fluent while silently losing the evidence needed for a correct answer.',
@@ -325,7 +325,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'How it works',
       paragraphs: [
         'The block has two paths. The local path performs ordinary causal attention within the current segment. This handles recent syntax, immediate references, and local reasoning with exact token-level evidence. The memory path reads from a bounded memory matrix that summarizes earlier segments. A learned gate or mixing mechanism combines the local-attention output with the memory-read output.',
         'After processing a segment, the model updates memory with information from that segment. The memory is not a list of old tokens. It is compressed state. Later segments can read from it, but they cannot inspect every old token as an exact row unless another mechanism preserves that evidence.',
@@ -333,7 +333,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it can work',
+      heading: 'Why it works',
       paragraphs: [
         'The design can work when many old dependencies do not require exact token replay. A long document contains themes, entities, topics, and state that may be compressible. If the memory learns to preserve the useful signal and local attention handles precise recent details, the model can cover longer inputs without paying full exact-attention cost.',
         'It can also work because segment processing is a natural production shape. Long inputs are often streamed or chunked: documents, transcripts, logs, codebases, and conversations arrive in pieces. Reading old memory, processing the current segment, and writing updated memory matches that flow. It gives the serving system a bounded object to carry forward instead of an ever-growing list of KV rows.',
@@ -341,7 +341,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it fits',
+      heading: 'Real-world uses',
       paragraphs: [
         'Infini-attention is a useful study case for bounded long-context architecture. A model reading a long technical manual could keep the current section exact while carrying older chapter themes, definitions, and recurring symbols in memory. A meeting assistant could preserve the current exchange exactly while carrying earlier agenda state and decisions in compressed form.',
         'The design is also valuable as a bridge between attention and recurrent memory. It keeps the familiar attention block for local context but adds a stateful path for older context. That makes it easier to compare against RetNet, Mamba, StreamingLLM, and retrieval-augmented systems. The curriculum lesson is that "memory" can be exact tokens, learned state, retrieved documents, summaries, or some hybrid.',
@@ -349,7 +349,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The main failure is false confidence about old evidence. A compressive memory may preserve the topic but lose the number, quote, name, exception, or negation that makes the answer correct. This is why average language-model loss is not enough. Long-context evaluation needs exact retrieval, position sweeps, distractors, citation checks, and tasks where the decisive fact sits far outside the local segment.',
         'Another failure is memory interference. Old segments can overwrite or distort each other. A memory update rule that works for one domain may fail under code, tables, math, or adversarial documents. Segment boundaries can create artifacts, and the model may learn to overtrust memory even when local context contradicts it.',
@@ -357,7 +357,7 @@ export const article = {
       ],
     },
     {
-      heading: 'A worked example',
+      heading: 'Worked example',
       paragraphs: [
         'Imagine a model reading a 300-page technical manual. The current segment contains an equation that refers to a symbol introduced in chapter two. Local attention can handle the current equation exactly. The compressive memory may carry the earlier symbol definition, the role of the variable, and the surrounding topic. If the task is to summarize the equation, that may be enough. If the task is to quote the exact definition, compressed memory is not enough by itself.',
         'A production system can use Infini-attention as the model memory while pairing it with source retrieval. The memory path keeps the model oriented across long text. Retrieval fetches exact old spans when the answer must cite or quote. This division of labor is usually more honest than claiming one learned state can serve every memory need.',
@@ -371,7 +371,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Infini-attention is not magic infinite recall. It is a hybrid memory design: exact local attention for recent tokens plus compressed state for older context. That is a serious idea because most long-context workloads need both recent precision and some durable old signal.',
         'The design should be evaluated as a memory contract. Ask what remains exact, what becomes compressed, how memory is updated, what old facts are recoverable, how failures are detected, and whether retrieval or citation checks are needed for high-stakes answers.',
@@ -379,11 +379,80 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary source: Efficient Infinite Context Transformers with Infini-attention at https://arxiv.org/abs/2404.07143.',
         'Study StreamingLLM Attention Sinks, Sliding-Window Attention Context Policy, KV Cache, Selective State Space Models: Mamba, Test-Time Training Layer Case Study, Hybrid Attention State Budget Case Study, Lost in the Middle, and RAG Claim Verification next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for infini-attention-compressive-memory-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

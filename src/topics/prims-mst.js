@@ -1,4 +1,4 @@
-// Prim's algorithm: the other road to the minimum spanning tree. Where
+﻿// Prim's algorithm: the other road to the minimum spanning tree. Where
 // Kruskal sorts all edges and merges a forest, Prim grows ONE tree outward,
 // always taking the cheapest edge on its frontier. Same graph, same answer,
 // different journey — compare them side by side.
@@ -7,7 +7,7 @@ import { graphState, InputError } from '../core/state.js';
 
 export const topic = {
   id: 'prims-mst',
-  title: "Prim's Algorithm",
+  title: "Prim\'s Algorithm",
   category: 'Data Structures',
   summary: 'Grow one tree outward, always crossing the frontier on the cheapest edge — the MST, built the other way.',
   controls: [
@@ -16,7 +16,7 @@ export const topic = {
   run,
 };
 
-// The exact graph from Kruskal's topic, so the two algorithms can be compared.
+// The exact graph from Kruskal\'s topic, so the two algorithms can be compared.
 const NODES = [
   { id: 'A', label: 'A', x: 1.0, y: 2.0 }, { id: 'B', label: 'B', x: 4.0, y: 1.0 },
   { id: 'C', label: 'C', x: 7.0, y: 1.5 }, { id: 'D', label: 'D', x: 9.2, y: 4.0 },
@@ -46,7 +46,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { found: [start] },
-    explanation: `Same seven cities and eleven cables as Kruskal's Minimum Spanning Tree — but a different philosophy. Kruskal thinks globally: sort EVERY edge, merge a forest. Prim thinks locally: start somewhere (${start}), and grow ONE tree outward, always crossing the frontier on the cheapest available cable. A Binary Heap (Priority Queue) serves that "cheapest frontier edge" in O(log n).`,
+    explanation: `Same seven cities and eleven cables as Kruskal\'s Minimum Spanning Tree — but a different philosophy. Kruskal thinks globally: sort EVERY edge, merge a forest. Prim thinks locally: start somewhere (${start}), and grow ONE tree outward, always crossing the frontier on the cheapest available cable. A Binary Heap (Priority Queue) serves that "cheapest frontier edge" in O(log n).`,
   };
 
   while (inTree.size < NODES.length) {
@@ -85,81 +85,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Prim's Algorithm builds a minimum spanning tree by growing one connected tree outward from a chosen start node. Kruskal's Minimum Spanning Tree sorts every edge globally and merges scattered components; Prim keeps one component and repeatedly crosses its frontier on the cheapest edge. The visualization uses the same seven-city, eleven-edge graph as Kruskal, with a start choice of A or D, so the order changes but the final minimum cost remains 19.`,
-        `The naive approach is again to search over whole spanning trees. The practical greedy temptation is to keep extending the current tree somehow. Prim makes that safe by choosing the cheapest edge across the exact cut between the current tree and the outside world. Edges fully inside the tree are ignored because they would only create cycles.`,
-        `The algorithm is usually credited to Robert Prim's 1957 paper, though Vojtech Jarnik described the idea in 1930 and Edsger Dijkstra rediscovered it in 1959. It is a cut-property algorithm: at any moment, split the graph into nodes already in the tree and nodes outside it. The cheapest edge crossing that split is safe to add to some MST.`,
+        'The animation runs Prim\'s algorithm on the same seven-node weighted graph used in Kruskal\'s topic. You pick a start node (A or D) and watch one tree grow outward.',
+        'Green nodes and edges are already in the growing tree. Highlighted edges are the current frontier: every edge with one endpoint inside the tree and one outside. The active edge is the cheapest frontier edge being accepted. When a new node joins, its edges to outside nodes enter the frontier, and any edge now fully internal silently drops out.',
+        'Watch the frontier shrink and shift as the tree expands. Each acceptance is justified by the cut property: the cheapest edge crossing the inside/outside boundary belongs to some MST. The final tree has V minus 1 edges and the same minimum total cost regardless of which start node you pick.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Connect every node in a weighted graph at minimum total edge cost. The answer is a minimum spanning tree: V minus 1 edges, no cycles, total weight as low as possible.',
+        'MST algorithms are among the oldest in graph theory. Boruvka published the first one in 1926 for an electrical network in Moravia. Jarnik described the grow-one-tree approach in 1930. Prim rediscovered it at Bell Labs in 1957 while designing telephone networks. Dijkstra independently found the same idea in 1959.',
+        'Where Kruskal sorts all edges globally and merges scattered fragments, Prim grows one connected tree outward from a chosen start vertex. At each step, the frontier is every edge with one endpoint inside the tree and one outside. Prim takes the cheapest frontier edge, adds the new vertex, and repeats. No Union-Find is needed because the tree is always one connected component; the only data structure required is a priority queue.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Try all spanning trees and pick the lightest. A spanning tree on n vertices uses n minus 1 edges and has no cycles. Enumerate every such tree, sum its weights, keep the minimum.',
+        'For a small graph this is feasible. With four nodes in a complete graph there are 16 spanning trees. But the count explodes fast.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Cayley\'s formula: n labeled vertices yield n^(n-2) spanning trees. For 15 cities that is 15^13, roughly 1.9 times 10^15. For 20 cities, 20^18, roughly 2.6 times 10^23. Enumeration is physically impossible.",
+        'The natural greedy impulse is to keep extending the tree on whatever cheap edge is nearby. That impulse is almost right, but without structure it breaks. If you grow the tree by grabbing any cheap edge touching any tree vertex without maintaining a proper frontier, you risk missing cheaper edges elsewhere. And without tracking which vertices are already inside the tree, you can accidentally add edges that create cycles.',
+        "Prim\'s structure solves both problems. The frontier is precisely the set of edges with one endpoint in the tree and one outside. A priority queue extracts the cheapest frontier edge in O(log V). The visited set prevents cycles. The cut property proves that the cheapest frontier edge is always safe.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Start with one node marked inside the tree. The frontier is every edge with exactly one endpoint inside. Pick the lightest frontier edge, add the outside endpoint, and repeat until all vertices are inside. In the demo, each step highlights the current frontier, then marks the cheapest cable as active before adding the new city. Edges that become fully internal stop mattering, because adding them would create a cycle.`,
-        `Efficient implementations keep frontier edges in a min-priority queue. A Binary Heap (Priority Queue) pops the cheapest candidate in O(log V), while lazy deletion ignores stale edges whose endpoints are already both inside. This makes Prim feel like Dijkstra's Shortest Path: both pop the best frontier item. The ranking differs. Dijkstra ranks by total distance from the source; Prim ranks by single edge weight across the cut.`,
-        `Correctness is the cut property repeated. At each step, any spanning tree must eventually cross from the current tree to an outside vertex. Taking the cheapest such crossing cannot make the final tree worse, so the local frontier decision is globally safe.`,
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'Watch the growing tree boundary. Prim keeps one connected component and repeatedly chooses the cheapest edge that leaves it. The highlighted frontier is the set of candidate ways to expand the current tree by one vertex.',
-        'The tempting confusion is to compare it with shortest paths. Prim does not care how far a vertex is from the start; it cares about the cheapest next connection to the existing tree. That is why it builds a minimum spanning tree, not routes from a source.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        `With adjacency lists and a binary heap, Prim runs in O(E log V) time and O(E) space for queued edges. With an adjacency matrix and no heap, it can run in O(V^2), which is attractive for dense graphs where E is close to V^2. With Fibonacci heaps, the textbook bound improves to O(E + V log V), though constants make that rarer in ordinary code. Kruskal's sorting cost is also O(E log V), so real choice depends on graph representation, density, and implementation simplicity.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `Prim fits problems where the graph is already local to a growing region: laying cable from an existing hub, expanding a road plan outward, or connecting points in a dense geometric graph. Image segmentation and clustering sometimes use MSTs as an intermediate structure; K-Means Clustering is a different centroid-based view of grouping. In network design, a pure MST is a cost baseline, not a complete production plan, because real systems also need redundancy, capacity, and failure tolerance. Big-O Growth Rates matters here because dense and sparse graphs push you toward different MST implementations.`,
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        `Prim and Kruskal both find an optimal MST; neither is more correct. Equal weights can produce different valid trees, and the start node can change the growth order without changing the minimum total cost. Another common bug is using total path distance by accident, which turns the implementation into Dijkstra's Shortest Path and solves the wrong problem. Also remember that Prim assumes an undirected connected graph. If the graph is disconnected, it builds a minimum spanning forest only if you restart it from each component.`,
-        `It is also the wrong abstraction when the product needs redundancy or directed reachability. A minimum spanning tree is intentionally fragile: remove one chosen edge and the tree disconnects. Real network design often starts with an MST cost baseline, then adds capacity, backup paths, and reliability constraints.`,
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Represent the graph as adjacency lists when it is sparse. Keep a visited set for vertices already in the tree. Push frontier edges into a min-heap, and when an edge is popped, ignore it if both endpoints are already visited. That lazy-deletion version is simple and reliable.',
-        'For dense graphs, an adjacency matrix with a best-known connection cost per outside vertex can be simpler and competitive. The right implementation depends on graph density more than on the abstract algorithm name.',
-        'If the graph may be disconnected, either report that no spanning tree exists or run Prim from every unvisited component and call the result a minimum spanning forest. Do not silently return a partial tree as if it connected everything.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Start at A. The frontier contains A-G with weight 2, A-B with weight 4, and A-F with weight 8. Prim takes A-G because it is the cheapest edge crossing from the current tree to the outside. Now the tree has A and G, and new edges from G enter the frontier.',
-        'The algorithm never chooses an edge just because it is globally small. It chooses the smallest edge that crosses the current cut. That distinction is why Prim grows one connected tree while Kruskal may build several fragments before they merge.',
+        'Start with one node marked inside the tree. The frontier is every edge with exactly one endpoint inside. Pick the lightest frontier edge, add the outside endpoint to the tree, and repeat until all vertices are inside.',
+        'Efficient implementations keep frontier edges in a min-priority queue. A binary heap pops the cheapest candidate in O(log V). Lazy deletion handles stale entries: when an edge pops and both endpoints are already inside, discard it and pop the next one.',
+        'This makes Prim feel like Dijkstra\'s Shortest Path: both pop the best item from a priority-queue frontier. The difference is the ranking key. Dijkstra ranks by total distance from the source (accumulated path cost). Prim ranks by single edge weight across the cut (no accumulation). Dijkstra finds shortest paths; Prim finds the lightest spanning tree.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The cut property is the proof. At any step, divide vertices into the tree side and the outside side. Every spanning tree must cross that cut at least once. If the cheapest crossing edge were excluded from an optimal tree, swapping it in for a more expensive crossing would not increase total cost.',
-        'That exchange argument is why a local frontier choice is safe. Prim is not guessing from the start node outward; it is repeatedly taking an edge that some minimum spanning tree can contain.',
+        'The cut property: split the vertices into the current tree and everything else. The cheapest edge crossing that split belongs to some MST.',
+        'Proof. Suppose an MST T does not contain the cheapest crossing edge e. Adding e to T creates exactly one cycle. That cycle must include another edge f that also crosses the same cut (otherwise the cycle stays on one side and cannot close). Since weight(e) is at most weight(f), replacing f with e yields a spanning tree no heavier than T. So some MST contains e.',
+        'Prim applies this at every step. The tree side and the outside side define a cut. The priority queue delivers the cheapest crossing edge. By the cut property, accepting it is safe. After V minus 1 acceptances, the tree spans all vertices and is itself an MST.',
+        'The exchange argument is why a local frontier choice is globally optimal. Prim is not guessing from the start node outward; it is repeatedly taking an edge that some minimum spanning tree must contain.',
       ],
     },
     {
-      heading: 'What to watch in production',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Real network design usually needs more than an MST. Capacity, latency, directed links, redundancy, maintenance windows, and geographic constraints can make the minimum-cost tree a bad deployed network. Use it as a baseline or subroutine, not as a complete design policy.',
-        'For implementation, watch stale heap edges. The heap may contain edges that were frontier edges when pushed but are internal by the time they pop. The visited check is what keeps the tree acyclic.',
-        'If edge weights can change while the algorithm is running, snapshot the graph or restart. Prim assumes a fixed weighted graph. Mixing edges from different versions can produce a tree that is neither minimum nor meaningful.',
+        'With adjacency lists and a binary heap: O((V+E) log V) time. Each vertex enters the tree once. Each edge is considered at most twice (once from each endpoint). Each heap operation costs O(log V). Space: O(V+E) for the adjacency lists and heap.',
+        'With an adjacency matrix and no heap: O(V^2). Maintain an array of cheapest-known edge cost per outside vertex. Each step scans the array in O(V) to find the minimum, then updates neighbors. On dense graphs where E is close to V^2, this beats the heap version because the O(V^2) scan replaces O(E log V) heap operations.',
+        'With a Fibonacci heap: O(E + V log V). The Fibonacci heap supports decrease-key in O(1) amortized, reducing the total key-update cost from O(E log V) to O(E). The V extract-min operations still cost O(V log V). This is the best known bound for Prim on dense graphs, though constant factors make it rare in practice.',
+        'Doubling the graph: if V and E both double, the binary-heap version roughly doubles its work (the log factor grows by one). The adjacency-matrix version quadruples. Choose the representation that matches the graph density.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it wins',
       paragraphs: [
-        `Compare Prim's Algorithm directly with Kruskal's Minimum Spanning Tree on this site's shared graph. Then study Binary Heap (Priority Queue), because the heap is the usual frontier engine. Union-Find (Disjoint Sets) explains Kruskal's cycle checks, while Graph BFS gives the simpler unweighted frontier pattern. Finish with Dijkstra's Shortest Path to see how changing one priority rule turns an MST algorithm into a shortest-route algorithm.`,
+        'Cable routing. Connect campus buildings, data-center racks, or cell towers with minimum total fiber. Prim is natural here because the construction crew starts at one building and extends outward, matching the algorithm\'s single-tree growth.',
+        'Circuit design. VLSI layout approximates minimum interconnect for nets of pins. The rectilinear MST (Manhattan distances) gives a lower bound on total wire length. Chip routers refine from there, but the MST sets the budget.',
+        'Network backbone planning. ISPs and power utilities use MSTs as a first pass for minimum-cost topology. The pure tree is then augmented with redundant links for fault tolerance, but the minimum connected cost sets the baseline.',
+        'Image segmentation. Build an MST over pixels weighted by color difference. Cut the heaviest edges and the remaining components are segments (Felzenszwalb-Huttenlocher method).',
+        'Steiner tree approximation. When only a subset of vertices must be connected (the Steiner vertices), the problem becomes NP-hard. The MST of the required vertices gives a 2-approximation and is the starting point for practical heuristics.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Directed graphs need arborescences (directed spanning trees rooted at a given vertex). The minimum-cost arborescence is found by Edmonds\' algorithm, which has a completely different structure from Prim.',
+        'No redundancy. A spanning tree is intentionally minimal: remove one edge and the tree disconnects. Real network design starts with an MST cost baseline, then adds capacity, backup paths, and reliability constraints.',
+        'Disconnected graphs. Prim grows one tree from the start vertex. If the graph has multiple connected components, Prim only spans the start component. Kruskal naturally returns a minimum spanning forest without special handling.',
+        'Equal weights can produce different valid trees depending on the start vertex and tie-breaking. All such trees share the same total weight, but the edge sets may differ.',
+        "Do not confuse Prim with Dijkstra. Prim\'s key is the weight of the single edge connecting to the tree. Dijkstra\'s key is the total accumulated distance from the source. Using total distance by mistake turns the implementation into Dijkstra and solves the wrong problem.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Six vertices, nine edges: A-B(4), A-C(2), B-C(1), B-D(3), C-D(5), C-E(7), D-E(6), D-F(8), E-F(9). We trace Prim from A.',
+        'Tree: {A}. Frontier: A-C(2), A-B(4). Cheapest: A-C(2). Accept. Tree: {A,C}.',
+        "Frontier adds C-B(1), C-D(5), C-E(7). A-B(4) remains. Cheapest: C-B(1). Accept. Tree: {A,C,B}.",
+        'Frontier adds B-D(3). A-B(4) is now internal (both endpoints in tree), silently dropped. Cheapest: B-D(3). Accept. Tree: {A,C,B,D}.',
+        'Frontier adds D-E(6), D-F(8). C-D(5) is now internal, dropped. Cheapest: D-E(6). Accept. Tree: {A,C,B,D,E}.',
+        'Frontier adds E-F(9). C-E(7) is now internal. Cheapest: D-F(8). Accept. Tree: {A,C,B,D,E,F}. Done.',
+        'MST edges: A-C(2), C-B(1), B-D(3), D-E(6), D-F(8). Total weight: 20.',
+        'Kruskal on the same graph finds the same five edges in a different order (B-C first, since it is globally cheapest). Both algorithms produce the same MST because all edge weights are distinct, which guarantees uniqueness.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        "Boruvka, \"O jistem problemu minimalnim,\" 1926 -- the oldest MST algorithm, designed for the Moravian electrical network. Jarnik, 1930 -- first description of the grow-one-tree approach. Prim, \"Shortest Connection Networks,\" Bell System Technical Journal, 1957. Dijkstra, 1959 -- independently found the same algorithm in the same paper as his shortest-path method.",
+        "Prerequisite gap: Union-Find (Disjoint Sets) is not used by Prim, but Kruskal needs it for cycle detection. Understanding both MST algorithms together requires it.",
+        "Same greedy structure: Dijkstra\'s Shortest Path uses the same priority-queue frontier loop. The only difference is the ranking key: Dijkstra ranks by total distance from the source, Prim ranks by single edge weight. Understanding one makes the other almost free.",
+        'Graph foundations: Breadth-First Search and Depth-First Search teach unweighted traversal. BFS is the unweighted version of Prim\'s frontier expansion.',
+        "Parallel MST: Boruvka\'s algorithm (1926) independently finds the cheapest edge leaving each component per round, then merges. O(log V) rounds, each embarrassingly parallel. Modern parallel MST implementations are Boruvka-based.",
+        "Contrasting alternative: Kruskal\'s Minimum Spanning Tree solves the same problem with a different strategy -- global sort and forest merge versus local frontier growth. Compare both on this site\'s shared graph.",
       ],
     },
   ],

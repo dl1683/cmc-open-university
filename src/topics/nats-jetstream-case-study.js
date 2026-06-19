@@ -239,7 +239,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         'The streams-and-consumers view shows the main split. Publishers send to subject names. Stream configuration decides which messages are captured and how they are stored. Consumers are not the stream; they are delivery views with cursor and acknowledgment state.',
         'The retention-replay view shows why a stream can behave like different systems. Limits retention makes it resemble a bounded event log. Work-queue retention makes messages disappear after successful work. Interest retention keeps messages while consumers still need them. The configuration decides whether replay is a real capability or a short-lived buffer.',
@@ -287,7 +287,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'JetStream wins when a system already wants NATS-style subject routing and also needs persistence. It fits service events, edge messaging, IoT telemetry, command streams, lightweight work queues, replayable integration events, and background processing where pull-based backpressure matters.',
         'It is especially useful when one retained stream should support multiple consumers with different positions. That is the difference between a shared event history and a one-off queue. Teams can add a new durable consumer for a new service without changing the publisher.',
@@ -301,17 +301,59 @@ export const article = {
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Remember the nouns: subject, stream, consumer, ack, retention. A subject is an address. A stream is stored history. A consumer is a delivery view. An ack is consumer progress. Retention decides whether history still exists.',
         'Most JetStream design mistakes come from treating those nouns as interchangeable. Keep them separate and the system becomes much easier to reason about.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: NATS JetStream overview at https://docs.nats.io/nats-concepts/jetstream, streams documentation at https://docs.nats.io/nats-concepts/jetstream/streams, and consumers documentation at https://docs.nats.io/nats-concepts/jetstream/consumers. Study Kafka Log Case Study, Redis Streams Case Study, Message Queues, Backpressure, Idempotency, Transactional Outbox, and Rate Limiter next.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for nats-jetstream-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

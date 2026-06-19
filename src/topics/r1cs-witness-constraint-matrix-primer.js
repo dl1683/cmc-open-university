@@ -1,4 +1,4 @@
-// R1CS: encode a computation as witness variables plus rank-1 bilinear
+﻿// R1CS: encode a computation as witness variables plus rank-1 bilinear
 // constraints of the form <A,w> * <B,w> = <C,w>.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -198,87 +198,176 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why R1CS exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A proof system cannot verify a normal program directly. It needs a mathematical statement over a field. R1CS, rank-1 constraint systems, is one classic way to turn a computation into equations that a prover can satisfy and a verifier can check through a cryptographic protocol.',
-        'The goal is not to run the program again. The goal is to prove that there exists a witness containing private inputs and intermediate values such that every constraint is true. Public inputs are bound to the statement, while private values remain hidden.',
+        'The witness-rows view shows a computation being flattened into field elements. Active cells are the witness values currently being assigned. Found cells mark the public output that the verifier will see. Compared cells show visibility labels -- which values are private, which are derived, and which are public.',
+        'The constraint-check view shows each R1CS row evaluating under a single shared witness assignment. Found cells confirm that the left-hand product equals the right-hand side. Removed cells flag a bad witness or a missing constraint -- the two failure modes you must learn to distinguish.',
+        {
+          type: 'diagram',
+          label: 'Witness vector satisfying A*w . B*w = C*w',
+          text: [
+            '  w = [1, x, x2, x3, y]        (witness vector)',
+            '',
+            '  For each constraint row i:',
+            '',
+            '    A_i * w  -->  left linear combination   (e.g. x)',
+            '    B_i * w  -->  right linear combination  (e.g. x)',
+            '    C_i * w  -->  output linear combination (e.g. x2)',
+            '',
+            '    check:  (A_i . w) * (B_i . w) = (C_i . w)',
+            '',
+            '  Row 1:  [0,1,0,0,0].w * [0,1,0,0,0].w = [0,0,1,0,0].w',
+            '          x * x = x2                                    ',
+            '  Row 2:  [0,0,1,0,0].w * [0,1,0,0,0].w = [0,0,0,1,0].w',
+            '          x2 * x = x3                                   ',
+            '  Row 3:  [5,1,0,1,0].w * [1,0,0,0,0].w = [0,0,0,0,1].w',
+            '          (x3+x+5) * 1 = y                              ',
+            '',
+            '  All rows share one w. Change one slot, break a row.',
+          ].join('\n'),
+        },
+        'At each animation frame, ask: what relationship does this row enforce, and what could a cheating prover exploit if this row were missing?',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to prove only the final expression. For example, say that y equals x^3 + x + 5 and stop there. That sounds compact, but it hides all intermediate values and all assumptions about field arithmetic, ranges, copying, and public binding.',
-        'A malicious or buggy prover does not need to satisfy the intention in your head. It only needs to satisfy the equations you wrote. If the circuit omits a row, forgets to bind a public output, or leaves a derived value unconstrained, the proof can be valid for the wrong statement.',
+        'A zero-knowledge proof lets a prover convince a verifier that a statement is true without revealing private inputs. But proof systems do not understand programs. They understand equations over finite fields. Something has to translate "I know x such that x^3 + x + 5 = 35" into algebra that a cryptographic protocol can check. That translation layer is called arithmetization, and R1CS -- rank-1 constraint systems -- is the most widely taught form of it.',
+        'R1CS was popularized by the Groth16 proving system (Groth, 2016), which remains the most gas-efficient SNARK for on-chain verification on Ethereum. Groth16 requires its input as an R1CS instance. Every Circom circuit, every snarkjs proof, and every Groth16-based rollup component compiles down to R1CS constraints before the cryptography begins.',
+        'The constraint system is the security boundary. The cryptography guarantees that a valid proof implies a satisfying witness exists. But if the constraints do not encode the intended computation, the proof proves the wrong thing. Understanding R1CS is understanding what a zero-knowledge proof actually promises.',
       ],
     },
     {
-      heading: 'The witness vector',
+      heading: 'The obvious approach',
       paragraphs: [
-        'R1CS starts by flattening computation into a witness vector. The vector usually contains a fixed one wire, private inputs, public inputs, and derived intermediate values. In the example y = x^3 + x + 5, the witness can hold one, x, x2, x3, and y.',
-        'The witness is not trusted because the prover writes it down. It becomes meaningful only when the rows constrain it. The same witness slots are shared across all rows, so a value used in one multiplication is the same value referenced later by an output check.',
-        'This shared slot discipline is the data-structure idea behind the circuit. If two expressions should use the same value, they must point at the same witness index or be connected by an explicit equality constraint. Names in source code do not matter after compilation unless they become constrained witness positions.',
+        'The obvious approach is to express the entire computation as one equation and prove it directly. For y = x^3 + x + 5, just check that the claimed output matches the polynomial evaluated at the secret input. One equation, one check, done.',
+        'This works for toy expressions, but it hides all intermediate structure. The verifier cannot tell whether the prover actually computed x^2 before x^3, or whether the prover just picked values that happen to satisfy the final equation. There is no place to enforce range constraints, no way to bind public inputs to specific wire positions, and no mechanism to catch a prover who uses different values for "x" in different parts of the computation.',
+        'A second natural idea is to send the full execution trace to the verifier. That proves everything, but it reveals the private inputs. The entire point of zero-knowledge is that the verifier learns the statement is true without seeing the witness.',
       ],
     },
     {
-      heading: 'A/B/C rows',
+      heading: 'The wall',
       paragraphs: [
-        'Each R1CS row has the form A(w) * B(w) = C(w). A, B, and C are sparse linear forms over the same witness vector w. A row can select one wire, add several wires, multiply by constants, or represent a fixed value by using the one wire.',
-        'The word rank-1 points to the bilinear shape: one linear combination times another linear combination equals a third. Multiplication is isolated into rows, while additions and constants are packed inside the linear combinations. That is why x3 + x + 5 can appear on one side of a row.',
-        'Implementations usually store these forms as sparse matrices because most rows mention only a few witness entries. A large circuit may have many thousands or millions of rows, but each row is still a compact recipe for choosing witness terms and checking one equation.',
+        'The wall is that multiplication over a field is not linear. Addition and scalar multiplication can be checked with a single linear equation, but the moment you multiply two unknown variables together, you need a fundamentally different kind of constraint. A system of purely linear equations cannot express x * x = x2 because both x and x2 are unknowns.',
+        'This is not a minor inconvenience. Every interesting computation involves multiplications: squaring, polynomial evaluation, hash functions (which mix bits via AND, equivalent to multiplication modulo 2), signature verification, and comparison operations (which decompose into bit multiplications). A constraint system that cannot isolate multiplications cannot express real programs.',
+        'The wall also has a security face. If you allow unconstrained intermediate values, the prover can satisfy the final output equation by choosing internally inconsistent values. The constraint system must force every intermediate wire to be consistent with the wires that feed into it. One missing constraint can make a proof meaningless.',
       ],
     },
     {
-      heading: 'Building the example',
+      heading: 'How it works',
       paragraphs: [
-        'For public y = 35 and private x = 3, the witness is [1, 3, 9, 27, 35]. The rows enforce x * x = x2, x2 * x = x3, (x3 + x + 5) * 1 = y, and y * 1 = 35. Every intermediate claim is tied to a row.',
-        'This decomposition looks tedious, but the tedium is the security boundary. If x2 is not constrained, the prover could choose a fake square. If y is not bound to the public input, the prover could prove a private computation that says nothing about the value the verifier cares about.',
-        'A useful way to review the example is to try to cheat it. Change x while keeping y fixed. Change x2 without changing x. Change y but leave the intermediate rows alone. Each attempt should break at least one row. If no row breaks, the circuit is missing part of the intended statement.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The witness-rows view shows source code becoming field wires. The table is not decorative bookkeeping. It is the private and public assignment that the prover claims can satisfy the circuit. Derived rows must be constrained because a derived value written into a witness is still just a claim.',
-        'The constraint-check view shows the verifier-facing invariant: every row evaluates under one shared assignment. The bad-witness table separates two cases that are easy to confuse. A wrong assignment should reject. A missing constraint is worse because it may allow a proof to pass.',
+        'R1CS solves the multiplication wall by isolating every multiplication into its own constraint row. Each row has the form (A_i . w) * (B_i . w) = (C_i . w), where w is the witness vector and A_i, B_i, C_i are sparse row vectors that select linear combinations of witness elements. Addition and scalar multiplication are free -- they fold into the linear combinations on either side of the multiplication.',
+        'The witness vector w holds every value the prover needs: a constant 1 wire at position 0, private inputs, public inputs, and all intermediate values. For y = x^3 + x + 5 with x = 3, the witness is w = [1, 3, 9, 27, 35]. The prover fills in every slot; the constraint rows check that the slots are mutually consistent.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Flattening x^3 + x + 5 into R1CS constraints',
+            '// Witness vector: w = [1, x, x2, x3, y]',
+            '//                      w0 w1  w2  w3  w4',
+            '',
+            '// Step 1: Introduce intermediate wires',
+            '//   x2 = x * x',
+            '//   x3 = x2 * x',
+            '//   y  = x3 + x + 5  (addition is free, folded into a row)',
+            '',
+            '// Step 2: Write each multiplication as a rank-1 constraint',
+            '// Row 0:  A=[0,1,0,0,0]  B=[0,1,0,0,0]  C=[0,0,1,0,0]',
+            '//         x * x = x2',
+            '',
+            '// Row 1:  A=[0,0,1,0,0]  B=[0,1,0,0,0]  C=[0,0,0,1,0]',
+            '//         x2 * x = x3',
+            '',
+            '// Row 2:  A=[5,1,0,1,0]  B=[1,0,0,0,0]  C=[0,0,0,0,1]',
+            '//         (5*1 + x + x3) * 1 = y',
+            '',
+            '// Step 3: Verify with w = [1, 3, 9, 27, 35]',
+            '//   Row 0: 3 * 3 = 9    check',
+            '//   Row 1: 9 * 3 = 27   check',
+            '//   Row 2: (5+3+27)*1 = 35  check',
+          ].join('\n'),
+        },
+        'The A, B, C matrices are sparse because each row typically references only 1-3 witness entries. A circuit with m constraints and n witness variables stores three m-by-n matrices, but the total number of nonzero entries is proportional to the number of wires referenced, not m*n. Implementations use compressed sparse row (CSR) format.',
+        'Circuit compilation from a high-level language like Circom automates this flattening. The Circom compiler parses a domain-specific language with templates and signals, flattens every multiplication into a constraint, generates the A/B/C matrices as an R1CS file, and produces a witness-generation program (usually in WASM or C++) that computes all intermediate values from the inputs. The developer writes logic; the compiler produces the constraint system and the witness generator.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'R1CS works because local equations compose into a global statement. Each row checks one small relationship, and all rows reference the same witness. If every row is true at once, the witness satisfies the computation encoded by the constraint system.',
-        'A zero-knowledge proof system then commits to the witness and proves satisfaction without revealing private slots. The cryptography can compress the check, but it does not repair the circuit. The proof is only as meaningful as the exact rows and public bindings that were encoded.',
+        'R1CS works because of two properties: completeness of decomposition and shared-witness consistency. Any polynomial-time computation can be decomposed into a sequence of additions and multiplications over a field. Since additions fold into the linear combinations and each multiplication gets its own row, R1CS can represent any such computation. This is the completeness argument -- nothing computable is out of reach.',
+        'The shared-witness property provides soundness. Every row references the same vector w. If row 0 uses w[1] as "x" and row 1 also uses w[1], the prover cannot use x=3 in one row and x=4 in another. The single assignment forces global consistency. A satisfying witness is a single coherent execution trace, not a collection of independently satisfied equations.',
+        'When R1CS feeds into Groth16, the constraint system is converted to a Quadratic Arithmetic Program (QAP) by interpolating the A/B/C matrices into polynomials. The prover then proves polynomial divisibility, which compresses the check from m individual row equations into one pairing-based verification. The R1CS structure is what makes this polynomial encoding possible -- each row is degree-2, and the rank-1 form maps cleanly to the QAP polynomial identity.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'R1CS is simple and widely taught, but it can be verbose. Range checks, bit decomposition, lookups, memory, and VM-style execution traces may require many rows unless the proving system has custom gates or a better arithmetization for that workload.',
-        'The model also lives over a finite field. Normal integer intuition can fail because values wrap modulo the field prime. If a variable must be a byte, boolean, timestamp, array index, or nonzero divisor, the circuit must constrain that fact explicitly.',
-        'There is also a maintenance cost. The circuit, witness generator, and public-input encoding must agree exactly. A witness generator bug can hide until a boundary case appears, and a public API change can silently change the statement unless tests include serialized public inputs and negative witnesses.',
+        'Constraint count is the primary cost metric. Each multiplication in the original computation requires one R1CS row. A SHA-256 hash takes roughly 25,000 constraints. An EdDSA signature verification takes roughly 7,000. A Merkle proof with depth 20 using Poseidon hashes takes roughly 12,000. Doubling the computation roughly doubles the constraint count.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Approximate R1CS constraints', 'Why'],
+          rows: [
+            ['Field multiplication', '1', 'One rank-1 row per multiplication'],
+            ['Field addition', '0', 'Folded into linear combinations for free'],
+            ['Range check (n bits)', 'n', 'One boolean constraint per bit'],
+            ['SHA-256 hash', '~25,000', 'Bitwise ops become field arithmetic'],
+            ['Poseidon hash', '~250', 'Designed for field-native efficiency'],
+            ['EdDSA verify', '~7,000', 'Scalar multiplication over an elliptic curve'],
+          ],
+        },
+        'Groth16 proving time scales roughly linearly with constraint count, dominated by two multi-scalar exponentiations (MSMs) over the constraint matrices. Verification is constant-time: three pairings regardless of circuit size, which is why Groth16 is popular for on-chain verification where gas matters. The trusted setup is circuit-specific -- changing the circuit requires a new ceremony.',
+        {
+          type: 'note',
+          text: 'Constraint count is not the only cost. Witness generation time, memory for the proving key (which grows with constraints), and trusted setup complexity all scale with circuit size. A circuit with 2^20 constraints needs a proving key of several hundred megabytes.',
+        },
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'R1CS is excellent for learning how zero-knowledge programs become algebra. It makes the witness, multiplication gates, sparse matrices, public inputs, and missing constraints visible. That makes it useful even when the final production system uses a different proof backend.',
-        'It also fits computations that naturally decompose into arithmetic circuits. Hash preimage checks, signature verification components, small arithmetic programs, and educational circuits are good examples. The row structure gives reviewers a concrete object to audit.',
-        'The format is also useful for debugging because each failed row can point back to a local relationship. That locality helps developers separate witness-generation mistakes from missing circuit constraints.',
+        'R1CS paired with Groth16 remains the gold standard for succinct on-chain verification. The proof is 3 group elements (~128 bytes on BN254), and verification costs ~230,000 gas on Ethereum. No other proving system matches this verification cost. Zcash Sapling, Tornado Cash, and many ZK-rollup components use Groth16 over R1CS for exactly this reason.',
+        'R1CS is also the best entry point for learning zero-knowledge proof systems. The constraint structure is concrete and auditable -- you can print the A/B/C matrices, substitute witness values, and check each row by hand. This transparency makes bugs visible in a way that polynomial IOPs and lookup arguments do not.',
+        'The Circom ecosystem built around R1CS is the most mature circuit development toolchain. circomlib provides audited templates for hashing (Poseidon, MiMC), signatures (EdDSA), Merkle proofs, and comparators. snarkjs handles trusted setup, proving, and verification in JavaScript. This ecosystem lowers the barrier from "understand the math" to "compose existing templates."',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The most dangerous failure is proving the wrong thing. Common bugs include missing range checks, unconstrained advice values, forgotten copy constraints, unbound public inputs, division by zero, accepting field-wrapped integers, and assuming source-language control flow survived compilation.',
-        'Another failure is treating the circuit compiler as magic. A compiler can generate rows, but the developer still needs to understand the statement. Circuit tests should include honest witnesses, bad witnesses, boundary values, and attempts to exploit every implicit assumption.',
-        'Good audits ask what the verifier learns, not what the developer meant. They trace every public input into the rows, every private input into constrained use, and every branch condition into algebra. If the proof should imply a business rule, the rows must imply that rule too.',
+        'R1CS is verbose for operations that are not naturally arithmetic. Bitwise operations (AND, XOR, shift) require decomposing field elements into individual bits, constraining each bit to be boolean (b * (1 - b) = 0), performing the operation bit by bit, and reconstructing the result. SHA-256 costs ~25,000 constraints primarily because of this bit decomposition overhead. Newer arithmetizations with lookup tables (Plonkish, AIR) handle bitwise operations far more efficiently.',
+        {
+          type: 'table',
+          headers: ['Constraint system', 'Gate shape', 'Custom gates', 'Lookups', 'Copy constraints', 'Primary proving systems'],
+          rows: [
+            ['R1CS', 'A*w . B*w = C*w (bilinear)', 'No', 'No', 'Implicit (shared witness)', 'Groth16, Marlin, Spartan'],
+            ['QAP', 'Polynomial form of R1CS', 'No', 'No', 'Via polynomial identity', 'Groth16 (internal)'],
+            ['Plonkish', 'q_L*a + q_R*b + q_M*a*b + q_O*c + q_C = 0', 'Yes (custom selectors)', 'Yes (Plookup)', 'Permutation argument', 'PLONK, Halo2, UltraPLONK'],
+            ['AIR', 'Transition polynomials over trace columns', 'Yes (any degree)', 'Yes (LogUp)', 'Boundary constraints', 'STARKs (Stone, Winterfell)'],
+          ],
+        },
+        'The Groth16 trusted setup is circuit-specific. Every time the circuit changes -- even adding one constraint -- the setup must be repeated. The setup ceremony requires multi-party computation to ensure that no single participant knows the toxic waste. Universal setups (PLONK, Marlin) and transparent setups (STARKs) avoid this entirely.',
+        'The most dangerous failure mode is underconstrained circuits. If a developer forgets a range check, omits a public-input binding, or leaves an intermediate wire unconstrained, the proof system will happily produce valid proofs for false statements. The cryptography is sound; the circuit is not. Circom does not catch all underconstraint bugs -- they require manual audit or formal verification tools like Ecne or Picus.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: the R1CS overview at https://alinush.github.io/r1cs and the Bulletproofs R1CS explanation at https://tlu.tarilabs.com/cryptography/rank-1.html. Read them with the witness vector in mind, not only the final equations.',
-        'Study Sparse Matrix formats for storage, PLONK Permutation Grand Product for copy constraints, KZG Polynomial Commitments for compact openings, Finite Field Arithmetic for wraparound behavior, and Finite State Machine for transition-style constraint design.',
+        {
+          type: 'quote',
+          text: 'The prover creates a proof that convinces the verifier that there exists a witness w such that A*w . B*w = C*w for all constraint rows simultaneously.',
+          attribution: 'Jens Groth, "On the Size of Pairing-based Non-interactive Arguments," EUROCRYPT 2016',
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: Groth, "On the Size of Pairing-based Non-interactive Arguments," EUROCRYPT 2016. Defines the R1CS-to-QAP pipeline and the Groth16 construction.',
+            'Implementation reference: Circom documentation, https://docs.circom.io/ -- the standard toolchain for R1CS circuit development.',
+            'Tutorial: Vitalik Buterin, "Quadratic Arithmetic Programs: from Zero to Hero," 2016. Walks through R1CS flattening and QAP conversion with worked examples.',
+            'Underconstraint analysis: Pailoor et al., "Automated Detection of Under-Constrained Circuits," IEEE S&P 2023. Formalizes the class of bugs that R1CS audits must catch.',
+          ],
+        },
+        'Study Finite Field Arithmetic first if modular arithmetic is unfamiliar -- R1CS lives over a prime field and integer intuition breaks at the field boundary. Study Sparse Matrix formats to understand the A/B/C storage layout. After R1CS, study the QAP transformation to see how constraint rows become polynomial divisibility, then PLONK permutation arguments to see how a newer arithmetization handles copy constraints and custom gates without the R1CS bilinear restriction.',
       ],
     },
   ],
 };
+

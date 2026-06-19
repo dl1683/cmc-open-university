@@ -220,7 +220,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Guardrail Policy Engine. A production guardrail stack for LLM apps: trust labels, output schemas, policy gates, tool permissions, escalation, and audit traces..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'An LLM application is rarely just a text box connected to a model. A useful assistant may read private documents, summarize email, query a vector index, call tools, draft messages, change tickets, update databases, or trigger payments. That means the system has two very different jobs. It needs the model to produce flexible language and plans, but it also needs a reliable boundary around data access and side effects.',
         'The hard part is that the model sees mixtures of authority. A system prompt may say one thing, a user may ask another, a retrieved page may contain hidden instructions, and a tool schema may expose a privileged operation. The model can be helpful, but it is not a security kernel. A guardrail policy engine is the deterministic control plane that decides what context may enter the prompt, what output shape is acceptable, what actions are authorized, which decisions need review, and what evidence must be logged.',
@@ -255,7 +264,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'Before generation, the system classifies every source. User instructions, system policy, retrieved documents, tool outputs, and external pages get different trust labels. Retrieval is filtered by access control before prompt assembly, so a document the user cannot read never becomes latent context. Sensitive fields can be redacted or minimized when the requested task does not require them. Prompt construction should preserve the distinction between instructions and evidence instead of flattening everything into one blob.',
         'During generation, the application can constrain output shape with schemas, tool definitions, typed arguments, and constrained decoding. Shape is only the first gate. After generation, deterministic checks evaluate the proposed answer or action: authorization, data-loss prevention, semantic policy, rate limits, tenant boundaries, reversibility, and approval requirements. Allowed, blocked, and escalated decisions all create audit events with enough detail to explain the outcome later.',
@@ -276,14 +285,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is friction and maintenance. Policies need owners. Resource labels need to be correct. Tool schemas need stable semantics. Credentials need scopes and expiration. Logs need retention, privacy review, and searchability. Too many false positives will push users around the system, while too many silent allowances will make the guardrail meaningless.',
         'There is also latency and product complexity. A low-risk summary may need only retrieval filtering and output checks. Sending email, deleting records, changing permissions, or moving money may need confirmation, approval, replay protection, and stronger identity binding. Good systems make risk proportional to proof: more autonomy and more external effect require more evidence.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'A guardrail policy engine wins in enterprise assistants, customer-support automation, coding agents, RAG systems, workflow agents, and internal copilots that combine private data with tools. It is strongest when the action surface is typed: read a document, draft a message, send a message, create a ticket, write to a database, change access, delete data, or publish externally.',
         'It also wins in regulated or high-accountability settings because it leaves evidence. Security review, incident response, compliance reporting, and regression testing all need durable records. A plain prompt cannot explain why a tool call was allowed last Thursday. A policy decision record can.',
@@ -297,7 +306,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes to test',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Test direct override attempts, indirect instructions in retrieved documents, cross-tenant document references, private data in citations, unsafe tool arguments hidden in valid JSON, approval bypasses, stale policy versions, unlogged denials, and credential overreach. Include benign near misses so the system does not learn to block every difficult request.',
         'A useful test case should say what the model saw, what it proposed, which policy should fire, which action should be blocked or escalated, and what audit record should exist afterward. That turns guardrails from vague safety language into an executable contract.',
@@ -310,5 +319,60 @@ export const article = {
         'Good next topics are Prompt Injection Threat Model, Taint Analysis Source-to-Sink Case Study, Constrained Decoding, Agent Tool Permission Lattice, OPA Rego Policy Decision Graph, Zanzibar Authorization Case Study, OAuth PKCE Token Lifecycle Case Study, Capability Security and Attenuation, PII Redaction Token Span Pipeline, Distributed Tracing, AI Audit Evidence Packet Case Study, and RAG Claim Verification Support Ledger.',
       ],
     },
-  ],
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why LLM Guardrail Policy Engine moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

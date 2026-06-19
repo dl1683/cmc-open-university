@@ -219,102 +219,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The "slide and match" view shows the rolling hash pipeline at each window position in the text. Active nodes (drop, shift, add) mark the three O(1) operations that update the hash as the window moves one character right. When the check node lights up as found, the window hash matched the pattern hash and the full character-by-character verification confirmed a real match.',
+        'The matrix view below the pipeline shows concrete hash values for each window. Windows highlighted as compare were rejected by a single integer comparison -- no characters examined. Windows highlighted as found passed both the hash check and the byte verification.',
+        'In the "collisions and uses" view, a deliberately tiny modulus forces different windows to produce the same hash. The verdict column shows the byte check catching every collision. Watch how many windows are rejected by one integer comparison versus how many require the full m-character scan. That ratio is the entire point of the algorithm.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Rolling hashes exist because many programs repeatedly compare overlapping windows. String search slides a pattern-length window across text. Delta transfer compares blocks between files. Content-defined chunking watches a moving fingerprint to choose split points.',
-        'The shared problem is that adjacent windows are almost the same. If the window length is m, a one-character slide keeps m - 1 characters and changes only the outgoing and incoming symbols. The data structure should exploit that overlap.',
+        'String search -- find every occurrence of a short pattern P (length m) inside a long text T (length n) -- appears in document search, genome scanning, network intrusion detection, and plagiarism checking. The inputs can be enormous: a genome is billions of characters, and a plagiarism detector may check thousands of patterns at once.',
+        'Rabin and Karp published their algorithm in 1987 with a specific insight: hashing can turn m character comparisons into one integer comparison. If two strings hash to different values, they cannot be equal, so a single subtraction rejects a window that brute force would examine character by character. The trick is making the hash update cost O(1) instead of O(m) as the window slides.',
       ],
     },
     {
-      heading: 'Naive baseline and wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive matcher compares the pattern with every length-m window. It is exact, but in the worst case it rereads m characters at many positions. A slightly different baseline hashes each window from scratch, but that still costs O(m) work per shift.',
-        'The wall is overlap. Consecutive windows share nearly all their bytes, but the naive work treats them as unrelated. The second wall is collisions: a compact fingerprint can reject mismatches cheaply, but it cannot prove equality unless the implementation verifies candidates or accepts a quantified collision risk.',
+        'The brute-force matcher tries every starting position i in T and compares P[0..m-1] against T[i..i+m-1] character by character. If all m match, report i. This is correct and easy to implement.',
+        'It works fine on friendly inputs. The worst case is the problem: P = "aab" in T = "aaaaaab" forces nearly m comparisons at every position before the mismatch appears at the last character. With n - m + 1 starting positions, worst-case work is O(nm).',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        'Keep a fingerprint that can be updated from the previous fingerprint: remove the outgoing high-order symbol, shift the remaining contribution, add the incoming symbol, and reduce modulo a chosen base ring. One integer comparison can reject most windows.',
-        'The invariant is that after each slide, the maintained fingerprint equals the value that a full hash recomputation would produce for the current window. Rabin-Karp adds a second invariant for exact search: report a match only after checking the actual characters behind a hash hit.',
+        'Consecutive windows overlap by m - 1 characters, but brute force treats each window as independent and rereads almost everything. All the comparison work from the previous position is thrown away.',
+        'Hashing each window seems like a fix: compare one hash value instead of m characters. But computing a fresh hash over m characters at every position still costs O(m) per window -- O(nm) total. No improvement.',
+        'The wall: adjacent windows share almost all their data, yet a naive hash recomputes from scratch every time.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'In the "slide and match" view, the graph is the rolling update pipeline. Window identifies the current substring, drop removes the old leading character, shift moves the remaining contribution by one base position, add inserts the new trailing character, and check compares the resulting fingerprint with the pattern hash.',
-        'In the "collisions and uses" view, the tables separate filtering from proof. Hash cells show cheap candidates; byte-check or strong-check cells show where correctness is actually decided. The deliberately tiny modulus is there to make collision risk visible rather than theoretical.',
+        'Treat a length-m string as a polynomial in a chosen base d. "abc" with d = 256 becomes 97 * 256^2 + 98 * 256 + 99. When the window slides one character right, the outgoing character occupies the highest-order term. Remove it, multiply the remainder by d to shift every coefficient up one position, and add the incoming character in the ones place. Three arithmetic operations, regardless of m.',
+        'This is a rolling hash: each window\'s fingerprint is derived from the previous window\'s fingerprint in O(1). A modulus q keeps numbers small. Total hashing for all n - m + 1 windows: O(n). Hashing the pattern once: O(m).',
+        'Two invariants hold after every slide. First, the maintained hash equals what a full recomputation would produce. Second, a hash match is only a candidate, never proof -- the algorithm always verifies candidates by comparing actual characters, because different strings can hash to the same value under modular arithmetic.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A common polynomial hash treats characters as digits in a base. For a window of length m, precompute base^(m - 1) modulo the modulus. To slide, subtract outgoing * base^(m - 1), multiply by base, add the incoming character, and normalize modulo the modulus.',
-        'Rabin-Karp stores the pattern hash, scans each text window, and compares hashes first. If the hash differs, the window cannot equal the pattern under the maintained hash. If the hash matches, the exact version compares the bytes or characters before returning the position.',
+        'Hash the pattern P to get h_P. Hash the first window T[0..m-1] to get h_w. Precompute highPower = d^(m-1) mod q so the outgoing character\'s contribution can be removed in one multiply.',
+        'For each position i from 1 to n - m: (1) subtract T[i-1] * highPower from h_w to remove the outgoing character; (2) multiply h_w by d to shift remaining characters up; (3) add T[i+m-1] for the incoming character; (4) reduce mod q. If h_w equals h_P, compare T[i..i+m-1] against P character by character. Report i on match.',
+        'The polynomial structure is what makes the O(1) update exact. Each character contributes d^k for its position k in the window. Sliding right decrements every position by one -- which is precisely what multiplying by d does after removing the old high-order term.',
+        'The hash formula: hash("c_0 c_1 ... c_{m-1}") = (c_0 * d^(m-1) + c_1 * d^(m-2) + ... + c_{m-1} * d^0) mod q. Rolling from position i to i+1: h_new = (d * (h_old - c_i * d^(m-1)) + c_{i+m}) mod q.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
-        'The rolling update is correct because it performs the same algebra as recomputing the polynomial hash over the new window. The outgoing character contributed the high-order term; after removing it, multiplying by the base moves every remaining character into its new position, and adding the incoming character fills the low-order position.',
-        'The search result is exact only if hash hits are verified. Equal strings must have equal hashes, so a hash mismatch is a valid rejection. Unequal strings may have equal hashes, so a hash match is a candidate, not proof. Randomized or double hashing reduces collision probability, but verification is the clean correctness boundary.',
+        'Correctness rests on two properties. First, the rolling update preserves the polynomial: subtracting the outgoing term, multiplying by d, and adding the incoming term produces the same value as hashing the new window from scratch. Expand the polynomial to verify this algebraically.',
+        'Second, equal strings always produce equal hashes (the hash is a deterministic function). A hash mismatch is therefore a sound rejection: the window cannot match. A hash match is not proof -- collisions exist under modular arithmetic -- so the algorithm verifies candidates character by character. Cheap rejection plus verified acceptance makes the result exact, not probabilistic.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The animation searches for "abra" inside "abracadabra" with base 257 and modulus 101. The pattern hash is 8. The window at position 0 is "abra", so it hashes to 8 and is verified as a match.',
-        'Sliding one step drops "a", shifts "bra", and adds "c" to form "brac", whose hash is 33. That integer mismatch rejects the window without comparing all four characters. Later, the window at position 7 is again "abra", hashes to 8, and passes the exact character check.',
+        'Preprocessing: O(m) to hash the pattern and compute highPower. Scanning: O(n) for n - m + 1 rolling updates at O(1) each. Verification: O(m) per candidate. Expected total: O(n + m), because a good prime q makes collisions rare -- each window has a 1/q chance of a false match.',
+        'Worst case: O(nm) when every window collides. This requires adversarial input or a tiny modulus. With q = 10^9 + 7 and n = 10^6, the expected number of false positives across all windows is about (n - m + 1)/q, roughly 0.001.',
+        'Space: O(1) beyond the input for single-pattern search. For k equal-length patterns, store all k pattern hashes in a set: O(k) space, O(1) expected lookup per window position.',
+        'Scaling: doubling n doubles scan time. Doubling m does not change scan cost but doubles each verification. In practice the linear scan dominates; verifications are rare events with a good modulus.',
+        'Multi-pattern extension: given k patterns of the same length m, compute all k hashes upfront, store them in a hash set, and slide one window across the text. Expected time: O(n + km). Brute force would need O(knm). Rabin-Karp collapses the k factor out of the scan because all patterns share the same rolling computation.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Preprocessing one pattern costs O(m). Scanning a text of length n costs O(n) rolling updates plus the cost of verifying candidates. With rare hash hits, the expected time is close to O(n + m). With many collisions or many true candidates, verification can dominate.',
-        'Space is O(1) for one pattern hash and O(k) for k equal-length pattern hashes. Larger moduli, double hashing, or strong secondary checks reduce false candidates but increase arithmetic or memory cost. Small teaching moduli are useful for demos and dangerous as production collision budgets.',
-      ],
-    },
-    {
-      heading: 'Choosing parameters',
-      paragraphs: [
-        'The base should distinguish the alphabet well enough for the data being scanned, and the modulus should be large enough that accidental collisions are rare. Competitive-programming examples often use one or two large primes. Systems that treat equality as a correctness property usually add byte comparison or a strong digest instead of trusting a rolling hash alone.',
-        'Normalization matters in real text. If search should be case-insensitive, Unicode-normalized, or token-based, normalize before hashing and before exact verification. Otherwise the hash is faithfully answering the wrong question.',
-        'Overflow behavior is also a design choice. Some implementations use modular arithmetic with explicit primes. Others rely on unsigned machine-word overflow for speed. Either can be fine if the collision story and verification boundary are clear.',
-      ],
-    },
-    {
-      heading: 'Production pattern',
-      paragraphs: [
-        'The production pattern is usually weak rolling signal first, strong confirmation second. Rsync uses a cheap rolling checksum to find likely block matches, then a stronger digest to confirm them. Content-defined chunking uses a rolling condition to decide boundaries, then a strong hash to name the chunk.',
-        'That split keeps the algorithm honest. The rolling hash saves work because it is cheap to maintain across overlapping windows. The strong check owns correctness because it is designed for identity. Confusing those two roles is how a useful optimization becomes a data-corruption risk.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It wins when the rolling summary is reused across many windows: many equal-length patterns, rsync-style block matching, backup deduplication, plagiarism prefilters, malware signatures, stream scans, and content-defined chunking.',
-        'It is also a useful systems pattern beyond string search: maintain a cheap moving summary, use it to nominate candidates or boundaries, and let a stronger comparison decide identity.',
+        'Plagiarism detection: hash every m-word window of a submitted document and check against a database of known fingerprints. The rolling hash makes scanning cheap; the hash set lookup handles thousands of reference patterns in one pass.',
+        'Rsync delta transfer: rsync computes a cheap rolling checksum over fixed-size blocks to find matching regions between a local and remote file, then confirms matches with a strong MD5 digest. The rolling hash identifies unchanged blocks without transferring them, cutting network traffic.',
+        'Git pack files: git uses a rolling hash (similar to rsync\'s Adler32-style checksum) to find matching blocks between file versions for delta compression. The rolling hash nominates candidates; a stronger SHA comparison confirms them.',
+        'Content-defined chunking in backup and deduplication: a rolling hash over a sliding window triggers a chunk boundary when hash mod p equals 0. Variable-size chunks adapt to insertions and deletions, so identical content produces identical chunks even when shifted in the file. The rolling hash picks boundaries; a strong content hash (SHA-256, BLAKE3) provides chunk identity.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'For one exact pattern, KMP often gives a cleaner deterministic bound with no collision discussion. For many different pattern lengths, Aho-Corasick, suffix arrays, suffix automata, or indexes may fit better.',
-        'Rolling hashes also fail when the application forgets the second stage. Boundary detection and identity are different jobs: a rolling hash can choose where a chunk ends, but a strong content hash or byte comparison should decide whether two chunks are the same.',
-        'They also fail under adversarial input if parameters are predictable and collision handling is weak. Public-facing services should treat rolling hashes as filters, not authority, unless the collision risk has been designed and reviewed like any other security-sensitive probability.',
+        'For single-pattern search, KMP (Knuth-Morris-Pratt) gives O(n + m) worst case with no collision risk and no modulus to tune. If you only need one pattern in trusted input, KMP is the simpler, more predictable choice.',
+        'For large sets of patterns with shared prefixes, Aho-Corasick builds a finite automaton and guarantees O(n + total_pattern_length + matches) worst case. It handles variable-length patterns naturally, where Rabin-Karp needs a separate rolling hash per pattern length.',
+        'Under adversarial input with a predictable modulus, an attacker can craft strings that force every window to collide, degrading to O(nm). Public-facing services should randomize the modulus or treat Rabin-Karp as a filter backed by verified comparison, never as an authority on equality.',
+        'The most dangerous failure mode: skipping the verification step. A hash match is a candidate, not proof. Systems that treat rolling-hash equality as string equality corrupt data -- this is how deduplication bugs happen.',
       ],
     },
     {
-      heading: 'Implementation traps',
+      heading: 'Worked example',
       paragraphs: [
-        'The common arithmetic bug is negative modulo after subtracting the outgoing term. Normalize after subtraction before multiplying or adding. The common indexing bug is sliding one character too far and hashing a shorter final window.',
-        'The common architecture bug is using the teaching hash as the storage identity. A backup system may use a rolling fingerprint to find candidate boundaries, but the chunk id should be a strong content hash. The cheap rolling part is there to reduce work, not to own truth.',
+        'Search for P = "abc" (m = 3) in T = "xabcyabc" (n = 8) with base d = 256 and modulus q = 101.',
+        'Pattern hash: h_P = (97 * 256^2 + 98 * 256 + 99) mod 101. That is 6,382,179 mod 101 = 90. Precompute highPower = 256^2 mod 101 = 65,536 mod 101 = 88.',
+        'Position 0, window "xab": h = (120 * 256^2 + 97 * 256 + 98) mod 101 = 39. Since 39 != 90, reject. One integer comparison, zero character work.',
+        'Position 1, window "abc": roll the hash. Remove outgoing "x" (code 120): h = (39 - 120 * 88) mod 101 = (39 - 10,560) mod 101. The result is negative, so add multiples of 101 to normalize: -10,521 mod 101 = 84. Shift and add incoming "c" (code 99): h = (84 * 256 + 99) mod 101 = 21,603 mod 101 = 90. Hash matches h_P. Verify: T[1..3] = "abc" = P. Match at position 1.',
+        'Position 2 "bcy": hash 28, reject. Position 3 "cyа": hash 62, reject. Position 4 "yabc"[0..2] = "yab": hash 71, reject. Each rejection costs one integer comparison.',
+        'Position 5, window "abc": rolling hash produces 90 again. Verify: T[5..7] = "abc" = P. Match at position 5.',
+        'Total: 6 rolling hash updates (O(1) each), 2 full verifications (O(m) each), 4 instant rejections. Expected time: O(n + m). With q = 101, each non-matching window has about a 1% chance of a false positive. With q = 10^9 + 7, that drops to roughly one in a billion per window.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Karp and Rabin, Efficient Randomized Pattern-Matching Algorithms, DOI summary at https://cris.huji.ac.il/en/publications/efficient-randomized-pattern-matching-algorithms/, MIT 6.006 rolling-hash lecture at https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-fall-2011/resources/lecture-9-table-doubling-karp-rabin/, Rabin fingerprinting notes at https://www.xmailserver.org/rabin.pdf, and the rsync technical report at https://www.samba.org/rsync/tech_report/. Study KMP Prefix Function, Aho-Corasick Automaton, Hash Table, Bloom Filter, Suffix Array & LCP, and Merkle Tree next.',
+        'Karp, R. M. and Rabin, M. O., "Efficient Randomized Pattern-Matching Algorithms," IBM Journal of Research and Development, 1987. Knuth, D. E., Morris, J. H., and Pratt, V. R., "Fast Pattern Matching in Strings," SIAM Journal on Computing, 1977. The rsync technical report, samba.org/rsync/tech_report/.',
+        'Deterministic single-pattern alternative: KMP Prefix Function -- guaranteed O(n + m) worst case, no collision risk. Multi-pattern automaton: Aho-Corasick -- builds a trie with failure links, handles variable-length patterns in one scan. Hashing foundations: Hash Table -- the same polynomial hashing and modular arithmetic in a different setting. Right-to-left skip heuristic: Boyer-Moore -- often faster in practice for single patterns by skipping characters based on mismatch information. Probabilistic membership: Bloom Filter -- trades exactness for space using hash-based membership testing.',
       ],
     },
   ],

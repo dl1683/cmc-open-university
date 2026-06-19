@@ -1,4 +1,4 @@
-// On-device personalization state: keep a global base model stable while local
+﻿// On-device personalization state: keep a global base model stable while local
 // adapters, caches, and evaluation ledgers adapt to each device.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -188,7 +188,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for On-Device Personalization Adapter Cache Case Study. An on-device personalization case study: global base model, local adapter cache, privacy boundary, federated evaluation, tuning tasks, rollback ledger, and stale-state eviction..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'On-device personalization adapts a product to one user or one device without turning every private example into server-side training data. The global base model stays shared. The local device stores a small amount of personal state that changes predictions for that user.',
         'The personal state can be a neural adapter, a calibration table, a small rank update, a recency feature cache, a preference embedding, a correction counter, or a rule overlay. The common requirement is lifecycle control: the state must be versioned, scoped, evaluated, expired, rolled back, and purged.',
@@ -196,7 +205,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core Insight: Local Delta, Governed Lifecycle',
+      heading: 'The core insight',
       paragraphs: [
         'The server ships a base model with an immutable version, for example base v42. The device installs that base and may create a local adapter keyed by base hash, task, locale, hardware class, app version, and policy scope.',
         'At inference time the product combines base plus local state. The adapter may adjust a decoder, rank suggestions, bias an embedding search, calibrate probabilities, or remember recent corrections. The base model remains a stable fallback. If the adapter is missing, expired, incompatible, or disabled, prediction still works.',
@@ -213,7 +222,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'The pattern works because it keeps the stable part and the personal part under separate ownership. The base model can be evaluated, rolled out, and supported as a shared product artifact. The adapter can adapt quickly because it is small, scoped, and disposable.',
         'Correctness is a lifecycle claim rather than a theorem about model quality. A prediction is safe to personalize only when the adapter matches the installed base hash, passes schema checks, remains inside its TTL, and has not been disabled by evaluation or policy. If any guard fails, the system falls back to the base model.',
@@ -221,7 +230,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Case Study',
+      heading: 'Worked example',
       paragraphs: [
         'A speech recognition feature ships base model v42. On each device, recent corrections train a small local adapter that improves names, domain words, and accent-specific patterns. The cache entry includes the base hash, adapter schema, correction window, locale, hardware tier, TTL, and a metric summary.',
         'The product runs a federated evaluation task. Each device scores base-only recognition and base-plus-adapter recognition on local examples. The server receives only approved aggregate metrics, preferably through a secure aggregation path, not raw utterances or per-user correction logs.',
@@ -253,7 +262,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and Failure Modes',
+      heading: 'Cost and behavior',
       paragraphs: [
         'On-device adaptation costs CPU, battery, storage, thermal budget, and implementation complexity. A background tuning job that looks cheap in a lab can drain a low-end phone, contend with media workloads, or be killed before it commits a valid cache entry.',
         'Staleness is the next failure. An adapter trained against base v42 may be harmful on base v43. A cache trained during a temporary user behavior can overfit. A rare bad label can poison local state. A device clock bug can keep expired state alive. A schema mismatch can load bytes as the wrong adapter type.',
@@ -261,14 +270,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern works when the signal is personal, sensitive, and locally abundant: keyboard suggestions, speech recognition corrections, ranking preferences, accessibility settings, notification timing, on-device search, private recommendation features, and local retrieval over user-owned content.',
         'It is especially strong when the base model is good enough to stand alone and the adapter only needs to nudge behavior. The smaller the local delta, the easier it is to store, invalidate, explain, and delete.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'It fails when the device lacks enough local signal. A cold-start user, a rarely used feature, or a high-noise task may produce adapters that memorize accidents instead of preferences.',
         'It also fails when the product needs global coordination. Fraud rules, safety classifiers, compliance policies, and shared marketplace ranking often cannot be personalized privately without central review, because local behavior has effects on other users.',
@@ -283,11 +292,80 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary references: Apple Federated Evaluation and Tuning for On-Device Personalization at https://machinelearning.apple.com/research/federated-personalization, Google Federated Evaluation of On-device Personalization at https://research.google/pubs/federated-evaluation-of-on-device-personalization/, FedPer at https://arxiv.org/abs/1912.00818, and TensorFlow Federated at https://www.tensorflow.org/federated.',
         'Study Federated Client Cohort Sampler, Secure Aggregation Dropout Mask Recovery, Differential Privacy SGD, Feature Store, Training-Serving Skew Replay Diff, On-Device LLM Inference Cost Crossover, and Query Cache Stale-Time GC next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for on-device-personalization-adapter-cache-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

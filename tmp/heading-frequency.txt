@@ -1,0 +1,970 @@
+1843	how it works
+1283	where it fails
+1084	real-world uses
+1083	cost and behavior
+1080	worked example
+1060	why this exists
+1056	study next
+1053	why it works
+1040	the core insight
+1032	the obvious approach
+1027	the wall
+1020	how to read the animation
+144	implementation guidance
+53	implementation checklist
+38	why it exists
+20	rule of thumb
+19	data structures
+18	problem
+16	what the animation shows
+11	context
+10	testing it
+9	what the diagram emphasizes
+9	what the views show
+8	what the visual shows
+7	design checklist
+7	useful contexts
+6	concrete examples
+6	core data structures
+6	evaluation signals
+6	what the views teach
+5	implementation details
+5	primary references
+5	why it matters
+5	why the design works
+4	implementation notes
+4	what the visualization shows
+3	data model
+3	deployment review
+3	design choices
+3	evaluation
+3	parameter choices
+3	testing the contract
+3	the data structure
+3	uses and limits
+3	variants
+3	what to measure
+3	where it wins and where it is used
+3	worked intuition
+2	case studies and sources
+2	choosing parameters
+2	debugging checklist
+2	design guidance
+2	evaluation discipline
+2	how training works
+2	implementation details that matter
+2	implementation review
+2	implementation traps
+2	invariants
+2	ledger data model
+2	mental model
+2	observability
+2	reading the two views
+2	reading the views
+2	real uses and limits
+2	sources
+2	systems lessons
+2	the core architecture
+2	the core equation
+2	using the views
+2	visual cues
+2	what can go wrong
+2	what the visuals show
+2	what to inspect in the visual
+2	when to choose it
+2	where it appears
+2	where the idea travels
+2	why approximate quantiles exist
+2	why compaction exists
+2	why it converges
+2	why verification works
+2	worked cases
+1	a concrete allocation pass
+1	a concrete formula
+1	a concrete page walk
+1	a small arithmetization
+1	a worked comparison
+1	a worked decomposition
+1	a worked intuition
+1	a worked packet path
+1	a worked release gate
+1	a/b/c rows
+1	accuracy argument
+1	accuracy knobs
+1	acquire and release
+1	acquisition is the decision rule
+1	act case study
+1	adding capacity
+1	address separation
+1	adoption checklist
+1	agent trajectories
+1	algebraic boundary
+1	all-to-all dispatch
+1	amplification vocabulary
+1	answering kth ancestor
+1	answering lca
+1	api design guidance
+1	architecture
+1	array and root frames
+1	assertion details
+1	async safety
+1	attention table basics
+1	audit trail
+1	authentication is still separate
+1	axis-aligned splits
+1	bad-data triage
+1	baggage is not trace identity
+1	basins and paths
+1	batched openings
+1	batches and concurrency
+1	batching and the n plus 1 problem
+1	benchmark contamination
+1	benchmark design
+1	benchmark discipline
+1	beta-bernoulli beliefs
+1	bias probes
+1	bias-variance anatomy
+1	bid scoring
+1	bind groups as an abi
+1	binding and portability
+1	block tables
+1	boot and release flow
+1	borders
+1	boundary and degeneracy
+1	breakpoints and ttls
+1	broader pattern
+1	browser variability
+1	buffers and usage flags
+1	build manifest design
+1	build mechanics
+1	build track
+1	building a good policy
+1	building the output
+1	building the prefix table
+1	bullshark ordering
+1	byte layout
+1	caching strategies
+1	calibration and confidence
+1	calibration and sweeps
+1	cancellation and errors
+1	candidate lattice
+1	canonical layout
+1	capacity constraints
+1	capacity planning
+1	case studies and uses
+1	case study sequence
+1	case study: adding a field
+1	case study: compressed rag retrieval
+1	case study: edge-triggered sockets
+1	case study: fraud review queue
+1	case study: mixture-of-depths
+1	case study: sealed analytics segments
+1	case study: spam filtering
+1	case study: syscall monitor
+1	case study: warehouse localization
+1	causal balancing
+1	chained commit rule
+1	changelog mechanics
+1	checkpoint tradeoffs
+1	choosing a threshold
+1	choosing a topology
+1	choosing alpha
+1	choosing another simulator
+1	choosing between variants
+1	choosing budget values
+1	choosing cell size
+1	choosing indexed or nonindexed
+1	choosing the hint
+1	choosing the output
+1	choosing the right primitive
+1	choosing the right state
+1	classic anomalies
+1	classic blackboard anatomy
+1	clone, transfer, share
+1	command and artifact ledgers
+1	command recording
+1	commit safety
+1	commitments and queries
+1	community summaries
+1	compact non-membership proofs
+1	compensation design
+1	compression and curriculum
+1	compression floor
+1	concatenation and mixing
+1	concrete cases
+1	concrete deployment gate
+1	concrete image gate
+1	concrete incident path
+1	concurrency shape
+1	conflict patterns
+1	connections
+1	construction mechanics
+1	construction methods
+1	context handoff
+1	context packing
+1	continuous batching
+1	control-plane records
+1	coordination styles
+1	core loop
+1	core structure
+1	correctness and evaluation
+1	correctness and evidence
+1	correctness and serving constraints
+1	correctness contract
+1	correctness invariants
+1	correctness rules
+1	costs and approximations
+1	costs and debugging
+1	costs and implementation guidance
+1	costs and limits
+1	costs and metrics
+1	costs and platform constraints
+1	costs and tuning tradeoffs
+1	costs that hide in the tail
+1	costs, limits, and study path
+1	costs, tradeoffs, and diagnostics
+1	costs, tradeoffs, and next study
+1	coverage map
+1	covering indexes
+1	crash recovery
+1	cross-entropy and learning
+1	curriculum path
+1	dag mempool as a data structure
+1	dancing links state
+1	data model shape
+1	data structure model
+1	data structures used
+1	debug checklist
+1	debugging method
+1	debugging preemption
+1	debugging read amplification
+1	debugging symptoms
+1	decision discipline
+1	decision guide
+1	decision rule
+1	decoder policies
+1	decoding in real systems
+1	decrease-key and cascading cuts
+1	defense surface and costs
+1	delayed truth and attribution
+1	delete formats
+1	deletes and retention
+1	deletion and correctness
+1	delivery guarantees
+1	deltafifo
+1	deployment ledger
+1	derived data
+1	design review
+1	design rules
+1	designing the lock away
+1	detection
+1	developer guidance
+1	diagnosis before tuning
+1	dialect policy
+1	differentiable nas
+1	dirty subtree updates
+1	disjoint and hybrid models
+1	dnssec boundary
+1	drift monitoring
+1	dropout recovery
+1	durability and recovery
+1	dynamic dependencies
+1	economics
+1	efficiency versus correctness
+1	eligibility and blockers
+1	encoder policy
+1	encoding and compression
+1	engineering notes
+1	engineering the pair cache
+1	epsilon as the main knob
+1	error reporting
+1	errors and source spans
+1	estimator choices
+1	ethereum blob boundary
+1	evaluation and grounding
+1	evaluation and stopping
+1	evaluation cases
+1	evaluation checklist
+1	evaluation gates
+1	evaluation path
+1	evaluation questions
+1	evaluation review
+1	evaluation traps
+1	event state
+1	eviction policy
+1	evidence and policy
+1	exact geometry
+1	extended statistics
+1	extract-min and consolidation
+1	f1 and other summaries
+1	facts, joins, and direction
+1	fallback patterns
+1	feature ownership
+1	federated evaluation versus federated training
+1	file anatomy
+1	finite-field arithmetic
+1	finite-field intuition
+1	fix 1: move the threshold
+1	fix 2: class weights and losses
+1	fix 3: resampling
+1	flatness and generalization
+1	flow control
+1	fors layer
+1	forward process
+1	from seeds to alignments
+1	from translations to rotations
+1	full-buffer policy
+1	fusion
+1	gate kernel details
+1	generated artifact governance
+1	generation bottleneck
+1	global and partitioned
+1	governance plane
+1	grand product in plain terms
+1	graph construction
+1	graph mapping
+1	handshake mechanics
+1	hash join
+1	heuristic rules
+1	hosted api versus self-hosting
+1	how a verkle witness works
+1	how adapters and pushdown work
+1	how analyze builds the model
+1	how anti-entropy works
+1	how ap systems work
+1	how batchnorm works
+1	how calls and frames work
+1	how checks work
+1	how compaction works
+1	how construction works
+1	how consumers work
+1	how convolution works
+1	how cp systems work
+1	how defenses work
+1	how delta mutators work
+1	how dispatch works
+1	how dp-sgd spends budget
+1	how estimates use it
+1	how folding works
+1	how inference works
+1	how it compares
+1	how it fits with register allocation
+1	how kda works conceptually
+1	how layernorm works
+1	how loss recovery works
+1	how louvain works
+1	how lowering works
+1	how memo optimization works
+1	how modern architectures keep signal alive
+1	how one head works
+1	how papers use contour maps
+1	how planners decide
+1	how power iteration works
+1	how preprocessing works
+1	how queries and merges work
+1	how queries work
+1	how query execution works
+1	how reads and writes move
+1	how rendering works
+1	how resampling works
+1	how resolution works
+1	how revalidation works
+1	how routing works
+1	how scanning works
+1	how signing works
+1	how softmax works
+1	how streams and packets work
+1	how streams work
+1	how temperature works
+1	how trace learning works
+1	how updates work
+1	how vacuum works
+1	how verification works
+1	how wait and notify work
+1	how watches work
+1	how writes work
+1	how x-fast works
+1	how zab works
+1	how znodes work
+1	human-present and autonomous flows
+1	hybrid router data structures
+1	hypertree paths
+1	immutable versions and readers
+1	implementation consequences
+1	implementation patterns
+1	implementation shapes
+1	incident response
+1	incident review
+1	incremental and streaming parsers
+1	index and candidates
+1	index contract
+1	indexing convention
+1	indirection, versions, and approximation
+1	integrity and ordering details
+1	intent schema
+1	interference graph
+1	island handling
+1	isolation ladder
+1	iterated allocator
+1	iterative versions
+1	ivf plus pq
+1	javascript implementation guidance
+1	judges and rubrics
+1	jwks as a rotation cache
+1	jwt, jws, and jwks
+1	key design
+1	key schedule mechanics
+1	keys, ranges, and cursors
+1	knobs and tradeoffs
+1	kv cache as the budget
+1	lanes and scheduling
+1	large buffers need block offsets
+1	late fine print
+1	lazy propagation
+1	lcp array
+1	leader change
+1	leaf sibling scans
+1	ledger fields
+1	ledger schema
+1	lever map
+1	lexer versus parser
+1	lifecycle
+1	limits and tradeoffs
+1	limits of bounded analysis
+1	links to llm security
+1	lists need identity
+1	local verification
+1	locality and layout
+1	lookahead mechanics
+1	lookup and insert path
+1	lookup and scan semantics
+1	lsm table mechanics
+1	main-cache shape
+1	malformed cases
+1	mandates as data structures
+1	manifest design
+1	map tiles
+1	mapping quality as uncertainty
+1	measurement discipline
+1	measurement model
+1	mechanics of installsnapshot
+1	mechanics of local compaction
+1	medusa mechanics
+1	membership and weights
+1	merge and hot-swap
+1	merge and versioning rules
+1	merge join
+1	migration checklist
+1	migration gates
+1	mitigations and limits
+1	mode tradeoffs
+1	model packages and rollout
+1	modeling habit
+1	modern systems context
+1	mutating admission and its limits
+1	mvcc and snapshot reads
+1	mvcc mechanics
+1	negative answers
+1	neural and linear models
+1	noise and irrelevant features
+1	normalization guidance
+1	normalizing a trajectory
+1	ntp defenses
+1	object frames
+1	observability and debugging
+1	observability and tests
+1	observability first
+1	observability loop
+1	observe and tune
+1	offline and online paths
+1	offline sync pattern
+1	one generation
+1	online least squares and bandits
+1	operating checklist
+1	operating review loop
+1	operating rules
+1	operating signals
+1	operator record
+1	optimizer paths on contours
+1	ordered and cross-fitted encodings
+1	ordering and scaling
+1	origin, site, and scope
+1	overlap resolution and policy
+1	pairing with breakers
+1	parameter groups
+1	partitioned rollout
+1	partitioned versus unpartitioned state
+1	path compression
+1	path metadata
+1	phase 1
+1	phase 2
+1	planner decision rule
+1	planning patterns
+1	policy design
+1	policy is part of the protocol
+1	positions, masks, and caches
+1	predicate pushdown
+1	primary key design
+1	privacy boundary
+1	progress guarantee
+1	proofs and audits
+1	protocol mechanics
+1	protocol model
+1	prover and verifier roles
+1	qc data structure
+1	query mechanics
+1	query modes
+1	query planning
+1	queue routing
+1	quota and lifecycle
+1	r1cs and plonkish tables
+1	random access and segmentation
+1	range scans and compaction context
+1	reachability model
+1	read path
+1	read path and compaction
+1	reader/writer resolution
+1	reading benchmark results
+1	reading the amortized view
+1	reading the assignment view
+1	reading the chmin update view
+1	reading the cluster-interface view
+1	reading the compressed sparse bit view
+1	reading the diameter case study
+1	reading the etcd trace
+1	reading the expose-path view
+1	reading the lease trace
+1	reading the membership trace
+1	reading the rectangle-sum view
+1	reading the three views
+1	real systems
+1	real uses and evaluation
+1	real uses and release gates
+1	record append and application-aware correctness
+1	record schemas
+1	records to model
+1	recovery levers
+1	recovery logic
+1	recursive structure
+1	registration details
+1	relation to adaptive compute
+1	relationship to learned indexes
+1	relationship to nearby structures
+1	relationship to nearby topics
+1	relationship to other methods
+1	release mechanics
+1	relu and its family
+1	removals and weights
+1	repair cadence
+1	replica mode
+1	replica placement
+1	reporting standard
+1	representation
+1	representation choices
+1	representation safety
+1	representation stack
+1	request flow
+1	reranking
+1	research case studies
+1	research-agent anatomy
+1	research-specific patterns
+1	reservation instruments
+1	reserve-submit mechanics
+1	residual tests
+1	residuals and normalization
+1	resolution moves
+1	resource limits and security
+1	retention and compaction
+1	retrieval surfaces
+1	reverse sampling
+1	right-to-left form
+1	rollback and verification
+1	rolling updates
+1	rollout mechanics
+1	roots, rings, and exactness
+1	rotation mechanics
+1	routing and layout
+1	routing and locality
+1	routing as economics
+1	s3-fifo in one pass
+1	saddles and curvature
+1	safe coalescing tests
+1	safety gates
+1	sandbox and environment
+1	scaling up
+1	scan as rank assignment
+1	scan planning
+1	schedulers
+1	scheduling details
+1	schema design rule
+1	sealed state
+1	search and insertion
+1	searching with binary bounds
+1	searching with fallback
+1	secondary indexes
+1	security and governance
+1	security and parser hygiene
+1	security model
+1	server boundary
+1	serving path
+1	serving phases
+1	shard mode
+1	shared indexer cache
+1	sieve in one pass
+1	sigmoid and tanh
+1	signed worked examples
+1	sizing and bulkheads
+1	sizing by math
+1	snapshots
+1	solver consumers
+1	source track
+1	sources and broker details
+1	sources and engine details
+1	sources and historical context
+1	sources and runtime details
+1	sources and standards
+1	span detection mechanics
+1	spills, reloads, and machine constraints
+1	split contamination
+1	splits and publication
+1	stability and adaptiveness
+1	stability and duplicates
+1	stability and equal keys
+1	stability and in-place work
+1	standards and regulatory shape
+1	state model
+1	state structures
+1	steepness and conditioning
+1	stop rules
+1	storage and restart
+1	storage flow
+1	store choices
+1	stressors and adversarial fixtures
+1	struct identity
+1	struct store and state vectors
+1	summaries and precomputation
+1	system mechanics
+1	table construction
+1	tag lifecycle
+1	tail sampling and retention
+1	target leakage
+1	task records and run records
+1	telemetry and logs
+1	temperature scaling
+1	testing cancellation
+1	testing persistence
+1	testing search quality
+1	testing the ledger
+1	testing the policy
+1	text-guided edits
+1	the agenda problem
+1	the attention sublayer
+1	the availability problem
+1	the benchmark object
+1	the bloat trap
+1	the cloud warehouse problem
+1	the cluster-computing problem
+1	the color rules
+1	the context budget problem
+1	the core data structure
+1	the core decision
+1	the core identity rule
+1	the core mechanic
+1	the core question
+1	the core split
+1	the data boundary
+1	the data model
+1	the data structure inside the model
+1	the data-structure insight
+1	the database idea hiding inside the scheduler
+1	the decision loop
+1	the decoded picture buffer
+1	the denominator is the argument
+1	the diff heuristic
+1	the distributed training problem
+1	the distribution is the data structure
+1	the fairness ledger
+1	the feed-forward sublayer
+1	the fisher metric
+1	the four guarantees
+1	the four-cell ledger
+1	the gaussian process surrogate
+1	the graph-processing problem
+1	the header roles
+1	the hidden budget problem
+1	the kem contract
+1	the lease object
+1	the load-balancing problem
+1	the main data structures
+1	the measurement-data problem
+1	the mechanics
+1	the message boundary
+1	the minimum row
+1	the module-lattice objects
+1	the monitoring-data problem
+1	the nomination gap
+1	the normal write path
+1	the observability problem
+1	the older approaches
+1	the older models
+1	the preload header contract
+1	the programming model
+1	the public contract
+1	the recommendation history
+1	the reed-solomon view
+1	the retrieval problem splade attacks
+1	the rough formula
+1	the scale-event ledger
+1	the scheduling problem
+1	the schema
+1	the scorecard shape
+1	the second wrong answer
+1	the shallow comparison
+1	the simple schedulers
+1	the single-index trap
+1	the state model
+1	the state quic keeps
+1	the static-filter bargain
+1	the three letters
+1	the two walls
+1	the verifier factory
+1	the witness vector
+1	the workload that forced gfs into existence
+1	three assumptions
+1	threshold feedback
+1	tier 1: utilization and state
+1	tier 3: routing and verification
+1	tier roles
+1	timeouts and composed signals
+1	tombstones and safe garbage collection
+1	tool contracts
+1	topology versioning
+1	tradeoffs and defenses
+1	tradeoffs and uses
+1	training mechanics
+1	training versus sampling
+1	transactions and upgrades
+1	transfer changes ownership
+1	traversal mechanics
+1	trust record
+1	tuning alpha
+1	tuning without folklore
+1	union by size and rank
+1	union-find machinery
+1	universal transformer case study
+1	unsigned decoding mechanics
+1	unsigned encoding mechanics
+1	updates and versions
+1	url versus state
+1	using the visualizer
+1	validatingadmissionpolicy and cel
+1	verification
+1	verifier design
+1	version edits as commits
+1	version visibility
+1	visibility and index-only scans
+1	visual checkpoints
+1	visual landmarks
+1	visual model
+1	vocabulary
+1	webgpu implementation shape
+1	webhook admission
+1	weight sharing and supernets
+1	weighted least squares
+1	what a cache record stores
+1	what a fair run queue solves
+1	what a parser really does
+1	what a proxy actually changes
+1	what a ring buffer is
+1	what a snapshot must keep
+1	what a token must mean
+1	what agentic means
+1	what cap actually says
+1	what changes for stateless clients
+1	what changes from count-min
+1	what counts as data
+1	what cross-origin isolation is
+1	what cross-validation is
+1	what k-means is
+1	what leiden changes
+1	what not to model
+1	what not to overlearn
+1	what ocr-only retrieval misses
+1	what optimizations use the data
+1	what problem io_uring solves
+1	what shared state buys
+1	what students should learn
+1	what tao was built to solve
+1	what the ledger should contain
+1	what the readouts show
+1	what the reference graph is
+1	what the routing readout shows
+1	what the stored state means
+1	what this case study is really about
+1	what to build after the minimal loop
+1	what to do about bad plans
+1	what to randomize
+1	what to tune
+1	when to choose something else
+1	where copies come from
+1	where it fits in the concurrency map
+1	where it helps
+1	where it is a poor fit
+1	where it is the wrong lens
+1	where it misleads
+1	where it wins and common uses
+1	where it wins and where it fits
+1	where linear scan wins
+1	where nsec3 wins
+1	where pgo wins
+1	where queues win
+1	where risk is highest
+1	where roc is useful
+1	where the choice fits
+1	where the map can mislead
+1	where the pattern matters
+1	where the pattern wins
+1	where they are used
+1	where this design wins
+1	where those attempts break
+1	where to place it in the curriculum
+1	where to use it
+1	where vaes are useful
+1	why a 3d loss surface matters
+1	why a boolean is too small
+1	why a cache instead of a fine-tuned model
+1	why a heap is not the final answer
+1	why adatape exists
+1	why atlases and mipmaps exist
+1	why authenticated denial exists
+1	why b+ trees exist
+1	why bandits need this
+1	why batching gets hard
+1	why bayesian optimization exists
+1	why beta and gamma matter
+1	why blt exists
+1	why capability delegation exists
+1	why clock sync exists
+1	why cma-es exists
+1	why coloring is sound
+1	why consistent hashing exists
+1	why contour maps exist
+1	why convergence works
+1	why coupling works
+1	why daemonsets exist
+1	why decoding is slow
+1	why direct page flushes lose
+1	why dlinear exists
+1	why dropout exists
+1	why early stopping exists
+1	why ebpf needs a verifier
+1	why ephemerons matter
+1	why exact cover exists
+1	why fencing works
+1	why fibonacci heaps exist
+1	why flows exist
+1	why fsdp exists
+1	why gpudirect rdma exists
+1	why gradient boosting exists
+1	why gradient flow matters
+1	why hybrid attention matters
+1	why imbalance matters
+1	why informers exist
+1	why it is linear
+1	why it still needs search
+1	why it terminates
+1	why ivf-pq exists
+1	why kans exist
+1	why kraft exists
+1	why kv compression exists
+1	why latent diffusion
+1	why layered defense works
+1	why learned indexes exist
+1	why learning curves exist
+1	why linearizability checking exists
+1	why lion exists
+1	why longrope exists
+1	why mamba-2 matters
+1	why matrix completion exists
+1	why message queues exist
+1	why multimodal rag exists
+1	why multiple heads exist
+1	why muon exists
+1	why neural architecture search exists
+1	why one chain is brittle
+1	why ordinary cleanup is not enough
+1	why pagerank fits the model
+1	why particle filters exist
+1	why physical joins exist
+1	why power analysis exists
+1	why r1cs exists
+1	why raw token math is not enough
+1	why ray exists
+1	why relative error matters
+1	why render graphs exist
+1	why rendezvous hashing exists
+1	why retaining losers matters
+1	why revalidation exists
+1	why rwkv exists
+1	why savepoints exist
+1	why scheduling is an interval-index problem
+1	why schoolbook multiplication is not enough
+1	why search teams care
+1	why selection vectors exist
+1	why semantic conventions exist
+1	why shadows matter
+1	why signed hashing helps
+1	why splay trees exist
+1	why state estimation exists
+1	why state vectors matter
+1	why streams need sampling
+1	why temporal coherence matters
+1	why the amortized bound works
+1	why the butterfly schedule works
+1	why the collector exists
+1	why the design is safe
+1	why the estimate is trustworthy
+1	why the greedy choice works
+1	why the greedy rule works
+1	why the hybrid approach works
+1	why the ledger works
+1	why the methods work
+1	why the model works
+1	why the page cache exists
+1	why the playbook works
+1	why the protocol works
+1	why the trade works
+1	why these policies work
+1	why they exist
+1	why this block exists
+1	why this boundary exists
+1	why this fabric exists
+1	why this hurts page load
+1	why this idea exists
+1	why this ledger exists
+1	why this matters
+1	why this planner exists
+1	why this selector exists
+1	why this structure exists
+1	why timestamp discipline works
+1	why transcripts are not enough
+1	why tries exist
+1	why trivialaugment exists
+1	why ttt layers exist
+1	why web workers exist
+1	why webgpu needs this
+1	why write stalls exist
+1	why xarray fits
+1	worked diagnosis
+1	worked migration
+1	worked shape
+1	worker families
+1	worker ownership
+1	workload fit
+1	workqueue semantics
+1	wots plus
+1	write path
+1	write skew
+1	write-path consequences
+1	zero and negative values
+1	zigzag for signed values

@@ -215,94 +215,144 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Multi-token decoding is a family of LLM inference techniques that try to advance generation by more than one token during a single expensive decode cycle. Ordinary autoregressive decoding emits one token, appends it to the context, updates the KV cache, and repeats. That loop is simple and exact, but it creates a hard sequential dependency. The next token cannot be finalized until the previous token is known.',
-        'The performance problem is especially visible during decode. Prefill can process a prompt with high parallelism. Decode often becomes memory-bandwidth bound because each step reads model weights and KV cache state to produce one small token result. A GPU may have compute capacity left over while the serving path waits through many serial steps. Multi-token decoding asks whether that unused parallelism can be spent proposing and checking several future tokens at once.',
+        'The Medusa heads view shows a backbone LLM feeding hidden states into parallel prediction heads, each targeting a different future position. Active highlights mark the current stage of the pipeline -- head prediction, tree construction, or verification. Found highlights mark the accepted prefix that becomes real output. Compare highlights show the components being contrasted (frozen backbone vs. trained heads, or different deployment tradeoffs).',
+        'The Lookahead decoding view shows parallel n-gram lanes proposing candidate continuations from the current state. Active highlights mark the proposal phase; found highlights mark the accepted prefix after verification. The matrix frames show which lanes matched and how many tokens advanced.',
+        {
+          type: 'diagram',
+          text: 'Draft/Propose          Verify (one target-model pass)       Accept\n+---------+\n| head +1 |----> "Paris"  \\\n+---------+                \\     +------------------+     +----------+\n| head +2 |----> "."        +--->| tree attention   |---->| "Paris ."|\n+---------+                /     | (masked forward) |     | 2 tokens |\n| head +3 |----> "It"     /      +------------------+     +----------+\n+---------+\n\nAll branches checked in one pass. Longest valid prefix emitted.',
+          label: 'The draft-verify pipeline: propose many, verify once, accept the longest match',
+        },
+        'At each frame, ask: how many tokens did this step propose, how many survived verification, and what determined the acceptance boundary?',
       ],
     },
     {
-      heading: 'Naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive answer is to make every single-token step faster: optimize kernels, quantize weights, use a better KV cache layout, increase batch size, and keep the GPU full. Those are necessary serving techniques, but they do not remove the serial shape of one accepted token per model step. Larger batches improve throughput, yet user-facing latency can still be dominated by the number of decode iterations needed for one response.',
-        'Another naive answer is to guess several tokens and append them without verification. That is fast but wrong. LLM output is a probability distribution conditioned on the exact prefix. If the system appends a guessed token that the target model would not have selected under the chosen decoding rule, every later token is conditioned on a different prefix. The result is no longer the same model behavior. The central constraint is therefore exactness: propose many tokens if useful, but accept only the prefix that is valid for the target model.',
+        {
+          type: 'quote',
+          text: 'Inference from large language models is slow mainly because generating tokens one at a time fails to utilize the massive parallel computation capacity of modern accelerators.',
+          attribution: 'Leviathan, Kalman, Matias, "Fast Inference from Transformers via Speculative Decoding," 2023',
+        },
+        'Autoregressive decoding emits one token per forward pass. Each pass reads the full model weights and the accumulated KV cache from memory, produces a single token, appends it to the context, and repeats. That loop is simple and exact, but it is memory-bandwidth bound: the GPU loads gigabytes of weights to produce a few bytes of output. An H100 with 3.35 TB/s bandwidth serving a 70B model (140 GB in FP16) can do roughly 24 weight reads per second -- 24 tokens/s -- regardless of how many FLOPS sit idle.',
+        'Prefill processes the entire prompt in parallel and saturates compute. Decode is the bottleneck. A 500-token response at 24 tok/s takes 21 seconds of wall-clock time, during which the GPU spends most of its cycles waiting for memory transfers. Multi-token decoding asks whether that idle compute can be redirected to propose and verify several future tokens per step, collapsing multiple serial iterations into one.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first reasonable attempt is to make each single-token step faster: quantize weights to reduce memory traffic, optimize attention kernels, use a paged KV cache layout, or increase batch size to amortize weight loads across requests. These are necessary and valuable, but they do not change the serial structure. A 4-bit quantized model producing 500 tokens still runs 500 sequential forward passes. Throughput improves; per-request latency stays proportional to decode length.',
+        'The second reasonable attempt is to guess several future tokens and append them without checking. That breaks correctness. LLM output is a conditional distribution: token k+1 depends on the exact prefix through token k. Appending an unverified guess changes the prefix, which changes every subsequent distribution. The output is no longer what the target model would have produced. Any multi-token method must preserve exactness: propose freely, but accept only what the target model confirms.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is the next-token dependency. Token k plus 1 is conditioned on token k, so a normal decoder cannot know the correct distribution at position k plus 2 until position k plus 1 has been chosen. That is the same reason beam search, sampling, and greedy decoding all have a serial inner loop. The serving system can do a lot around the loop, but it cannot pretend that the dependency is gone.',
-        'Multi-token methods get around the wall by splitting the work into proposal and verification. Proposal is allowed to be approximate, parallel, or auxiliary. Verification is tied to the target model. If the proposal matches what the target model would allow, the runtime accepts a prefix longer than one token. If not, it falls back to a shorter prefix, often just the next token. The answer remains exact when the acceptance rule is exact.',
+        'The wall is the autoregressive dependency chain. Token k+1 is drawn from P(x | x_1, ..., x_k). The correct distribution at position k+2 is unknown until x_{k+1} is chosen. This is not a software limitation -- it is the definition of autoregressive generation. Greedy decoding, top-p sampling, and beam search all share this serial inner loop. The system can optimize around the loop, but it cannot skip it without changing the output.',
+        'The key observation is that verification is cheaper than generation when done in parallel. A transformer can check whether a proposed sequence of tokens is consistent with its own distribution in a single forward pass by using causal attention masks. If the proposal matches at positions k+1, k+2, and k+3 but diverges at k+4, the system accepts three tokens and resumes from position k+4. The dependency chain is not broken -- it is checked in bulk rather than one link at a time.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'How it works',
       paragraphs: [
-        'The core insight is to trade extra parallel work inside one step for fewer serial steps overall. If a proposal mechanism can suggest likely continuations cheaply, and the target model can verify several of them in one pass, then the serving loop can move forward by two, three, or more tokens at a time. The right objective is not "many candidates proposed." The right objective is accepted tokens per expensive target-model pass at the required latency and quality.',
-        'This connects multi-token decoding to Speculative Decoding, Medusa, Lookahead Decoding, and early-exit self-speculation. The proposal source changes. A small draft model can propose. Extra Medusa heads can propose future positions from the main hidden state. Lookahead can propose n-grams without a separate draft model. Shallow layers can draft and deeper layers can verify. The shared algorithmic shape is propose, verify, accept the longest valid prefix, then repeat.',
-      ],
-    },
-    {
-      heading: 'Medusa mechanics',
-      paragraphs: [
-        'Medusa attaches lightweight decoding heads to the backbone model. A head for offset plus 1 predicts the next token. A head for offset plus 2 predicts a token two positions ahead, and so on. The heads are trained so that a single hidden state can produce plausible future tokens. Those predictions are organized into a candidate tree rather than one flat string, because several alternatives may be plausible at each future position.',
-        'Tree attention is the verification trick. Instead of running the model separately for each branch, the runtime constructs attention masks so the target model can check many candidate paths in a single pass. The system then finds the longest prefix that is valid under the decoding rule. Medusa-1 keeps the backbone frozen and trains heads, which is operationally simpler. Medusa-2 tunes more of the model for stronger speedups, but that increases training and deployment risk.',
-      ],
-    },
-    {
-      heading: 'Lookahead mechanics',
-      paragraphs: [
-        'Lookahead decoding attacks the same bottleneck without a draft model and without Medusa heads. It generates candidate n-grams in parallel from the current state, often described as using a Jacobi-style parallel update idea, and then verifies which candidate prefix agrees with standard autoregressive decoding. Bad candidates cost compute, but they do not change the final output because verification controls acceptance.',
-        'This is useful when the infrastructure team wants a serving-time algorithmic optimization without maintaining a second model or modifying the main model architecture. The cost shifts into per-step candidate work, verification logic, and careful implementation. Lookahead is not free parallelism. It works only when the extra work fits into otherwise underused accelerator capacity and reduces enough serial iterations to pay for itself.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine the current prefix is `The capital of France is`. Greedy decoding by the target model would likely produce `Paris`, then maybe `.`, then perhaps `It`. A proposal method might offer a candidate chain `Paris . It` plus other branches such as `Paris , a` and `Lyon . The`. Verification checks the branches against the target model. If the target model agrees with `Paris .`, the runtime can accept two tokens and advance the decode loop by two positions. If it agrees only on `Paris`, the runtime advances by one token and discards the rest.',
-        'The same idea applies to code generation. After `for (let i = 0;`, a model may predict a familiar continuation such as `i < n; i++)`. If the candidate path matches the target model distribution, several tokens can be accepted. If the code is unusual, sampled at high temperature, or depends on a rare identifier, acceptance may collapse to one token. The method is adaptive because rejected guesses reduce speedup, not correctness.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The Medusa view shows the backbone model feeding several future-token heads. The important state transition is from separate head predictions into a candidate tree, then from the tree into verification. The accepted prefix is the only part that becomes real output. Everything else is speculative work that either helps reduce the next serial step or gets discarded.',
-        'The Lookahead view shows parallel n-gram lanes. The lanes are not independent completions. They are candidate futures that must pass through the target model check. The lesson is a utilization tradeoff: spend more parallel compute in one step, accept multiple tokens when the guesses align, and fall back safely when they do not.',
+        'Every multi-token method follows the same three-phase loop: draft (propose candidate tokens cheaply), verify (run the target model once over all candidates), and accept (emit the longest prefix consistent with the target distribution). The methods differ only in how they draft.',
+        {
+          type: 'diagram',
+          text: 'Speculative Decoding (draft model):\n\n  Small model            Large model             Output\n  +-------+    K tokens   +--------+   accept N   +------+\n  | draft |-------------->| verify |-------------->| emit |\n  | 68M   |  "Paris . It" | 70B    | "Paris ."    | +2   |\n  +-------+               +--------+              +------+\n        ^                                            |\n        +-------- resume from accepted prefix -------+\n\nMedusa (extra heads on same model):\n\n  Backbone hidden state --> head+1 --> "Paris"\n                        --> head+2 --> "."\n                        --> head+3 --> "It"\n  Candidate tree --> tree attention --> accept longest valid prefix\n\nJacobi / Lookahead (no auxiliary model):\n\n  Current state --> parallel n-gram guesses --> verify --> accept prefix',
+          label: 'Three drafting strategies, one verify-accept loop',
+        },
+        'In speculative decoding (Leviathan et al. 2023, Chen et al. 2023), a small draft model runs K autoregressive steps cheaply, then the large target model verifies all K tokens in one forward pass. The draft model is 10-100x smaller, so its K steps cost less wall time than one target-model step. If all K tokens match, the system advances by K+1 positions (K verified plus one bonus token from the verification pass). If the first mismatch is at position j, the system accepts j tokens, resamples position j from a corrected distribution, and discards the rest.',
+        'Medusa (Cai et al. 2024) eliminates the draft model by adding lightweight MLP heads to the backbone. Each head predicts a token at a different future offset from the same hidden state. The predictions form a candidate tree -- multiple alternatives at each offset -- and tree attention verifies all branches in one masked forward pass. Medusa-1 freezes the backbone and trains only the heads; Medusa-2 fine-tunes the backbone jointly for higher acceptance at the cost of more invasive training.',
+        'EAGLE (Li et al. 2024) takes a different approach: it trains a lightweight autoregressive draft head that operates on the feature level rather than the token level. Instead of predicting token probabilities directly, the draft head predicts the next hidden state, which is then projected to vocabulary space. This produces higher-quality drafts than Medusa because the draft head captures sequential dependencies between future positions rather than predicting each offset independently.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The methods work when language has local predictability and the serving hardware has unused parallel capacity during decode. Many continuations are highly regular: punctuation after a named entity, closing braces in code, boilerplate explanation phrases, JSON field separators, repeated formatting, and common answer templates. A proposal mechanism can often guess these futures well enough for verification to accept more than one token.',
-        'Exact verification is the safety valve. Without it, multi-token generation would be a different model. With it, wrong guesses become wasted work rather than wrong output. This is why acceptance rate is the central measurement. A system that proposes four tokens but accepts one token on average is not meaningfully accelerating the serial loop. A system that accepts two or three tokens often can reduce time to completion even if each step is more complex.',
+        'The correctness guarantee comes from the acceptance-rejection scheme. For greedy decoding, the rule is simple: accept a drafted token if and only if the target model assigns it the highest probability at that position. For sampling, Leviathan et al. use a modified rejection sampling scheme: accept token x with probability min(1, q(x)/p(x)), where q is the target distribution and p is the draft distribution. If rejected, resample from a corrected distribution (q - p), normalized. This guarantees the final output distribution is identical to sampling from the target model alone.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Acceptance probability for speculative decoding (sampling)\n# p_draft: draft model probability for the proposed token\n# q_target: target model probability for the same token\n\ndef acceptance_prob(p_draft, q_target):\n    """Token is accepted with this probability.\n    If rejected, resample from max(0, q - p), normalized."""\n    return min(1.0, q_target / p_draft)\n\n# Example: draft proposes "Paris" with p=0.6, target gives q=0.85\n# accept_prob = min(1, 0.85/0.6) = 1.0  --> always accept\n\n# Draft proposes "Lyon" with p=0.3, target gives q=0.05\n# accept_prob = min(1, 0.05/0.3) = 0.167 --> reject 83% of the time\n\n# Key property: when draft matches target well,\n# acceptance is high and multiple tokens advance per step.',
+        },
+        'The method works because language has local predictability. After "The capital of France is," the next tokens are highly constrained. Punctuation after entities, closing brackets in code, JSON field separators, boilerplate phrases -- these spans are easy to draft correctly. A draft model that agrees with the target on 70-80% of tokens yields an average acceptance length of 3-4 tokens per verification step, roughly a 2-3x wall-clock speedup.',
+        'The deeper reason is the arithmetic intensity gap. Verification of K tokens costs about the same memory bandwidth as generating one token (one weight read), but uses K times more compute. Since decode is memory-bound and compute is idle, the extra FLOPS for verification are essentially free. The system trades surplus compute for reduced serial steps.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The main cost is serving complexity. Medusa needs trained heads, candidate-tree construction, tree attention masks, acceptance logic, and integration with batching and KV cache management. Lookahead needs candidate generation and verification kernels that do not erase the latency gain. Both methods need runtime metrics for acceptance rate, rejected work, tail latency, and fallback behavior.',
-        'There is also a product tradeoff. High temperature sampling, creative writing, rare tokens, long-tail code identifiers, and tool-call boundaries can reduce acceptance because the future is less predictable. Larger candidate trees increase the chance of finding a valid prefix, but they also increase memory, masking, and scheduling work. Continuous batching can conflict with per-request speculative trees if requests accept different numbers of tokens. The serving engine has to reconcile those uneven advances.',
+        {
+          type: 'table',
+          headers: ['Method', 'Draft source', 'Extra memory', 'Training cost', 'Typical speedup', 'Output distribution'],
+          rows: [
+            ['Autoregressive', 'None', 'None', 'None', '1x (baseline)', 'Exact'],
+            ['Speculative (Leviathan 2023)', 'Separate small model', 'Draft model weights', 'Draft model training', '2-3x', 'Exact (rejection sampling)'],
+            ['Medusa (Cai 2024)', 'Extra heads on backbone', 'Head parameters (~1-5%)', 'Head training or joint fine-tune', '2-3x', 'Exact (Medusa-1) or approximate'],
+            ['EAGLE (Li 2024)', 'Feature-level draft head', 'Draft head (~1-2%)', 'Draft head training', '2.5-3.5x', 'Exact (rejection sampling)'],
+            ['Jacobi / Lookahead (Fu 2024)', 'Parallel n-gram guesses', 'N-gram cache', 'None', '1.5-2x', 'Exact (prefix verification)'],
+          ],
+        },
+        'The direct cost varies by method. Speculative decoding pays memory for a second model (the draft model must fit alongside the target in GPU memory) but requires no target-model changes. Medusa adds 1-5% parameter overhead for the heads but eliminates the draft model. EAGLE adds a lightweight autoregressive module. Lookahead/Jacobi needs no extra parameters but burns more FLOPS per step and typically achieves lower speedup.',
+        'All methods add serving complexity: candidate tree construction, custom attention masks, acceptance logic, KV cache management for speculative tokens that may be discarded, and integration with continuous batching where different requests accept different numbers of tokens per step. The scheduler must handle uneven advances across a batch.',
+        {
+          type: 'note',
+          text: 'Speedup numbers depend heavily on the task, sampling temperature, draft-target alignment, and hardware. Reported numbers are typically measured on greedy or low-temperature generation of English text or code. High-temperature creative sampling, rare tokens, and long-tail distributions reduce acceptance rates and compress speedups toward 1x.',
+        },
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Multi-token decoding is strongest for latency-sensitive generation where decode length matters: chat APIs, coding assistants, autocomplete, tool-using agents, structured JSON emission, and long analytical responses. It is especially attractive when the model often emits predictable spans and the hardware is not already saturated by other work. It can compose with KV Cache, PagedAttention, Continuous Batching, prefix caching, quantization, and better kernels.',
-        'It also fits deployments where the operator controls the serving stack deeply enough to add custom verification logic. A simple API wrapper cannot usually implement tree attention or per-step acceptance efficiently. The methods belong inside the inference engine, near the scheduler, attention kernels, KV cache allocator, and sampling code.',
+        'Multi-token decoding is strongest when decode length dominates latency and the generation is moderately predictable. The ideal workloads are chat APIs, code completion, structured JSON emission, analytical responses, and tool-calling agents -- tasks where the model frequently emits predictable spans (punctuation, formatting, common phrases, syntactic boilerplate) interspersed with genuinely uncertain tokens.',
+        {
+          type: 'bullets',
+          items: [
+            'Latency-sensitive chat serving: 2-3x fewer decode steps directly reduces time-to-last-token for interactive use.',
+            'Code completion: highly structured syntax means draft models agree with the target on 70-90% of tokens for common patterns.',
+            'Structured output (JSON, XML, SQL): field names, delimiters, and schema-constrained values are easy to draft.',
+            'Long-form generation: a 2,000-token response at 2.5x speedup saves 800 decode steps -- seconds of wall time.',
+            'Composes with other optimizations: quantization reduces weight-read cost, PagedAttention manages speculative KV entries, continuous batching handles multi-request scheduling.',
+          ],
+        },
+        'The method also fits deployments where the serving team controls the inference engine deeply enough to implement custom verification kernels and tree attention masks. vLLM, TensorRT-LLM, and SGLang all ship speculative decoding support. A thin API wrapper around a black-box model cannot implement it.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The method fails economically when acceptance is low. Rejected proposals add compute and memory traffic while the user still receives one token per step. It can also fail operationally if verification creates scheduler stalls, if candidate masks are inefficient, if extra heads increase model memory too much, or if uneven token acceptance makes batching worse. In those cases a simpler optimization may produce better end-to-end latency.',
-        'Common failure modes include measuring candidate count instead of accepted tokens, benchmarking only easy prompts, ignoring tail latency, assuming one acceptance rate applies to all sampling settings, and forgetting that exactness depends on the precise decoding rule. A greedy verifier, a top-p sampler, and a constrained JSON decoder do not all accept candidates the same way. The runtime must verify according to the actual policy used for production output.',
+        'The method fails when acceptance rate is low. If the draft proposes four tokens and the target accepts only one on average, the system pays extra compute and memory traffic for no net speedup. Low acceptance happens with high-temperature sampling (the target distribution is flat, so the draft often picks a different token), rare or domain-specific vocabulary, and tasks where each token genuinely depends on reasoning the draft model cannot replicate.',
+        {
+          type: 'bullets',
+          items: [
+            'High temperature / top-p with large p: flat distributions make draft-target agreement unlikely.',
+            'Domain mismatch: a draft model trained on English text drafting poorly for code, math, or non-English languages.',
+            'Constrained decoding: grammar-constrained or schema-constrained sampling changes the acceptance rule; naive speculative verification may not respect the constraint.',
+            'Batch throughput priority: when maximizing tokens/second across many requests matters more than per-request latency, larger batch sizes with plain decoding can be more efficient than per-request speculation.',
+            'Memory pressure: the draft model or extra heads consume memory that could serve a larger batch or a bigger target model.',
+            'Tail latency: verification failures cause variable step lengths, making P99 latency harder to predict than plain decoding.',
+          ],
+        },
+        'A common benchmarking mistake is measuring only easy prompts (English text, greedy decoding, short outputs) and reporting the best-case speedup. Production workloads mix easy and hard queries. The system must handle both without regressing latency on the hard ones. Measuring accepted tokens per verification step, stratified by sampling temperature and task type, is the honest metric.',
+        'Tree verification also adds kernel and scheduler complexity. Medusa candidate trees with 64 leaves require custom CUDA kernels for masked attention. Continuous batching with speculative decoding must handle requests that accept 1, 3, and 5 tokens in the same batch step. These are solvable engineering problems, but they are real costs that must be weighed against the latency improvement.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Medusa at https://arxiv.org/abs/2401.10774, Lookahead Decoding at https://arxiv.org/abs/2402.02057, and Speculative Decoding at https://arxiv.org/abs/2211.17192.',
-        'Study Speculative Decoding for the draft-model version, Speculative Decoding Acceptance Ledger for production acceptance bookkeeping, Early-Exit Transformer Layer Skipping for self-speculation, KV Cache for decode state, LLM Continuous Batching for serving throughput, PagedAttention for KV memory management, Beam Search for alternative candidate management, Transformer Inference Roofline for the memory-bandwidth bottleneck, and constrained decoding topics for cases where verification must obey a grammar or schema.',
+        {
+          type: 'bullets',
+          items: [
+            'Leviathan, Kalman, Matias, "Fast Inference from Transformers via Speculative Decoding" (2023): https://arxiv.org/abs/2211.17192 -- the foundational paper establishing the draft-verify-accept loop with provably exact output distribution.',
+            'Chen, Borgeaud, Irving et al., "Accelerating Large Language Model Decoding with Speculative Sampling" (2023): https://arxiv.org/abs/2302.01318 -- independent concurrent work with the same core idea, detailed analysis of acceptance rates.',
+            'Cai, Li, Geng et al., "Medusa: Simple LLM Inference Acceleration Framework with Multiple Decoding Heads" (2024): https://arxiv.org/abs/2401.10774 -- eliminates the draft model by adding prediction heads to the backbone.',
+            'Li, Cai, et al., "EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty" (2024): https://arxiv.org/abs/2401.15077 -- feature-level drafting for higher acceptance than Medusa.',
+            'Fu, Bailis, Stoica, Zhang, "Break the Sequential Dependency of LLM Inference Using Lookahead Decoding" (2024): https://arxiv.org/abs/2402.02057 -- Jacobi-style parallel decoding without any auxiliary model.',
+          ],
+        },
+        'Prerequisites: study Transformer Inference Roofline to understand why decode is memory-bandwidth bound, and KV Cache to understand the state that accumulates across decode steps. Study rejection sampling to understand the acceptance probability computation that guarantees exact output.',
+        'Extensions: Speculative Decoding for the draft-model variant in depth, Early-Exit Transformer Layer Skipping for self-speculation where shallow layers draft and deep layers verify, LLM Continuous Batching for the scheduling challenges that speculative methods interact with, and PagedAttention for managing KV cache entries for speculative tokens that may be discarded.',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-// Bulkheads: a ship survives a breach because the hull is compartmentalized
+﻿// Bulkheads: a ship survives a breach because the hull is compartmentalized
 // — flooding stays in one chamber. A service survives a sick dependency the
 // same way: give each dependency its OWN pool, and doom stops spreading.
 
@@ -45,7 +45,7 @@ function* sharedDoom() {
       ],
       columns: [{ id: 'threads', label: 'threads held' }, { id: 'status', label: 'user-visible status' }],
       values: [[200, 1], [0, 2], [0, 2]],
-      format: (v) => (v === 1 ? 'degraded — expected' : v === 2 ? 'DOWN — collateral damage ⚠' : `${v}/200`),
+      format: (v) => (v === 1 ? 'degraded — expected' : v === 2 ? 'DOWN — collateral damage âš ' : `${v}/200`),
     }),
     highlight: { removed: ['pay:status', 'search:status'], compare: ['recs:threads'] },
     explanation: 'The casualty report is the point of the pattern. Recommendations is sick, but payments and search are healthy. In a shared pool, healthy work still cannot get a worker because sick work is holding all of them. A survivable feature outage becomes a site outage. Bulkheads exist to make "what failed?" match "what users lost."',
@@ -93,17 +93,17 @@ function* compartments() {
       title: 'Sizing the compartments: Little\'s Law does the math',
       rows: [
         { id: 'law', label: 'the law' },
-        { id: 'pay', label: 'payments: 200 rps × 0.05s' },
-        { id: 'search', label: 'search: 300 rps × 0.08s' },
-        { id: 'recs', label: 'recs: 20 rps × 0.4s (p99!)' },
+        { id: 'pay', label: 'payments: 200 rps Ã— 0.05s' },
+        { id: 'search', label: 'search: 300 rps Ã— 0.08s' },
+        { id: 'recs', label: 'recs: 20 rps Ã— 0.4s (p99!)' },
       ],
       columns: [{ id: 'calc', label: '' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'threads needed ≈ arrival rate × time held (L = λ·W)', '= 10 busy threads → pool of 80 covers spikes', '= 24 busy → 80 gives 3× headroom', '= 8 busy at p99 → 40 caps the worst case'][v],
+      format: (v) => ['', 'threads needed â‰ˆ arrival rate Ã— time held (L = λÂ·W)', '= 10 busy threads â†’ pool of 80 covers spikes', '= 24 busy â†’ 80 gives 3Ã— headroom', '= 8 busy at p99 â†’ 40 caps the worst case'][v],
     }),
     highlight: { active: ['law:calc'] },
     explanation: 'Sizing is not guesswork. Little\'s Law says concurrency demand is roughly arrival rate times time held. Payments at 200 rps and 50ms needs about 10 busy threads on average, then you add headroom. Use tail latency for the hold time, not only the mean, because the compartment matters most during bad days. Too small rejects normal traffic; too large lets one dependency consume the shared budget again.',
-    invariant: 'L = λ·W: pool demand equals arrival rate times hold time — size compartments against the p99 W.',
+    invariant: 'L = λÂ·W: pool demand equals arrival rate times hold time — size compartments against the p99 W.',
   };
 
   yield {
@@ -133,7 +133,7 @@ function* compartments() {
       ],
       columns: [{ id: 'role', label: 'role' }],
       values: [[1], [2], [3]],
-      format: (v) => ['', 'CONTAINS instantly: caps the blast radius before anything reacts', 'RECOVERS adaptively: sheds load from the sick, probes it back to health', 'compartment floods → calls fail fast → breaker trips → silence heals → probe → reopen'][v],
+      format: (v) => ['', 'CONTAINS instantly: caps the blast radius before anything reacts', 'RECOVERS adaptively: sheds load from the sick, probes it back to health', 'compartment floods â†’ calls fail fast â†’ breaker trips â†’ silence heals â†’ probe â†’ reopen'][v],
     }),
     highlight: { compare: ['bulk:role', 'breaker:role'], found: ['together:role'] },
     explanation: 'Bulkheads and breakers solve different phases. The bulkhead is structural containment: it caps the worst case before any detector reacts. The breaker is adaptive recovery: it notices failures, removes load, and probes for health. Together, a compartment fills, calls fail fast, the breaker opens, the dependency gets quiet, and a probe reintroduces traffic carefully.',
@@ -150,87 +150,165 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A bulkhead is resource isolation. The name comes from ships: watertight compartments keep one breach from flooding the whole hull. In software, the compartments are thread pools, async semaphores, database connection pools, queues, CPU and memory limits, tenant cells, or API quotas. The purpose is the same: one failure should consume only the resources assigned to it.`,
-        `This exists because healthy work can die while waiting behind unhealthy work. A recommendation service can hang for thirty seconds, hold every shared worker, and make payments fail even though payments is fast and its dependency is healthy. Bulkheads make the outage shape match the dependency shape. If recommendations is broken, recommendations should degrade; checkout should not lose its reserved capacity just because both features used the same pool.`,
+        'The animation has two views. "One pool, shared doom" shows a service with a single thread pool serving three dependencies. When the recommendations dependency starts hanging, watch the held-thread count climb until payments and search -- both healthy -- starve. Active highlights mark the resource under pressure. Removed highlights mark the collateral damage.',
+        '"Compartments, sized by math" shows the same 200 threads divided into per-dependency pools. When recommendations sickens, its compartment fills and fails fast. Found highlights on the payments and search rows prove they keep full capacity. The matrix view traces the numbers second by second so you can verify the math yourself.',
+        'At each frame, check three things: which compartment is saturating, whether the boundary held, and what the user-visible effect would be. If the boundary held, the outage shape matches the dependency shape. If it did not, the pool design is the bug.',
       ],
     },
     {
-      heading: `The obvious solution`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious design is one large shared pool. All outbound calls use the same workers because that maximizes average utilization. If payments is quiet, search can use more threads. If search is quiet, recommendations can use more. During normal traffic this looks efficient, and simple dashboards may show one healthy pool with spare capacity.`,
-        `The design fails during slow failures. A dependency does not need high CPU to take down the pool. It only needs to hold resources while calls wait. If recommendations receives twenty calls per second and each hangs for thirty seconds, the number of held workers rises by twenty every second until the shared pool is empty. More threads only delays the moment. It does not create a boundary between critical and optional work.`,
+        {
+          type: 'quote',
+          text: 'The Bulkhead pattern partitions a system so that a failure in one partition does not cascade into the others. The goal is damage containment. Without bulkheads, a shared resource pool lets one slow dependency drown every consumer of the pool.',
+          attribution: 'Michael T. Nygard, Release It! (2007, 2nd ed. 2018)',
+        },
+        'The name comes from shipbuilding. A hull is divided into watertight compartments so one breach floods one chamber, not the whole vessel. In software, the compartments are thread pools, semaphores, connection pools, memory limits, or tenant cells. The invariant is the same: one failure consumes only the resources assigned to it.',
+        'Healthy work dies when it shares a resource pool with sick work. A recommendations service hanging for 30 seconds holds threads that payments needs. Payments is fast, its dependency is healthy, but it cannot get a worker because recommendations is holding all of them. A survivable feature outage becomes a total site outage. Bulkheads exist to make "what failed" match "what users lost."',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that capacity is a fault boundary, not only a performance budget. If two classes of work can spend the same scarce resource, they share fate. If each class has a separate bound, the maximum damage is configured before the incident starts.`,
-        `A bulkhead is therefore a promise about blast radius. Recommendations may fill its forty-worker compartment, but it cannot borrow the eighty workers reserved for payments. A batch tenant may consume its own queue, but it cannot take every database connection from interactive traffic. A leaking container may hit its memory limit, but it should not evict the whole host. The boundary changes the failure from unbounded spread to known degradation.`,
+        'The obvious design is one large shared pool. All outbound calls draw from the same workers because that maximizes average utilization. If payments is quiet, search gets more threads. If search is quiet, recommendations gets more. Dashboards show one healthy pool with spare capacity, and the design looks efficient.',
+        'The problem is that average utilization is the wrong metric during a failure. A dependency does not need high CPU to drain a shared pool. It only needs to hold resources while calls wait. Twenty calls per second into a 30-second hang means 20 more threads held every second. At t=10s, the 200-thread pool is empty. More threads only delays the moment; it does not create a boundary between critical and optional work.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The wall',
       paragraphs: [
-        `Pick the resource that can be exhausted, then split it by dependency, tenant, priority, or workload class. In synchronous systems that may be a thread pool per downstream. In async systems it may be a semaphore that allows only N in-flight calls to one dependency. For databases it may be a per-service connection pool. For platforms it may be a cell or shard that isolates a user population.`,
-        `The boundary must have a behavior when full. Usually that behavior is fail fast, return a fallback, shed low-priority work, or trip a circuit breaker. A bulkhead with an infinite queue is not a bulkhead; it has only moved the outage into tail latency and memory. The point is to stop work from crossing the boundary when the compartment is saturated.`,
+        'The wall is that shared capacity creates shared fate. If two classes of work can spend the same scarce resource, the failure domain of each includes the other. No amount of monitoring, alerting, or fast CPUs changes the math: held threads grow at the arrival rate per second until holds release or the pool empties.',
+        'The failure is mechanical, not probabilistic. At 20 rps into a 30s hang, 200 threads last exactly 10 seconds. Faster hardware does not help because the threads are waiting, not computing. More threads only buys time. The only fix is a boundary that prevents one class of work from reaching into another class\'s allocation.',
+        'This is why the pattern is structural, not reactive. A circuit breaker notices failures after they happen. A bulkhead prevents the blast radius from growing before any detector fires. You need both, but without the bulkhead, the breaker is racing a flood.',
       ],
     },
     {
-      heading: `Sizing by math`,
+      heading: 'How it works',
       paragraphs: [
-        `Sizing is not pure guesswork. Little's Law says average concurrency is arrival rate times time held. If payments receives 200 requests per second and each downstream call holds a worker for 50 milliseconds, the average busy count is about 10. You then add headroom for bursts, tail latency, retries, and safety margin.`,
-        `Use tail hold time for failure-sensitive sizing. Mean latency describes a normal minute, but p95 or p99 latency fills compartments during bad minutes. A recommendations call that normally takes 100 milliseconds but sometimes hangs for 30 seconds needs a small, explicit cap. Too small rejects healthy work. Too large quietly reintroduces shared fate by letting a weak dependency consume the global budget.`,
+        'Pick the resource that can be exhausted -- threads, connections, memory, queue slots -- and split it by dependency, tenant, priority, or workload class. Each partition gets a bounded allocation and a policy for what happens when the bound is reached: fail fast, return a fallback, shed low-priority work, or trip a circuit breaker.',
+        {
+          type: 'diagram',
+          text: [
+            '                    +--- [ payments pool: 80 threads ] ---> payments API',
+            '                    |',
+            'Service B ----+--- [ search pool: 80 threads ] ------> search API',
+            '                    |',
+            '                    +--- [ recs pool: 40 threads ] --------> recommendations API',
+            '                                                              (SICK: 30s hangs)',
+            '',
+            'When recs saturates its 40-thread compartment, it CANNOT borrow',
+            'from the 80 reserved for payments or the 80 reserved for search.',
+            'Blast radius = compartment size, configured before the incident.',
+          ].join('\n'),
+          label: 'Thread pool isolation per downstream dependency',
+        },
+        'In synchronous systems, the compartment is typically a dedicated thread pool per downstream. In async systems, a semaphore limiting concurrent in-flight calls achieves the same isolation without dedicating OS threads. For databases, per-service connection pools prevent one chatty application from starving others.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Semaphore-based bulkhead: no thread pool needed, works with async I/O',
+            'class Bulkhead {',
+            '  constructor(name, maxConcurrent) {',
+            '    this.name = name;',
+            '    this.max = maxConcurrent;',
+            '    this.active = 0;',
+            '  }',
+            '',
+            '  async run(fn) {',
+            '    if (this.active >= this.max) {',
+            '      throw new Error(`Bulkhead "${this.name}" full: ${this.active}/${this.max}`);',
+            '    }',
+            '    this.active++;',
+            '    try {',
+            '      return await fn();',
+            '    } finally {',
+            '      this.active--;',
+            '    }',
+            '  }',
+            '}',
+            '',
+            '// One bulkhead per dependency -- they cannot borrow from each other',
+            'const paymentsBulkhead = new Bulkhead("payments", 80);',
+            'const searchBulkhead   = new Bulkhead("search", 80);',
+            'const recsBulkhead     = new Bulkhead("recs", 40);',
+            '',
+            '// Usage: recs filling its 40 permits does not affect payments',
+            'const result = await paymentsBulkhead.run(() => fetch(paymentUrl));',
+          ].join('\n'),
+        },
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: 'Why it works',
       paragraphs: [
-        `The shared-pool view proves that the sick dependency is not the whole bug. The common pool is the bug. Recommendations hangs, but payments and search fail because all three features draw from the same workers. The stopwatch makes the failure mechanical: held workers rise with arrival rate until no worker remains for anyone else.`,
-        `The compartment view proves that the same total capacity can produce a different outage shape. Payments, search, and recommendations still use 200 workers in total, but each has a limit. When recommendations fills its smaller compartment, payments and search keep their reserved workers. The visual is proving containment, not recovery. Recovery needs timeouts, fallbacks, retries, and breakers around the contained failure.`,
+        'The invariant is simple: each compartment\'s in-flight count is bounded by its configured maximum. Because compartments do not share permits, one dependency at maximum cannot reduce another dependency\'s available permits. The blast radius of any single failure is at most the compartment size, which is a configuration parameter rather than a runtime discovery.',
+        'Sizing uses Little\'s Law: average concurrency L equals arrival rate lambda times average hold time W. Payments at 200 rps with 50ms calls needs about 10 busy threads on average. A pool of 80 gives 8x headroom for bursts and tail latency. Use p99 hold time, not the mean, because the compartment matters most during bad minutes. Too small rejects healthy traffic; too large reintroduces shared fate by letting one dependency consume the global budget.',
+        'The correctness argument is a conservation property. The total thread budget is fixed at 200. Partitioning redistributes those 200 threads into non-overlapping subsets. No operation can increase the total, and no dependency can access a subset not assigned to it. The wall between compartments is enforced by the semaphore or pool implementation, not by good behavior from the downstream.',
       ],
     },
     {
-      heading: `Pairing with breakers`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Bulkheads and circuit breakers solve different phases of the incident. The bulkhead is structural. It caps damage before any detector notices. The breaker is adaptive. It observes failure, opens the circuit, stops sending normal traffic, and later probes for recovery.`,
-        `They work best together. A dependency gets slow, its compartment fills, calls fail fast instead of waiting forever, and the breaker opens after enough failures or timeouts. The open breaker keeps new calls from filling the compartment again. After a quiet period, a small probe tests whether the dependency can handle traffic. The bulkhead limits the blast; the breaker reduces repeated pressure.`,
+        'The runtime cost of a bulkhead check is O(1): increment a counter, compare to a limit, decrement on completion. The real cost is allocation fragmentation. Idle capacity in one compartment cannot be used by another. If every feature has a tiny private pool, the system wastes resources and rejects traffic that a shared pool could have served. If every compartment is too large, isolation becomes cosmetic.',
+        {
+          type: 'table',
+          headers: ['Pattern', 'What it does', 'When it acts', 'Failure mode if missing'],
+          rows: [
+            ['Bulkhead', 'Caps resource consumption per dependency', 'Immediately -- structural', 'Shared pool drained by one sick dependency'],
+            ['Circuit breaker', 'Stops calling a dependency after repeated failures', 'After failure threshold -- adaptive', 'Retries hammer a sick dependency indefinitely'],
+            ['Retry with backoff', 'Re-attempts a failed call with increasing delay', 'After individual failure -- per-call', 'Amplifies load during outages without a cap'],
+          ],
+        },
+        'Bulkheads add configuration and observability burden. You need per-compartment metrics: in-flight count, max permits, rejection rate, timeout rate, and downstream latency. A single service-level saturation metric hides the point. The whole value is that different compartments can be healthy, full, or failing at the same time.',
+        {
+          type: 'note',
+          text: 'Netflix Hystrix (now in maintenance) popularized thread-pool-based bulkheads in Java. Resilience4j replaced it with semaphore-based bulkheads by default, avoiding the overhead of dedicated thread pools while preserving the isolation invariant. Both enforce the same contract: a bounded permit count per dependency with fail-fast rejection when full.',
+        },
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Where it wins',
       paragraphs: [
-        `The implementation cost can be small, but allocation is hard. Idle capacity in one compartment may not be usable by another. If every feature has a tiny private pool, the system wastes resources and rejects traffic that a shared pool could have served. If every compartment is too large, isolation becomes cosmetic.`,
-        `Bulkheads also add configuration and observability burden. You need to know which limit rejected a request, whether the rejection protected critical work, and whether a compartment is too small for normal traffic. A service-level saturation metric is not enough. The whole point is that different compartments can be healthy, full, or failing at the same time.`,
+        'Bulkheads win whenever one class of work is less important, less reliable, or more bursty than the work beside it. Recommendations beside checkout, analytics beside login, batch jobs beside interactive queries, tenant workloads sharing a database, plugins inside a host service, and external API calls beside core product logic are all natural fits.',
+        'The idea scales upward through every layer of the stack. Database connection pools isolate per-service clients. Kubernetes memory and CPU limits isolate containers. Rate limits isolate tenants. Cell-based architecture isolates entire user populations so one cell can degrade without taking the whole product down. The resource unit changes from thread to connection to container to region, but the invariant stays the same: a bounded compartment with a configured blast radius.',
+        'Bulkheads pair naturally with circuit breakers. The bulkhead is structural containment: it caps damage before any detector fires. The breaker is adaptive recovery: it notices failures, opens the circuit, and probes for health. Together, a compartment fills, calls fail fast, the breaker opens, the dependency gets quiet, and a probe carefully reintroduces traffic.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Bulkheads win when one class of work is less important, less reliable, or more bursty than the work beside it. Recommendations beside checkout, analytics beside login, batch jobs beside interactive queries, tenant workloads sharing a database, plugins inside a host service, and external API calls beside core product paths are all natural fits.`,
-        `The idea also scales upward. Kubernetes resource limits isolate processes. Per-service database pools isolate clients. Rate limits isolate tenants. Cell-based architecture isolates user populations so one cell can degrade without taking the entire product down. The unit changes from thread to connection to container to region, but the invariant remains a bounded compartment with a known blast radius.`,
+        'The most common mistake is hiding an unbounded queue behind the bulkhead. The semaphore rejects new work, but a queue in front of it accepts requests and holds them. That preserves admission for a while but creates doomed work, long waits, and memory pressure. A bulkhead with an infinite queue is not a bulkhead; it has moved the outage into tail latency.',
+        'Retrying aggressively into a full compartment is equally dangerous. Each retry consumes a permit slot the moment one opens, so the compartment stays full even after the downstream recovers. Retries multiply load exactly when the dependency is weakest.',
+        'Static limits drift. Traffic mix changes, latency distributions shift, and feature priorities evolve. A compartment sized from last quarter\'s p99 may reject normal traffic today. Bulkheads need periodic review against live data: in-flight counts, queue depth, rejection rate, and downstream latency histograms. Adaptive bulkheads (like Netflix\'s concurrency-limit library) adjust permits dynamically based on measured latency, but they trade deterministic blast radius for throughput efficiency.',
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `The common mistake is hiding an unbounded queue behind the bulkhead. That preserves admission for a while but creates doomed work, long waits, and memory pressure. Another mistake is retrying aggressively into a full compartment. Retries can multiply load exactly when the downstream is weakest.`,
-        `Static limits can also drift. Traffic mix changes, latency changes, and feature priority changes. A limit sized from last quarter's p99 may be wrong today. Bulkheads should be reviewed with live data: in-flight counts, wait time, queue depth, rejection counts, timeout rate, fallback rate, downstream latency, and breaker state.`,
-      ],
-    },
-    {
-      heading: `Operating signals`,
-      paragraphs: [
-        `A useful dashboard separates compartments instead of averaging them together. Show current in-flight work, max permits, queue depth, queue wait, rejection rate, timeout rate, fallback rate, and downstream latency for each dependency or workload class. A full recommendations compartment and an empty payments compartment is a successful containment event, not a global outage.`,
-        `Alerts should distinguish saturation from spread. Saturation says one compartment is full and users of that feature are seeing fallbacks or fast failures. Spread says another compartment is losing capacity because the boundary is missing, too large, or bypassed by retries. Bulkheads are easiest to trust when the metrics prove which side of the wall is wet.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study next: Semaphore Permit Counter for async concurrency limits, Circuit Breakers and Deadlines for adaptive recovery, Tail Latency and p99 Thinking for sizing against bad days, Backpressure and Flow Control for pressure propagation, Message Queues for bounded buffers, Sharding and Partitioning for data-level isolation, and Cell-Based Architecture for blast-radius control at user-population scale.`,
+        {
+          type: 'bullets',
+          items: [
+            'Michael T. Nygard, Release It! Design and Deploy Production-Ready Software (2007, 2nd ed. 2018) -- the canonical source for bulkheads, circuit breakers, and stability patterns in production systems.',
+            'Netflix Hystrix wiki, "How It Works" (github.com/Netflix/Hystrix) -- thread-pool and semaphore isolation in practice, with detailed rationale for per-dependency pools.',
+            'Resilience4j documentation, "Bulkhead" module (resilience4j.readme.io) -- the modern Java replacement for Hystrix, semaphore-based by default.',
+            'Netflix concurrency-limits library (github.com/Netflix/concurrency-limits) -- adaptive bulkheads that adjust permits based on measured latency using TCP congestion control algorithms (Vegas, Gradient).',
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Semaphore Permit Counter -- the primitive that enforces the concurrency bound.',
+            'Extension: Circuit Breakers and Deadlines -- adaptive recovery after containment.',
+            'Deeper: Tail Latency and p99 Thinking -- why sizing against the mean is insufficient.',
+            'Broader: Cell-Based Architecture -- bulkheads at user-population scale.',
+            'Complementary: Backpressure and Flow Control -- how pressure propagates when compartments fill.',
+          ],
+        },
       ],
     },
   ],
 };
+

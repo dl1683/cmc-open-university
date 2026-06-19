@@ -164,14 +164,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The real problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Spanner Case Study. Google Spanner as a global database lesson: Paxos groups, 2PC, MVCC snapshots, and TrueTime commit-wait..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'A global application wants data close to users, durable across datacenters, and still protected by database invariants. That is easy to say and hard to build. If an account balance, inventory count, identity record, or access-control rule can be updated from several regions, the system must decide what it means for one transaction to happen before another.',
         'Many distributed stores choose availability and accept later reconciliation. That can work for shopping carts, caches, feeds, and some profile data. It is a poor fit when the application cannot merge conflicts after the fact. Spanner is the case study for paying the coordination cost up front so a distributed SQL database can offer externally consistent transactions across replicated data.',
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'The obvious approach',
       paragraphs: [
         'The simplest global database is a single primary region with replicas elsewhere. All writes go to the primary, and remote users pay wide-area latency. Reads from replicas may be stale unless they coordinate with the primary. This design is understandable, but it wastes locality and makes the primary region a bottleneck for global workloads.',
         'Another baseline is eventual consistency. Each region accepts writes, replicates them later, and resolves conflicts when replicas disagree. That improves availability, but it pushes correctness into application-specific merge logic. The hard wall appears when two transactions touch different shards, finish in a real-time order that users can observe, and must later be read in that same order everywhere.',
@@ -185,14 +194,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Spanner composes four ideas. First, data is partitioned into ranges, and each range is replicated by a Paxos group. Second, a transaction that touches multiple groups uses two-phase commit across the participant leaders. Third, MVCC stores multiple versions so reads can choose a timestamp. Fourth, TrueTime exposes clock uncertainty as an interval, and commit-wait turns that uncertainty into an ordering guarantee.',
         'The important move is not "use clocks" in the vague sense. It is "use bounded clock uncertainty as a protocol input." TrueTime returns an earliest and latest possible current time. If Spanner chooses commit timestamp s, it waits until TrueTime is definitely after s before reporting the commit. That wait is the bridge between timestamp order and real-time order.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'At the storage layer, each partition of data has a Paxos group. The group has replicas in different failure domains, and one replica acts as leader for a lease interval. Writes are appended through the group log and become durable when the consensus protocol reaches the required quorum. A single-group transaction can commit through that group without a cross-group two-phase commit coordinator.',
         'A multi-group transaction needs a coordinator. Participant leaders prepare their parts of the transaction and replicate prepare records through their own Paxos groups. The coordinator chooses a commit timestamp that is greater than relevant prior timestamps and compatible with the TrueTime interval. It then records the commit decision and tells participants. Each participant can make the appropriate MVCC version visible at the chosen timestamp.',
@@ -229,7 +238,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The obvious cost is latency. Cross-region replication needs wide-area communication. Multi-group transactions need two-phase commit messages plus consensus inside each participant group. Commit-wait adds delay proportional to TrueTime uncertainty. If uncertainty grows because clock infrastructure is degraded, the system must wait longer or stop preserving the guarantee.',
         'The operational cost is also real. Spanner depends on disciplined time synchronization, careful leader placement, replica health, transaction participant tracking, MVCC garbage collection, and schema or data placement choices that avoid turning every transaction into a global transaction. Strong semantics do not make bad data modeling cheap.',
@@ -237,7 +246,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Spanner-style systems win when applications need global replication and strong invariants at the same time: financial ledgers, identity and authorization data, inventory, critical metadata, payment state, globally visible configuration, and multi-region services where manual conflict repair is unacceptable.',
         'It is especially useful when read-only transactions need consistent global snapshots. Analytics, audits, and user-facing reads can ask for a timestamped view instead of locking active writers. The application gets a familiar database abstraction while the system handles the replicated logs and timestamp discipline underneath.',
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Important failure modes include clock uncertainty growing, leaders moving during transactions, Paxos groups losing quorum, two-phase commit participants recovering after a coordinator failure, old MVCC versions being garbage-collected before a long snapshot can finish, and data placement choices that create wide-area transactions for hot paths.',
         'The defensive patterns follow from the design. Keep related rows colocated when possible. Monitor TrueTime uncertainty and commit latency. Treat cross-group transactions as expensive. Size MVCC retention for long reads. Understand which failures reduce availability. Spanner gives strong semantics, but it does not remove the need to design around failure domains.',
@@ -264,5 +273,60 @@ export const article = {
         'Study Clocks & Ordering: Lamport to TrueTime for timestamp semantics, NTP & PTP: How Clocks Actually Sync for clock uncertainty, Two-Phase Commit (2PC) for atomic commit, Paxos: Consensus Without a Leader for replicated decisions, MVCC Internals & VACUUM for versioned reads and cleanup, Transaction Isolation Levels for user-facing guarantees, and Amazon Dynamo Case Study for the contrasting availability-first design.',
       ],
     },
-  ],
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Spanner Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

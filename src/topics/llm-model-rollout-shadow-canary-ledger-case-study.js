@@ -341,6 +341,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Model Rollout Shadow Canary Ledger. A production LLM rollout case study: stable canary cohorts, shadow traffic, eval slices, cache-version boundaries, guardrail gates, telemetry, and rollback ledgers..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         'An LLM release is a behavioral change, not just a binary deploy. A new model checkpoint can alter answer quality, latency, token cost, refusal behavior, tool-call shape, cache hit rate, and tenant-specific policy compliance at the same time. A prompt template edit can have the same effect even when the weights do not change. A new adapter, decoding configuration, retrieval policy, guardrail, or serving runtime can also change the user-visible system. Treating all of those as ordinary version bumps hides the real risk.',
@@ -348,7 +357,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive rollout',
+      heading: 'The obvious approach',
       paragraphs: [
         'The obvious rollout is simple: deploy model v2, route one percent of requests to it, watch error rate and p99 latency, then ramp to ten percent, twenty-five percent, and one hundred percent if the dashboards look normal. Add a few offline evals and a smoke test, and the process looks responsible.',
         'That plan is better than a blind deploy, but it is still too weak for LLM systems. Global metrics can stay flat while code-generation requests regress, long-context prompts become slower, tool-using agents start calling the wrong tool, or one enterprise tenant receives outputs that violate its policy pack. Random per-request assignment can also make one user see different model behavior inside one workflow, which corrupts both user experience and measurement.',
@@ -362,14 +371,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to treat rollout as a ledgered state machine. The release packet binds every field that can change behavior: model id, prompt template id, adapter id, decoding policy, retrieval configuration, cache-key namespace, guardrail policy, eval bundle, slice thresholds, rollout percentage, stop rules, and rollback target. The cohort map binds users, tenants, workspaces, or sessions to a release decision in a stable way.',
         'The invariant is version isolation. Cache, evaluation, telemetry, and routing state must be keyed by the fields that can change outputs. If two releases share a cache namespace by accident, the new model can inherit old behavior and produce misleading evidence. If two releases share an eval label by accident, a gate can approve the wrong artifact. The ledger makes those boundaries explicit.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'A safe rollout usually starts with shadow traffic. The stable model still serves the user, but the candidate receives a forked copy of the prompt. The system records the candidate output, latency, token use, tool calls, safety verdict, retrieval citations, cache behavior, and slice labels. Shadow mode costs extra inference, but it lets the candidate fail before users see its answers.',
         'The next gate is canary traffic. A deterministic targeting key assigns a small cohort to the candidate: for example tenant id, workspace id, account id, or an agent-session id. Stable assignment matters because a user should not bounce between model versions during one task. The canary gate then compares live SLOs, guardrail outcomes, cost, and task-quality slices against thresholds in the release packet.',
@@ -401,7 +410,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The first cost is duplicate inference. Shadow traffic can double compute for sampled requests, and LLM traffic is expensive enough that this must be budgeted. Teams often shadow only selected slices, sample heavily, or stop shadowing once enough evidence exists.',
         'The second cost is operational complexity. Release packets, cohort functions, telemetry schemas, eval bundles, cache namespaces, and rollback playbooks all need ownership. A small team may be tempted to skip the ledger and rely on dashboards. That saves setup time but increases incident cost when the release fails in a narrow slice.',
@@ -409,7 +418,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern wins for model upgrades, prompt rewrites, adapter swaps, decoding-policy changes, guardrail-policy changes, tool-call policy changes, retrieval-index changes, cache namespace migrations, and serving-runtime changes. It is strongest when the product has clear slices: tenants, task types, prompt lengths, languages, tools, policy packs, price tiers, and traffic classes.',
         'It is also valuable when public trust or contractual obligations matter. If an enterprise customer asks whether its traffic saw a bad model for a two-hour window, a ledgered rollout can answer with cohort and span evidence. If a safety issue appears in one policy slice, the team can block that slice without freezing every unrelated improvement.',
@@ -429,5 +438,55 @@ export const article = {
         'Study Feature Flag Control Plane for stable targeting mechanics, A/B Testing for experiment design, SLO-Aware LLM Request Router for release-aware routing, Prompt Cache-Key Canonicalization Ledger for version boundaries, LLM Response Cache Safety Ledger for cache safety, LLM Evaluation Runners and Golden Sets for offline gates, LLM Judge Calibration Drift Monitor for evaluator risk, LLM Guardrail Policy Engine for policy slices, GenAI Trace Token Cost Ledger for cost evidence, Distributed Tracing for span joins, and LLM Unit Economics Ledger Case Study for promotion gates that include dollars per useful task.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for llm-model-rollout-shadow-canary-ledger-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

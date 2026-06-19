@@ -1,4 +1,4 @@
-// Naive Bayes: the spam filter as courtroom — every word testifies, the
+﻿// Naive Bayes: the spam filter as courtroom — every word testifies, the
 // running odds shift with each one, and Bayes' theorem renders the verdict.
 // "Naive" because it assumes words are independent. Wrong, and it works.
 
@@ -55,7 +55,7 @@ export function* run(input) {
       format: fmt,
     }),
     highlight: {},
-    explanation: 'Before reading a single word, the smart bet is the BASE RATE: 40% spam, 60% ham. (Ignoring priors is the classic probability blunder — if only 1 in 1000 emails were spam, even "free winner" should barely move you.) Now each word multiplies in its evidence: score(class) ×= P(word | class). The "NAIVE" assumption is right there — treating words as independent witnesses, ignoring that "free" and "winner" travel together. False in reality, yet the verdicts come out right: the boundary survives the lie.',
+    explanation: 'Before reading a single word, the smart bet is the BASE RATE: 40% spam, 60% ham. (Ignoring priors is the classic probability blunder — if only 1 in 1000 emails were spam, even "free winner" should barely move you.) Now each word multiplies in its evidence: score(class) Ã—= P(word | class). The "NAIVE" assumption is right there — treating words as independent witnesses, ignoring that "free" and "winner" travel together. False in reality, yet the verdicts come out right: the boundary survives the lie.',
   };
 
   for (const word of words) {
@@ -67,12 +67,12 @@ export function* run(input) {
       state: matrixState({
         title: `Evidence: "${word}"`,
         rows: [{ id: 'spam', label: 'spam' }, { id: 'ham', label: 'ham' }],
-        columns: [{ id: 'before', label: 'before' }, { id: 'lik', label: `P(${word}|·)` }, { id: 'after', label: 'after' }],
+        columns: [{ id: 'before', label: 'before' }, { id: 'lik', label: `P(${word}|Â·)` }, { id: 'after', label: 'after' }],
         values: [[before[0], LIKELIHOOD[word].spam, spamScore], [before[1], LIKELIHOOD[word].ham, hamScore]],
         format: fmt,
       }),
       highlight: { active: [pullsSpam ? 'spam:after' : 'ham:after'] },
-      explanation: `"${word}" testifies: it is ${pullsSpam ? `${Math.round(LIKELIHOOD[word].spam / LIKELIHOOD[word].ham)}× more common in spam — the spam score surges` : `${Math.round(LIKELIHOOD[word].ham / LIKELIHOOD[word].spam)}× more common in ham — the ham score pulls ahead`}. Notice the scores shrinking toward zero as they multiply — real filters add LOG-probabilities instead of multiplying raw ones, or a 200-word email underflows to 0.0.`,
+      explanation: `"${word}" testifies: it is ${pullsSpam ? `${Math.round(LIKELIHOOD[word].spam / LIKELIHOOD[word].ham)}Ã— more common in spam — the spam score surges` : `${Math.round(LIKELIHOOD[word].ham / LIKELIHOOD[word].spam)}Ã— more common in ham — the ham score pulls ahead`}. Notice the scores shrinking toward zero as they multiply — real filters add LOG-probabilities instead of multiplying raw ones, or a 200-word email underflows to 0.0.`,
       invariant: 'After each word, the score ratio equals the posterior odds given the evidence so far.',
     };
   }
@@ -107,13 +107,13 @@ export function* run(input) {
 const legacyArticle = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `Naive Bayes is a tiny probabilistic classifier: count how often each word appears in spam and ham, start from the base rate, then ask which class better explains the words in front of you. The demo uses six learned likelihoods, such as free appearing in 30% of spam but 2% of ham, and meeting appearing in 1% of spam but 20% of ham. It begins with priors of 40% spam and 60% ham, then multiplies in each word's evidence. It is called naive because it treats words as independent witnesses. That is false in English, but the class ranking often remains useful. Compared with Logistic Regression, which learns weights by iterative optimization, Naive Bayes gets its model by counting.`,
+        `Naive Bayes is a tiny probabilistic classifier: count how often each word appears in spam and ham, start from the base rate, then ask which class better explains the words in front of you. The demo uses six learned likelihoods, such as free appearing in 30% of spam but 2% of ham, and meeting appearing in 1% of spam but 20% of ham. It begins with priors of 40% spam and 60% ham, then multiplies in each word\'s evidence. It is called naive because it treats words as independent witnesses. That is false in English, but the class ranking often remains useful. Compared with Logistic Regression, which learns weights by iterative optimization, Naive Bayes gets its model by counting.`,
       ],
     },
     {
-      heading: `Legacy visual note`,
+      heading: `How to read the animation`,
       paragraphs: [
         `Read each table as a running odds ledger. The first table is the trained model: rows are words, columns are classes, and each cell says how often that word appeared in that class. The next tables start from the prior odds and multiply in one word at a time. The highlighted cell shows which class the current word supports. The invariant is the score ratio: after every word, spam score divided by ham score equals the prior odds times all likelihood ratios seen so far. The naive baseline is counting suspicious words or ignoring base rates; the animation shows why evidence strength and priors both matter. Watch for the two practical taxes: tiny products require log probabilities, and unseen words require smoothing.`,
       ],
@@ -126,9 +126,9 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
-        `Training is a single pass over the labeled text: tokenize each message, increment word counts per class, then convert counts into conditional probabilities. If the corpus contains T total tokens and C classes, training is O(T), plus O(V * C) storage for V vocabulary items. Prediction for a message with M tokens is O(M * C), usually just a few dictionary lookups and additions of log probabilities. This is why old spam filters could train on a laptop and classify mail in real time. The demo's whole model is the six-row likelihood table plus two priors.`,
+        `Training is a single pass over the labeled text: tokenize each message, increment word counts per class, then convert counts into conditional probabilities. If the corpus contains T total tokens and C classes, training is O(T), plus O(V * C) storage for V vocabulary items. Prediction for a message with M tokens is O(M * C), usually just a few dictionary lookups and additions of log probabilities. This is why old spam filters could train on a laptop and classify mail in real time. The demo\'s whole model is the six-row likelihood table plus two priors.`,
       ],
     },
     {
@@ -138,7 +138,7 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `Do not ignore priors. A rare disease or rare fraud class needs far more evidence than a balanced classroom example suggests. Do not read the independence assumption literally; it is a simplifying approximation, not a theory of language. Do not trust raw posteriors as calibrated confidence without checking them. Watch for leakage too: if the word table contains labels, future information, or duplicated test messages, the filter can look brilliant while cheating. Finally, smoothing is not optional; zero likelihoods make one unseen token infinitely powerful.`,
       ],
@@ -149,7 +149,22 @@ const legacyArticle = {
         `Study Thompson Sampling to see Bayesian updating used for decisions instead of classification. Use A/B Testing & p-values to prove a new filter beats the old one rather than winning by noise. Softmax & Temperature explains another way scores become probabilities. Random Forest shows a very different baseline, where many unstable trees vote instead of words multiplying likelihood ratios.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        'Full Bayesian classification requires the joint probability P(words|class) over all features. With a vocabulary of V words and binary presence features, the joint distribution has 2^V entries. Even a modest vocabulary of 50,000 words makes this impossible to estimate from any realistic training set.',
+        'The naive independence assumption collapses 2^V parameters into V independent counts per class. This is mathematically wrong: "Nigerian" and "prince" are not independent in spam. But the classification boundary survives because errors in likelihood products tend to cancel when comparing classes.',
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Email: "free winner click". Prior: P(spam)=0.4, P(ham)=0.6. After "free": spam score = 0.4 * 0.30 = 0.12, ham score = 0.6 * 0.02 = 0.012. After "winner": spam = 0.12 * 0.20 = 0.024, ham = 0.012 * 0.01 = 0.00012. After "click": spam = 0.024 * 0.25 = 0.006, ham = 0.00012 * 0.05 = 0.000006. Normalize: P(spam) = 0.006 / (0.006 + 0.000006) = 99.9% spam.',
+        'Email: "free project meeting". After "free": spam = 0.12, ham = 0.012. After "project": spam = 0.12 * 0.02 = 0.0024, ham = 0.012 * 0.25 = 0.003. After "meeting": spam = 0.0024 * 0.01 = 0.000024, ham = 0.003 * 0.20 = 0.0006. Normalize: P(ham) = 96%. Two work words overpower one spam word.',
+      ],
+    },
+],
 };
 
 export const article = {
@@ -171,7 +186,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is odds multiplication. Start with prior odds between classes, then multiply by each feature\'s likelihood ratio. If "free" is 15 times more common in spam than ham, it moves the odds toward spam. If "meeting" is 20 times more common in ham than spam, it moves the odds back.',
         'The model does not need to understand language in a deep way to be useful. It only needs many features whose likelihood ratios point in mostly useful directions. Evidence accumulates, and the final class is the one with the larger posterior score.',
@@ -186,54 +201,7 @@ export const article = {
         'Real implementations use log probabilities because raw products get tiny fast. Multiplying many small numbers can underflow to zero. Adding logs gives the same ranking while staying numerically stable.',
         'Real implementations also use smoothing. Laplace smoothing adds a small count to every word-class pair so unseen words remain possible. Without smoothing, a single token missing from training can wipe out a class score.',
       ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The likelihood table proves that the trained model is just counts turned into probabilities. The rows are words, the columns are classes, and each cell says how often the word appeared in that class.',
-        'The prior table proves that the classifier does not begin from zero. Before reading a word, it already knows the base rates. This matters whenever one class is much rarer than another.',
-        'The word-by-word evidence tables prove accumulation. Each token multiplies the class scores by a likelihood. Some words move the odds toward spam. Others move them toward ham. A mixed message can produce a moderate posterior because evidence can push both ways.',
-        'The final normalization proves the difference between scores and probabilities. The raw products are unnormalized evidence scores. Dividing by their sum turns them into a posterior distribution over classes.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Naive Bayes works when the likelihood ratios are informative even if the independence assumption is false. Correlated words may make the raw probabilities poorly calibrated, but the class ranking can still be correct.',
-        'It also works well with small data because counting has low variance compared with complex optimization. A logistic regression or neural model may need more examples to learn stable weights. Naive Bayes can become useful quickly when the vocabulary has clear class signals.',
-        'The model is robust as a baseline because errors are visible. If a word pushed the verdict the wrong way, the likelihood table shows why. That makes it valuable for teaching, debugging, and building first-pass text classifiers.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'Training is a single pass over labeled text: tokenize each message, increment word counts per class, then convert counts into probabilities. If the corpus contains T total tokens and C classes, training is O(T), plus O(V * C) storage for V vocabulary items.',
-        'Prediction for a message with M tokens is O(M * C), usually just dictionary lookups and additions of log probabilities. That is why old spam filters could train on a laptop and classify mail in real time.',
-        'The tradeoff is expressiveness. Naive Bayes does not model word order, phrases, negation, syntax, or feature interactions unless those are manually added as features. It is fast and interpretable, but it is not a deep language model.',
-        'There is also a maintenance cost. The word table ages as senders change vocabulary, products rename features, and attackers adapt. Retraining is cheap, but monitoring drift and preserving clean labels still matter.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Spam filtering is the classic use, but the pattern is broader: symptoms vote for diagnoses, transaction attributes vote for fraud, words vote for sentiment or topic, and error strings vote for incident routing.',
-        'It is especially useful as a baseline. If a complex neural classifier cannot beat a count-based Naive Bayes model, the extra machinery may not be earning its keep. The model also works well when labels are limited and feature counts are meaningful.',
-        'It is useful in educational settings because every step can be inspected. Priors, likelihoods, evidence ratios, smoothing, and posterior normalization are all visible in a small table.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Do not treat the posterior as automatically calibrated. A model can rank spam above ham correctly while overstating confidence because correlated words were counted as independent evidence. Calibration diagrams are needed if the probability itself drives costly action.',
-        'Do not ignore tokenization. Case folding, stemming, punctuation, subwords, stop words, and phrase features can all change the evidence table. A bad tokenizer can erase the signals the model needs.',
-        'Watch for leakage. If labels, future information, duplicated test messages, or source-specific artifacts enter the word table, the filter can look brilliant while cheating. Also watch for distribution shift: spammers adapt once they learn what filters reward.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Logistic Regression to compare counting-based probabilities with learned linear weights. Study Calibration & Reliability Diagrams to check whether posterior scores mean what they claim. Study Precision, Recall & the Confusion Matrix for threshold choice. Study Tokenization BPE to understand how raw text becomes features. Study Thompson Sampling to see Bayesian updating used for decisions instead of classification.',
-      ],
-    },
+    }
   ],
 };
+

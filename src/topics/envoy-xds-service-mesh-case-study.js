@@ -1,4 +1,4 @@
-// Envoy xDS service-mesh case study: a control plane streams listeners,
+﻿// Envoy xDS service-mesh case study: a control plane streams listeners,
 // routes, clusters, endpoints, and secrets into data-plane proxies.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -199,63 +199,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The first view shows the xDS update flow: a control plane pushes versioned configuration resources through xDS streams into an Envoy data-plane proxy. Active (highlighted) nodes are the resources currently being pushed. Found markers show resources that Envoy has accepted and can serve from. Compare markers show components waiting to receive updates.',
+        'The second view shows the request path after configuration is loaded. Active markers trace the hot path from proxy to upstream. Found markers show the policies (routes, clusters, endpoints) that Envoy resolves locally, without calling the control plane.',
+        'At each frame, ask: what configuration changed, what dependency must already exist before this change is safe, and what would break if the order were reversed.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A service mesh exists because modern services cannot bake every traffic rule into application code. A checkout service may call inventory, payments, fraud, recommendations, and shipping. Each of those calls needs timeouts, retries, load balancing, mTLS, telemetry, and sometimes canary routing. Those rules change more often than the application binary should change. If every team implements them differently, the platform gets a pile of client libraries with inconsistent behavior.',
-        'Envoy gives the platform a programmable data plane. Each application sends traffic through a local proxy or gateway. The proxy handles the repeated network work, while a control plane computes desired configuration and sends it to proxies. xDS is the family of APIs that carries this configuration: listeners, routes, clusters, endpoints, and secrets. The point is not only central control. The point is central control without putting that control service on the hot path of every request.',
+        'A checkout service calls inventory, payments, fraud detection, recommendations, and shipping. Every one of those calls needs timeouts, retries, load balancing, mutual TLS, distributed tracing headers, and sometimes canary routing. Those cross-cutting concerns change far more often than the application binary. When each team implements them in application code, the platform accumulates inconsistent retry logic, missing mTLS, patchy observability, and no central way to shift traffic during an incident.',
+        'The service mesh idea, first named by Buoyant co-founder William Morgan in 2017, is to move those concerns out of application code and into a shared infrastructure layer. Each service gets a sidecar proxy -- a small network process running beside the application container. The proxy handles mTLS termination, retry budgets, circuit breaking, load balancing, and telemetry emission. A separate control plane computes the desired configuration for every proxy and streams it down. The application sends plain HTTP or gRPC to localhost; the proxy does the rest.',
       ],
     },
     {
-      heading: 'The tempting wrong answer',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first naive design is a smart central router. Every request asks a control service where to go, what policy to apply, and whether the caller is allowed. This feels simple because one system owns the truth. It fails because the control service becomes a latency dependency and an availability dependency for every call. If the control plane slows down, the whole mesh slows down. If it is unreachable, services that already had enough local information can stop serving anyway.',
-        'The second naive design is a pile of static proxy files. A deployment system writes a new YAML file beside each proxy, then restarts or reloads it. This removes the central hot-path dependency, but it makes rollout correctness hard. Routes can reference clusters that have not arrived yet. Endpoints can disappear before old connections drain. Certificates can rotate out of order. A global file edit can also create a large blast radius because every proxy may accept the same bad configuration at the same time.',
+        'Before service meshes, the standard answer was a shared client library. Netflix built the canonical example: Hystrix for circuit breaking (2012), Ribbon for client-side load balancing, and Eureka for service discovery. Twitter built Finagle (2011) for the same purpose. A service linked the library, and the library handled retries, timeouts, and load balancing in-process.',
+        'This works well when every service is written in the same language. Netflix was a Java shop; Finagle was Scala. The library approach fails when services are polyglot -- a Python ML service, a Go API gateway, a Rust stream processor, and a Node.js frontend all need the same retry and mTLS behavior, but they cannot share a JVM library. Worse, upgrading the library means recompiling and redeploying every service that links it. A security patch in the mTLS handshake requires touching hundreds of binaries.',
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'The wall',
       paragraphs: [
-        'Envoy splits the problem into two planes. The data plane must be fast, local, and able to keep serving with the last accepted configuration. The control plane can be slower and smarter because it computes desired state, validates it, and streams updates. xDS is the contract between the two. It decomposes proxy state into resource types so that the system can reason about dependencies instead of shipping one undifferentiated blob.',
-        'LDS defines listeners: what ports exist and what filter chains run. RDS defines route configuration: how requests map to clusters. CDS defines clusters: named upstream pools and policies. EDS defines endpoints: concrete healthy backends inside those clusters. SDS can deliver secrets such as certificates and keys. A route should not point at a cluster that the proxy has not accepted. A cluster should not receive traffic before it has usable endpoints. This dependency ordering is the main systems lesson.',
+        'The library approach breaks on two constraints simultaneously. First, polyglot services cannot share one library, so teams either rewrite networking code per language or accept inconsistent behavior. Second, upgrading a library requires redeploying the application, so a platform team cannot roll out a TLS fix or a retry policy change without coordinating with every service owner.',
+        'The invariant that must hold is: every service in the mesh enforces the same mTLS policy, the same retry budget, and the same observability contract, regardless of language, deploy cadence, or team ownership. A library-per-language approach cannot guarantee this because compliance depends on each team linking the right version. One stale dependency breaks the invariant for the whole mesh.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        'A control plane usually watches service discovery, deployment state, policy objects, certificate state, and rollout intent. From those inputs it builds a versioned snapshot of resources for each Envoy. Envoy keeps a management stream open and requests resources by type. The control plane responds with resources and version information. Envoy either ACKs a valid update or NACKs an invalid update with an error. This ACK and NACK loop matters because desired state is not enough. Operators need to know what the proxy actually accepted.',
-        'On the request path, Envoy does not call the control plane. It accepts a connection through a listener, runs filters, matches a route, selects a cluster, applies load-balancing policy, chooses an endpoint, forwards the request, and emits telemetry. Retries, timeouts, circuit breakers, outlier detection, request IDs, spans, access logs, and metrics all happen inside the proxy from loaded configuration. The control plane changes the rules; the proxy applies the rules locally.',
-        'Aggregated Discovery Service is useful because it lets several resource types share one stream. That does not erase dependency rules, but it makes ordering and observation easier. A safe rollout can publish a new cluster, warm endpoints, move a small percentage of route traffic, watch telemetry, increase traffic, and clean up the old cluster after in-flight work drains.',
-        'Many production meshes also scope configuration by proxy identity. A gateway, a frontend sidecar, and a batch-worker sidecar should not all receive the same listeners and routes. The control plane filters resources by node metadata, workload labels, namespace, locality, and policy ownership. This reduces memory use and blast radius, and it makes accidental cross-tenant routing easier to detect.',
+        'The sidecar proxy runs as a separate process (or container) next to each application instance. In Kubernetes, Istio injects an Envoy sidecar into every pod via a mutating admission webhook. Linkerd injects its own Rust-based linkerd2-proxy the same way. The application\'s outbound traffic is transparently redirected to the sidecar using iptables rules or eBPF hooks. The application never knows the proxy exists.',
+        'The control plane computes desired state for every proxy. Istio\'s control plane (Istiod, consolidated from Pilot/Mixer/Citadel in Istio 1.5, 2020) watches Kubernetes services, deployments, and Istio custom resources, then synthesizes Envoy configuration. It streams this configuration over xDS -- a family of gRPC-based discovery APIs. LDS delivers listener definitions (what ports to open, which filter chains to run). RDS delivers route tables (which cluster handles each URL path). CDS delivers cluster definitions (upstream service pools and their policies). EDS delivers endpoint sets (the actual pod IPs and health status). SDS delivers TLS certificates and keys for mTLS.',
+        'Envoy holds a long-lived gRPC stream to the control plane, requests resources by type, and ACKs or NACKs each update. A NACK means the proxy rejected invalid configuration and keeps serving the last good version. This ACK/NACK protocol is critical: the control plane knows what each proxy is actually running, not just what it was told to run.',
+        'For mTLS, the control plane acts as a certificate authority. Istiod issues short-lived SPIFFE certificates (typically 24-hour TTL) to each sidecar via SDS. The sidecar terminates inbound TLS and initiates outbound TLS, so service-to-service traffic is encrypted and identity-verified without application code changes. Certificate rotation happens through SDS pushes -- no pod restart required.',
+        'Traffic splitting for canary deploys works through weighted route rules. The control plane pushes an RDS update that sends 1% of requests to checkout-v2 and 99% to checkout-v1. After watching error rates and latency through proxy-emitted metrics, the operator increases the weight. Rollback is another RDS push. The application binary does not change.',
+        'Circuit breaking is configured per cluster in CDS. Envoy tracks outstanding requests, pending connections, and consecutive failures per upstream. When a threshold is crossed, new requests get an immediate 503 instead of piling onto an overloaded backend. Outlier detection ejects individual endpoints that exceed error thresholds, reducing blast radius without tripping the whole circuit.',
+        'Distributed tracing works because the sidecar injects or propagates trace headers (B3, W3C Trace Context) on every request. The application must forward incoming trace headers on its outbound calls, but the sidecar handles span creation, timing, and export to collectors like Jaeger or Zipkin.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        'The first view proves that service-mesh configuration is a graph, not a flat file. Listeners depend on routes, routes depend on clusters, clusters depend on endpoints, and secrets can sit under the transport layer. The important question is not simply whether the final desired graph is correct. The important question is whether every intermediate graph accepted by Envoy is safe to serve.',
-        'The second view proves why the data plane must stay local. Once Envoy has valid resources, request handling is a sequence of local lookups and policy decisions. This is why a mesh can change traffic policy quickly without making a control-plane RPC for each request. It is also why loaded-config inspection, config dumps, and telemetry are operational necessities. They show the difference between what the platform wanted and what the proxy is actually doing.',
+        'The architecture works because it separates the frequency of change from the blast radius of change. Networking policy (retries, timeouts, mTLS, traffic splits) changes often, but each change is a small xDS push to a proxy -- not a recompile and redeploy of the application. The application binary changes less often, and when it does, the networking layer is unaffected.',
+        'The correctness argument rests on dependency ordering. A safe configuration update must satisfy: (1) a cluster exists before any route references it, (2) endpoints are healthy before a cluster receives traffic, (3) certificates are valid before mTLS is enforced. Aggregated Discovery Service (ADS) serializes these resource types onto one gRPC stream so the control plane can enforce ordering. If a proxy receives a route pointing to a cluster it has not yet accepted, it NACKs. The invariant is: at every moment, the proxy\'s accepted configuration is internally consistent, even if it lags behind desired state.',
+        'This consistency model -- last-known-good with incremental updates -- is the same pattern used in DNS (serve cached records while refreshing), BGP (keep the last valid route table during a peer reset), and browser service workers (serve the cached version while fetching the new one). The proxy never blocks the data path waiting for the control plane.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The benefit is uniform traffic control. A platform team can apply mTLS, retries, timeouts, load balancing, tracing, rate limits, and canaries across languages. The cost is a new distributed system beside the old one. Proxies consume CPU and memory. Sidecars add hops and connection management. Control planes must scale fanout to many proxies and many resource versions. Operators now debug both the application and the mesh.',
-        'There is also policy risk. Retries can amplify overload if timeout budgets are wrong. Circuit breakers can reject healthy traffic if thresholds are copied without understanding the service. Outlier detection can eject too many hosts during a partial incident. A mesh moves behavior out of application code, but the behavior still has to be designed. A bad global policy can fail faster than a bad local library because it can reach every workload through the control plane.',
-        'The strongest mesh teams treat configuration like code. They run static validation, simulate dependency graphs, stage rollouts by cell or region, and keep emergency rollback paths simple. They also set ownership boundaries so that a service team can own its routes and timeouts while a platform team owns base mTLS, telemetry, and global safety limits.',
+        'Each Envoy sidecar consumes roughly 50-100 MB of memory and a fractional CPU core at idle, scaling with the number of active connections and configured routes. For a cluster running 500 pods, that is 25-50 GB of memory dedicated to proxies. Latency overhead per hop is typically 0.5-2 ms for the extra userspace TCP termination and re-initiation, measured by both Istio and Linkerd benchmarks. For most web services this is negligible; for latency-sensitive paths (sub-millisecond internal RPCs), it is measurable.',
+        'Control-plane load scales with the number of proxies times the rate of configuration change. Endpoint churn from autoscaling, rolling deploys, and health check flapping generates frequent EDS updates. Istiod must debounce, batch, and shard these updates. A 5,000-pod cluster with aggressive autoscaling can generate thousands of EDS pushes per minute. Without backpressure, the control plane itself becomes a source of instability.',
+        'Operational complexity is real. Debugging now requires comparing three layers: application behavior, proxy configuration (Envoy admin API config_dump), and control-plane desired state (istioctl proxy-status). A request failure could be an application bug, a stale route, a tripped circuit breaker, a certificate expiry, or an outlier ejection. Teams need mesh-specific observability tooling (Kiali, Linkerd dashboard, istioctl analyze) on top of their existing monitoring.',
+        'Retry amplification is the most dangerous policy failure. If service A retries 3 times and calls service B which retries 3 times on service C, a single failure at C generates up to 9 requests. With deeper call chains, retries multiply exponentially. Mesh operators must set retry budgets (Istio retryBudget, Linkerd retry budgets) that cap total retry volume as a percentage of baseline traffic.',
       ],
     },
     {
-      heading: 'Real uses and failure modes',
+      heading: 'Where it wins',
       paragraphs: [
-        'The common case is a canary. The control plane creates resources for checkout-v2, proves that endpoints exist, then moves one percent of traffic by changing routes. Metrics watch error rate, p99 latency, retry volume, saturation, and breaker overflow. Rollback is another route update. The application binary does not need to change. The same pattern supports regional failover, certificate rotation, gateway policy, multi-tenant routing, and gradual migration from one upstream service to another.',
-        'The hard failures are usually control-plane correctness, not proxy forwarding. A route can be valid YAML and still unsafe because it points to an unwarmed cluster. A stale endpoint set can send traffic to dead hosts. A certificate push can break mTLS if trust roots and leaf certificates rotate in the wrong order. A proxy can keep serving old config after NACKing a new update, which is safer than accepting bad config but confusing if dashboards only show desired state. Mesh debugging must compare desired config, accepted config, and observed traffic.',
-        'Capacity planning is part of the same story. Endpoint churn, autoscaling, and locality failover can create frequent EDS updates. A healthy control plane must batch, debounce, shard, and back pressure those updates so that the cure for traffic change does not become another source of instability.',
+        'Istio (Google/IBM/Lyft, first stable release 2018) is the most widely deployed mesh, running in production at Airbnb, eBay, Salesforce, and AutoTrader UK. It uses Envoy as its data plane and provides the richest policy surface: traffic management, security (mTLS, authorization policies), and observability. The trade-off is operational weight -- Istiod is a substantial control plane to operate and tune.',
+        'Linkerd (Buoyant, v2 rewritten in Rust and Go, 2018) targets simplicity. Its Rust-based micro-proxy uses roughly half the memory of Envoy and adds sub-millisecond latency. Linkerd graduated from CNCF in 2024 and is used by Microsoft, Nordstrom, and HP. It deliberately limits its policy surface to keep operations simple.',
+        'Consul Connect (HashiCorp, 2018) integrates service mesh with Consul\'s existing service discovery and key-value store. It supports Envoy as a data plane but also has a built-in proxy for simpler deployments. It works across Kubernetes and traditional VMs, which suits organizations with mixed infrastructure.',
+        'AWS App Mesh (2019) provides a managed control plane for Envoy proxies running on ECS, EKS, or EC2. It removes the burden of operating Istiod but limits configurability to what the AWS API surface exposes.',
+        'The common thread: service meshes win in organizations running tens to hundreds of microservices across multiple languages, where consistent mTLS, traffic management, and observability justify the infrastructure cost.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Study Envoy dynamic configuration, the xDS protocol, ADS ordering, and Envoy config dumps in the official Envoy documentation. Then connect this topic to Load Balancer, Circuit Breakers and Deadlines, Distributed Tracing, OpenTelemetry Collector Case Study, Feature Flag Control Plane, and Kubernetes Reconciliation Case Study. The shared theme is control-plane design: compute desired state centrally, apply it locally, and measure whether the applied state is safe.',
+        'Small deployments pay the full complexity cost without enough services to justify it. A team running five Go services behind a single load balancer gets mTLS and retries cheaper from a shared library or a simple reverse proxy than from a full mesh installation.',
+        'High-performance paths suffer from the extra hop. Game servers, high-frequency trading systems, and real-time media pipelines operate at microsecond budgets where 1-2 ms of proxy latency is unacceptable. These systems use kernel-bypass networking (DPDK, io_uring) and cannot afford userspace proxying.',
+        'Debugging complexity catches teams off guard. When a request fails, the cause might live in the application, the sidecar\'s loaded configuration, the control plane\'s desired state, a certificate rotation race, or an outlier ejection. Comparing config_dump output across sidecars, tracing xDS push history, and correlating proxy access logs with application logs requires dedicated tooling and training. Organizations that adopt a mesh without investing in mesh observability often end up with a system they cannot effectively troubleshoot.',
+        'Control-plane failures have outsized blast radius. A bug in Istiod that pushes bad configuration can break mTLS across every service simultaneously. Istio mitigates this with staged rollouts and NACKing, but the failure mode is qualitatively different from a library bug that affects one service at a time.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Scenario: deploy checkout-v2 alongside checkout-v1, shift 5% of traffic, validate, then complete the rollout.',
+        'Step 1 -- The platform team creates a Kubernetes Deployment for checkout-v2 with 2 replicas. Istio\'s webhook injects Envoy sidecars. Istiod detects the new pods and pushes CDS resources defining a "checkout-v2" cluster to every relevant proxy.',
+        'Step 2 -- Istiod pushes EDS resources listing the two checkout-v2 pod IPs as endpoints. The proxies ACK both CDS and EDS. At this point checkout-v2 exists in the mesh but receives zero traffic because no route points to it.',
+        'Step 3 -- The team applies a VirtualService with a 95/5 traffic split. Istiod computes a new RDS resource: 95% weight to checkout-v1 cluster, 5% weight to checkout-v2 cluster. Proxies ACK the route update. Traffic begins flowing to v2.',
+        'Step 4 -- The team monitors Envoy-emitted metrics: request success rate, p99 latency, and retry volume for the checkout-v2 cluster. After 30 minutes with no anomalies, they update the VirtualService to 50/50. Another RDS push, another ACK.',
+        'Step 5 -- Satisfied with metrics, the team shifts to 100% checkout-v2. Istiod pushes a final RDS update removing checkout-v1 from the route. After a drain period (Envoy\'s drain_timeout lets in-flight requests complete), the team scales checkout-v1 to zero replicas. Istiod pushes an EDS update removing the old endpoints and eventually a CDS update removing the old cluster.',
+        'The ordering was: CDS (create cluster) then EDS (register endpoints) then RDS (shift traffic) then RDS (remove old route) then EDS/CDS (clean up old resources). Reversing any of these steps -- routing traffic before endpoints exist, or removing a cluster before draining its routes -- would cause request failures.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: the Envoy xDS protocol specification in the Envoy documentation (envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol). For the sidecar pattern origin, see William Morgan\'s "What\'s a service mesh? And why do I need one?" (2017, buoyant.io). For Istio architecture, see the Istio documentation (istio.io/latest/docs/ops/deployment/architecture/). For Linkerd\'s design choices, see the Linkerd architecture docs (linkerd.io/2/reference/architecture/).',
+        'Study next: Load Balancing (the policy layer inside each proxy), Circuit Breakers and Deadlines (how Envoy prevents cascade failures), Distributed Tracing (how sidecars propagate trace context), Kubernetes Reconciliation (the control-loop pattern that Istiod follows), and mTLS Certificate Rotation (how SDS delivers short-lived certificates without downtime). The shared theme across all of these is control-plane design: compute desired state centrally, apply it locally, and measure whether reality matches intent.',
       ],
     },
   ],
 };
+

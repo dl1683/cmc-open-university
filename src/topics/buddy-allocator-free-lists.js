@@ -242,6 +242,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Buddy Allocator Free Lists. A memory allocator layout: keep one free list per power-of-two block size, split larger blocks on demand, and coalesce exact buddies on free..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'An allocator has two jobs that fight each other: hand out memory quickly, and later rebuild large free ranges from the pieces that return. A kernel page allocator also has a harder constraint: it often needs physically contiguous page blocks, not just any scattered bytes.',
@@ -263,14 +272,14 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         'The allocate-and-split view is about controlled waste. A larger block is split only along power-of-two boundaries until the requested order exists. Every unused half goes onto a known free list, so the allocator never loses track of the remaining memory.',
         'The free-and-coalesce view is about local proof. The allocator does not scan the whole heap looking for any neighbor. It computes the exact buddy, checks whether that buddy is free, and merges only when the tree says the two blocks are siblings.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'Allocation rounds the request up to an order such as 4 KB, 8 KB, 16 KB, or 32 KB. If that order has a free block, return it. If not, climb to the next larger nonempty order, remove one block, split it into equal halves, place the unused half on the smaller-order free list, and repeat until the target order exists.',
         'Freeing reverses the tree. Compute the buddy for the freed block at its current order. If that buddy is free, remove the buddy from its free list, merge the pair into the next order, and try again. The merge stops when the buddy is allocated, missing, or the region has reached the maximum order.',
@@ -300,7 +309,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Buddy allocation fits page-level memory management: fixed aligned regions, page-sized units, and a real need for contiguous runs. Linux uses a buddy-style page allocator for physical pages, then places slab-style object allocators above it for small kernel objects.',
         'The pattern also teaches the allocator stack. User-space mallocs such as glibc malloc and jemalloc add bins, arenas, thread caches, and richer policies, but they still face the same pressures: free-list organization, coalescing, locality, concurrency, and fragmentation.',
@@ -315,7 +324,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational review',
+      heading: 'How it works (3)',
       paragraphs: [
         'When a buddy allocator is under pressure, inspect free blocks by order, not just total free memory. A system can have many free 4 KB pages and still fail a large contiguous allocation because the pages cannot coalesce into the requested order.',
         'Fragmentation metrics should distinguish internal waste from rounded allocations, external fragmentation from incompatible free buddies, and policy fragmentation from memory being free in the wrong zone or NUMA node. Those distinctions matter when diagnosing page allocation failures.',
@@ -323,10 +332,73 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Linux kernel physical page allocation chapter at https://www.kernel.org/doc/gorman/html/understand/understand009.html, linux-mm PageAllocation overview at https://linux-mm.org/PageAllocation, Linux Kernel Labs memory management notes at https://linux-kernel-labs.github.io/refs/pull/345/merge/lectures/memory-management.html, glibc malloc internals at https://sourceware.org/glibc/wiki/MallocInternals, jemalloc manual at https://jemalloc.net/jemalloc.3.html, and Meta engineering on jemalloc at https://engineering.fb.com/2011/01/03/core-infra/scalable-memory-allocation-using-jemalloc/. Study Slab Allocator & Size Classes, TLSF Real-Time Allocator Bitmap Index, Linked List, Binary Search Tree, Ring Buffer, Hazard Pointers & Epoch Reclamation, and LRU Cache next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Buddy Allocator Free Lists moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

@@ -212,6 +212,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Delta Lake Case Study. Delta Lake as the data-lake transaction lesson: JSON log actions, Parquet checkpoints, ACID commits, and time travel..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Delta Lake exists because cheap object storage became the default place to keep analytical data, but raw object storage is not a database table. S3, GCS, and ADLS are good at storing large immutable objects. They are not good at answering table questions such as which files belong to version 17, whether a concurrent writer already changed the table, which schema is current, or which files should be ignored after a compaction job.',
@@ -220,7 +229,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to treat a table as a folder. Appends create new Parquet files. Updates rewrite old files and delete the originals. Readers list the folder whenever they need a fresh view. Partition directories encode common filters such as date or country. A manifest file can be added later if directory listing gets slow. None of this is foolish. It is exactly how many early data lakes grew out of batch processing.',
         'The wall appears when file operations need to mean table operations. Adding one logical batch may create hundreds of files. A compaction job may remove many small files and add fewer large files. A merge may remove old files and add rewritten files. A streaming sink may retry the same microbatch after a driver crash. If the table is only a folder, there is no durable, ordered, atomic sentence that says which set of file changes became the next table version.',
@@ -228,7 +237,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Delta Lake makes the transaction log the source of truth. The data files hold rows, but the log defines the table. A snapshot is not whatever files happen to be visible in a directory. A snapshot is the result of applying every committed log action up to one version number.',
         'That one shift imports a database invariant into a data lake: table state changes in an ordered sequence. A version can add files, remove files, change metadata, record a transaction marker, or update protocol information. Readers choose a version and derive the live file set. Writers try to append the next log file and use optimistic conflict checks to decide whether their proposed change is still valid.',
@@ -236,7 +245,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'A writer first writes new Parquet files into the table storage area. Those files are not automatically part of the table just because they exist. The writer then attempts to commit a new log version in `_delta_log`. The commit is a small JSON file containing actions. Add actions name new data files and include metadata such as partition values, size, and column statistics. Remove actions tombstone old files. Metadata actions describe the schema and table configuration. Transaction actions let streaming writers make retries idempotent.',
         'Readers reconstruct a snapshot by starting from the latest useful checkpoint, then replaying JSON actions after that checkpoint until the chosen version. The live set is the files that have been added and not later removed. This is the same broad idea behind a write-ahead log and MVCC snapshot reconstruction: persistent state is derived from a history of committed changes, and a reader can choose a point in that history.',
@@ -263,7 +272,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Delta Lake pays for its table semantics with metadata machinery. The log must be written, retained, checkpointed, and cleaned. Checkpoint intervals affect reader startup time and write overhead. Too few checkpoints make snapshot reconstruction slower. Too many checkpoints add extra write and storage cost. Metadata itself can become large on tables with many files.',
         'Small files remain a major tax. A table can be perfectly transactional and still slow if every query must open thousands of tiny Parquet objects. Compaction rewrites small files into larger ones, but compaction consumes compute and can conflict with other writers. Z-ordering, clustering, and partitioning can improve pruning, but bad layout still forces large scans. ACID semantics do not remove the need for physical design.',
@@ -272,7 +281,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'Delta Lake wins when the access pattern is analytical, file-oriented, and shared across multiple engines or jobs. It fits lakehouse reporting, ETL pipelines, streaming sinks, feature tables, ML training sets, audit tables, CDC landing zones, and reproducible data science. The common pattern is large columnar reads plus table-level correctness requirements.',
         'It is the wrong tool when the workload needs low-latency point updates, row-level locking, complex secondary indexes, or high-concurrency transactional serving. A relational database, key-value store, or OLTP engine is usually better for that. Delta can publish clean analytical snapshots of operational data, but it should not be confused with the operational database itself.',
@@ -280,7 +289,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works (2)',
       paragraphs: [
         'The animation separates the big immutable bytes from the small ordered control plane. Writers produce Parquet files, but the log decides when those files become table state. Readers do not trust a raw directory listing. They load a checkpoint, replay log actions, and then scan only the files that survive that snapshot.',
         'The metadata-pruning view shows why the log is also a planning index. File statistics let a query skip objects before opening them. Time travel shows why remove actions are logical first and physical later. The file may still exist so older versions can read it, but newer snapshots ignore it because the log says it is removed.',
@@ -294,5 +303,77 @@ export const article = {
         'Study Write-Ahead Log (WAL) next to understand why ordered durable state changes are enough to reconstruct data. Study MVCC Internals & VACUUM to connect Delta snapshots, old file retention, and garbage collection. Study Dremel Query Engine Case Study to see how columnar analytics uses metadata and nested columnar layout during execution. Study Kafka Log Case Study to compare an event log with a table-state log. Study Feature Store: Offline/Online Consistency to see why point-in-time table versions matter for ML training data.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Delta Lake Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

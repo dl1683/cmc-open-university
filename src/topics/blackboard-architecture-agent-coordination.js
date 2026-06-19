@@ -1,4 +1,4 @@
-// Blackboard architecture for agent coordination: a shared working-memory
+﻿// Blackboard architecture for agent coordination: a shared working-memory
 // pattern from Hearsay-II to modern research agents and tool-using systems.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -208,89 +208,193 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. The classic blackboard view shows Hearsay-II-style speech understanding: signal input feeds acoustic, lexical, and semantic knowledge sources that write to a shared board, while a control shell reads the agenda and chooses the next specialist. The research blackboard view shows the same pattern applied to a multi-agent research pipeline: search, extraction, and critic agents write claims and conflicts to a shared claim board, while a synthesizer and gate produce the final answer.',
+        {
+          type: 'table',
+          headers: ['Visual marker', 'Meaning'],
+          rows: [
+            ['Active (highlighted)', 'The component currently executing -- the knowledge source writing or the control shell choosing'],
+            ['Compare (dimmed)', 'Components waiting for a board change to trigger them'],
+            ['Found (green)', 'A record or path confirmed by the merge or gate step'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'At each frame, identify which agent wrote to the board and what changed. The board is the single source of truth. If two agents appear to coordinate without a board write between them, the animation is hiding a step.',
+        },
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Some problems need several specialized processes to build one answer. A speech system may need acoustic, lexical, syntactic, and semantic knowledge. A research agent may need search, extraction, contradiction checking, synthesis, and verification. If every specialist talks directly to every other specialist, coordination turns into hidden state and brittle message passing.`,
-        `A blackboard architecture exists to give those specialists a shared working memory. Each knowledge source reads the board, reacts to relevant changes, and writes structured hypotheses or updates. A control shell watches the board and chooses what should run next. The board becomes the central data structure for coordination, not a transcript of side conversations.`,
+        'Some problems require several specialists to build one answer. A speech system needs acoustic, lexical, syntactic, and semantic knowledge. A research agent needs search, extraction, contradiction checking, synthesis, and verification. If every specialist talks directly to every other, coordination becomes hidden state and brittle point-to-point message passing. With N specialists, direct wiring creates up to N*(N-1)/2 channels, each carrying its own format, retry logic, and failure mode.',
+        {
+          type: 'quote',
+          text: 'The key idea underlying the blackboard model is the use of a global database, called the blackboard, as a communication medium among a set of independent knowledge sources.',
+          attribution: 'H. Penny Nii, "Blackboard Systems," AI Magazine, 1986',
+        },
+        'A blackboard architecture replaces that tangle with shared working memory. Each knowledge source reads the board, reacts to relevant changes, and writes structured hypotheses. A control shell watches the board and chooses which specialist should run next. The board is the central data structure for coordination -- not a transcript of side conversations, but a typed, inspectable, priority-driven workspace.',
       ],
     },
     {
-      heading: 'The naive agent design',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious multi-agent design is a chat chain. One agent asks another agent for help, that agent replies, and a final agent summarizes the transcript. This can work for demos, but it hides the state that matters. Which claims are supported? Which source produced them? Which conflicts are unresolved? Which hypothesis was rejected? Which task deserves the next tool call?`,
-        `Another naive design is a shared scratchpad of free text. That at least centralizes notes, but it does not give the system reliable fields for confidence, source, freshness, status, or conflict. A blackboard is stronger because entries are typed, inspectable, prioritized, and changed through explicit write contracts.`,
+        'The obvious multi-agent design is a chat chain. Agent A asks agent B for help, B replies, and a final agent summarizes the transcript. This works for demos but hides the state that matters: which claims are supported, which source produced them, which conflicts are unresolved, which hypothesis was rejected, which task deserves the next tool call.',
+        'A second naive design is a shared scratchpad of free text. That centralizes notes, but gives the system no reliable fields for confidence, source, freshness, status, or conflict. Agents cannot reliably query, filter, or prioritize entries in unstructured prose.',
+        {
+          type: 'diagram',
+          label: 'Chat chain vs. blackboard coordination',
+          text: 'Chat chain (N=4 agents, 6 channels):\n\n  A <---> B\n  |\\     /|\n  | \\   / |\n  |  \\ /  |\n  |   X   |\n  |  / \\  |\n  | /   \\ |\n  v/     \\v\n  C <---> D\n\nBlackboard (N=4 agents, 1 shared board):\n\n  A ---\\       /--- C\n        \\     /\n     [  BOARD  ]\n        /     \\\n  B ---/       \\--- D\n\nChat chain: O(N^2) channels, each with its own protocol.\nBlackboard: O(N) read/write contracts against one schema.',
+        },
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'The wall',
       paragraphs: [
-        `A blackboard separates communication from control. Knowledge sources do not need to know about each other directly. They need to know how to read relevant board records and how to write valid updates. The control shell decides which update is worth acting on next.`,
-        `This makes partial progress visible. A hypothesis can be open, supported, contradicted, merged, rejected, or ready for synthesis. A contradiction can become an agenda item. A missing source can trigger search. A high-confidence claim can move toward final output. The system coordinates by changing shared state.`,
+        'Chat chains break when evidence is partial and the next useful step depends on what has been learned so far. Consider a three-agent research pipeline: Search, Extract, Critic.',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 1: Search finds source S12 claiming "X is true."\nStep 2: Extract writes claim A (confidence: high, source: S12).\nStep 3: Search finds source S03 claiming "X is false."\nStep 4: Extract writes claim B (confidence: medium, source: S03).\n\nChat chain behavior:\n  Extract sends claim A to Critic.\n  Critic says "looks fine."\n  Extract sends claim B to Critic.\n  Critic says "contradiction with A!"\n  But claim A already flowed to Synthesis as approved.\n  Synthesis publishes a report containing both X-is-true\n  and X-is-false without realizing they conflict.\n\nBlackboard behavior:\n  Claims A and B both live on the board.\n  Critic writes a conflict record linking A and B.\n  The agenda blocks synthesis until the conflict is resolved.\n  No contradictory answer can reach the gate.',
+        },
+        'The invariant the chat chain violates: no claim may reach synthesis while an unresolved conflict references it. A board enforces this because the conflict is a first-class record with links to both sides, a status field, and an owner. A chat transcript has no such structure -- contradictions become prose buried in a growing context window.',
       ],
     },
     {
-      heading: 'Classic blackboard anatomy',
+      heading: 'How it works',
       paragraphs: [
-        `The classic example is Hearsay-II, a speech-understanding system built around independent knowledge sources and a global blackboard. Acoustic evidence, word hypotheses, phrase hypotheses, and semantic interpretations were different representation levels over the same problem. Each specialist could add information when the board contained a pattern it knew how to improve.`,
-        `The control shell solved focus of attention. It inspected board changes, estimated which knowledge source might make useful progress, and scheduled work. That is the reason the architecture mattered: the system could combine bottom-up evidence from the signal with top-down expectations from language and meaning without hard-wiring every module to every other module.`,
-      ],
-    },
-    {
-      heading: 'Research-agent anatomy',
-      paragraphs: [
-        `A modern research blackboard has different records but the same shape. A search knowledge source writes source records to a ledger. An extraction source turns documents into structured claims. A critic writes conflicts, missing evidence, date problems, or scope violations. A synthesizer reads stable claims and source records. A gate checks whether the answer is supported.`,
-        `The board and the ledger should be separate. The ledger is durable evidence: sources, retrieval time, authorship, snippets, hashes, and permissions. The board is working memory: claims, gaps, conflicts, confidence, status, and next actions. Synthesis needs both, because a claim without provenance is not ready to publish.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The classic visual proves that specialists coordinate through the board. The acoustic, lexical, and semantic sources do not form a private tangle of calls. They write hypotheses into shared memory, and the agenda chooses which path deserves more work. The final answer is a selected path through competing hypotheses, not the last message in a chat.`,
-        `The research visual proves the provenance split. Search writes durable evidence to the ledger and candidate claims to the board. Critique creates actionable conflict records. Synthesis reads the board and ledger together. The gate rejects prose that ignores missing support or unresolved contradiction.`,
-      ],
-    },
-    {
-      heading: 'The agenda problem',
-      paragraphs: [
-        `A blackboard without an agenda becomes a database of unfinished thoughts. The agenda decides focus of attention: verify this claim, search for another source, merge duplicate entities, resolve this conflict, ask a domain validator, or promote a record to synthesis. In implementation, the agenda is often a priority queue over board events.`,
-        `Priority can combine confidence delta, expected information gain, user value, deadline, cost, dependency blocking, and risk. A cheap check that resolves a major contradiction should outrank a broad search with low expected value. This scheduling layer is where a blackboard architecture becomes more than shared storage and starts behaving like an adaptive problem solver.`,
-      ],
-    },
-    {
-      heading: 'Record schemas',
-      paragraphs: [
-        `The blackboard should contain structured records. A claim record can include id, text, entity, source ids, evidence spans, confidence, freshness, status, authoring knowledge source, and conflict links. A source record can include URL, title, author, date, retrieval time, trust label, snippet hash, permissions, and extracted claims.`,
-        `An agenda item can include trigger event, target record, candidate knowledge source, priority, budget, retry count, and stopping rule. These fields let the system inspect itself. They also make testing possible: a unit test can assert that an unsupported claim creates a verification item instead of silently flowing into the final answer.`,
+        'A blackboard system has three parts: knowledge sources, the board itself, and a control shell.',
+        {
+          type: 'bullets',
+          items: [
+            'Knowledge source (KS): a specialist with a trigger condition, a read pattern, and a write contract. It activates when the board contains a record matching its trigger. It reads relevant entries, computes, and writes new records or updates.',
+            'Board: a structured database of typed records -- hypotheses, evidence, conflicts, gaps, and status. Every record carries fields for confidence, source, freshness, authoring KS, and conflict links.',
+            'Control shell: watches board changes, scores pending agenda items by priority, and selects which KS to activate next. The agenda is typically a priority queue over board events.',
+          ],
+        },
+        {
+          type: 'diagram',
+          label: 'Blackboard execution loop',
+          text: 'loop:\n  1. Board changes trigger new agenda items.\n  2. Control shell picks highest-priority agenda item.\n  3. Selected KS reads relevant board records.\n  4. KS writes new/updated records to the board.\n  5. New board state may trigger new agenda items.\n  6. Repeat until termination condition\n     (all gaps filled, confidence threshold met,\n      or budget exhausted).',
+        },
+        'In the classic view, the acoustic KS writes segment hypotheses, the lexical KS writes word candidates, and the semantic KS writes meaning interpretations. The control shell uses the agenda to decide whether bottom-up evidence (new acoustic segments) or top-down expectations (semantic predictions) deserve the next cycle.',
+        'In the research view, the search KS writes source records to a durable ledger and candidate claims to the board. The extract KS enriches claims with structured fields. The critic KS writes conflict and gap records. The synthesizer reads only claims whose status is "supported" or "merged." The gate rejects output that references unsupported or conflict-blocked claims.',
+        {
+          type: 'note',
+          text: 'The board and the ledger serve different roles. The ledger is durable evidence: URLs, authors, dates, snippets, hashes. The board is working memory: claims, gaps, conflicts, confidence, status. Synthesis needs both -- a claim without provenance is not ready to publish.',
+        },
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The architecture works when specialists have partial, heterogeneous knowledge. Each knowledge source can stay narrow. It only needs a trigger condition, a read pattern, and a write contract. New specialists can be added without rewriting every existing module, as long as they speak the board schema.`,
-        `It also works because conflict is represented explicitly. In a chat chain, contradiction often becomes prose that the next model may forget. On a board, a conflict can be a first-class record with links to both claims, sources, status, owner, and next action. That makes unresolved uncertainty harder to hide.`,
+        'The architecture works because it separates communication from control and makes conflict a first-class object.',
+        {
+          type: 'bullets',
+          items: [
+            'Modularity: each KS needs only a trigger, a read pattern, and a write contract. Adding a new specialist does not require rewriting existing ones -- it just needs to speak the board schema.',
+            'Visible partial progress: a hypothesis can be open, supported, contradicted, merged, rejected, or promoted. The system can inspect itself at any point and report what is known, unknown, and contested.',
+            'Explicit conflict: on a board, contradiction is a typed record with links to both claims, sources, a status field, and a next-action field. In a chat chain, contradiction becomes prose that the next model may forget or hallucinate over.',
+            'Opportunistic scheduling: the control shell can dynamically shift between bottom-up evidence building and top-down hypothesis verification based on what the board reveals. A cheap check that resolves a major conflict outranks a broad search with low expected information gain.',
+          ],
+        },
+        {
+          type: 'quote',
+          text: 'In Hearsay-II, the scheduling strategy was critical: combining bottom-up evidence from the signal with top-down expectations from language models, without hard-wiring every knowledge source to every other.',
+          attribution: 'Lesser and Erman, "A Retrospective View of the Hearsay-II Architecture," IJCAI 1977',
+        },
+        'The correctness argument is an invariant: every record on the board that reaches synthesis must have (a) at least one supporting source, (b) no unresolved conflict, and (c) a freshness timestamp within the validity window. The gate enforces this by rejecting any output path that violates it.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A blackboard design costs more than a simple pipeline. You need schemas, versioning, event logs, locking or transactional updates, permissions, agenda scheduling, and cleanup. You also need clear ownership over who can mutate which fields. Without that discipline, the board becomes an attractive shared mess.`,
-        `The benefit is flexibility. Pipelines are easier when the order is fixed. Blackboards are better when the path depends on partial evidence, conflicts, uncertainty, and opportunistic progress. The design is a poor fit for a small deterministic workflow but a strong fit for research, diagnosis, planning, and other tasks where the next step depends on what has been learned.`,
+        'A blackboard is more expensive than a pipeline. The overhead is real and structural.',
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'Pipeline', 'Blackboard'],
+          rows: [
+            ['Schema design', 'Implicit in function signatures', 'Explicit record types, field contracts, version rules'],
+            ['Coordination', 'Fixed order, no scheduler', 'Agenda priority queue: O(log A) per insert/extract for A agenda items'],
+            ['Per-step overhead', 'One function call', 'Board read (query matching records) + board write (insert/update) + agenda update'],
+            ['Conflict handling', 'Not represented', 'Conflict records, link maintenance, resolution scheduling'],
+            ['Testability', 'Unit test each stage', 'Assert board state invariants: unsupported claims must create verification agenda items'],
+            ['Debugging', 'Stack trace', 'Board event log with timestamps, authoring KS, and state diffs'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Board operations are typically O(1) hash lookups or O(log N) index queries for N records. The real cost is not algorithmic -- it is the engineering effort to define schemas, enforce write contracts, and maintain the agenda. Budget 2-5x the implementation time of a pipeline for the same number of stages.',
+        },
+        'The benefit scales with uncertainty. If the execution order is fixed and the data is clean, a pipeline is cheaper and clearer. If the next step depends on partial evidence, if conflicts arise, if specialists have overlapping scope, if the problem admits opportunistic progress -- the blackboard pays for itself by preventing the silent propagation of bad state.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it wins',
       paragraphs: [
-        `The first failure mode is untyped prose. If the board is just notes, agents cannot reliably prioritize, merge, reject, or audit entries. The second is hidden side channels. If agents coordinate outside the board, the visible state is no longer the system state, and debugging becomes guesswork.`,
-        `Stale state is another common failure. An agent may read a claim that has since been contradicted, or synthesis may use a source after its freshness window expired. Version fields, status transitions, conflict links, leases, and trace events help keep the board from becoming a dump of obsolete facts. The practical rule is simple: promote only records whose support, freshness, and conflict status are explicit.`,
-        `A third failure is weak authority control. If every worker can overwrite final conclusions, the board becomes last-writer-wins memory. Strong designs separate proposal, evidence, review, synthesis, and publication records so that disagreement is preserved until a responsible step resolves it.`,
+        {
+          type: 'table',
+          headers: ['Domain', 'Why the blackboard fits', 'What the board holds'],
+          rows: [
+            ['Speech understanding (Hearsay-II)', 'Multiple representation levels (acoustic, lexical, semantic) must combine bottom-up and top-down evidence', 'Segment hypotheses, word candidates, phrase hypotheses, semantic interpretations'],
+            ['Multi-agent research systems', 'Evidence arrives incrementally, conflicts must block synthesis, provenance must reach the final answer', 'Claims, source records, conflicts, gaps, confidence scores'],
+            ['Medical diagnosis (INTERNIST-like)', 'Multiple diseases can explain overlapping symptoms; partial evidence must be weighed and combined', 'Symptom observations, disease hypotheses, differential conflicts'],
+            ['Autonomous vehicle perception', 'Camera, lidar, radar produce overlapping but conflicting object detections that must be fused', 'Object hypotheses, sensor readings, fusion confidence, tracking state'],
+            ['Collaborative design (ABACUS)', 'Structural, thermal, and geometric constraints from different engineering disciplines must be reconciled', 'Constraint sets, design hypotheses, violation records'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The common thread is heterogeneous partial knowledge. Whenever the problem has multiple independent sources of evidence that may conflict, the blackboard pattern earns its overhead.',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        `Primary sources: Lesser and Erman, A Retrospective View of the Hearsay-II Architecture, https://www.ijcai.org/Proceedings/77-2/Papers/055.pdf; Hearsay-II Speech-Understanding System, https://stacks.stanford.edu/file/druid%3Ats923xj4709/ts923xj4709.pdf; and Blackboard Systems overview, https://mas.cs.umass.edu/paper/218.`,
-        `Study Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Contract Net Agent Task Allocation, Claim Graph & Source Ledger, Deep Research Agent Architecture Case Study, Binary Heap, Hash Table, Distributed Tracing, and Temporal Workflow Case Study next.`,
+        {
+          type: 'bullets',
+          items: [
+            'Untyped boards: if the board is free text, agents cannot query, filter, prioritize, merge, or audit entries. The board becomes a shared notepad and coordination reverts to guesswork. Every entry needs typed fields: claim, source, confidence, status, conflict links.',
+            'Hidden side channels: if agents coordinate outside the board (direct calls, shared variables, prompt injection), the board no longer represents the true system state. Debugging becomes impossible because the visible state diverges from actual state.',
+            'Stale records: an agent reads a claim that has since been contradicted, or synthesis uses a source past its freshness window. Mitigation requires version fields, status transitions, lease expiration, and conflict-link checks before any promotion.',
+            'Last-writer-wins: if every agent can overwrite final conclusions, disagreement is silently erased. Strong designs separate record types (proposal, evidence, review, synthesis, publication) so that only a responsible step can promote a record.',
+            'Small deterministic workflows: if there are 3 stages in a fixed order with no uncertainty, a pipeline is simpler, faster, and easier to test. The blackboard adds schema, agenda, and event-log overhead for no benefit.',
+          ],
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: '// Stale-read failure sequence:\n// t=0  Critic writes conflict(claim_A, claim_B, status=open)\n// t=1  Synthesizer reads claim_A (status=supported) -- does not check conflicts\n// t=2  Synthesizer publishes report containing claim_A\n// t=3  Report contradicts itself because claim_B (opposing A) is also supported\n//\n// Fix: synthesizer query must join claims with conflicts:\n//   SELECT * FROM claims\n//   WHERE status = \'supported\'\n//   AND id NOT IN (SELECT target FROM conflicts WHERE status = \'open\')',
+        },
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Lesser & Erman, "A Retrospective View of the Hearsay-II Architecture," IJCAI 1977', 'The original blackboard system for speech understanding; control shell design, KS scheduling, and the focus-of-attention problem'],
+            ['Erman et al., "The Hearsay-II Speech-Understanding System," Computing Surveys, 1980', 'Full system description with performance data and lessons learned'],
+            ['H. Penny Nii, "Blackboard Systems," AI Magazine 7(2-3), 1986', 'Survey of the blackboard model across domains: speech, design, planning, signal interpretation'],
+            ['Corkill, "Blackboard Systems," AI Expert, 1991', 'Practical implementation guidance and taxonomy of blackboard variants'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Binary Heap (the agenda is a priority queue) and Hash Table (board records are keyed by id for O(1) lookup).',
+            'Extension: study Multi-Agent Orchestration Topologies and Contract Net Agent Task Allocation for alternative coordination patterns.',
+            'Case studies: study Agent2Agent Protocol Task State Case Study, Deep Research Agent Architecture Case Study, and Claim Graph & Source Ledger for modern applications of blackboard-style shared state.',
+            'Related systems: study Distributed Tracing (board event logs resemble spans) and Temporal Workflow Case Study (durable execution with shared state).',
+          ],
+        },
       ],
     },
   ],
 };
+

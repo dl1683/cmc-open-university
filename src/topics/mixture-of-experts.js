@@ -17,7 +17,7 @@ export const topic = {
 
 const TOKENS = ['the', 'protein', 'folds', 'quickly'];
 const EXPERTS = ['E1', 'E2', 'E3', 'E4'];
-// The router's learned probabilities: which expert should process each token.
+// The router\'s learned probabilities: which expert should process each token.
 const ROUTER = [
   [0.70, 0.10, 0.12, 0.08],
   [0.05, 0.78, 0.10, 0.07],
@@ -75,93 +75,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        `The matrix shows a router score table. Each row is a token, each column is an expert (a small feed-forward network). Cell values are the router's learned preference for sending that token to that expert. Highlighted cells are the top-k experts selected for each token — only those experts actually run.`,
+        `The first frame shows the dense baseline: every token activates every expert-sized block, so capacity and compute grow together. The second frame reveals the router scores. The third frame applies top-k selection — most cells go dark because those experts skip that token entirely. The fourth frame shows the failure mode: a collapsed router where all tokens crowd into one expert.`,
+        `Watch for three things at each step. Which experts light up (where the token spends compute). How many stay dark (the compute saved). And in the collapse frame, how routing degenerates when balancing fails.`,
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Mixture of Experts exists because dense model scaling ties capacity to per-token compute. If a standard Transformer feed-forward network gets larger, every token pays for the larger block. That can improve quality, but it also raises training cost, inference cost, and latency for easy and hard tokens alike.`,
-        `MoE breaks that tie. The model owns many expert feed-forward networks, but a small router sends each token to only a few of them. Total parameters can grow while the number of active parameters per token stays much smaller than the whole model.`,
-        `This is conditional computation. It is the neural version of a familiar systems idea: do not touch every shard when the input only needs one or two. The hard part is making the routing trainable, balanced, and efficient on real accelerators.`,
+        `Jacobs et al. introduced Mixture of Experts in 1991: instead of one monolithic network, train several specialist networks and a gating function that picks which specialist handles each input. The original motivation was supervised learning with heterogeneous data — different regions of input space benefit from different learned functions.`,
+        `The idea became urgent at Transformer scale. GPT-3 has 175 billion parameters, and every token pays for all of them. If a model needs more capacity — more stored knowledge, more specialized circuits — the only dense option is to make the feed-forward layers wider or deeper, which raises cost per token proportionally. MoE breaks that proportionality: total parameters (capacity) can grow independently of active parameters per token (compute).`,
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is a larger dense model. Add width, layers, or feed-forward hidden dimension, and every token can use the extra parameters. Training is straightforward compared with sparse routing, and serving has regular tensor shapes.`,
-        `The wall is cost. Dense scaling spends the same compute on punctuation, boilerplate, rare facts, code, math, and everything else. It also forces the serving system to run the whole block even when only a small part of the learned capacity would help the token.`,
-        `A hand-written specialist switch is another tempting approach: route code to a code model and medical text to a medical model. That is brittle. MoE learns the routing inside the model, at token granularity, during training.`,
+        `Make the model bigger. Add layers, widen the feed-forward blocks, increase the embedding dimension. Every token can use the extra parameters. Training is straightforward — regular dense matrix multiplies with well-understood parallelism — and inference has uniform tensor shapes that hardware likes.`,
+        `A second obvious approach is hand-routed specialization: train a code model, a medical model, a math model, and pick at the application level. This avoids the cost of a single giant model but is brittle, cannot share a backbone, and routes at document granularity rather than token granularity.`,
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is sparse activation. The parameter set can be large, but the compute graph for one token can be small. A token representation is scored against all experts, the top-k experts run, and their outputs are combined using router weights.`,
-        `The invariant is per-token expert compute equals k expert calls, not N expert calls. If a layer has 64 experts and k is 2, a token runs two experts. Increasing N increases capacity and memory footprint, but it does not automatically increase feed-forward FLOPs for that token.`,
-        `The invariant is only useful if load stays balanced. A routed layer must also keep expert capacity, overflow policy, and device placement under control. Otherwise the theoretical FLOP saving turns into a hot expert, dropped tokens, or a slow all-to-all exchange.`,
+        `Dense scaling ties capacity to per-token compute. A 1-trillion-parameter dense model needs roughly 1 trillion multiply-adds for every token, whether that token is a period, a common preposition, or a rare multilingual technical term. The compute budget, the energy bill, and the inference latency all scale with total parameters.`,
+        `Hand-routed specialization fails differently. It cannot share representations across domains, it cannot learn routing from data, and it cannot specialize at the token level — the router granularity is the entire request, not the individual hidden state.`,
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        `Inside a Transformer block, the dense feed-forward sublayer is replaced by an MoE sublayer. The router takes each token hidden state and produces scores over N experts, usually through a learned linear projection followed by softmax. The system selects the top-k experts for each token.`,
-        `Dispatch groups tokens by selected expert. Each expert is an ordinary feed-forward network with its own parameters. The selected expert outputs are weighted by the router scores and combined back into the original token order. The rest of the Transformer block can continue as usual.`,
-        `Training adds two pieces that are easy to miss. First, the router needs a load-balancing objective so all experts receive work and gradients. Second, the layer needs a capacity rule: each expert can accept only so many tokens in a batch. Overflow can be dropped, rerouted, delayed, or handled by a backup path depending on the design.`,
-        `Distributed serving adds an all-to-all communication step when experts live on different devices. Tokens must travel to the device that owns their expert and then return after expert computation. That communication can dominate if batches are small, routing is uneven, or the network is slow.`,
+        `Sparse activation. Replace the single feed-forward block in each Transformer layer with N parallel expert feed-forward blocks and a small gating network (the router). The router scores each token's hidden state against all N experts, selects the top-k, and runs only those k experts. The outputs are combined using the router's scores as weights.`,
+        `The invariant: per-token compute is proportional to k, not to N. A layer with 64 experts and k = 2 runs two expert forward passes per token regardless of how many experts exist. Adding more experts increases total stored parameters (capacity) and memory, but not per-token FLOPs.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `The router is a learned linear projection from the token hidden state to N logits, followed by softmax: g(x) = softmax(W_g * x). This produces a probability distribution over experts. The system takes the top-k entries.`,
+        `Dispatch groups tokens by their selected experts. Each expert is a standard two-layer FFN (up-projection, activation, down-projection) with its own parameters. After the selected experts process their assigned tokens, the outputs are weighted by the corresponding router scores and summed back into the token's hidden state. The rest of the Transformer block — attention, layer norm, residual connections — continues unchanged.`,
+        `Training requires a load-balancing auxiliary loss. Without it, the router collapses: a few experts receive most tokens, get most gradients, improve fastest, attract even more tokens, and the remaining experts starve. The auxiliary loss penalizes uneven routing by encouraging each expert to receive roughly 1/N of the tokens. A capacity factor caps how many tokens each expert can accept per batch; overflow is dropped or rerouted.`,
+        `In distributed training and serving, experts are placed across devices using expert parallelism. Tokens must be sent to the device that owns their selected expert (all-to-all dispatch), processed, and returned (all-to-all combine). This communication cost can dominate when batches are small, routing is uneven, or interconnect bandwidth is limited.`,
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `MoE works when many useful functions can share the same attention backbone but use different feed-forward parameters. The router learns a soft partition of token states. Related token states tend to visit related experts, so each expert receives repeated structure rather than random noise.`,
-        `The combine step keeps the layer differentiable. Router scores affect which experts are selected and how their outputs are weighted. Auxiliary losses push the router away from collapse, so unused experts get enough examples to learn.`,
-        `Correctness at inference is a guarded execution rule: for a fixed model, router, k, and capacity policy, the output is defined by the selected experts and combine weights. The danger is not mathematical ambiguity. The danger is bad routing, overloaded experts, or serving code that changes overflow behavior between training and inference.`,
+        `Different token hidden states represent different kinds of information — syntactic structure, factual recall, arithmetic, code logic, multilingual mappings. A single FFN must handle all of them with one set of weights. Multiple experts can specialize: the router learns a soft partition of hidden-state space, and each expert receives tokens with related structure. This lets the model store more specialized functions without paying for all of them on every token.`,
+        `The combine step keeps the layer differentiable. Router scores flow gradients to both the gating network and the selected experts. The auxiliary loss provides a gradient signal to underused experts, preventing the collapse that would otherwise make sparse routing degenerate into a dense model with wasted parameters.`,
+        `For a fixed model, the output is deterministic: the router scores determine which experts run and with what weights. Correctness risk is not mathematical ambiguity but operational mismatch — if the capacity policy or overflow handling differs between training and inference, the model sees a different effective computation graph.`,
       ],
     },
     {
-      heading: 'What the routing readout shows',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The matrix shows the router score table. Rows are tokens, columns are experts, and each cell is the router preference for that token-expert pair. Top-k routing turns that score table into a sparse dispatch plan.`,
-        `The dense frame is the baseline: every token pays for every block. The top-k frame shows the algorithmic change: most cells become inactive for that token. This explains active parameter count, not total memory footprint.`,
-        `The collapsed-router frame is the limit case. If all rows choose the same column, sparse activation still exists on paper, but the batch bottlenecks on one expert and the other experts stop learning useful functions.`,
+        `Mixtral 8x7B (Mistral, 2024) has 8 experts per MoE layer with roughly 7B parameters each, totaling 46.7B parameters. With top-2 routing, only about 13B parameters are active per token. The compute cost per token matches a dense 13B model, but the memory footprint is 46.7B parameters — roughly 94 GB in FP16. MoE trades memory for quality-per-FLOP.`,
+        `Communication is the second cost. Expert parallelism places experts on different accelerators. Each MoE layer requires an all-to-all exchange: tokens travel to their expert's device, get processed, and travel back. In Mixtral with 8 GPUs (one expert per GPU), every MoE layer does two all-to-all rounds. With small batches or slow interconnects, this communication can exceed the compute time it saved.`,
+        `Load balancing is the third cost. The auxiliary loss pushes for uniform routing, but the data may genuinely need some experts more than others. Too little balancing creates hot experts and wasted capacity. Too much balancing forces tokens to suboptimal experts, hurting quality. Tuning the balance coefficient is an active research problem.`,
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `MoE reduces active FLOPs, but it does not make capacity free. All expert weights must be stored somewhere. If a model has 47B total parameters and 13B active parameters per token, the serving stack still has to place, load, shard, quantize, or page the larger parameter set.`,
-        `Communication is the second cost. Expert parallelism often sends token activations across devices. A dense layer may run as regular tensor math, while an MoE layer must sort, dispatch, execute uneven expert batches, and combine results. That can hurt latency even when arithmetic drops.`,
-        `Load balancing is the third cost. The router is trained to choose useful experts, but the system also wants equal device work. Those goals can conflict. Too little balancing causes hot experts. Too much balancing can force tokens away from the expert that would have produced the best representation.`,
-        `Evaluation cost also rises. Quality must be checked by language, domain, token length, and rare task slice. A sparse model can improve average scores while one expert becomes weak for a small but valuable segment.`,
+        `Mixtral 8x7B (Mistral, 2024): 8 experts, top-2 routing, 46.7B total / 13B active parameters. Matches or exceeds LLaMA 2 70B on most benchmarks at roughly 1/5 the inference compute. First widely deployed open-weight MoE language model.`,
+        `Switch Transformer (Fedus et al., 2022): pushed k down to 1 — each token visits exactly one expert. Simpler routing, lower communication cost, 7x faster pretraining than T5-Base at comparable quality. Demonstrated that MoE scales to trillions of parameters.`,
+        `GShard (Lepikhin et al., 2021): scaled a 600B-parameter MoE Transformer for multilingual translation across 2048 TPU v3 cores. Introduced the capacity factor and top-2 gating with auxiliary balancing loss that became standard.`,
+        `DeepSeek-V2 (2024) and DeepSeek-V3 (2024): use fine-grained MoE with 160 small experts and top-6 routing, plus shared experts that process every token. DeepSeek-V3 has 671B total parameters with 37B active. The fine-grained design reduces the granularity mismatch between expert size and token diversity.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        `MoE wins when model quality benefits from more parameters but the product cannot afford dense per-token compute. It is especially natural for large language models, multilingual models, code and text mixtures, recommender systems, and workloads where different input regions need different learned functions.`,
-        `It also wins when the serving platform can keep expert weights resident and has enough batch size or network bandwidth to make routing overhead small relative to expert computation. A well-run MoE system can deliver higher quality per active FLOP than a comparable dense model.`,
-        `Open systems such as Mixtral and research systems such as Switch Transformer, GShard, and DeepSeekMoE make the pattern concrete: sparse feed-forward compute can scale total capacity beyond what a dense layer would spend on every token.`,
+        `Expert collapse: without careful auxiliary loss tuning, the router converges to sending most tokens to one or two experts. The remaining experts receive too few tokens to learn useful functions, and the model degenerates into an expensive dense model with dead weight. The collapsed-router frame in the animation shows this directly.`,
+        `Memory pressure: a model with 8 experts needs all 8 in memory even though only 2 run per token. Mixtral 8x7B needs roughly 94 GB in FP16, compared to 26 GB for a dense 13B model with similar per-token compute. On consumer GPUs with 24 GB VRAM, MoE models require aggressive quantization or offloading that dense models of equivalent active size do not.`,
+        `Fine-tuning instability: updating a pretrained MoE model can disrupt the learned routing. Experts that specialized during pretraining may receive mismatched data during fine-tuning, and the router may need to relearn dispatch patterns. LoRA and other parameter-efficient methods help but add complexity.`,
+        `Wall-clock latency: a smaller dense model on a single GPU can be faster than a larger MoE model spread across multiple devices, especially at low batch sizes where communication overhead dominates. Sparse FLOPs are a cost metric, not a latency guarantee.`,
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        `MoE can fail during training through router collapse, expert starvation, unstable load-balancing loss, or overflow behavior that drops too many tokens. It can fail during serving through hot experts, slow all-to-all communication, memory pressure, or a mismatch between training capacity policy and inference capacity policy.`,
-        `It is not always faster in wall-clock terms. A smaller dense model on one GPU can beat a larger sparse model if the sparse model needs several devices, pays high communication cost, or cannot batch enough tokens. Sparse FLOPs are a cost signal, not a latency guarantee.`,
-        `More experts do not automatically mean better quality. Past a point, experts may be undertrained, duplicated, poorly balanced, or too expensive to keep resident. The useful question is not how many experts exist; it is whether routing gives better quality, cost, and latency on the measured workload.`,
-      ],
-    },
-    {
-      heading: 'Practical guidance',
-      paragraphs: [
-        `When studying or deploying MoE, always separate total parameters, active parameters, memory footprint, and delivered latency. The marketing number is usually total parameters. The compute number is active parameters. The hardware bill often follows memory footprint and communication.`,
-        `Track token count per expert, overflow rate, dropped-token rate, router entropy, top-k margin, per-expert latency, all-to-all time, expert memory footprint, device utilization, and quality by input slice. These signals show whether the router learned useful specialization or only moved the bottleneck.`,
-        `Use MoE after the team can run dense Transformer baselines well. Sparse routing adds enough failure modes that it should be justified by a measured capacity need, not by novelty.`,
+        `4 experts (E0 through E3), each a 2-layer FFN with hidden dimension 512. Top-2 routing. A token embedding x enters the MoE layer.`,
+        `The router computes g(x) = softmax(W_g * x) and produces scores [0.40, 0.10, 0.35, 0.15]. Top-2 selects E0 (score 0.40) and E2 (score 0.35). The other two experts do zero work for this token.`,
+        `Renormalize the selected scores: weight for E0 = 0.40 / (0.40 + 0.35) = 0.533. Weight for E2 = 0.35 / (0.40 + 0.35) = 0.467. Final output = 0.533 * E0(x) + 0.467 * E2(x).`,
+        `The model has 4x the feed-forward capacity of a single expert, but each token pays for only 2 expert forward passes. E1 and E3 remain in memory — they will serve other tokens whose hidden states route differently — but they contribute zero FLOPs for this token.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Shazeer et al., Outrageously Large Neural Networks at https://arxiv.org/abs/1701.06538; GShard at https://arxiv.org/abs/2006.16668; Switch Transformer at https://arxiv.org/abs/2101.03961; Mixtral 8x7B at https://arxiv.org/abs/2401.04088; DeepSeekMoE at https://arxiv.org/abs/2401.06066; and DeepSeek-V3 at https://arxiv.org/abs/2412.19437.`,
-        `Study Transformer Block, Neural Network Forward Pass, Softmax and Temperature, Load Balancer, GPU Allreduce, Tensor Parallelism, MoE Expert Capacity and All-To-All Routing Ledger, Mixture-of-Depths Token Routing, KV Cache, and Transformer Inference Roofline next.`,
+        `Jacobs et al. 1991, Adaptive Mixtures of Local Experts — the original MoE idea. Shazeer et al. 2017, Outrageously Large Neural Networks (https://arxiv.org/abs/1701.06538) — sparsely-gated MoE at scale. Lepikhin et al. 2021, GShard (https://arxiv.org/abs/2006.16668) — capacity factor and 600B MoE. Fedus et al. 2022, Switch Transformers (https://arxiv.org/abs/2101.03961) — k=1 routing to trillion parameters. Jiang et al. 2024, Mixtral of Experts (https://arxiv.org/abs/2401.04088). DeepSeek-V3, 2024 (https://arxiv.org/abs/2412.19437) — fine-grained MoE with shared experts.`,
+        `Prerequisite: Transformer Block (where MoE replaces the FFN), Softmax and Temperature (the gating function). Extensions: MoE Expert Capacity and All-To-All Routing Ledger (dispatch mechanics), Mixture-of-Depths Token Routing (routing tokens across layers instead of experts). Related systems: Tensor Parallelism and GPU Allreduce (the communication primitives MoE relies on), KV Cache (unaffected by MoE — attention caching is orthogonal to expert routing).`,
       ],
     },
   ],
 };
+

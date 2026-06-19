@@ -1,4 +1,4 @@
-// Instrumental variables: when the confounder is unobservable and you can't
+﻿// Instrumental variables: when the confounder is unobservable and you can't
 // randomize, find a lottery hiding in the world — something that nudges the
 // treatment and touches the outcome no other way — and divide two differences.
 
@@ -16,7 +16,7 @@ export const topic = {
 };
 
 // The synthetic world, fully known so estimators can be audited:
-//   ability a (UNOBSERVED) ∈ uniform grid; instrument z ∈ {0, 1} (near a
+//   ability a (UNOBSERVED) âˆˆ uniform grid; instrument z âˆˆ {0, 1} (near a
 //   college); schooling s = 10 + 2z + a; wage w = 20 + 3s + 5a.
 // TRUE causal effect of one year of schooling on wage: exactly 3.
 const TRUE_EFFECT = 3;
@@ -77,10 +77,10 @@ function* lottery() {
       ['naive', 'naive regression of wage on schooling'],
       ['blocked', 'why the usual fix is unavailable'],
     ], [['detail', '']], [
-      ['ability → schooling AND ability → wage (the fork), schooling → wage with TRUE effect exactly 3 — every row generated from these equations, nothing hidden from US'],
+      ['ability â†’ schooling AND ability â†’ wage (the fork), schooling â†’ wage with TRUE effect exactly 3 — every row generated from these equations, nothing hidden from US'],
       ['schooling and wage only: ability lives in people\'s heads — no dataset column, ever'],
       [`slope = ${fmt(NAIVE)}, computed live — nearly double the true 3, because able people both study longer AND earn more regardless`],
-      ["Causal Graphs, Confounding & Simpson's Paradox said: block the fork by adjusting for the confounder. You cannot stratify on a column that does not exist"],
+      ["Causal Graphs, Confounding & Simpson\'s Paradox said: block the fork by adjusting for the confounder. You cannot stratify on a column that does not exist"],
     ]),
     highlight: { removed: ['naive:detail'], active: ['blocked:detail'] },
     explanation: `The hardest version of the confounding problem. This page builds a world where one extra year of schooling causes EXACTLY ${TRUE_EFFECT} units of extra wage — we wrote the equations, so we know. But ability confounds: it raises schooling and wage both, and unlike stone size in the kidney study, it appears in no dataset. Regress wage on schooling and the slope comes out ${fmt(NAIVE)}, computed live — biased upward by two-thirds, crediting education for what ability did. Backdoor adjustment is not hard here; it is IMPOSSIBLE, because the back door runs through an unmeasured room. Randomization would fix it, but you cannot randomly assign childhoods. This is where most causal questions about people actually live.`,
@@ -90,11 +90,11 @@ function* lottery() {
   yield {
     state: table('The escape: a variable with exactly one road into the outcome', [
       ['def', 'the instrument'],
-      ['c1', '1 · RELEVANCE'],
-      ['c2', '2 · EXCLUSION'],
-      ['c3', '3 · INDEPENDENCE'],
+      ['c1', '1 Â· RELEVANCE'],
+      ['c2', '2 Â· EXCLUSION'],
+      ['c3', '3 Â· INDEPENDENCE'],
     ], [['detail', '']], [
-      ['z = "grew up near a college": z → schooling → wage, and CRUCIALLY no other arrow leaves z — a nudge on the treatment with no private path to the outcome'],
+      ['z = "grew up near a college": z â†’ schooling â†’ wage, and CRUCIALLY no other arrow leaves z — a nudge on the treatment with no private path to the outcome'],
       [`the instrument actually moves the treatment: here, growing up near a college adds ${fmt(WALD.dS, 1)} years of schooling (computed live from the z = 1 vs z = 0 groups)`],
       ['z affects wage ONLY through schooling — proximity must not pay wages directly, attract richer families, or correlate with local labor markets (the assumption that does the heavy lifting, and the one critics attack)'],
       ['z is as-good-as-random with respect to ability: in this world, near and far kids have identical ability distributions by construction — nature ran a lottery'],
@@ -111,13 +111,13 @@ function* lottery() {
       ['ratio', 'the ratio'],
       ['why', 'why this isolates causation'],
     ], [['calc', '']], [
-      [`mean wage(near) − mean wage(far) = ${fmt(WALD.dW, 1)} — the lottery's total downstream effect`],
-      [`mean schooling(near) − mean schooling(far) = ${fmt(WALD.dS, 1)} years — how hard the lottery actually pushed the treatment`],
+      [`mean wage(near) âˆ’ mean wage(far) = ${fmt(WALD.dW, 1)} — the lottery\'s total downstream effect`],
+      [`mean schooling(near) âˆ’ mean schooling(far) = ${fmt(WALD.dS, 1)} years — how hard the lottery actually pushed the treatment`],
       [`${fmt(WALD.dW, 1)} / ${fmt(WALD.dS, 1)} = ${fmt(WALD.iv, 2)} — the true effect, recovered EXACTLY, with ability still unobserved`],
       ['both differences compare lottery groups, and the lottery is independent of ability — so ability cancels out of BOTH, and the ratio rescales the clean nudge into a per-year effect'],
     ]),
     highlight: { found: ['ratio:calc'] },
-    explanation: `The estimator is one division, computed live: the instrument's effect on the outcome (${fmt(WALD.dW, 1)} wage units) divided by its effect on the treatment (${fmt(WALD.dS, 1)} years) = ${fmt(WALD.iv, 2)} — the true ${TRUE_EFFECT}, exactly, from a dataset whose naive regression said ${fmt(NAIVE)}. The intuition: comparing near-college to far-college kids is a fair comparison (the lottery balanced ability across groups), so the wage gap between groups is CAUSED by the lottery — and the only road from lottery to wage runs through schooling. The gap is therefore "the effect of ${fmt(WALD.dS, 1)} extra years," and dividing by ${fmt(WALD.dS, 1)} prices a single year. A natural experiment is exactly this: A/B Testing & p-values where nature, not you, flipped the coin — and the Wald ratio is how you read the result off.`,
+    explanation: `The estimator is one division, computed live: the instrument\'s effect on the outcome (${fmt(WALD.dW, 1)} wage units) divided by its effect on the treatment (${fmt(WALD.dS, 1)} years) = ${fmt(WALD.iv, 2)} — the true ${TRUE_EFFECT}, exactly, from a dataset whose naive regression said ${fmt(NAIVE)}. The intuition: comparing near-college to far-college kids is a fair comparison (the lottery balanced ability across groups), so the wage gap between groups is CAUSED by the lottery — and the only road from lottery to wage runs through schooling. The gap is therefore "the effect of ${fmt(WALD.dS, 1)} extra years," and dividing by ${fmt(WALD.dS, 1)} prices a single year. A natural experiment is exactly this: A/B Testing & p-values where nature, not you, flipped the coin — and the Wald ratio is how you read the result off.`,
     invariant: 'IV = (effect of z on outcome) / (effect of z on treatment): the confounder cancels from both, the division sets the scale.',
   };
 }
@@ -149,7 +149,7 @@ function* finePrint() {
       ['both', 'same tiny exclusion violation in both worlds'],
       ['rule', 'the working rule'],
     ], [['math', '']], [
-      ['a direct z → wage leak of 0.5 units biases the ratio by 0.5 / 2 = 0.25 — annoying, survivable'],
+      ['a direct z â†’ wage leak of 0.5 units biases the ratio by 0.5 / 2 = 0.25 — annoying, survivable'],
       ['the SAME 0.5 leak biases the ratio by 0.5 / 0.1 = 5.0 — bigger than the true effect of 3: the answer is now mostly artifact'],
       ['the leak didn\'t grow; the DENOMINATOR shrank — a weak first stage is a lever that amplifies every imperfection, and sampling noise in the denominator adds instability on top'],
       ['report the first-stage strength always (the F > 10 folk threshold); a weak instrument is not a weak answer — it is a megaphone for your mistakes'],
@@ -169,7 +169,7 @@ function* finePrint() {
       ['always-takers (study regardless), never-takers (won\'t regardless), COMPLIERS (nudged by the lottery), defiers (assumed away) — the instrument only moves the compliers'],
       ['the Local Average Treatment Effect: the causal effect FOR COMPLIERS — kids whose schooling actually depended on living near a college'],
       ['nothing about always-takers or never-takers: if compliers benefit differently from schooling than everyone else, the IV answer is true AND not the population average'],
-      ["randomize when you can (A/B Testing & p-values) · adjust when confounders are measured (Causal Graphs, Confounding & Simpson's Paradox + Doubly Robust Estimation) · find a lottery when they aren't (this page) — three tools, one question"],
+      ["randomize when you can (A/B Testing & p-values) Â· adjust when confounders are measured (Causal Graphs, Confounding & Simpson\'s Paradox + Doubly Robust Estimation) Â· find a lottery when they aren\'t (this page) — three tools, one question"],
     ]),
     highlight: { active: ['late:detail'], removed: ['ext:detail'] },
     explanation: 'The honest closing: WHOSE causal effect did the division compute? Only the compliers\' — the people the lottery actually moved. In this page\'s synthetic world everyone responds identically, so it doesn\'t matter; in reality, the kids whose schooling hinges on college proximity may gain more (or less) from extra years than kids who\'d study anywhere. The IV answer is exactly right about a subpopulation you didn\'t choose and can\'t directly identify — true and local, hence LATE. That isn\'t a flaw so much as a price tag, and knowing it completes the causal toolkit: experiment severs the arrows, adjustment blocks the measured back doors, and instruments exploit found lotteries — each rung trading assumptions for reach, each honest only when its fine print is read aloud.',
@@ -187,87 +187,148 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Instrumental variables exist for causal questions where the usual fixes are unavailable. You want to know whether schooling raises wages, jail time changes later employment, military service affects lifetime earnings, or income changes conflict. Random assignment may be unethical or impossible, and the important confounder may never appear in the data.`,
-        `The page's synthetic world makes that problem visible. Ability affects both schooling and wages, but the analyst cannot observe ability. The true effect of one extra year of schooling is exactly 3, because the data generator says so. A naive regression of wage on schooling gives about 5.92, crediting schooling for part of ability's effect. Instrumental variables are a way to recover a causal effect from a natural nudge when direct adjustment cannot work.`,
+        'The animation builds a synthetic world where every equation is visible. Ability (unobserved by the analyst) drives both schooling and wages. The true causal effect of one extra year of schooling is exactly 3, written into the data generator. Active cells mark the current estimator being computed. Removed cells flag biased results. Found cells mark the recovered causal effect.',
+        'The first view shows the confounding trap: naive OLS returns roughly 5.92 instead of 3, because ability inflates the slope. The second view walks through famous instruments, the weak-instrument amplification, and the LATE interpretation. At each frame, check: which comparison is being made, what assumption licenses it, and what would break if that assumption failed.',
+        {
+          type: 'diagram',
+          text: 'Z (instrument)  --->  S (treatment)  --->  W (outcome)\n                          ^                       ^\n                          |                       |\n                          +---  A (confounder) ---+\n                               (UNOBSERVED)\n\nZ = near college,  S = years of schooling,  W = wage\nA = ability (never in the dataset)\n\nValid instrument: Z -> S -> W exists,  Z -> W directly does NOT exist,\nZ is independent of A.',
+          label: 'The IV causal DAG',
+        },
       ],
     },
     {
-      heading: `The naive approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to regress the outcome on the treatment and interpret the slope. In the schooling example, regress wage on years of schooling and call the coefficient the return to education. This is simple, uses the available columns, and often looks precise.`,
-        `It fails because schooling was not assigned randomly. People with higher unobserved ability may get more schooling and also earn more for reasons that are not caused by schooling. In a causal graph, ability is a common cause of treatment and outcome. If ability were measured, you could adjust for it. If it is unmeasured, adjustment cannot block the backdoor path. More rows do not fix a missing variable.`,
+        'Philip Wright needed the supply elasticity of flaxseed in 1928. Price and quantity move together in the data, but supply shifts and demand shifts both cause that movement. Regressing quantity on price confounds the two curves. Wright found a variable -- a weather shock -- that shifted supply without independently shifting demand. That variable let him trace one curve while the other held still. The technique he invented is instrumental variables.',
+        'The problem generalizes far beyond economics. You want the causal effect of schooling on wages, but ability confounds both. You want the effect of incarceration on reoffending, but judges, defendants, and crime severity tangle together. You want the effect of military service on earnings, but volunteers differ from conscripts. In each case, the confounder is unmeasured or unmeasurable, randomization is impossible, and the backdoor path cannot be blocked by adjustment. IV exists because some causal questions cannot be answered by any amount of careful regression on the available columns.',
+        {
+          type: 'quote',
+          text: 'God has given us two instruments with which to do his work on earth, the natural experiment and the randomized controlled trial.',
+          attribution: 'Attributed to various econometricians, paraphrasing the IV philosophy',
+        },
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is to stop looking for a perfect treatment comparison and look for a clean nudge. An instrument is a variable that changes the treatment but has no other route to the outcome. Distance to college is the running example: growing up near a college may make schooling easier, but the IV argument says proximity should affect wages only through the extra schooling it causes.`,
-        `The instrument acts like a small natural experiment. It does not force everyone to take the treatment. It nudges some people. If the nudge is independent of the hidden confounder and touches the outcome only through treatment, the outcome gap between instrument groups is caused by the treatment movement that the instrument produced. The estimator then divides the outcome movement by the treatment movement.`,
+        'Regress the outcome on the treatment. In the schooling example: fit wage = a + b * schooling, read off the slope b, and call it the return to education. The method is simple, uses all available rows, and produces a confident-looking standard error. In this page\'s synthetic data, OLS gives a slope of about 5.92.',
+        'The slope is wrong by nearly double. Ability raises both schooling and wages. Kids with higher ability study longer AND earn more regardless of how long they study. OLS cannot separate the causal pathway (schooling causes higher wages) from the confounding pathway (ability causes both). The backdoor fix from causal graphs -- condition on the confounder -- requires the confounder to appear as a column in the dataset. Ability lives in people\'s heads. No dataset records it. Adding more rows, more covariates, or more flexible functional forms cannot fix a variable that was never measured.',
+        {
+          type: 'note',
+          text: 'OLS bias direction depends on the confounder structure. Here ability has positive effects on both schooling and wages, so OLS overshoots. If the confounder pushed treatment and outcome in opposite directions, OLS would undershoot. The sign of the bias is not guaranteed without knowing the DAG.',
+        },
       ],
     },
     {
-      heading: `Three assumptions`,
+      heading: 'The wall',
       paragraphs: [
-        `A valid instrument needs relevance, independence, and exclusion. Relevance means the instrument actually moves the treatment. On this page, near-college status increases schooling by 2.0 years. That first-stage effect is measurable, and weak relevance is a warning sign.`,
-        `Independence means the instrument is as-good-as-random with respect to the confounders. Near and far students must not differ in ability in a way that also affects wages. Exclusion means the instrument affects the outcome only through the treatment. Living near a college must not raise wages directly through richer neighborhoods, local labor markets, family background, or networks. Exclusion is usually the hardest assumption because it cannot be proven by the outcome data alone.`,
+        'The wall is the unmeasured confounder. Standard causal inference says: identify every path from treatment to outcome that runs through a common cause, then block those paths by conditioning. This requires the common cause to be observable. When the confounder is unobserved, no amount of statistical adjustment can block the backdoor path. The bias is structural, not statistical.',
+        'Concretely: ability enters the schooling equation (smarter kids study more) and the wage equation (smarter people earn more independently of schooling). Any regression of wage on schooling picks up both the direct effect of schooling and the spurious correlation through ability. The bias does not shrink with more data. It does not disappear with nonlinear models. It is baked into the joint distribution of the observed variables. You need a fundamentally different identification strategy -- one that does not require observing or adjusting for the confounder at all.',
       ],
     },
     {
-      heading: `Mechanism: the Wald ratio`,
+      heading: 'How it works',
       paragraphs: [
-        `With one binary instrument and one treatment, the Wald estimator is one division. First measure the reduced form: how much the outcome differs between instrument groups. In the page's synthetic data, mean wage is 6.0 units higher for the near-college group. Then measure the first stage: how much the treatment differs between instrument groups. Schooling is 2.0 years higher for the near-college group.`,
-        `The IV estimate is 6.0 divided by 2.0, which gives 3.00. The ratio asks: how much outcome changed per unit of treatment moved by the instrument? In this controlled world the answer equals the true schooling effect exactly, while the naive regression remains biased upward. The arithmetic is simple because the assumptions did the heavy work.`,
+        'Find a variable Z (the instrument) that nudges the treatment but has no private path to the outcome. In the schooling example, Z = "grew up near a college." Proximity to a college makes higher education more accessible (relevance) but, the argument goes, does not directly raise wages through any other channel (exclusion). The instrument partitions the population into groups that differ in treatment intensity for reasons unrelated to the confounder.',
+        'The Wald estimator is one division. Compute two differences: the reduced-form difference (mean wage of near-college minus mean wage of far-college) and the first-stage difference (mean schooling of near-college minus mean schooling of far-college). Divide the first by the second. In this page\'s data: reduced form = 6.0 wage units, first stage = 2.0 years, ratio = 3.00 -- the true causal effect, recovered exactly, with ability still unobserved.',
+        'Two-stage least squares (2SLS) generalizes this to continuous instruments and multiple covariates. Stage 1: regress the treatment on the instrument (and controls) to get predicted treatment values. Stage 2: regress the outcome on the predicted treatment values. The predicted values contain only the variation in treatment caused by the instrument, so the confounding variation is purged.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Two-stage least squares in NumPy\nimport numpy as np\n\ndef tsls(Y, D, Z, X=None):\n    """IV estimate via 2SLS.\n    Y: outcome (n,)   D: treatment (n,)   Z: instrument(s) (n,k)\n    X: controls (n,p) or None\n    Returns: IV coefficient on D.\n    """\n    n = len(Y)\n    # Build first-stage regressors: [Z, X, intercept]\n    W = np.column_stack([Z, X, np.ones(n)]) if X is not None \\\n        else np.column_stack([Z, np.ones(n)])\n\n    # Stage 1: regress D on instruments + controls\n    beta1 = np.linalg.lstsq(W, D, rcond=None)[0]\n    D_hat = W @ beta1   # predicted treatment\n\n    # Stage 2: regress Y on predicted treatment + controls\n    R = np.column_stack([D_hat, X, np.ones(n)]) if X is not None \\\n        else np.column_stack([D_hat, np.ones(n)])\n    beta2 = np.linalg.lstsq(R, Y, rcond=None)[0]\n    return beta2[0]      # coefficient on D_hat = IV estimate',
+        },
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: 'Why it works',
       paragraphs: [
-        `The first view proves why ordinary regression is trapped. The hidden ability variable raises schooling and wage at the same time. Because ability has no dataset column, the usual adjustment move is unavailable. The regression slope is not merely noisy; it is pointed at the wrong causal path.`,
-        `The instrument view proves the escape route. The instrument moves schooling, the instrument is balanced with respect to ability, and the instrument has no direct route to wage. The Wald view then shows the two clean differences and their ratio. The fine-print view proves why the method can still fail: weak first stages amplify mistakes, and the answer is local to the people whose treatment changed because of the instrument.`,
+        'The instrument creates two groups that are balanced on the unobserved confounder (independence) and differ in treatment exposure for exogenous reasons. Any outcome difference between these groups must therefore flow through the treatment, because the instrument has no other route to the outcome (exclusion). The reduced form captures the instrument\'s total downstream effect on the outcome. The first stage captures how hard the instrument pushed the treatment. Dividing rescales the lottery\'s effect into a per-unit-of-treatment effect.',
+        'Algebraically, the Wald ratio equals Cov(Y, Z) / Cov(D, Z). The instrument Z is uncorrelated with the confounder A (independence), so the numerator contains only the causal component of Y that runs through D. The denominator normalizes by how much Z moved D. The confounder cancels from both quantities because it is orthogonal to Z by assumption. This is why IV does not need to estimate, measure, or model the confounder -- it constructs a comparison where the confounder is irrelevant.',
+        {
+          type: 'note',
+          text: 'The exclusion restriction (no direct Z -> Y path) cannot be tested from data. It is a domain argument, not a statistical test. Every IV debate is ultimately a debate about whether the instrument has a private channel to the outcome. The math is the easy part.',
+        },
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The difference in outcomes between instrument groups is clean only if the instrument is independent of hidden confounders. In that case, the groups differ because of the instrument, not because one group had higher ability. The exclusion restriction then says the instrument's only way to change the outcome is by changing the treatment.`,
-        `Those two claims convert the outcome difference into the effect of the treatment movement caused by the instrument. Dividing by the first stage changes the scale from effect of the nudge to effect per unit of treatment. This is why the unobserved confounder can remain unobserved. It is not estimated. It cancels because the comparison is built around the instrument rather than around the confounded treatment.`,
+        'Computationally, 2SLS is two OLS regressions: O(nk^2) for the first stage and O(np^2) for the second, where k is the number of instruments and p is the number of second-stage regressors. This is trivial for any dataset that fits in memory. The real cost is not computational but epistemic.',
+        'Finding a valid instrument requires domain expertise, institutional knowledge, and creative observation. The exclusion argument must be defended qualitatively. Standard errors are larger than OLS because IV uses only the instrument-driven variation in treatment, discarding the rest. Weak instruments (small first-stage F-statistic) inflate variance and bias. The folk rule is F > 10 for a single endogenous regressor (Stock & Yogo 2005), but modern practice uses effective F-statistics and weak-instrument-robust confidence intervals.',
+        {
+          type: 'table',
+          headers: ['Method', 'Handles unmeasured confounders?', 'Key assumption', 'What it estimates', 'Main weakness'],
+          rows: [
+            ['OLS', 'No -- biased when confounders are omitted', 'No omitted variables (all confounders measured)', 'Conditional mean association (not causal if confounded)', 'Cannot separate causal from spurious correlation'],
+            ['IV / 2SLS', 'Yes -- the core use case', 'Exclusion restriction + relevance + independence', 'LATE (Local Average Treatment Effect for compliers)', 'Weak instruments amplify bias; exclusion is untestable'],
+            ['Control function', 'Yes -- models the confounder\'s residual', 'Correct first-stage specification + joint normality or known error distribution', 'ATE under distributional assumptions', 'Sensitive to functional-form misspecification'],
+            ['Regression discontinuity', 'Yes -- near the cutoff', 'Continuity of potential outcomes at the threshold', 'LATE at the cutoff', 'Identifies effect only at one point; requires sharp threshold'],
+          ],
+        },
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Where it wins',
       paragraphs: [
-        `The statistical formula is cheap. The design argument is expensive. You need to discover a real source of variation, show that it strongly changes treatment, defend independence, and explain why exclusion is credible in the domain. The best IV papers are often remembered less for algebra than for the quality of the found lottery.`,
-        `Precision can also be costly. An instrument may move only a small part of the population, so estimates can be noisy. Adding controls can improve credibility or precision, but controls do not rescue a broken exclusion argument. IV trades one kind of assumption for another: it avoids adjusting for an unmeasured confounder by requiring a valid source of exogenous treatment variation.`,
+        'IV wins when three conditions align: randomization is impossible, the confounder is unmeasured, and nature or institutions have already produced a lottery. The Vietnam draft lottery (Angrist 1990) is the textbook case: draft numbers were drawn from a literal urn, creating random variation in military service that is independent of ability, ambition, or health. Distance to college (Card 1995) exploits geographic variation in access to higher education. Judge leniency (Kling 2006, many successors) exploits random case assignment across judges who differ in sentencing harshness.',
+        'The method extends beyond economics. In epidemiology, Mendelian randomization uses genetic variants as instruments for exposures (e.g., a gene variant that affects alcohol metabolism instruments for drinking behavior). In political science, rainfall instruments for economic shocks when studying the effect of income on conflict. In each domain, the creativity is in finding the lottery; the estimator is the same ratio.',
+        {
+          type: 'bullets',
+          items: [
+            'Vietnam draft lottery: effect of military service on lifetime earnings (Angrist 1990)',
+            'Quarter of birth: returns to education via compulsory schooling laws (Angrist & Krueger 1991)',
+            'Distance to college: returns to education via geographic access (Card 1995)',
+            'Judge leniency: effect of incarceration on reoffending and employment (Kling 2006)',
+            'Rainfall shocks: income\'s effect on civil conflict (Miguel, Satyanath & Sergenti 2004)',
+            'Mendelian randomization: genetic variants as instruments for health exposures',
+          ],
+        },
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Instrumental variables win when randomization is unavailable, confounding is serious, and a plausible natural experiment exists. Famous examples include the Vietnam draft lottery for military service, quarter of birth for schooling under compulsory attendance laws, distance to college for education access, judge leniency for incarceration or treatment assignment, and rainfall as a shock to agricultural income.`,
-        `Judge-leniency designs show the pattern well. Courts may randomly assign cases to judges, judges differ in harshness, and that harshness changes the chance of incarceration. If assignment is truly random and judge harshness affects later outcomes only through incarceration, the design can estimate the causal effect for defendants whose incarceration status depended on which judge they drew.`,
+        'Weak instruments are the first failure mode. The Wald ratio divides by the first stage. If the instrument barely moves treatment, the denominator is near zero. A small exclusion violation of 0.5 wage units creates 0.25 bias when the first stage is 2.0 years (0.5 / 2.0), but 5.0 bias when the first stage is 0.1 years (0.5 / 0.1) -- larger than the true effect of 3. Weakness does not just add noise; it amplifies every imperfection in the exclusion argument. Quarter-of-birth was famously challenged (Bound, Jaeger & Baker 1995) on exactly these grounds.',
+        'Exclusion violations are the second. Distance to college may correlate with family wealth, local labor markets, or neighborhood quality -- all of which affect wages independently of schooling. Judge leniency may not be truly random if experienced lawyers steer cases. These are domain arguments, not statistical tests. No diagnostic can prove exclusion from the outcome data alone.',
+        'The LATE interpretation (Imbens & Angrist 1994, Angrist & Imbens 1996) is the third. IV identifies the effect only for compliers: people whose treatment status was actually changed by the instrument. Always-takers (who would take treatment regardless) and never-takers (who would not regardless) contribute no identifying variation. If compliers differ from the population -- and they usually do -- the IV estimate is exactly right about a subgroup you cannot directly identify and silent about everyone else. This is not a flaw; it is a price tag. The estimate answers: "what was the effect for people the lottery actually moved?" A careful paper names that population explicitly.',
+        {
+          type: 'note',
+          text: 'The monotonicity assumption (no defiers -- nobody does the opposite of what the instrument pushes) is required for the LATE interpretation. If some people are nudged toward treatment by the instrument while others are nudged away, the Wald ratio conflates positive and negative complier effects and may not correspond to any well-defined causal parameter.',
+        },
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Weak instruments are dangerous because the estimator divides by the first stage. If the instrument barely moves treatment, sampling noise and small exclusion violations become large in the ratio. A direct 0.5-unit leak from instrument to outcome creates only 0.25 bias when the first stage is 2.0, but it creates 5.0 bias when the first stage is 0.1.`,
-        `Exclusion failures are more conceptual. Distance to college may correlate with family wealth or labor markets. Quarter of birth may correlate with seasonality or school-entry patterns beyond education. Judge assignment may not be random for every case type. The data can show a strong first stage, but it cannot automatically prove that no private path from instrument to outcome exists.`,
-      ],
-    },
-    {
-      heading: `LATE fine print`,
-      paragraphs: [
-        `IV usually estimates a Local Average Treatment Effect. The effect applies to compliers: people whose treatment changed because of the instrument. Near-college IV estimates the return for students whose schooling changed because they lived near a college. It does not directly estimate the effect for students who would attend college regardless or never attend regardless.`,
-        `This is not a technical footnote. If compliers differ from everyone else, the IV answer can be true and still not be the population average. The method answers a precise question: what was the causal effect for the people moved by this nudge? A careful write-up names that population instead of pretending the estimate speaks for everyone.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study next: Causal Graphs, Confounding, and Simpson's Paradox for the backdoor problem; A/B Testing and p-values for true randomized assignment; Difference-in-Differences for policy shocks over time; Doubly Robust Estimation for measured-confounder adjustment; Regression Discontinuity for threshold-based natural experiments; and Importance Sampling and Off-Policy Estimation for related ideas in policy evaluation.`,
+        {
+          type: 'bullets',
+          items: [
+            'Wright, P.G. (1928). The Tariff on Animal and Vegetable Oils -- Appendix B. The founding IV derivation, using supply-demand identification.',
+            'Angrist, J.D. (1990). "Lifetime Earnings and the Vietnam Era Draft Lottery." The modern IV template: a literal lottery as the instrument.',
+            'Angrist, J.D. & Krueger, A.B. (1991). "Does Compulsory School Attendance Affect Schooling and Earnings?" Quarter-of-birth as instrument; later challenged for weak-instrument problems.',
+            'Card, D. (1995). "Using Geographic Variation in College Proximity to Estimate the Return to Schooling." The running example on this page.',
+            'Imbens, G.W. & Angrist, J.D. (1994). "Identification and Estimation of Local Average Treatment Effects." The LATE theorem: IV identifies the complier effect under monotonicity.',
+            'Angrist, J.D. & Imbens, G.W. (1996). Two-Stage Least Squares Estimation of Average Causal Effects in Models with Variable Treatment Intensity. Extension to multi-valued treatments and general 2SLS.',
+            'Stock, J.H. & Yogo, M. (2005). "Testing for Weak Instruments in Linear IV Regression." The F > 10 rule and formal weak-instrument tests.',
+            'Bound, J., Jaeger, D.A. & Baker, R.M. (1995). "Problems with Instrumental Variables Estimation When the Correlation Between the Instruments and the Endogenous Explanatory Variable Is Weak." The weak-instrument critique.',
+            'Angrist, J.D. & Pischke, J.-S. (2009). Mostly Harmless Econometrics. The standard graduate reference for IV, 2SLS, and LATE.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Direction', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Causal Graphs, Confounding & Simpson\'s Paradox', 'The backdoor criterion explains why adjustment works when confounders are measured -- and why IV is needed when they are not'],
+            ['Prerequisite', 'A/B Testing & p-values', 'Randomized experiments sever confounding by design; IV recovers a similar comparison from observational data'],
+            ['Extension', 'Regression Discontinuity', 'Another natural-experiment design that exploits a threshold instead of an instrument'],
+            ['Extension', 'Difference-in-Differences', 'Panel-data identification using time variation; often combined with IV'],
+            ['Extension', 'Doubly Robust Estimation', 'When confounders ARE measured, doubly robust methods combine regression and weighting for added protection'],
+          ],
+        },
       ],
     },
   ],
 };
+

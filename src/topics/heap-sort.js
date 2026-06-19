@@ -1,4 +1,4 @@
-// Heap sort: treat the array as a binary tree, make it a max-heap,
+﻿// Heap sort: treat the array as a binary tree, make it a max-heap,
 // then repeatedly swap the root (the max) to the end of the unsorted zone.
 // The array IS the tree: children of index i live at 2i+1 and 2i+2.
 
@@ -97,7 +97,7 @@ function* siftDown(values, start, heapSize, sortedCount) {
 const legacyArticle = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
         `Heap sorting turns the array into a max-heap, then repeatedly removes the maximum into the final sorted suffix. A max-heap is a nearly complete binary tree where every parent is at least as large as its children. The storage trick is that no node objects are needed: for index i, the children live at 2i + 1 and 2i + 2. That formula lets the array act like a tree.`,
         `The obvious in-place route is repeated selection: scan the unsorted part for the maximum, move it to the end, and repeat. That is correct but O(n^2). Heap sort keeps the same "place the maximum next" idea and removes the scan by maintaining a heap where the maximum is always at the root.`,
@@ -113,14 +113,14 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Legacy visual note`,
+      heading: `How to read the animation`,
       paragraphs: [
         `Separate the two phases. Heapify turns the array into a binary heap so the maximum value sits at the root. The extraction phase repeatedly swaps that maximum into its final position, shrinks the heap boundary, and repairs the heap with sift-down.`,
         `The animation is easiest to follow if you imagine two regions in the same array: the live heap on the left and the sorted suffix on the right. Values in the suffix are final; values in the heap only need to satisfy the parent-child heap rule, not full sorted order.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Bottom-up heap construction is O(n), not O(n log n), because most nodes sit near leaves and can sink only one or two levels. Extraction dominates: n removals, each with at most log2 n swaps and comparisons, for O(n log n) time in best, average, and worst cases. Extra space is O(1) beyond the input array.`,
         `Those guarantees explain why introsort can fall back to it. The Big-O Growth Rates look excellent, but hardware details matter. A sift-down path from 0 to 2i + 1 to 4i + 3 does not scan sequential memory, so CPU prefetchers help less than they do for Merge Sort or partition-based loops.`,
@@ -133,7 +133,7 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `A heap is not a sorted array. It only promises that each parent beats its children, so siblings and cousins can appear in almost any order. That is why the extraction phase is necessary. Another common mistake is building the heap by repeated insertions and calling that the algorithm; repeated insertion works but costs O(n log n), while Floyd's bottom-up heapify is O(n).`,
         `The sort is also not stable. Equal records can swap across each other during heap repair. And although the extra storage is O(1), recursive tree walks are not involved here; the tree shape is implicit arithmetic over an array, not pointers and recursion.`,
@@ -145,106 +145,39 @@ const legacyArticle = {
         `Study the heap priority-queue topic to use the structure without destroying it as a sort. Compare Quick Sort and Merge Sort for the locality, stability, and worst-case trade-offs. Big-O Growth Rates explains why O(n log n) is the target for comparison sorting. Then connect the same heap operation to Dijkstra's Shortest Path, Prim's Algorithm, and Huffman Coding.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is breaking the heap invariant during extract-and-sink operations.',
+        'If `heapify` or `siftDown` does not re-establish parent/child order after each swap, you are no longer removing the true max each round.',
+        'Use a tiny array [4, 1, 7, 3, 6, 5]: one incorrect sift on a stale heap index is enough to leave a larger value behind, and the output order becomes unstable.',
+      ],
+    },
+],
 };
 
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The array is drawn as a row of boxes. Think of it as two regions separated by a moving boundary: the heap prefix on the left and the sorted suffix on the right. The suffix grows one element at a time as each maximum is extracted.',
+        'During Phase 1 (build-heap), highlighted boxes show the parent being compared to its children. A swap highlight means the parent was smaller and sank down. No element leaves the heap yet; the goal is only to establish the max-heap property.',
+        'During Phase 2 (extract-max), the root and the last heap element swap (swap highlight), then the new root sifts down (active and compare highlights). Elements that reach the sorted suffix turn a different color and never move again. When every box is in the suffix, sorting is done.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Heap sort exists because we sometimes want comparison sorting with guaranteed O(n log n) time and only constant extra array space. Merge sort gives a clean guarantee but usually needs extra memory. Quick sort is fast in practice but needs care to avoid bad pivots.',
-        'The key idea is to turn the array into a binary heap, repeatedly remove the maximum, and place it at the end of the array. The array becomes two regions: an unsorted heap prefix and a sorted suffix.',
+        'J. W. J. Williams introduced heaps and heap sort in 1964 to solve a specific gap in comparison sorting. Merge sort guarantees O(n log n) worst-case time but needs O(n) extra space. Quicksort runs fast in practice with O(1) extra space but degrades to O(n^2) on adversarial inputs. No comparison sort before heap sort delivered both guarantees simultaneously.',
+        'Heap sort is the only comparison sort that is O(n log n) in the worst case and uses O(1) auxiliary space. That combination matters whenever memory is scarce and worst-case latency is a hard constraint.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious way to sort with a priority queue is to insert every item into a heap and then pop items into a new array. That works, but it spends extra memory for the heap or output. Heap sort does the same priority-queue idea in place.',
-        'Another tempting approach is selection sort: repeatedly scan for the largest remaining item. That uses constant extra space but costs O(n^2). Heap sort improves selection sort by keeping the remaining maximum accessible at the root of a heap.',
+        'Selection sort solves the same problem with the same space budget. Scan the unsorted region for the largest value, swap it to the end, repeat. It uses O(1) extra space and is simple to implement. For small arrays it works fine.',
       ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'A max heap stores the largest element at index 0 while keeping a partial order: every parent is at least as large as its children. It does not fully sort the prefix. It only maintains enough order to extract the next largest item efficiently.',
-        'The array layout is the trick. For zero-based indexing, children of i are 2i + 1 and 2i + 2. No node objects or pointers are needed. The heap is an interpretation of the array prefix.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'First build a max heap from the array. Start at the last internal node and sift down each node toward the root. This bottom-up heap construction is O(n), not O(n log n), because most nodes are near the leaves and can move only a short distance.',
-        'Then repeat: swap the root with the last item in the heap prefix, shrink the heap size by one, and sift down the new root until the heap property is restored. The swapped item belongs in the sorted suffix because it was the largest remaining value.',
-        'When the heap prefix shrinks to one item, the whole array is sorted in ascending order. The algorithm sorts in place, and every comparison is guided by the heap property rather than by scanning the whole unsorted region.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The heap-building view proves that the array can be read as a tree. Parent-child highlights are not extra structure; they are index relationships. Sift-down repairs one violated path while assuming the child subtrees are already heaps.',
-        'The extraction view proves the sorted suffix invariant. After each root swap, the largest remaining element moves to its final position. The heap prefix may look unsorted, but it is organized enough to expose the next maximum.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The max-heap property guarantees that no element below the root can be larger than the root. Therefore the root is safe to place at the end of the unsorted region. After the swap, only the new root may violate the heap property, so one sift-down restores the invariant.',
-        'The algorithm is a loop over an invariant: prefix is a valid heap, suffix is sorted and contains the largest removed elements. Each iteration moves one root into the suffix and repairs the prefix. When the prefix is exhausted, the suffix is the whole array.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'Heap construction is O(n). Each of n extractions costs O(log n) for sift-down, so total time is O(n log n). Extra space is O(1) beyond the array, excluding the call stack if implemented recursively.',
-        'The tradeoff is locality and stability. Heap sort jumps between parent and child indexes and is usually less cache-friendly than quick sort or timsort on real data. It is also not stable: equal elements can change relative order.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Heap sort wins when worst-case O(n log n) time and constant extra space matter more than stability or best real-world speed. It is useful as a teaching bridge between heaps, priority queues, and in-place sorting.',
-        'It also appears inside hybrid algorithms. Some quicksort implementations switch to heap sort when recursion gets too deep, forming introsort. That keeps quicksort-like average behavior while guarding against pathological pivots.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The common implementation failure is off-by-one heap size. The sorted suffix must be excluded from sift-down. If the heap operation still sees the suffix, it can destroy already sorted elements.',
-        'Another failure is expecting heap sort to be stable or adaptive. It does not exploit nearly sorted input well, and it does not preserve equal-item order. If those properties matter, use merge sort, insertion-sort hybrids, or timsort-like algorithms.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Take the array [4, 10, 3, 5, 1]. Heap building produces a max heap with 10 at the root. The array may not look sorted, but every parent is greater than its children. That is enough structure for the next step.',
-        'Swap 10 with the last heap item, shrink the heap, and sift down the new root. Now 10 is outside the heap in the sorted suffix. Repeat for 5, then 4, then 3. Each extraction fixes one final position from right to left.',
-        'The important observation is that heap sort never needs the second-largest item to be at a known index until after the largest has been removed. The heap property reveals maxima one at a time, exactly matching the selection-sort goal but avoiding repeated full scans.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Write siftDown with an explicit heapSize parameter. Compare the current node with its left and right children only if those child indexes are less than heapSize. Swap with the larger child until the parent is already large enough or the node reaches a leaf.',
-        'Build the heap from Math.floor(n / 2) - 1 down to 0. Starting at the last internal node matters because leaves are already valid heaps. Inserting elements one by one also works, but it misses the linear-time heapify lesson.',
-        'Test duplicates, already sorted input, reverse sorted input, and arrays of length zero, one, and two. Heap sort is comparison-driven, so duplicates should sort correctly even though their relative order is not stable.',
-      ],
-    },
-    {
-      heading: 'How to choose it',
-      paragraphs: [
-        'Use heap sort when memory is tight and a worst-case O(n log n) guarantee is more important than stability. It is a good defensive choice inside hybrid sort designs and a good educational choice for seeing heaps as more than priority queues.',
-        'Prefer merge sort when stability matters or linked structures make merging cheap. Prefer quicksort or timsort-like algorithms when cache locality, adaptiveness, and practical speed dominate. Heap sort is reliable, but it is not usually the fastest general-purpose sort in high-level runtimes.',
-        'For top-k problems, do not sort the whole array unless the sorted order is actually needed. A heap can maintain only k candidates in O(n log k). Heap sort teaches the primitive, but selection problems often need a smaller heap pattern.',
-        'For external sorting or very large records, heap sort is rarely the whole answer. The random-access sift pattern is not friendly to disk and can move large objects repeatedly. Real systems often sort pointers, use runs, or merge streams instead of heap-sorting full records in place.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Binary Heap first, then Selection Sort, Merge Sort, Quick Sort, IntroSort, Priority Queue, and Big-O Growth Rates. A useful exercise is to instrument heap sort with the heap boundary and sorted boundary printed after each extraction.',
-        'Then implement a top-k heap and compare it with full heap sort. The contrast teaches the practical lesson: heaps are often more valuable for repeated access to the next best item than for sorting every item completely.',
-      ],
-    },
+    }
   ],
 };

@@ -1,4 +1,4 @@
-// LLM admission control: reject, defer, or degrade work before token queues
+﻿// LLM admission control: reject, defer, or degrade work before token queues
 // and KV memory turn accepted requests into missed deadlines.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -400,28 +400,28 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it breaks',
+      heading: 'Where it fails',
       paragraphs: [
         'Accept-all fails at the overload knee. Queue age grows, request deadlines expire, KV blocks fill, long prefill work delays decode, and clients retry. The server can spend its best GPU minutes on requests whose callers have already given up.',
         'Autoscaling does not remove the need for admission. Ray Serve exposes request timeouts and autoscaling controls, including ongoing requests per replica and load testing for latency-sensitive services, but new replicas still need placement, startup, model load, and readiness time: https://docs.ray.io/en/latest/serve/advanced-guides/performance.html and https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Admission control works when each request gets a small resource-and-deadline record before it enters the expensive queue. The record estimates prompt tokens, output cap, cached-prefix chance, KV bytes, request class, queue age, deadline slack, route options, brownout eligibility, retry policy, and shed reason.',
         'The invariant is simple: admit only work that still has a plausible path to a useful answer. Defer work that can wait. Degrade work that has an approved cheaper route. Reject work whose best path already misses the contract.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'Inspect the gate as a resource estimate plus a policy decision. The estimate says how much prefill, decode, KV memory, queue time, and deadline slack the request needs. The policy says which classes may be admitted, degraded, deferred, or rejected under current load.',
         'The request ledger should record the decision and the reason: admitted to route A, shortened context, served from cache, sent to smaller model, deferred, rejected with Retry-After, or denied by quota. Without this record, overload behavior becomes invisible and impossible to improve.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'The gate reads live scheduler state and per-class policy. It checks max live sequences, max batched tokens, GPU memory utilization, queue depth, KV pressure, p99, TTFT, inter-token latency, and request deadline slack. vLLM optimization docs make the memory side concrete: changing max_num_seqs or max_num_batched_tokens changes concurrent request pressure and KV cache needs, while chunked prefill fits prefill work around decode token budget: https://docs.vllm.ai/en/stable/configuration/optimization/.',
         'A brownout ladder gives the gate more choices than yes or no. It can use a cached answer, shorten context, skip optional retrieval, route to a smaller model, defer batch work, or return a fast 503 with Retry-After. KServe puts LLM-specific metrics such as KV cache utilization and queue depth into the control plane, which is exactly the kind of signal an admission gate needs: https://kserve.github.io/website/docs/reference/crd-api.',
@@ -435,28 +435,28 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Admission control adds estimation work, policy design, telemetry, and false-negative risk. A conservative gate can reject requests that might have succeeded. An aggressive gate can admit too much and collapse back into accept-all behavior.',
         'The expensive part is not the if statement. It is keeping estimates honest under changing model versions, prompt shapes, cache hit rates, priority classes, and retry behavior. The gate needs load tests, per-class dashboards, and an audit ledger so teams can see whether it protected goodput or only moved pain around.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Admission control wins during launch spikes, mixed interactive and batch traffic, tenant priority conflicts, long-context agent bursts, cache-local routing decisions, and brownout events. It is strongest when the service has clear SLOs and multiple legal actions: admit, defer, degrade, reroute, or reject.',
         'LLM Serving Autoscaling Warm Pool continues the same control problem. It separates desired replicas from ready replicas, models warm capacity, cold-start lag, KV-locality loss on new replicas, and the scale-event ledger that tells whether autoscaling protected goodput.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Admission control is the wrong main tool for offline batch jobs whose only goal is eventual throughput. It also fails when the product has no honest degradation path, no client retry contract, no deadline propagation, or no accurate live view of KV and queue state.',
         'Bad gates can create unfairness. If priority tiers, tenant quotas, and shed reasons are not explicit, the system may quietly protect easy traffic and starve important long requests. The remedy is not to remove the gate; it is to make the policy measurable and reviewable.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works (3)',
       paragraphs: [
         'Track admitted, degraded, deferred, rejected, timed out, and completed requests separately. Also track saved GPU seconds, saved KV blocks, TTFT, inter-token latency, p99, retry rate, queue age, deadline slack at admission, deadline slack at first token, and completion before deadline.',
         'The best gate is tuned near the goodput knee: the point where accepting more work reduces useful completions. Load tests should include retry storms, long-context bursts, cache-miss traffic, tenant priority conflicts, and autoscaling lag. A gate that only works on average traffic is not an overload gate.',
@@ -464,7 +464,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'LLM admission control is not about being unfriendly to users. It is about refusing to spend scarce GPU and KV capacity on work that cannot satisfy its contract. Early, explainable rejection is often better than late timeout after expensive prefill.',
         'For course design, teach this after backpressure and before autoscaling. Students should see the chain: estimate resource demand, compare it with live capacity and deadline, choose the cheapest acceptable action, and record the reason for audit.',
@@ -477,5 +477,78 @@ export const article = {
         'Study Load Shedding & Graceful Degradation for the general overload pattern, Backpressure and Retries with Jitter for client behavior, SLO-Aware LLM Request Router for routing policy, LLM Serving Autoscaling Warm Pool for delayed capacity, Chunked Prefill Token Budget Scheduler for prefill/decode pressure, KV Cache Concurrency Capacity Model for memory limits, Tail Latency & p99 Thinking for SLO math, Feature Flag Control Plane for policy rollout, and LLM Unit Economics Ledger Case Study for cost accounting.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why LLM Serving Admission-Control Goodput Gate moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

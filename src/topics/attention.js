@@ -132,94 +132,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Attention exists because a token often cannot be understood from itself alone. In "the cat sat because it was tired," the vector for "it" needs information from earlier words. The model needs a way for one position to read other positions and mix the useful information into its own representation.`,
-        `The old recurrent approach processed tokens one after another. That made sequence order natural, but long-range information had to pass through many intermediate states. The obvious fully connected alternative is to let every token look at every other token directly. Attention is the learned, differentiable version of that idea.`,
-        `After Tokenization (BPE) turns text into IDs and Embeddings & Similarity turns those IDs into vectors, each token makes three learned projections: query, key, and value. The query asks what this token needs. The key advertises what another token can match. The value is the information that gets mixed in if the match is strong.`,
+        'The animation runs real scaled dot-product attention on 4-dimensional toy vectors. Every number is genuinely computed: matrix projections, dot products, softmax normalization. Only the initial embeddings are toy stand-ins for what a trained model would learn.',
+        'The first frames show the embedding matrix E (one row per token, 4 columns for dimensions), then the three projection results: Q (queries), K (keys), and V (values). Each is an n-by-4 matrix produced by multiplying E by a different weight matrix.',
+        'The score matrix is n-by-n. Cell (i, j) is the scaled dot product of token i\'s query with token j\'s key. After softmax, each row becomes the attention weights for that token: positive numbers summing to 100%. Active highlights mark which token\'s row is being examined. A bright heatmap cell means high weight; a dark cell means the query and key barely matched.',
+        'The final output matrix is n-by-4 again. Each row is a weighted average of all value vectors, using that token\'s attention weights. Information has flowed between tokens through pure matrix arithmetic.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Why this exists',
       paragraphs: [
-        `The heatmap is organized row by row. A row is the attention budget for one token, and the columns are the tokens it can read. After softmax, each row sums to 100 percent, so the row shows how that token distributes its read budget across the context.`,
-        `The important transition is from scores to weights to mixed values. The dot-product table says which query-key pairs match. Softmax turns each row into a distribution. Multiplying by V turns that distribution into a new vector for the querying token. The visual model is not a metaphor; it is the actual computation on tiny vectors.`,
+        'A token often cannot be understood from itself alone. In "the cat sat because it was tired," the word "it" needs information from "cat" to resolve the reference. The model needs a mechanism for one position to read from other positions and mix relevant information into its own representation.',
+        'Before attention, the dominant approach was the encoder-decoder RNN (Sutskever et al. 2014). The encoder processed the source sequence token by token and compressed it into a single fixed-length hidden state vector. The decoder then generated the output sequence from that one vector. This architecture worked well for short sentences but created an information bottleneck: a single vector had to carry the meaning of the entire input.',
+        'Bahdanau et al. (2015) introduced additive attention to solve this. Instead of forcing the decoder to work from one compressed vector, they let the decoder look back at every encoder hidden state at every output step. The decoder learned a scoring function that decided which encoder positions were relevant for each output word. This was the birth of the attention mechanism: a learned, differentiable way to focus on relevant parts of the input.',
       ],
     },
     {
-      heading: `Core insight and mechanism`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that contextual relevance can be computed as vector matching, then used as a routing table for information flow. A token does not choose one neighbor with an if statement. It builds a smooth distribution over all visible positions, then uses that distribution to mix their value vectors. The invariant to remember is simple: each attention row is a probability distribution over the readable tokens.`,
-        `The core formula is softmax(QK^T / sqrt(d_k))V. Q, K, and V are matrices with one row per token. QK^T builds an n-by-n table where cell (i, j) says how strongly token i should read token j. Dividing by sqrt(d_k) keeps dot products from growing too large as vector dimension increases, which prevents softmax from becoming too sharp too early.`,
-        `Softmax gives every row positive weights that sum to one. Multiplying those weights by V creates a weighted average of value vectors. The output for "sat" can contain some information from "cat" and some from nearby context because its row has allocated weight to those positions.`,
-        `Multi-Head Attention repeats this computation with different learned projections. One head might specialize in local syntax, another in separators, another in long-range references. The heads are concatenated and projected back into the model dimension, giving the next layer a richer token representation.`,
+        'The encoder-decoder RNN is the natural first attempt. An encoder RNN reads the source sentence left to right, updating its hidden state at each token. The final hidden state is a fixed-length vector (say 256 or 512 dimensions) that is supposed to summarize the entire input. The decoder RNN then generates the target sequence one token at a time, conditioned on this single vector.',
+        'This works. For short sentences (5-15 tokens), the fixed-length vector captures enough information and translation quality is reasonable. The architecture is clean: one pass forward through the encoder, one vector handoff, one pass through the decoder.',
+        'The approach is not stupid. Compressing a sequence into a single representation is exactly what we want for tasks like sentence classification. The problem is that translation needs more: the decoder needs to know not just the overall meaning but which specific source words matter for the word it is currently generating.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The wall',
       paragraphs: [
-        `The animation starts with embeddings, then computes Q, K, and V by multiplying those embeddings by learned projection matrices. In a real model the projection weights come from training. In this demo they are fixed so the same input always produces the same numbers.`,
-        `The score matrix compares every query with every key. If there are n tokens, the matrix has n squared cells. That all-pairs comparison is the reason attention can connect distant words directly, and it is also the reason attention becomes expensive at long context lengths.`,
-        `Causal language models add a mask before softmax. Future positions get a huge negative score, so generated token 12 cannot read token 13. RoPE (Rotary Embeddings) or another position scheme is also needed, because content-only attention does not know order by itself. If you shuffle the tokens, the same content vectors shuffle with them unless position information has been injected.`,
+        'The fixed-length vector bottleneck breaks on long sequences. A 50-word source sentence must be compressed into the same 512-dimensional vector as a 5-word sentence. Information from early tokens passes through many RNN steps and degrades. Cho et al. (2014) showed that encoder-decoder performance dropped sharply as sentence length increased beyond 20 tokens.',
+        'The core failure: the decoder cannot focus on relevant input positions. When generating the French word for "cats," the decoder needs information specifically from the English word "cats," but that information is buried somewhere inside a single vector that also encodes "I," "love," word order, and grammatical structure. The decoder has no way to selectively read from the input.',
+        'Increasing the vector dimension helps marginally but does not solve the problem. The issue is not capacity in the abstract but the absence of a routing mechanism. The decoder needs to ask "which input positions matter for the word I am generating right now?" and get a different answer at every step.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'How it works',
       paragraphs: [
-        `Attention works because it turns relevance into a differentiable routing table. The model can learn projection matrices that make useful pairs have high dot products and unhelpful pairs have low dot products. Softmax converts those scores into a smooth selection rule, so training can adjust the whole mechanism with gradient descent.`,
-        `The value vectors keep the operation from being only a similarity score. Keys are used for matching; values are used for information transfer. Separating those roles lets the model learn "match on this feature, copy that feature" rather than using one vector for everything.`,
-        `The operation is parallel across positions during training and prefill. Every query-key comparison in a layer can be computed as matrix multiplication, which is why the Transformer displaced recurrent architectures despite the quadratic table.`,
+        'Each token starts as an embedding vector. Three learned weight matrices (Wq, Wk, Wv) project each embedding into three separate vectors: a query (Q), a key (K), and a value (V). The query encodes "what am I looking for." The key encodes "what do I offer as a match." The value encodes "what information do I hand over if selected."',
+        'Scaled dot-product attention computes: Attention(Q, K, V) = softmax(QK^T / sqrt(d_k)) * V. Here is what each piece does. QK^T is a matrix multiply that produces an n-by-n score table. Entry (i, j) is the dot product of token i\'s query with token j\'s key, measuring how well they match. Dividing by sqrt(d_k) (the square root of the key dimension) is the scaling step. Without it, large dimensions produce large dot products, softmax saturates to near-one-hot distributions, and gradients vanish during training.',
+        'Softmax is applied row by row. Each row becomes a probability distribution: all entries are positive and sum to 1. Row i is token i\'s attention weight distribution, deciding how much it reads from every other position. Multiplying these weights by V produces the output: each token\'s output is a weighted average of all value vectors, with the attention weights controlling the mix.',
+        'Multi-head attention runs h parallel copies of this computation, each with its own Wq, Wk, Wv projection matrices. If the model dimension is d_model = 512 and h = 8, each head works with d_k = d_v = 64 dimensions. Head 1 might learn to attend to syntactic dependencies. Head 2 might track coreference. Head 3 might focus on nearby positions. The h output matrices are concatenated back to d_model dimensions and passed through a final linear projection: MultiHead(Q, K, V) = Concat(head_1, ..., head_h) * W_o.',
+        'Masking controls which positions a token can attend to. In autoregressive (causal) generation, token i must not read from any token j > i. The mask sets those score entries to negative infinity before softmax, which drives their weights to zero. Self-attention means Q, K, and V all come from the same sequence. Cross-attention means Q comes from one sequence (typically the decoder) while K and V come from another (typically the encoder).',
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Why it works',
       paragraphs: [
-        `For a sequence of n tokens and head dimension d, prefill attention costs O(n^2 d) per head and creates an n-by-n score pattern. A 4,096-token prompt has 16,777,216 query-key pairs per head per layer. With many heads and layers, memory bandwidth and temporary storage become the wall.`,
-        `During autoregressive decoding, the KV Cache avoids recomputing old keys and values, but each new query still scores against cached keys. Long contexts therefore remain expensive even when decoding one token at a time. FlashAttention does not change the formula; it changes the IO pattern by tiling the computation so the huge attention matrix does not have to be materialized in slow memory.`,
-        `Serving systems add another cost: the cache grows with sequence length, layer count, head count, and value dimension. Grouped-query and multi-query attention reduce KV-cache memory by sharing keys and values across heads. Sliding-window attention reduces cost by restricting which old tokens remain visible.`,
+        'Dot products measure similarity in vector space. If the learned projections place a verb\'s query near its subject\'s key, the dot product is large. Softmax converts these raw similarity scores into a probability distribution, creating a smooth, differentiable selection mechanism. The model can learn which pairs should attend to each other through standard gradient descent on the projection matrices.',
+        'The sqrt(d_k) scaling keeps the mechanism well-behaved. Without it, the variance of dot products grows proportionally with d_k. For d_k = 64, unscaled dot products can easily reach magnitudes of 8 or more, pushing softmax into regions where gradients are near zero. Scaling by sqrt(64) = 8 keeps the distribution in a range where gradients flow and the model can still learn to sharpen or flatten attention as needed.',
+        'Separating keys from values is what makes attention more than a similarity lookup. Keys determine who gets attended to; values determine what information flows. The model can learn "match on syntax, but copy semantic content" because matching and information transfer use different projections of the same embedding.',
+        'Multiple heads let the model attend to different things simultaneously. A single attention pattern is one distribution per token. Eight heads give eight independent distributions per token, each potentially capturing a different relationship (position, syntax, semantic role, coreference). This is strictly more expressive than one large head with the same total parameters.',
       ],
     },
     {
-      heading: `Operational guidance`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `When implementing attention, treat numerical stability as part of the algorithm. Subtract the row maximum before softmax, apply masks before softmax, and keep tensor shapes explicit so batch, head, sequence, and feature dimensions cannot be swapped silently. The scale factor should match the key dimension, not the full model dimension.`,
-        `For serving, watch KV-cache memory before watching only FLOPs. A model can have enough compute for a request and still fail because the cache for long contexts does not fit. Use paged cache allocation, prefix caching, grouped-query attention, and window policies when the workload has repeated prompts or long conversations. Measure time to first token separately from decode throughput because prefill and decode stress different parts of the system.`,
-        `For debugging, inspect attention as a symptom rather than a proof. If a model ignores late evidence, compare attention patterns with position encodings, prompt packing, cache reuse, and retrieval order. If outputs are unstable, check masking, dtype, softmax saturation, and whether the implementation accidentally allows future tokens to leak into causal training.`,
+        'Computing QK^T for n tokens with head dimension d costs O(n^2 * d) operations and produces an n-by-n score matrix requiring O(n^2) memory. For a 4,096-token sequence, that is about 16.8 million entries per head per layer. With 32 heads and 32 layers, total attention entries exceed 17 billion. The quadratic dependence on sequence length is the defining cost constraint of standard attention.',
+        'When n doubles, the score matrix quadruples. A 4K context has 16M entries per head; 8K has 67M; 128K has 16 billion. This is why long-context models require architectural changes rather than just more compute.',
+        'Memory is often the binding constraint, not FLOPs. During training and prefill, the full n-by-n attention matrix must exist (or be recomputed) for backpropagation. During autoregressive decoding, the KV cache stores all previous keys and values, growing linearly with sequence length, layer count, head count, and head dimension. A single long conversation can exhaust GPU memory even when FLOPs are cheap.',
+        'Variants that reduce the quadratic cost include: linear attention (kernel approximations that avoid materializing the n-by-n matrix), sparse attention (attending to a fixed subset of positions), sliding-window attention (restricting the receptive field), and FlashAttention (same O(n^2) math but tiled to avoid materializing the full matrix in slow HBM, achieving O(n) memory). Grouped-query attention and multi-query attention reduce KV cache size by sharing keys and values across heads.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Machine translation was the first showcase: the original Transformer beat recurrent systems on WMT 2014 English-German while training faster. Today the same block powers GPT-style decoders, BERT-style encoders, Vision Transformers, Whisper-like speech models, and multimodal systems that let text attend to image patches. Retrieval systems are not literally attention, but dot-product retrieval rhymes with it: a query vector is compared against many candidate vectors, just outside the network rather than inside a layer. The Embedding Space, in 3D is the geometric version of that idea.`,
-        `Production attention is heavily engineered. Grouped-query and multi-query attention share keys and values across heads to shrink cache memory. Sliding-window attention in models such as Mistral limits which old tokens are visible. Long-context systems combine better position encodings, paged caches, and memory-aware kernels because the simple n^2 table is still the bottleneck.`,
+        'Machine translation was the first showcase. The original Transformer (Vaswani et al. 2017) beat recurrent systems on WMT 2014 English-to-German and English-to-French while training significantly faster, because the all-pairs matrix multiply is highly parallelizable on GPUs whereas recurrence is sequential.',
+        'BERT (2018) used bidirectional self-attention for language understanding, achieving state-of-the-art results on 11 NLP benchmarks. GPT (2018-present) used causal self-attention for autoregressive language modeling, scaling to the models that power modern AI assistants. Every large language model in production uses attention as its core information-routing mechanism.',
+        'Vision Transformer (ViT, 2020) splits images into patches, treats each patch as a token, and applies the same self-attention mechanism. The approach matched or exceeded convolutional networks on image classification. Whisper uses attention for speech recognition. AlphaFold 2 uses attention (with specialized pair representations) for protein structure prediction. The mechanism transfers wherever the task requires learning which parts of the input are relevant to each other.',
+        'The access pattern that makes attention the right choice: the model needs to learn content-dependent routing. Fixed connectivity patterns (convolutions, recurrence) impose a structural prior about which positions interact. Attention lets the data decide.',
       ],
     },
     {
-      heading: `Limits and failure modes`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Where attention fails is usually where the all-pairs table is too expensive, too unstructured, or too easy to overinterpret. Attention weights are not explanations. A bright cell in a head means one value vector influenced one intermediate representation; it does not prove a final answer depended on that token. Attribution needs the whole network, not one softmax table. Sparse Autoencoder Feature Dictionary Case Study continues that warning by decomposing internal activations into feature candidates that still need causal tests. Another common mistake is calling attention "memory." Attention reads the current context. Persistent memory, retrieval, or tool state must be added outside the basic layer.`,
-        `Do not overstate causality either. Unmasked attention is bidirectional; causal attention is created by a mask. Do not overstate sparsity: sparse patterns save compute, but they also remove possible interactions. The Transformer Block works because attention is wrapped with feed-forward layers, residual paths, and normalization-style stabilization.`,
-        `A final misconception is that attention alone explains LLM capability. It is the routing mechanism, not the whole system. Scale, data, tokenization, optimization, feed-forward layers, normalization, positional encoding, serving infrastructure, and post-training all matter. Attention is the central data movement primitive, but the model is the stack around it.`,
+        'The O(n^2) quadratic bottleneck is the primary practical limitation. A 100K-token document has 10 billion score entries per head per layer. Approximations are required: FlashAttention for memory efficiency, sparse attention for compute reduction, sliding windows for bounded context. Each approximation trades some expressiveness for tractability.',
+        'Attention has no built-in notion of position. "cat sat" and "sat cat" produce identical attention patterns unless positional information is injected. Sinusoidal encodings (Vaswani 2017), learned position embeddings, and Rotary Position Embeddings (RoPE) each add position awareness, but none are free. RoPE extrapolation degrades beyond training length; positional encoding design remains an active research area.',
+        'Attention weights are not explanations. A high weight from token A to token B means B\'s value vector influenced A\'s intermediate representation in that head. It does not prove the model\'s final output depends on B. Proper attribution requires analyzing the full network (all heads, all layers, the feed-forward blocks, and the residual stream), not reading one softmax distribution.',
+        'Attention is not memory. It reads the current context window. For persistent state, retrieval, or tool use, additional mechanisms must be added outside the attention layer. Calling attention "the model\'s memory" is a common misconception that leads to confusion about what context windows actually provide.',
       ],
     },
     {
-      heading: `A worked intuition`,
+      heading: 'Worked example',
       paragraphs: [
-        `Take the toy phrase "the cat sat here." The token "sat" makes a query. The keys for "cat" and "here" offer different matches. If the learned projections make "sat" query for its subject, the "cat" key may receive a high score. After softmax, part of "sat"'s row budget goes to "cat." The output vector for "sat" is then mixed with the value vector from "cat."`,
-        `Nothing symbolic has happened. The model did not store a parse tree. It built a weighted average. But because those weights and values are learned across many layers and heads, the network can build token representations that carry syntax, reference, topic, style, and task information forward.`,
+        'Take 3 tokens: ["I", "love", "cats"]. Use d = 4. Suppose after embedding and projection, we have these vectors (numbers simplified for clarity):',
+        'Q = [[1.0, 0.5, -0.3, 0.2], [0.3, 0.8, 0.1, -0.4], [-0.2, 0.1, 0.9, 0.6]]. K = [[0.8, 0.3, -0.1, 0.4], [0.1, 0.7, 0.3, -0.2], [-0.3, 0.2, 0.8, 0.5]]. V = [[0.5, 1.0, 0.2, -0.1], [0.8, -0.3, 0.6, 0.4], [0.1, 0.7, -0.2, 0.9]].',
+        'Compute scores for token 0 ("I"): q0 dot k0 = (1.0)(0.8) + (0.5)(0.3) + (-0.3)(-0.1) + (0.2)(0.4) = 0.80 + 0.15 + 0.03 + 0.08 = 1.06. q0 dot k1 = (1.0)(0.1) + (0.5)(0.7) + (-0.3)(0.3) + (0.2)(-0.2) = 0.10 + 0.35 - 0.09 - 0.04 = 0.32. q0 dot k2 = (1.0)(-0.3) + (0.5)(0.2) + (-0.3)(0.8) + (0.2)(0.5) = -0.30 + 0.10 - 0.24 + 0.10 = -0.34.',
+        'Scale by sqrt(4) = 2: scaled scores = [1.06/2, 0.32/2, -0.34/2] = [0.53, 0.16, -0.17]. Apply softmax: exp(0.53) = 1.70, exp(0.16) = 1.17, exp(-0.17) = 0.84. Sum = 3.71. Weights = [1.70/3.71, 1.17/3.71, 0.84/3.71] = [0.458, 0.316, 0.226].',
+        'Compute output for "I": 0.458 * v0 + 0.316 * v1 + 0.226 * v2. Dimension 0: 0.458(0.5) + 0.316(0.8) + 0.226(0.1) = 0.229 + 0.253 + 0.023 = 0.505. Dimension 1: 0.458(1.0) + 0.316(-0.3) + 0.226(0.7) = 0.458 - 0.095 + 0.158 = 0.521. Dimension 2: 0.458(0.2) + 0.316(0.6) + 0.226(-0.2) = 0.092 + 0.190 - 0.045 = 0.237. Dimension 3: 0.458(-0.1) + 0.316(0.4) + 0.226(0.9) = -0.046 + 0.126 + 0.203 = 0.283. Output for "I" = [0.505, 0.521, 0.237, 0.283]. The token "I" is now a blend of all three value vectors, weighted most toward itself (45.8%) and least toward "cats" (22.6%).',
+        'Repeat for each token row. The full output matrix has shape 3-by-4: same dimensions as the input, but each token now carries information from every position it attended to.',
       ],
     },
     {
-      heading: `Sources and historical context`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Vaswani et al.'s Transformer paper at https://arxiv.org/abs/1706.03762, FlashAttention at https://arxiv.org/abs/2205.14135, the multi-query attention paper at https://arxiv.org/abs/1911.02150, and the grouped-query attention paper at https://arxiv.org/abs/2305.13245. These are worth reading in that order: first the math, then the IO bottleneck, then the serving-memory variants that became important once decoder models were deployed at scale.`,
+        'Bahdanau, Cho, and Bengio, 2015, "Neural Machine Translation by Jointly Learning to Align and Translate." Introduced additive attention for encoder-decoder models. The decoder learns to look back at specific encoder positions instead of working from a single compressed vector.',
+        'Vaswani, Shazeer, Parmar, et al., 2017, "Attention Is All You Need." Introduced scaled dot-product attention, multi-head attention, and the Transformer architecture. Dropped recurrence entirely and defined the architecture behind every modern large language model.',
+        'Luong, Pham, and Manning, 2015, "Effective Approaches to Attention-based Neural Machine Translation." Compared dot-product (multiplicative) attention with additive attention and introduced global vs. local attention variants.',
+        'Study next by role. Foundation: Transformer Block wraps attention with feed-forward layers, residual connections, and normalization into the repeating unit of modern models. Positional Encoding (sinusoidal, learned, or rotary) injects position information that attention lacks by default. Embeddings and Similarity covers the vector representations that attention operates on.',
+        'Efficiency: FlashAttention tiles the attention computation to avoid materializing the n-by-n matrix in HBM, achieving O(n) memory. KV Cache stores previously computed keys and values during autoregressive decoding so they do not need to be recomputed at each step. Grouped-Query Attention shares keys and values across heads to reduce cache memory.',
+        'Depth: Multi-Head Attention explores how parallel heads specialize. Sliding-Window Attention restricts the receptive field for bounded-context efficiency. Softmax Temperature controls attention sharpness by scaling scores before normalization.',
       ],
     },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Read Multi-Head Attention next: one head is the scalar version, many heads are the production architecture. Then study The Transformer Block to see attention surrounded by residuals and the feed-forward network. KV Cache explains why serving a decoder is different from training one. Perceiver IO Latent Array Bottleneck shows cross-attention as a data-structure interface between huge inputs, fixed latent memory, and output queries. FNet Fourier Token Mixing Case Study shows what changes when the learned all-pairs attention table is replaced by a fixed Fourier mixer. Sparse Autoencoder Feature Dictionary Case Study shows how interpretability moves from attention maps to internal feature dictionaries. Titans Test-Time Neural Memory Case Study shows how attention can become the short-term part of a larger memory architecture. RoPE (Rotary Embeddings) explains how position is inserted into query-key geometry. Lost in the Middle: Long-Context Failure Modes shows why having a long context window does not guarantee the model will use evidence from every position equally well. Finally, return to Softmax & Temperature, because the same row-normalizing function appears inside attention and at the final next-token sampler.`,
-      ],
-    }
-  ]
+  ],
 };

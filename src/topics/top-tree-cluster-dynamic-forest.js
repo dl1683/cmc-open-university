@@ -327,112 +327,173 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A top tree is a data structure for a dynamic forest: a set of trees where edges can be linked and cut while queries keep asking about paths or whole components. Its basic unit is a cluster, a connected piece of an underlying tree with at most two boundary vertices.',
-        'Clusters are arranged in a balanced binary tree. Leaves usually represent original edges. Internal nodes represent the union of two neighboring clusters. The root cluster summarizes a whole represented tree, or after an expose operation, the path between two chosen vertices.',
-        'The useful abstraction is that application logic lives in small cluster summaries. The data structure handles link, cut, expose, split, join, and rebalancing. The application defines how to combine two child summaries into one parent summary.',
+        'The animation has three views. "Cluster interface" shows how a five-vertex tree decomposes into leaf clusters (one per edge) and internal clusters built by compress and rake joins. "Expose path" shows how expose(A, D) rearranges the cluster hierarchy so the root cluster spans the A-D path, then demonstrates link, cut, and path-aggregate queries. "Diameter case study" shows how each cluster stores boundary distances and internal diameter so the tree diameter can be read from the root after any topology change.',
+        'Active nodes are the clusters or vertices being modified right now. Found nodes are results: the root cluster holding a final aggregate, or the endpoints of a diameter. Compare nodes are side structures (raked subtrees, alternative endpoints) that participate in the logic but are not the primary focus of the current step.',
+        {
+          type: 'note',
+          text: 'At each frame, ask: which clusters changed, why the join or split is valid, and what the root cluster now summarizes. If you cannot answer the third question, the frame has not taught you anything yet.',
+        },
       ],
     },
     {
-      heading: 'Why it exists',
+      heading: 'Why this exists',
       paragraphs: [
-        'Static tree techniques assume the topology stays put. Heavy-Light Decomposition, Euler tours, binary lifting, rerooting DP, and segment trees over tree orderings all become much harder when an edge can disappear and a new edge can attach two components.',
-        'The naive dynamic answer is to recompute after every change. If a link or cut changes a large component, that can mean scanning thousands or millions of vertices just to refresh a path sum, a diameter, or the nearest marked node.',
-        'Top trees exist for workloads that need both dynamic topology and rich aggregates. They keep the repair local: a topology update changes only logarithmically many clusters in the balanced representation, provided each cluster summary can be recomputed in constant time.',
+        'A dynamic forest is a collection of trees where edges appear and vanish over time. After each change, queries ask about paths ("what is the sum from u to v?"), components ("what is the diameter of this tree?"), or marked subsets ("where is the nearest flagged vertex?"). The challenge is answering these queries without rescanning the whole component after every link or cut.',
+        'Static decompositions -- Heavy-Light Decomposition, Euler tour arrays, binary lifting -- assume fixed topology. They answer path and subtree queries efficiently, but rebuilding them after a structural change costs O(n) in the worst case. Link-Cut Trees handle dynamic topology but expose only path aggregates natively; component-wide queries like diameter require extra bookkeeping. Euler Tour Trees handle dynamic connectivity and some component aggregates, but lack the boundary-aware path interface needed for richer summaries.',
+        {
+          type: 'quote',
+          text: 'We present a data structure, called top tree, that maintains a dynamic forest and can report summary information about paths and trees.',
+          attribution: 'Alstrup, Holm, de Lichtenberg, Thorup -- "Maintaining Information in Fully Dynamic Trees with Top Trees" (2005)',
+        },
+        'Top trees solve this by decomposing each tree into a balanced hierarchy of clusters, each with at most two boundary vertices. Application logic lives in small per-cluster summaries. The data structure handles all rebalancing; the user writes only the combine rule.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach for a path query is to run a DFS or BFS from u to v, collect the path, and compute the answer. That is correct and often fine for a single query. It fails when updates and queries are interleaved at high volume.',
-        'The next approach is to keep a static decomposition, such as Heavy-Light Decomposition. That works until link and cut change parent-child relationships and heavy paths. Rebuilding the decomposition after every topology change loses the point.',
-        'The wall is not just connectivity. Euler Tour Trees can maintain dynamic connectivity and some component aggregates well. The harder need is boundary-aware path and tree summaries: after exposing u-v, the summary must know exactly how information flows through the two path endpoints.',
+        'The first thing a team tries is recomputation. After a link or cut, walk the affected component with BFS or DFS, recompute whatever aggregate is needed, and return the answer. This is correct and simple. For a 200-node network with one topology change per second, it is fast enough.',
+        'The next step up is a static decomposition rebuilt on change. Keep a Heavy-Light Decomposition with segment trees over each heavy chain. Path queries run in O(log^2 n). When an edge is cut or linked, rebuild the HLD from scratch. Rebuilding is O(n), but if changes are rare relative to queries, the amortized cost may be acceptable.',
+        'Both approaches share a property: the cost of a topology change scales with the component size, not with the change size. A single edge cut in a million-node tree triggers a million-node rebuild even though only one edge disappeared.',
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'The wall',
       paragraphs: [
-        'Represent the dynamic tree as a hierarchy of connected clusters, and require every cluster to expose at most two boundary vertices. That restriction is the whole trick. A cluster with two boundaries behaves like a path-shaped object with possible side material folded into it. A cluster with one or zero boundaries can summarize a rooted or whole component piece.',
-        'If two clusters touch in a valid way, join them and recompute a parent summary from the child summaries plus boundary information. If an update breaks a relationship, split clusters on the search path and rebuild the balanced hierarchy.',
-        'Path queries become expose operations. expose(u, v) rearranges the cluster hierarchy so u and v are the boundary vertices of the root cluster. Once that happens, a path aggregate is not a traversal anymore. It is a field on the root summary.',
-      ],
-    },
-    {
-      heading: 'Reading the cluster-interface view',
-      paragraphs: [
-        'In the cluster-interface view, read each cluster as a contract. It promises: I represent a connected piece of the underlying tree, I have at most two boundary vertices, and my summary is enough for my parent to combine me with a neighboring cluster.',
-        'The boundary count matters. If a cluster had many open boundary vertices, the parent would need a large table of ways information could enter and leave. With at most two boundaries, a path summary can stay small: left-to-right value, right-to-left value when needed, best internal value, and boundary distances or flags.',
-        'The animation is showing whether the summary API is valid. A good top-tree aggregate does not ask for all vertices in a cluster. It asks for constant-size records that can be joined, split, and lazily reversed without losing meaning.',
-      ],
-    },
-    {
-      heading: 'Reading the expose-path view',
-      paragraphs: [
-        'In the expose-path view, the structural work is the point. The data structure is not walking the underlying u-v path directly. It is rearranging the cluster hierarchy until that path is represented by the root cluster with u and v as boundaries.',
-        'After expose(u, v), a path query should look almost boring. The answer is already in the root summary. For a path sum, read the sum. For a path minimum, read the min. For a nearest marked vertex, compare the boundary-aware nearest records.',
-        'This is also where bugs appear. Boundary orientation must be correct after reversals. Lazy tags must be pushed before summaries are trusted. A cluster that accidentally has three boundary vertices is no longer a valid top-tree cluster, even if its stored numbers look plausible.',
-      ],
-    },
-    {
-      heading: 'Reading the diameter case study',
-      paragraphs: [
-        'For diameter, each cluster summary needs enough information to answer two questions: what is the best diameter entirely inside this cluster, and how far is the farthest relevant endpoint from each boundary?',
-        'When two clusters join, the parent diameter is the best of three candidates: the left child diameter, the right child diameter, or a cross-boundary path that uses the farthest endpoint from one child plus the farthest endpoint from the other child plus the connecting edge or shared boundary distance.',
-        'The diameter view is useful because it is richer than a path sum but still constant-size. It shows why top trees are not just dynamic connectivity. They are a framework for maintaining derived facts about changing trees.',
+        'The wall is not connectivity -- Euler Tour Trees already solve dynamic connectivity in O(log n). The wall is rich aggregates under dynamic topology. Consider maintaining the diameter of a tree that changes shape. Diameter is a non-local property: it depends on the two farthest vertices, which can be anywhere. When an edge is cut, the old diameter might split across the two new components, and a new diameter must be found in each. A naive scan is O(n) per change.',
+        'Link-Cut Trees offer O(log n) amortized path operations, but their splay-based structure gives amortized bounds, not worst-case. For real-time systems that need guaranteed per-operation latency, amortized O(log n) is not the same as worst-case O(log n). Link-Cut Trees also lack a native interface for non-path queries like diameter, center, or median -- those require custom extensions that fight the splay structure.',
+        'The deeper problem is interface. HLD, ETT, and LCT each encode tree information in their own way (chains, Euler sequences, preferred paths). None of them offer a generic framework where the user defines a small summary type and a combine rule, and the data structure handles everything else. Every new aggregate requires rethinking the encoding.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A top tree maintains leaf clusters for edges and internal clusters for unions of adjacent clusters. A compress join combines two path clusters into a longer path. A rake join folds a side cluster into a path cluster without creating extra exposed boundaries.',
-        'link(u, v) creates a new edge cluster and joins the two previously separate components. cut(u, v) exposes or locates the edge cluster for that edge, removes it, and repairs the two resulting component hierarchies. expose(u, v) repeatedly splits and joins clusters until the desired path is the root cluster.',
-        'Every operation depends on a user-defined combine function. For a sum, combine adds child sums. For a min, combine takes a minimum and applies lazy updates. For diameter, combine evaluates child and cross candidates. The top-tree engine supplies the cluster structure; the application supplies the summary algebra.',
+        'A top tree decomposes a tree into clusters. Each cluster is a connected subtree of the original tree with at most two boundary vertices -- the points where the cluster connects to the rest of the tree. Leaf clusters correspond to individual edges. Internal clusters are formed by joining two adjacent clusters.',
+        {
+          type: 'diagram',
+          label: 'Cluster hierarchy for path A-B-C-D with side edge C-E',
+          text: [
+            '            [A-----D]          root cluster (compress)',
+            '           /         \\',
+            '      [A---C]       [C-D]      internal / leaf',
+            '     /       \\',
+            '  [A-B]     [B-C]              leaf clusters',
+            '',
+            '  Side branch C-E is raked into [C-D] or handled',
+            '  separately, folding its information into the',
+            '  path cluster without adding a third boundary.',
+          ].join('\n'),
+        },
+        'Two join operations build the hierarchy. Compress takes two path clusters that share an internal vertex (degree-2 in the path) and merges them into a longer path cluster. The shared vertex stops being a boundary. Rake takes a cluster attached as a side branch at a boundary vertex and folds it into the path cluster at that vertex. The side cluster disappears; its information is absorbed into the path cluster summary. Rake never adds boundaries -- it removes the side attachment point.',
+        'The key operations are expose, link, and cut. expose(u, v) restructures the cluster hierarchy so that u and v become the boundary vertices of the root cluster. This makes any path aggregate between u and v readable from the root summary in O(1). link(u, v) creates a new edge cluster and merges two component hierarchies. cut(u, v) locates the edge cluster, removes it, and splits the hierarchy into two valid top trees. All three operations touch O(log n) clusters when the hierarchy is balanced.',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            'expose(u, v):',
+            '  1. Soft-expose u: splice clusters until u is a boundary of the root',
+            '  2. Soft-expose v: splice until v is the other boundary of the root',
+            '  3. Root cluster now represents the u-v path',
+            '  4. Read the root summary for the path aggregate',
+            '',
+            'join(A, B):  -- A and B share a boundary vertex',
+            '  parent.summary = combine(A.summary, B.summary)',
+            '  parent.boundary = (A.boundary UNION B.boundary) \\ {shared vertex}',
+            '',
+            'split(P):    -- inverse of join',
+            '  push lazy tags from P to children',
+            '  restore A.summary and B.summary',
+          ].join('\n'),
+        },
+        'The user defines four callbacks: create (initialize a leaf cluster from an edge), join (combine two child summaries into a parent summary), split (push lazy tags from parent to children before breaking apart), and destroy (clean up when an edge is removed). The top-tree engine calls these automatically during restructuring. The user never touches the cluster hierarchy directly.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness invariant is local: every cluster summary is a complete summary of exactly the connected underlying subgraph represented by that cluster, viewed through its boundary vertices. If both children satisfy the invariant and the join rule is correct, the parent satisfies it too.',
-        'Because the cluster hierarchy is balanced, a link, cut, expose, or update changes only O(log n) levels of summaries. The algorithm does not need to revisit unaffected clusters because their represented subgraphs and boundary summaries have not changed.',
-        'The two-boundary rule is what keeps joins constant-time. It prevents a parent from needing to remember arbitrary interactions among many open attachment points. A valid summary can be small, boundary-aware, and composable.',
+        'Correctness rests on a local invariant: every cluster summary is a complete, self-contained summary of the connected subgraph it represents, parameterized only by its boundary vertices. If both children satisfy this invariant and the join callback is correct, the parent satisfies it too. This is structural induction over the cluster hierarchy.',
+        'The two-boundary restriction is what makes the join callback tractable. A cluster with two boundaries behaves like a directed pipe: information enters at one boundary and exits at the other, with possible internal structure folded in. The parent needs to combine two pipes that share an endpoint. With at most two boundaries per cluster, the number of cases in a join is constant. If clusters could have k boundaries, the join would need to track O(k^2) boundary-to-boundary interactions, and the constant-time guarantee would collapse.',
+        'Balance ensures that only O(log n) clusters sit on the path from any leaf to the root. A topology change (link or cut) modifies one leaf cluster, then repairs summaries upward along O(log n) ancestors. Expose rearranges at most O(log n) clusters. Because each join or split is O(1) by the constant-size summary contract, the total work per operation is O(log n) worst-case -- not amortized.',
+        {
+          type: 'note',
+          text: 'The worst-case O(log n) bound distinguishes top trees from link-cut trees, which achieve O(log n) amortized via splaying. Self-adjusting top trees (Tarjan and Werneck, 2005) trade the worst-case guarantee for better practical performance by allowing the hierarchy to adapt to access patterns, similar to splay trees.',
+        },
       ],
     },
     {
-      heading: 'Worked case study: failover diameter',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Consider a tree-shaped failover network. Vertices are sites, weighted edges are network links, and operators repeatedly cut failed links, add recovered links, and ask for the current diameter: the two sites farthest apart by weighted path distance.',
-        'Recomputing the diameter from scratch after every change would require scanning the whole component. A top tree instead stores, for each cluster, the best internal diameter and the farthest endpoint distance from each boundary. When two clusters join, the parent checks the two child diameters and the cross path formed by the farthest boundary-facing endpoints.',
-        'After a cut or link, only the clusters on the repaired hierarchy paths need new summaries. The dashboard can read the current component diameter from the root cluster. The same pattern can maintain nearest failed site, minimum residual capacity on a path, or total maintenance cost across an exposed path.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'Balanced top trees support expose, link, cut, and many boundary-aware aggregate operations in O(log n) time when cluster joins, splits, reversals, and lazy updates are O(1). Space is O(n) clusters plus the stored summaries.',
-        'That bound depends on the summary staying small. If a cluster stores a list of all vertices, all marked nodes, or an unbounded table of cases, the asymptotic guarantee is gone. The data structure is only as good as the combine contract.',
-        'The implementation cost is high. You must maintain cluster validity, orientation, lazy propagation, split and join cases, and tests against brute-force dynamic trees. Top trees are an abstraction win after the engine exists, not a quick implementation trick.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Top Tree', 'Link-Cut Tree', 'Euler Tour Tree', 'Heavy-Light Decomp.'],
+          rows: [
+            ['Link', 'O(log n) worst-case', 'O(log n) amortized', 'O(log n)', 'O(n) rebuild'],
+            ['Cut', 'O(log n) worst-case', 'O(log n) amortized', 'O(log n)', 'O(n) rebuild'],
+            ['Path aggregate', 'O(log n) worst-case', 'O(log n) amortized', 'not native', 'O(log^2 n)'],
+            ['Subtree aggregate', 'O(log n) via expose', 'O(log n) with augmentation', 'O(log n)', 'O(log n)'],
+            ['Non-local (diameter, center)', 'O(log n) with custom summary', 'requires extension', 'requires extension', 'O(n) recompute'],
+            ['Dynamic topology', 'yes', 'yes', 'yes', 'no (static)'],
+            ['Worst-case per op', 'yes', 'no (amortized)', 'yes', 'n/a'],
+            ['Space', 'O(n)', 'O(n)', 'O(n)', 'O(n)'],
+          ],
+        },
+        'When n doubles, top tree operations add one more level to the cluster hierarchy -- one more join or split. The cost grows as log base 2: a million-node tree needs about 20 cluster levels; a billion-node tree needs about 30. Each level costs one combine call, so the wall-clock time per operation scales with the cost of the combine function times the tree height.',
+        'Space is O(n) clusters. Each cluster stores its user-defined summary, two child pointers, boundary vertex identifiers, and lazy tags. For a path-sum aggregate, the summary is one number. For diameter, it is a handful of distances and endpoint identifiers. If the summary is constant-size, the total space is linear in the number of edges.',
+        'The hidden cost is implementation complexity. A correct top-tree engine must handle compress and rake joins, their inverses, lazy propagation on split, boundary orientation and reversal, and the expose algorithm that splices the hierarchy. Testing against brute-force dynamic trees on small random inputs is essential -- most bugs are boundary-orientation errors that produce plausible but wrong summaries.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Top trees win when the forest changes online and queries need path or whole-tree summaries richer than connectivity: dynamic diameter, path min or max, path sum, nearest marked vertex, center-like summaries, and custom records that can be composed from two child clusters.',
-        'They are especially attractive in libraries or systems that need many dynamic-tree aggregates behind one interface. Once the cluster engine is reliable, adding a new aggregate can be mostly a matter of defining summary fields and combine rules.',
+        {
+          type: 'bullets',
+          items: [
+            'Dynamic network monitoring: maintain diameter, center, or bottleneck capacity of a tree-shaped network as links fail and recover. Each topology change updates O(log n) cluster summaries instead of rescanning the component.',
+            'Reusable dynamic-forest libraries: once the cluster engine works, adding a new aggregate means defining a summary type and a combine rule. Path sum, path min, nearest marked vertex, and diameter all share the same engine.',
+            'Real-time systems requiring worst-case guarantees: top trees offer O(log n) worst-case per operation, unlike link-cut trees whose O(log n) is amortized. A single expensive splay in a link-cut tree can violate a latency SLA.',
+            'Non-local tree queries under dynamic topology: diameter, center, median, and radius are properties of the whole tree, not just a path. Top trees handle these through custom cluster summaries without requiring a separate data structure.',
+          ],
+        },
+        'The pattern is always the same: define what each cluster stores, define how two children combine, and the engine handles topology. This separation of concerns is the real payoff. A team that builds the engine once can serve many aggregates without reimplementing the dynamic-tree machinery.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'They fail when the problem is simpler than the machinery. If the tree is static, Heavy-Light Decomposition or Euler tour plus a segment tree is usually easier. If only dynamic connectivity is needed, Euler Tour Trees or Link-Cut Trees may be more direct.',
-        'They also fail when the aggregate is not local to two-boundary clusters. Queries that need arbitrary global ordering, large sets per cluster, or non-composable constraints can break the constant-time join assumption.',
-        'For one-off contest code, top trees are often too much. For a reusable dynamic-forest engine with serious aggregate requirements, the abstraction can be worth the complexity.',
+        'Top trees are overkill when the tree is static. Heavy-Light Decomposition with segment trees is simpler to implement, easier to debug, and sufficient for static path and subtree queries. If the topology never changes, the dynamic machinery adds complexity without benefit.',
+        'They fail when the aggregate is not composable from constant-size boundary-aware summaries. If a cluster needs to store all vertices, a sorted list of values, or an unbounded set of marked nodes, the join callback is no longer O(1), and the logarithmic guarantee disappears. The data structure is only as fast as the combine rule.',
+        'For competitive programming, top trees are rarely the right choice. The implementation is long, error-prone, and hard to debug under contest time pressure. Link-Cut Trees cover most contest problems involving dynamic trees, and HLD covers static ones. Top trees earn their keep in library code and production systems, not in one-off solutions.',
+        {
+          type: 'note',
+          text: 'Self-adjusting top trees (Tarjan and Werneck, 2005) sacrifice the worst-case bound for practical speed by adapting the cluster hierarchy to access patterns. In experiments, they outperform balanced top trees on skewed workloads but lose the worst-case guarantee. Choose based on whether your system needs guaranteed latency or average throughput.',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Heavy-Light Decomposition, Euler Tour Tree, Link-Cut Tree, Segment Tree, and rerooting DP before implementing a top tree. The essential question for any proposed aggregate is: can two child cluster summaries be joined into a parent summary using only constant-size boundary-aware information?',
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: Alstrup, Holm, de Lichtenberg, Thorup -- "Maintaining Information in Fully Dynamic Trees with Top Trees," ACM Transactions on Algorithms, 2005. Defines the cluster interface, compress/rake joins, and the O(log n) worst-case bound.',
+            'Self-adjusting variant: Tarjan and Werneck -- "Self-Adjusting Top Trees," SODA 2005. Trades worst-case for practical speed via access-adaptive restructuring.',
+            'Implementation reference: Eppstein, Galil, Italiano, Nissenzweig -- "Sparsification," JACM 1997. Context for how top trees fit into the broader dynamic-graph toolbox.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Heavy-Light Decomposition -- static path queries on trees'],
+            ['Prerequisite', 'Link-Cut Tree -- dynamic path queries with amortized bounds'],
+            ['Prerequisite', 'Euler Tour Tree -- dynamic connectivity and subtree aggregates'],
+            ['Prerequisite', 'Segment Tree -- range queries that top tree summaries generalize'],
+            ['Extension', 'Self-adjusting top trees -- access-adaptive cluster hierarchies'],
+            ['Application', 'Dynamic diameter, center, and radius maintenance in network monitoring'],
+          ],
+        },
+        'The essential question for any proposed top-tree aggregate is: can two child cluster summaries be joined into a parent summary using only constant-size, boundary-aware information? If yes, the aggregate fits the framework. If no, a different data structure is needed.',
       ],
     },
   ],

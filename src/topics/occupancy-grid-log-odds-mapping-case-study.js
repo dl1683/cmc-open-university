@@ -187,6 +187,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Occupancy Grid Log-Odds Mapping Case Study. A robotics mapping case study: grid cells, inverse sensor models, log-odds updates, ray freespace, occupied hits, saturation, decay, and map evidence ledgers..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A mobile robot cannot drive from raw sensor returns alone. A lidar scan is a momentary slice through the world, taken from one pose, with noise, missing returns, moving people, reflective surfaces, and blind spots. A planner needs a steadier object: a map that says which regions are probably free, which regions are probably blocked, and how confident the robot should be about each claim.`,
@@ -199,7 +208,7 @@ export const article = {
       paragraphs: [
         `The obvious first approach is to keep the latest point cloud or depth image and plan around the visible returns. If the sensor sees a wall, avoid the wall. If it sees no obstacle in front of the robot, drive forward. For a small demo in a static room, this can look convincing because the latest scan is usually close to the truth.`,
         `A second obvious approach is to store exact geometry: points, line segments, meshes, or object detections. That can be useful for mapping and visualization, but it is not the cheapest interface for a local collision planner. The planner often needs to ask simple questions many times per second: is this footprint safe, how close is the nearest obstacle, and is this corridor clear enough to enter? A dense belief grid answers those questions directly.`,
-        `The old approach is not foolish. Raw observations preserve detail, and exact geometry can be more compact in simple spaces. The problem is that a robot's control loop needs a stable, updateable estimate under uncertainty. The latest scan is too volatile, and exact geometry can become brittle when every measurement is noisy and every pose estimate has error.`,
+        `The old approach is not foolish. Raw observations preserve detail, and exact geometry can be more compact in simple spaces. The problem is that a robot\'s control loop needs a stable, updateable estimate under uncertainty. The latest scan is too volatile, and exact geometry can become brittle when every measurement is noisy and every pose estimate has error.`,
       ],
     },
     {
@@ -219,12 +228,12 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         `Start with a grid resolution and an origin in a map frame. Each cell stores a log-odds value, often initialized to zero for an unknown prior. A positive value means occupancy is more likely than free space. A negative value means free space is more likely. The exact conversion back to probability is available, but most update code can work directly in log-odds.`,
-        `For each sensor ray, transform the ray from the sensor frame into the map frame using the robot pose and calibration. Traverse the cells crossed by the ray with a Bresenham-style grid walk, digital differential analyzer, or voxel traversal in 3D. Apply a free update to cells before the return. Apply an occupied update to the endpoint if the return is valid and within the sensor model's usable range.`,
-        `After the update, clamp the cell value between minimum and maximum log-odds. Clamping is not cosmetic. Without it, hundreds of repeated hits can make a cell so certain that later clearing rays cannot move it back in reasonable time. Many systems also age old evidence, clear the robot's own footprint, filter by height, and convert the occupancy layer into an inflated costmap before planning.`,
-        `The animation's grid-update view shows this ledger behavior: each cell has a prior, an observation role, and an updated belief. The sensor-rays view shows the causal split that matters most: the endpoint and the traversed cells get opposite evidence. A robot that records only the endpoint learns obstacles; a robot that records the whole ray learns navigable space.`,
+        `For each sensor ray, transform the ray from the sensor frame into the map frame using the robot pose and calibration. Traverse the cells crossed by the ray with a Bresenham-style grid walk, digital differential analyzer, or voxel traversal in 3D. Apply a free update to cells before the return. Apply an occupied update to the endpoint if the return is valid and within the sensor model\'s usable range.`,
+        `After the update, clamp the cell value between minimum and maximum log-odds. Clamping is not cosmetic. Without it, hundreds of repeated hits can make a cell so certain that later clearing rays cannot move it back in reasonable time. Many systems also age old evidence, clear the robot\'s own footprint, filter by height, and convert the occupancy layer into an inflated costmap before planning.`,
+        `The animation\'s grid-update view shows this ledger behavior: each cell has a prior, an observation role, and an updated belief. The sensor-rays view shows the causal split that matters most: the endpoint and the traversed cells get opposite evidence. A robot that records only the endpoint learns obstacles; a robot that records the whole ray learns navigable space.`,
       ],
     },
     {
@@ -236,7 +245,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Memory is proportional to mapped area divided by cell area. In a 2D grid, halving the cell width roughly quadruples the number of cells. A 100 by 100 meter local map at 10 centimeter resolution has one million cells before metadata, layers, or inflation. A 5 centimeter grid gives sharper obstacles but multiplies storage and update work.`,
         `Update cost depends on the number of rays and the number of cells crossed by each ray. Long-range lidar with many beams can touch a large fraction of a local map every cycle. Ray traversal, coordinate transforms, cache locality, and layer fusion become real performance concerns. Sparse or tiled grids reduce memory for large maps, but they add indexing complexity.`,
@@ -244,7 +253,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Occupancy grids work well for local navigation, indoor mobile robots, warehouse robots, simple outdoor ground vehicles, SLAM debugging, and planner costmaps. They shine when the downstream question is geometric and local: can the robot footprint occupy this region soon? The answer does not require object names or exact mesh boundaries.`,
         `They are also useful because humans can inspect them. A developer can look at a grid and see ghosts, missing freespace, bad inflation, sensor shadows, or localization smear. That visibility matters in robotics. A black-box perception output may be more expressive, but an occupancy grid makes many failures obvious enough to debug during a field test.`,
@@ -254,17 +263,17 @@ export const article = {
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Occupancy grids struggle with semantic meaning. A cell can say occupied, but it cannot say whether the obstacle is a person, a pallet, a door, steam, glass, a reflection, or a hanging object above the robot's body. A navigation stack often needs additional layers for semantics, height, keepout zones, lanes, or social behavior around people.`,
-        `They also struggle with dynamic worlds. A parked cart, a walking person, and a recently opened door all leave evidence. Without decay and clearing, the map accumulates ghosts. With too much decay, stable obstacles lose confidence. The right policy depends on the robot's speed, sensor rate, environment, and tolerance for stale obstacles versus risky clearing.`,
+        `Occupancy grids struggle with semantic meaning. A cell can say occupied, but it cannot say whether the obstacle is a person, a pallet, a door, steam, glass, a reflection, or a hanging object above the robot\'s body. A navigation stack often needs additional layers for semantics, height, keepout zones, lanes, or social behavior around people.`,
+        `They also struggle with dynamic worlds. A parked cart, a walking person, and a recently opened door all leave evidence. Without decay and clearing, the map accumulates ghosts. With too much decay, stable obstacles lose confidence. The right policy depends on the robot\'s speed, sensor rate, environment, and tolerance for stale obstacles versus risky clearing.`,
         `Pose drift is the expensive failure because it corrupts many cells coherently. Bad localization does not look like random noise; it writes plausible walls in the wrong place. The map can become confident and wrong. When that happens, the fix is rarely in the grid update alone. The team must inspect localization, time synchronization, transforms, calibration, and loop-closure behavior.`,
       ],
     },
     {
-      heading: 'A worked case',
+      heading: 'Worked example',
       paragraphs: [
         `A robot drives down a hallway with a planar lidar. One beam crosses five cells and returns from the right wall. The first five cells get free updates because the beam passed through them. The endpoint cell gets an occupied update. The same happens from hundreds of nearby poses. Over time, the hallway floor accumulates negative log-odds, and the wall cells accumulate positive log-odds.`,
         `Now a person walks through the beam. For a few scans, the endpoint is no longer the wall; it is the person. The map marks a temporary occupied region in the hallway. When the person leaves, later rays pass through that same region and hit the wall again. Those pass-through updates should clear the temporary obstacle. If clamping, decay, and clearing are tuned badly, the planner may continue to route around a person who is no longer there.`,
-        `The example shows why a grid cell is not a fact. It is a compact memory of evidence. The cell's value should be strong enough to stabilize planning across noisy scans and weak enough to change when the world changes.`,
+        `The example shows why a grid cell is not a fact. It is a compact memory of evidence. The cell\'s value should be strong enough to stabilize planning across noisy scans and weak enough to change when the world changes.`,
       ],
     },
     {
@@ -277,11 +286,53 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
-        `Primary sources: Thrun's occupancy-grid mapping paper at https://robots.stanford.edu/papers/thrun.iros01-occmap.pdf and an occupancy-grid project overview at https://yangfan.github.io/projects/mapping/grid-map/. For implementation practice, study the costmap and mapping layers used by common robotics navigation stacks.`,
+        `Primary sources: Thrun\'s occupancy-grid mapping paper at https://robots.stanford.edu/papers/thrun.iros01-occmap.pdf and an occupancy-grid project overview at https://yangfan.github.io/projects/mapping/grid-map/. For implementation practice, study the costmap and mapping layers used by common robotics navigation stacks.`,
         `Study Kalman Filter Sensor Fusion for state estimation, Particle Filter Localization for pose uncertainty, Quadtree Spatial Index for adaptive spatial resolution, Nav2 Costmap Inflation Layer for planner costs, and RRT* Motion Planning Tree for path search over derived map evidence. The natural next question is how pose uncertainty, map uncertainty, and planner safety margins should be coupled instead of tuned in isolation.`,
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for occupancy-grid-log-odds-mapping-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

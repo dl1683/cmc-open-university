@@ -1,4 +1,4 @@
-// Activation functions: the nonlinearity that lets neural networks learn
+﻿// Activation functions: the nonlinearity that lets neural networks learn
 // curves instead of lines. Sigmoid, tanh, ReLU: same job, different rules.
 
 import { plotState } from '../core/state.js';
@@ -68,6 +68,14 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "The plot shows input x on the horizontal axis and activation output on the vertical axis. Each curve is one activation function applied element-wise. The active highlight marks the function currently being introduced; visited markers show functions already plotted for comparison.",
+        "Watch the slope of each curve, not just its shape. Steep regions are where the derivative is large and gradients flow well during training. Flat regions are where the derivative is near zero and gradients vanish. The first frame shows a plain linear function to establish the baseline that activation functions must break.",
+        "After all three curves appear, compare them side by side: sigmoid saturates at both extremes, tanh saturates at both extremes but is zero-centered, and ReLU has constant slope on the positive side but is exactly zero on the negative side. The invariant across all frames is that slope equals trainability.",
+      ],
+    },
+    {
       heading: `Why they exist`,
       paragraphs: [
         `A neural network layer is mostly an affine transformation: multiply inputs by weights, add biases, pass the result onward. If every layer did only that, depth would be an illusion. The composition of linear or affine functions is still one affine function. A hundred layers without nonlinear activations can be collapsed into a single layer. The model may have many parameters, but its input-output shape is still a plane, hyperplane, or linear decision boundary in transformed coordinates.`,
@@ -76,7 +84,7 @@ export const article = {
       ],
     },
     {
-      heading: `The naive wall`,
+      heading: `The wall`,
       paragraphs: [
         `The naive model builder notices that a linear layer is easy to optimize and asks why not just stack more of them. Algebra blocks that path. If layer one computes A x + b and layer two computes C y + d, then the two together compute C(A x + b) + d, which is just (C A) x + (C b + d). Add more layers and the collapse continues. Depth without nonlinearity buys parameter redundancy, not expressive power.`,
         `The next naive move is to use a smooth squashing function everywhere, such as sigmoid, because probabilities feel intuitive. That created another wall in early deep networks. Sigmoid maps large positive inputs near 1 and large negative inputs near 0. In both tails the curve is almost flat, so the derivative is near zero. Backpropagation multiplies derivatives across layers. Multiply many small numbers and the gradient arriving at early layers becomes tiny. The network is expressive in principle, but hard to train in practice.`,
@@ -87,7 +95,7 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `The core insight is that depth needs two contracts at once. The forward contract must break the collapse of linear layers. The backward contract must keep derivatives large enough that gradient descent can assign credit to earlier weights. A useful hidden activation is therefore judged by both its output shape and its derivative shape.`,
-        `This is why the same curve can be good in one position and bad in another. Sigmoid is a sensible final activation for binary probability output because the range matches the prediction contract. The same sigmoid can be a poor hidden-layer default in a deep network because saturated hidden units block gradient flow. The question is not "which curve is best?" The question is which curve fits this layer's job.`,
+        `This is why the same curve can be good in one position and bad in another. Sigmoid is a sensible final activation for binary probability output because the range matches the prediction contract. The same sigmoid can be a poor hidden-layer default in a deep network because saturated hidden units block gradient flow. The question is not "which curve is best?" The question is which curve fits this layer\'s job.`,
         `Elementwise activations also give networks their region structure. ReLU, for example, turns each unit on or off depending on the sign of its pre-activation. One pattern of active units selects one linear map; another pattern selects another. Deeper networks can compose many such switches, which is how simple one-dimensional bends create complicated high-dimensional decision surfaces.`,
       ],
     },
@@ -108,10 +116,10 @@ export const article = {
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: `How it works`,
       paragraphs: [
         `The visual model compares each activation on two axes: forward range and slope. Sigmoid compresses values into 0 to 1. Tanh compresses values into -1 to 1. ReLU keeps positive values unbounded and clips negative values to zero. This tells you what kind of signal the next layer receives: bounded probability-like values, centered bounded values, or sparse nonnegative values.`,
-        `The slope is the local derivative, and backpropagation multiplies that derivative by the upstream gradient. Flat tails mean small derivatives. A long region with slope 1 means gradients can pass cleanly. A hard zero region means no gradient passes through that unit for those inputs. ReLU's positive side is a strong training path, not just a line segment on a chart.`,
+        `The slope is the local derivative, and backpropagation multiplies that derivative by the upstream gradient. Flat tails mean small derivatives. A long region with slope 1 means gradients can pass cleanly. A hard zero region means no gradient passes through that unit for those inputs. ReLU\'s positive side is a strong training path, not just a line segment on a chart.`,
         `The plot is one-dimensional because an activation function acts element by element. A real layer has many neurons, so the activation bends a high-dimensional representation one coordinate at a time. The combined effect can carve input space into many regions. ReLU networks are piecewise linear: each pattern of active and inactive ReLUs selects a different linear map. Depth increases the number and arrangement of these regions.`,
       ],
     },
@@ -124,7 +132,7 @@ export const article = {
       ],
     },
     {
-      heading: `Cost and training behavior`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `The computational cost of an activation is usually O(number of activations). ReLU is extremely cheap: compare with zero and keep the maximum. Sigmoid and tanh require exponentials, though optimized libraries make them routine. GELU and Swish are more expensive than ReLU but still small compared with large matrix multiplications in many models. The bigger cost is often memory: training stores activations or enough information to compute their derivatives during backpropagation.`,
         `Activation choice interacts with initialization. If weights are too large, sigmoid and tanh units may start saturated. If weights and learning rates push ReLU units negative, they may die. Initialization schemes such as Xavier and He initialization were designed around activation behavior and variance propagation. Normalization layers also help by keeping pre-activation values in useful ranges, but they do not replace nonlinearity. A normalized stack of linear layers is still linear.`,
@@ -150,12 +158,12 @@ export const article = {
     {
       heading: `Choosing between variants`,
       paragraphs: [
-        `A small model on simple data usually does not need an exotic activation. ReLU, Leaky ReLU, or tanh may be enough, and the larger gains may come from better features, regularization, or learning-rate schedules. A deep transformer-style network is different. There, smooth gated activations such as GELU or SwiGLU can improve optimization and quality because the feed-forward block is a major part of the model's capacity.`,
+        `A small model on simple data usually does not need an exotic activation. ReLU, Leaky ReLU, or tanh may be enough, and the larger gains may come from better features, regularization, or learning-rate schedules. A deep transformer-style network is different. There, smooth gated activations such as GELU or SwiGLU can improve optimization and quality because the feed-forward block is a major part of the model\'s capacity.`,
         `Hardware and inference also matter. ReLU is cheap and easy to fuse. Sigmoid, tanh, GELU, and Swish require more math, though optimized kernels reduce the overhead. In very large models, matrix multiplications dominate, but activation choice can still affect kernel fusion, quantization behavior, numerical range, and calibration. A production choice should be tested on task quality and serving latency, not only on a training curve.`,
       ],
     },
     {
-      heading: `Limits and failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `Saturation is the classic sigmoid and tanh failure. If many units sit in flat tails, the model may train slowly or stop improving because early layers receive tiny gradients. Dead units are the classic ReLU failure. If many units output zero for almost all examples, the network has less usable capacity than its parameter count suggests. Exploding activations are the opposite problem: unbounded positive ReLU outputs can grow through layers if initialization, normalization, or learning rates are poor.`,
         `A common misconception is that nonlinear output alone is enough. It is not. If all hidden layers are linear and only the final layer is nonlinear, the model is still mostly a generalized linear model over the original input. The hidden stack never builds nonlinear features. Another misconception is that smoother is always better. Smooth activations can help, but a smooth saturated curve may train worse than a simple piecewise-linear one with strong slope.`,
@@ -168,5 +176,55 @@ export const article = {
         `Study Neural Network Forward Pass to see where activations sit, Backpropagation to see why derivatives matter, Vanishing and Exploding Gradients to understand saturation, and BatchNorm or LayerNorm to see how scale is managed near activations. Then sketch each activation and its derivative side by side. The output curve explains representation. The derivative curve explains trainability. Good network design needs both.`,
       ],
     },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'A neural network without activation functions is just a linear transformation. Stack 100 linear layers: W₁₀₀·...·W₂·W₁·x = W·x (one big matrix). Can only learn linear functions. Activation functions introduce nonlinearity.',
+        'Sigmoid σ(x) = 1/(1+e^(-x)): output ∈ (0,1). Smooth, differentiable. But: vanishing gradient — for |x| > 5, σ\'(x) ≈ 0. Deep networks: gradients shrink exponentially through layers. A 10-layer network: gradient ≈ 0.25^10 ≈ 10^(-6). Tanh: output ∈ (-1,1). Zero-centered (unlike sigmoid). Same vanishing gradient problem.',
+        'ReLU (Nair & Hinton 2010): f(x) = max(0,x). Gradient: 1 if x>0, 0 if x≤0. No vanishing gradient for positive inputs. 6× faster to converge than sigmoid on ImageNet (Krizhevsky 2012). But: dying ReLU — if a neuron\'s input is always negative, gradient is always 0, neuron never updates.',
+        'Leaky ReLU: f(x) = max(0.01x, x). Small gradient for negatives — no dying neurons. GELU (Hendrycks & Gimpel 2016): x·Φ(x) where Φ is the Gaussian CDF. Smooth approximation of ReLU. Used in GPT, BERT, and most modern transformers. SiLU/Swish (Ramachandran et al. 2017): x·σ(x). Self-gated, smooth, non-monotonic.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take input x = -1 and compute each activation and its derivative.',
+        'Sigmoid: output = 1 / (1 + e^1) = 0.269. Derivative = 0.269 * (1 - 0.269) = 0.197. The gradient is about 20% of what it would be at the peak (x = 0). Not dead, but already weakened.',
+        'Tanh: output = tanh(-1) = -0.762. Derivative = 1 - (-0.762)^2 = 0.420. Better than sigmoid because the peak derivative of tanh is 1.0 (at x = 0), so at x = -1 you still retain 42% of peak gradient.',
+        'ReLU: output = max(0, -1) = 0. Derivative = 0. The unit is dead for this input. No gradient flows backward, so the weights feeding this unit do not update for this example. If every training example produces a negative pre-activation here, the unit is permanently dead.',
+        'Now try x = 2. Sigmoid: output = 0.881, derivative = 0.105 (already fading). Tanh: output = 0.964, derivative = 0.071 (nearly saturated). ReLU: output = 2, derivative = 1 (full gradient). This is why ReLU trains deep networks faster: in the active region, the gradient is always 1, no matter how large the input.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Nair & Hinton 2010 (Rectified Linear Units Improve Restricted Boltzmann Machines — ReLU). Hendrycks & Gimpel 2016 (Gaussian Error Linear Units — GELU). Ramachandran et al. 2017 (Searching for Activation Functions — Swish/SiLU). Glorot & Bengio 2010 (Understanding the difficulty of training deep feedforward neural networks — initialization interacts with activations).',
+        'Study next: Backpropagation (gradients flow through activations), Gradient Flow / Residual Connections (bypass vanishing gradients architecturally), Batch Normalization (stabilizes activations), Transformer Block (uses GELU), Loss Functions (sigmoid used in BCE loss).',
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Prerequisites: basic calculus (the derivative of each activation function matters for backpropagation), and an understanding of neural network architecture (layers, weights, forward pass). You need to know what a gradient is and why training multiplies gradients across layers.',
+        'This topic unlocks: understanding why deep networks became trainable (ReLU broke the vanishing gradient barrier), why Transformers use GELU instead of ReLU (smooth gating improves optimization at scale), the dying ReLU problem and why Leaky ReLU and ELU fix it (small negative slope keeps dead units alive), and the connection between activation choice and gradient flow throughout the network.',
+      ],
+    },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        'Input x = [-2, -1, 0, 1, 2]. Sigmoid: [0.12, 0.27, 0.5, 0.73, 0.88]. Gradients: [0.10, 0.20, 0.25, 0.20, 0.10]. Max gradient = 0.25 (at x=0). Through 10 layers: 0.25^10 ≈ 10^(-6). Vanishing!',
+        'ReLU: [0, 0, 0, 1, 2]. Gradients: [0, 0, 0, 1, 1]. Through 10 layers: 1^10 = 1 for positive path. No vanishing! But x=-2 through ReLU: gradient = 0. Dead forever.',
+        'GELU: [-0.05, -0.16, 0, 0.84, 1.95]. Gradients: [0.02, 0.08, 0.5, 0.92, 0.98]. Smooth transition — no hard zero like ReLU. This is why GELU wins in transformers: no dead neurons, smooth optimization landscape.',
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Choosing an activation function (2024 rules of thumb): Hidden layers in CNNs: ReLU (fast, proven). Hidden layers in transformers: GELU or SiLU (smooth, no dead neurons). Output layer for binary classification: sigmoid (outputs probability). Output layer for multi-class: softmax (outputs probability distribution). Output layer for regression: none (linear).',
+        'Why not just use GELU everywhere? For CNNs, ReLU is 2-3x faster to compute (one comparison vs. CDF approximation). The computational savings matter when you have millions of activations per layer. For transformers, the layers are fewer and wider — GELU\'s computational cost is negligible relative to the attention mechanism.',
+        'Initialization matters: with ReLU, use He initialization (W ~ N(0, 2/n)). With sigmoid/tanh, use Xavier/Glorot (W ~ N(0, 1/n)). Wrong initialization + activation = dying or exploding neurons.',
+      ],
+    },
   ],
 };
+

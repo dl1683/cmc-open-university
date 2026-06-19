@@ -350,6 +350,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for WebGPU Parallel Prefix Scan & Compaction. Run workgroup-local prefix scans over storage buffers, combine block sums, scatter compacted output, and keep GPU readback bounded..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `Many parallel programs begin with independent per-item decisions and then need a dense result. A particle is visible or invisible. A graph edge enters the next frontier or does not. A row contributes some number of nonzero values. A token, triangle, byte range, or document either survives a filter or gets dropped. The first phase is embarrassingly parallel. The second phase is harder because every surviving item needs a unique output position.`,
@@ -358,7 +367,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why the obvious approach fails',
+      heading: 'The wall',
       paragraphs: [
         `The simple CPU solution is a loop with a counter. Read each flag, write kept records to output[count], and increment count. That is easy to reason about and perfectly fine for small arrays, but it is a dependency chain. Each output position depends on all earlier flags. If you put that exact loop into a GPU-shaped problem, thousands of lanes wait on one serial count.`,
         `The tempting GPU workaround is a single atomic counter. Every kept item atomically increments the counter and uses the returned value as its slot. That avoids duplicate writes, but it concentrates contention on the hottest memory location in the pass. It can also destroy stable order, make results harder to reproduce, and hide a performance cliff behind a deceptively short shader.`,
@@ -374,7 +383,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Workgroup mechanism',
+      heading: 'How it works',
       paragraphs: [
         `A practical GPU scan starts inside one workgroup. The shader loads a tile of values from a storage buffer into workgroup memory. Workgroup memory is much faster than global memory and can be shared by invocations in the same group. The tile size is usually a fixed power of two or a carefully guarded non-power-of-two size chosen to fit device limits.`,
         `The classic Blelloch scan has two tree phases. In the upsweep phase, pairs of values are combined into larger partial sums until the root contains the total for the tile. For an exclusive scan, the root is then set to zero. In the downsweep phase, prefix values are propagated back down the tree so every leaf receives the sum of values that came before it.`,
@@ -390,7 +399,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked compaction example',
+      heading: 'Worked example',
       paragraphs: [
         `Suppose a renderer has six particles and visibility flags [1, 0, 1, 1, 0, 1]. The exclusive scan is [0, 1, 1, 2, 3, 3]. Particle 0 writes to compacted[0]. Particle 1 is invisible and writes nowhere. Particle 2 writes to compacted[1]. Particle 3 writes to compacted[2]. Particle 4 writes nowhere. Particle 5 writes to compacted[3]. The draw list is dense and stable.`,
         `If the array spans several workgroups, each group first produces local positions. Imagine the first tile has two visible particles and the second tile has five. The block-sum scan gives the second tile an offset of two. Every kept element in the second tile adds two to its local rank. This is the entire jump from local correctness to global correctness.`,
@@ -414,7 +423,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Performance model',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Scan has overhead. It launches compute passes, uses barriers, writes intermediate buffers, and may perform more total arithmetic than a serial CPU loop. For tiny arrays, that overhead can dominate. A JavaScript loop or a small CPU-side typed-array pass may be faster if the data already lives on the CPU and the result is immediately needed on the CPU.`,
         `Scan wins when data is large enough, when many lanes can be occupied, and when the compacted result feeds later GPU work. Particle culling, tile binning, visibility lists, GPU sorting, and graph frontiers benefit because the output stays in GPU memory. The cost of scan is then amortized by removing holes or preparing offsets for a larger parallel stage.`,
@@ -422,7 +431,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `Tail handling is the most common correctness trap. Real inputs are not always exact multiples of the tile size. Out-of-range lanes should contribute zero and avoid invalid reads and writes. Test sizes zero, one, tile size minus one, tile size, tile size plus one, and several awkward non-power-of-two lengths.`,
         `Barrier placement is another trap. A workgroupBarrier belongs between tree levels that communicate through workgroup memory. Adding too few barriers creates races. Adding unnecessary barriers can slow the shader or hide a design that is doing more shared-memory traffic than needed. The goal is not many barriers; it is barriers exactly where previous-level writes must be visible.`,
@@ -438,7 +447,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         `Prefix scan is a foundational GPU primitive because it connects local predicates to global structure. In rendering, it builds visible instance lists, tile queues, light lists, and particle buffers. In data processing, it packs filtered rows, partitions records, computes offsets for variable-length outputs, and prepares radix-sort buckets. In graph processing, it builds dense frontier arrays from sparse edge decisions.`,
         `The browser context makes it especially useful. WebGPU applications often want rich client-side computation without server round trips. Scan lets an application keep large interactive buffers resident on the GPU, update them with compute passes, and draw or process only dense active subsets. That is the difference between using the GPU as a display target and using it as a parallel data engine.`,
@@ -451,5 +460,64 @@ export const article = {
         `Within this curriculum, study WebGPU Buffer and Bind Group Case Study for API mechanics, Radix Sort for another scan-heavy GPU algorithm, Compressed Sparse Row Graph for offset arrays, PageRank for graph workloads, Fenwick Tree for the contrasting online prefix-sum structure, GPU All-Reduce for another collective operation, and Render Graph Framegraph Resource Lifetimes for reasoning about GPU buffers across passes.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for webgpu-parallel-prefix-scan-compaction-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

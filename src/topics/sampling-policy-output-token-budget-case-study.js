@@ -1,4 +1,4 @@
-// Sampling policy as a cost control: decoding knobs change quality, retry
+﻿// Sampling policy as a cost control: decoding knobs change quality, retry
 // rate, output length, verifier load, and ultimately dollars per useful answer.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -226,6 +226,15 @@ export const article = {
   ],
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Sampling Policy Output Token Budget Case Study. A decoding-policy case study: temperature, top-p, max tokens, stop rules, and penalties are product cost controls, not only style knobs..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Sampling policy is the set of decoding decisions that turns model logits into emitted tokens. Temperature, top-p, top-k, repetition penalties, max-token caps, and stop sequences are often introduced as style controls. In a production AI product, they are also cost controls. They decide how much uncertainty the model is allowed to spend, how long it may continue, and how often the system must repair or retry its own output.',
@@ -247,7 +256,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core idea',
+      heading: 'The core insight',
       paragraphs: [
         'The production shape is a sampling profile plus an output-token ledger. The profile names the decoding knobs for a request class: temperature, top-p or top-k, penalties, maximum length, stop rules, structured-output constraints, verifier policy, and fallback route. The ledger records what actually happened: accepted tokens, rejected tokens, stop reason, retries, validation result, latency, and cost.',
         'This moves the conversation away from taste. The question is not whether a temperature feels creative or whether a max-token cap looks generous. The question is which profile buys enough quality for this request class at the lowest accepted-answer cost, without damaging latency, safety, or user trust.',
@@ -269,7 +278,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Lower entropy often reduces rambling and improves reproducibility. It can also create thin answers, generic phrasing, repeated safe language, or brittle refusals. Higher entropy can improve ideation and avoid repetitive text, but it can increase answer length, hallucination risk, verifier load, and tail latency.',
         'Candidate filtering has its own tradeoff. Top-k gives a fixed candidate pool even when the probability mass is concentrated or spread out. Top-p adapts the pool to the distribution, but a high threshold can admit long-tail tokens in uncertain contexts. Both are controls over diversity, not guarantees of truth.',
@@ -277,7 +286,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Sampling profiles win when one serving system handles several tasks. A customer-support assistant, for example, may classify tickets, extract order fields, draft replies, answer policy questions, and escalate complex cases. Those are different decoding problems. Treating them as one sampler hides avoidable cost and avoidable quality loss.',
         'They also win when verifier loops are expensive. If a looser policy causes more schema failures, unsupported citations, or safety rejections, the model may spend more total tokens even if the first answer feels more natural. A profile lets the team tune the upstream sampler to reduce downstream repairs.',
@@ -292,7 +301,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A support bot generates refund explanations. The old global policy uses moderate temperature, high top-p, and a large max-token cap. It often produces friendly but long answers with extra caveats. The answers pass human spot checks, but traces show high output-token spend, slower streaming completion, and occasional verifier rejects because the model adds policy details that do not apply.',
         'The team creates a support-answer profile. It lowers temperature, tightens top-p, sets a smaller max-token cap, stops after the answer block, and requires a verifier to check that the refund reason, order state, and next action appear. The profile also records stop reason, accepted tokens, rejected tokens, verifier calls, retry count, model route, and latency.',
@@ -307,11 +316,62 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary references include the Hugging Face generation strategies guide at https://huggingface.co/docs/transformers/en/generation_strategies, The Curious Case of Neural Text Degeneration at https://arxiv.org/abs/1904.09751, and Closing the Curious Case of Neural Text Degeneration at https://arxiv.org/abs/2310.01693.',
         'Study softmax and temperature first, then greedy decoding, beam search, top-k sampling, nucleus sampling, constrained decoding, and verifier-guided inference. After the mechanics are clear, study LLM inference cost stacks and trace-led token ledgers. The mature lesson is that decoding is not only language style; it is a product control loop with measurable spend, quality, and risk.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for sampling-policy-output-token-budget-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

@@ -1,4 +1,4 @@
-// Web Streams: internal queues, high-water marks, desiredSize, pipe chains,
+﻿// Web Streams: internal queues, high-water marks, desiredSize, pipe chains,
 // readable/writable locking, and backpressure propagation.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -217,6 +217,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Web Streams Backpressure Queues. How Web Streams use internal queues, highWaterMark, desiredSize, readers, writers, pipe chains, and backpressure to keep producers honest..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Web Streams exist because modern pages rarely receive data as one neat value. Fetch bodies, compression, decoders, file reads, generated media, and UI renderers all move chunks. If every layer buffers everything before handing work to the next layer, latency rises and memory becomes the hidden bottleneck.',
@@ -238,7 +247,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         "In the pipe-chain view, watch chunks and pressure move in opposite directions. Chunks move from source to transform to sink. Backpressure moves from the slow sink back toward the producer through desiredSize and readiness promises.",
         "In the queue-strategy view, read highWaterMark as a budget and desiredSize as the remaining budget. A positive desiredSize invites more chunks. Zero or negative desiredSize tells the upstream stage to wait.",
@@ -253,7 +262,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'ReadableStream, TransformStream, and WritableStream each keep internal state: queued chunks, close/error state, and reader or writer locks. A queuing strategy decides how each chunk counts against the high water mark. Count strategies treat each chunk as one unit; byte strategies count bytes; custom strategies assign a weight.',
         'pipeThrough connects a readable side to a transform. pipeTo connects a readable side to a writable side. While piping is active, the stream is locked so two consumers cannot race over the same queue state. On the writable side, writer.ready is the promise-shaped pressure signal.',
@@ -290,7 +299,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Streams work well for fetch bodies, large files, media pipelines, compression, logs, JSON-lines feeds, and UI lists where the user can start seeing useful data before the whole response arrives.',
         'The fit is strongest when the application can process records incrementally and when upstream work can actually pause, cancel, or slow down.',
@@ -305,7 +314,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example (2)',
       paragraphs: [
         'A log viewer loads a 2 GB server log. The fetch response produces bytes, TextDecoderStream produces text, a line splitter emits complete lines, a parser emits records, and the UI batches records into animation-frame updates. If rendering falls behind, desiredSize drops and pressure moves back toward fetch instead of building a 2 GB array.',
         'This is the same lesson as Backpressure & Flow Control and Message Queue: bounded queues are not an implementation detail. They are the control surface that keeps producers from outrunning consumers.',
@@ -317,5 +326,69 @@ export const article = {
         'Primary sources: MDN Streams concepts at https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts, Streams Standard at https://streams.spec.whatwg.org/, and web.dev Streams guide at https://web.dev/articles/streams. Study Backpressure & Flow Control, Queue, Ring Buffer, Message Queue, Web Workers, Structured Clone & Transferables, AbortController Cancellation Graph, and Browser Message Channels & Broadcast Coordination next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Web Streams Backpressure Queues moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

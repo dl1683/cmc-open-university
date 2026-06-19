@@ -212,6 +212,14 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "The insert-and-query view shows one fingerprint moving through the placement pipeline: hash the key to a short tag, compute two candidate buckets, try to place the tag, and kick a victim if both buckets are full. Active highlights mark the bucket being probed; found highlights mark a fingerprint that has settled into a legal home.",
+        "The deletion-tradeoffs view shows the sharp edge: removing a fingerprint from a bucket is cheap, but deleting a nonmember whose fingerprint collides with a real member can create a false negative. Watch which slots change and whether the cleared tag belonged to the key being deleted or to a collision.",
+        "At each frame, track the fingerprint-home invariant: every stored fingerprint must sit in one of its two candidate buckets. If a kick displaces a tag, the victim lands in its own alternate bucket. Lookup correctness depends on this invariant surviving every insert, kick, and delete.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "Many systems need a cheap front-door answer before they pay for the real lookup. A storage engine wants to know whether an SSTable might contain a key. A cache wants to avoid probing a cold shard. A security service may need to ask whether a token is on a changing deny list. The exact set still lives somewhere else; the filter exists to reject definite misses quickly.",
@@ -240,14 +248,14 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         "In the insert view, follow one fingerprint. First it tries one legal bucket, then the alternate bucket, then it may kick another fingerprint and continue the displacement chain. The important idea is not the motion; it is that every moved fingerprint still lands in one of its two legal homes.",
         "In the deletion view, notice the difference between deleting a represented key and deleting a colliding nonmember. Removing a matching fingerprint is cheap, but the filter does not know the original key. That is the price of compact approximate membership.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         "For key x, compute a fingerprint f. One hash chooses the primary bucket. The alternate bucket is commonly derived from the primary bucket and a hash of f, often by an XOR-style transform. That derivation matters: after a fingerprint has been kicked out of one bucket, the filter can compute its other legal bucket without storing the original key.",
         "Lookup is two bucket probes. If neither bucket contains f, x is definitely absent. If either bucket contains f, x is maybe present. Insertion first tries to place f in an empty slot in either candidate bucket. If both are full, it selects a victim fingerprint, swaps f into that slot, and moves the victim to its alternate bucket. The process repeats until an empty slot is found or an insertion limit is reached.",
@@ -283,7 +291,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         "Cuckoo filters fit mutable guards: cache admission and eviction, database file checks, object-store indexes, dynamic deny lists, duplicate-suppression windows, and services where a false positive only wastes a real lookup. The source of truth must still be cheap enough to consult on maybe-present answers.",
         "A storage cache is the clean example. A definite negative skips a cold cache probe. A maybe-present result checks the cache. Insert on admission and delete on eviction keep the filter aligned with the changing cache contents, so the false-positive rate reflects current state instead of old entries that should have disappeared.",
@@ -297,18 +305,52 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         "Common failures are overloading the table, using fingerprints that are too short, deleting keys without checking the source of truth, forgetting duplicate semantics, and measuring only lookup speed while ignoring rebuild cost. A filter that is wonderful at 85 percent load in a benchmark may be fragile under bursty production inserts.",
         "Another failure is treating maybe-present as present. The filter is a precheck, not an authority. Every positive answer must flow to the real data structure, database, cache, or policy store that can verify the key. If product logic starts trusting positives, false positives become user-visible correctness bugs.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         "Primary sources: Cuckoo Filter: Practically Better Than Bloom at https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf, ACM DOI https://dl.acm.org/doi/10.1145/2674005.2674994, and the earlier USENIX workshop version at https://www.usenix.org/system/files/nsdip13-paper6.pdf.",
         "Study Bloom Filter for the bit-array baseline, Cuckoo Hashing for the displacement invariant, Quotient Filter for another deletable approximate-membership design, Xor Filter and Binary Fuse Filter for static filters, Ribbon Filter for compact immutable sets, and LSM Trees for the storage-engine setting where these filters often appear.",
       ],
     },
-  ],
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        'Buckets of size 4, 8-bit fingerprints. Primary bucket index i1 = hash(x) mod m, alternate i2 = i1 XOR hash(fingerprint).',
+        'Insert key A with fingerprint 0x3a. i1 = 5, bucket 5 has room. Store 0x3a in bucket 5, slot 0.',
+        'Insert key B with fingerprint 0x3a. i1 = 5, same bucket. Store 0x3a in bucket 5, slot 1. Two identical fingerprints can coexist -- the filter does not distinguish keys, only tags.',
+        'Insert key C with fingerprint 0x7f. i1 = 5, bucket 5 is now full (4 slots taken). i2 = 5 XOR hash(0x7f) = 12, bucket 12 has room. Store 0x7f in bucket 12.',
+        'Lookup key D with fingerprint 0x3a. Check buckets i1 and i2. Find 0x3a in bucket 5 -- maybe present. D was never inserted, but its fingerprint collides with A and B. This is the false-positive mechanism.',
+        'Delete key A. Find 0x3a in bucket 5, clear one slot. Now only one 0x3a remains (for B). If we deleted key D instead (never inserted), we would erase B\'s fingerprint -- a false negative. Delete only known members.',
+        {
+          type: 'bullets',
+          items: [
+            'What is the fingerprint-home invariant? Every stored fingerprint sits in one of its two candidate buckets; lookup checks exactly those two buckets.',
+            'Why can the alternate bucket be computed from the fingerprint alone? Because i2 = i1 XOR hash(fingerprint), so given either bucket index and the fingerprint, the other index is recoverable without the original key.',
+            'When does insertion fail? When a displacement chain exceeds the configured kick limit, meaning both candidate buckets for every fingerprint in the chain are full. The table needs a resize or rebuild.',
+            'Why are cuckoo filters often more space-efficient than Bloom filters at low false-positive rates? A Bloom filter needs roughly 1.44 * log2(1/epsilon) bits per element. A cuckoo filter stores one fingerprint per element with high bucket occupancy (~95%), so at target FP rates below ~3%, the cuckoo filter uses fewer bits per key (Fan et al. 2014, Table 3).',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Four buckets (0-3), each holding 2 fingerprints. Alternate bucket: i2 = i1 XOR hash(fp) mod 4. Suppose hash maps fp values as: hash(0xab) mod 4 = 2, hash(0xcd) mod 4 = 1, hash(0xef) mod 4 = 3.',
+        'Insert fp 0xab at i1=1. Bucket 1 has room. Bucket 1: [0xab, empty].',
+        'Insert fp 0xcd at i1=0. Bucket 0 has room. Bucket 0: [0xcd, empty].',
+        'Insert fp 0xef at i1=1. Bucket 1 has one slot left. Bucket 1: [0xab, 0xef].',
+        'Insert fp 0xab at i1=1. Bucket 1 is full. Try i2 = 1 XOR hash(0xab) mod 4 = 1 XOR 2 = 3. Bucket 3 has room. Bucket 3: [0xab, empty].',
+        'Insert fp 0xcd at i1=0. Bucket 0 has one slot left. Bucket 0: [0xcd, 0xcd].',
+        'Insert fp 0xef at i1=1. Bucket 1 is full. Try i2 = 1 XOR 3 = 2. Bucket 2 has room. Bucket 2: [0xef, empty]. Now delete key with fp 0xcd from bucket 0. One slot cleared: Bucket 0: [0xcd, empty]. The other 0xcd still represents its original key.',
+        'Predict: lookup for a key with fp 0xab checks buckets 1 and 3. Both contain 0xab. The filter says maybe present regardless of which bucket the key was actually placed in. Now ask: if we delete both 0xab entries, how many keys lose their representation?',
+      ],
+    },
+],
 };

@@ -338,6 +338,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Contextual Bandit Logged Policy Evaluation Case Study. How production recommenders log contexts, actions, rewards, and propensities so future policies can be evaluated before they touch users..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A contextual bandit chooses one action after observing context, then receives reward only for the action it actually took. A news site shows one story. An ad system shows one ad. A search page chooses one ranking treatment. The system never observes what the user would have done if a different action had been shown.`,
@@ -370,7 +379,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         `The online loop starts with context features and an eligible action set. The policy scores the actions, converts scores into a probability mass function, samples one action, shows it, and writes an append-only decision row. The row should include a stable request id, user or session join key when allowed, policy version, feature version, action set representation, selected action, propensity, and enough metadata to reproduce eligibility.`,
         `Reward arrives later. A click, conversion, dwell threshold, purchase, complaint, or cancellation may be joined minutes or days after the decision. The log therefore needs event ids, timestamps, attribution windows, and rules for finalizing labels. A premature negative label is a false reward. A duplicate join can count one reward twice. A missing join can make an action look worse than it was.`,
@@ -396,7 +405,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The online cost is exploration. A logger that always chooses the current best action creates poor support for future policies. Adding exploration may reduce short-term reward, annoy users, or spend inventory on lower-ranked actions. The payoff is future learnability. The product must decide how much regret it is willing to spend for better evidence.`,
         `The storage cost is a richer decision log. Context features, action features, eligible sets, probabilities, policy versions, timestamps, and join ids can be large. Teams often store compact feature hashes, action ids, model version references, and reproducible eligibility snapshots instead of full payloads. The log must still be sufficient to recompute or audit candidate probabilities later.`,
@@ -405,7 +414,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `Missing propensities are fatal for IPW and DR. If the old policy probability was not logged, later teams may try to reconstruct it from model code, but that reconstruction often misses overrides, filtering, exploration buckets, feature changes, or action-set differences. The logged probability should be the probability after all production gates that affected the sampled action.`,
         `Deterministic logging destroys support. A recommender that always shows the top-ranked item cannot later evaluate a policy that would have explored the second item, because there is no reward for the second item in that context. More rows do not fix zero probability. The system needs exploration, constrained candidates, or a live experiment.`,
@@ -414,7 +423,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete case study',
+      heading: 'Worked example',
       paragraphs: [
         `A news homepage chooses one story for each visit. The context includes device, coarse location, time of day, referrer, user segment, and recent behavior. The action set changes constantly as stories expire and new stories arrive. The logging policy scores eligible stories, converts scores to a PMF with exploration, samples one story, shows it, and logs the selected-story probability.`,
         `Reward arrives as click, dwell time, subscription action, or a negative feedback signal. The evaluation pipeline waits for the attribution window, joins the reward to the decision row, and freezes a dataset. A candidate ranker is then run on the same context and eligible action set. For each logged action, the evaluator records the candidate probability, computes w, and builds IPW, self-normalized, direct-method, and doubly robust estimates.`,
@@ -431,11 +440,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Primary sources: Vowpal Wabbit contextual bandit documentation at https://vowpalwabbit.org/docs/vowpal_wabbit/python/latest/tutorials/python_Contextual_bandits_and_Vowpal_Wabbit.html and news personalization tutorial at https://vowpalwabbit.org/docs/vowpal_wabbit/python/latest/tutorials/python_Simulating_a_news_personalization_scenario_using_Contextual_Bandits.html; Dudik, Langford, and Li, Doubly Robust Policy Evaluation and Learning at https://arxiv.org/abs/1103.4601; Open Bandit Pipeline documentation at https://zr-obp.readthedocs.io/en/latest/ and estimator notes at https://zr-obp.readthedocs.io/en/latest/estimators.html; the Cornell SIGIR counterfactual evaluation tutorial at https://www.cs.cornell.edu/~adith/CfactSIGIR2016/; Li et al. on unbiased offline evaluation of contextual-bandit news recommendation at https://arxiv.org/abs/1003.5956; and Li et al. on LinUCB news recommendation at https://arxiv.org/abs/1003.0146.`,
         `Study next: LinUCB Personalized News Case Study, Importance Sampling and Off-Policy Estimation, Doubly Robust Estimation, Multi-Armed Bandits, Thompson Sampling, A/B Testing and p-values, RL Experiment Reproducibility Ledger, FTRL-Proximal Online CTR Case Study, Delayed Feedback Attribution Window Case Study, Feature Hashing Signed Projection Primer, Calibration Curves, and Training-Serving Skew Replay Diff.`,
       ],
     },
-  ],
+      {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Contextual Bandit Logged Policy Evaluation Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

@@ -190,6 +190,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Kubernetes DaemonSet Node Coverage Controller Case Study. How DaemonSets select eligible nodes, create one Pod per node, use node affinity, tolerate important taints, roll out updates, and clean up on node removal..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why DaemonSets exist',
       paragraphs: [
         `Some software is correct only when it runs on the node it is serving. A log collector needs local log files. A CNI agent needs the host networking path. A node exporter needs node-local metrics. A CSI node plugin may need local mount operations. A GPU device plugin needs to advertise devices from the host it is running on.`,
@@ -207,14 +216,14 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         `The wall is node churn. Nodes join, leave, drain, become not-ready, change labels, and gain taints. Cluster autoscaling can add many nodes quickly. Maintenance can remove a whole pool. A node-local agent cannot depend on someone remembering to adjust a replica count or rebuild a machine image.`,
-        `The second wall is eligibility. Not every node should always run every daemon. A log collector may exclude GPU nodes. A storage daemon may target only nodes with a disk label. A control-plane agent may need tolerations for control-plane taints. The controller must reconcile not all nodes, but the nodes that match the DaemonSet's scheduling intent.`,
+        `The second wall is eligibility. Not every node should always run every daemon. A log collector may exclude GPU nodes. A storage daemon may target only nodes with a disk label. A control-plane agent may need tolerations for control-plane taints. The controller must reconcile not all nodes, but the nodes that match the DaemonSet\'s scheduling intent.`,
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The core insight',
       paragraphs: [
         `The invariant is one current daemon Pod per eligible node. Eligible is not a vague label. It is the result of the DaemonSet selector, Pod template labels, node selector, node affinity, taints, tolerations, and scheduler placement rules. Current means the Pod matches the DaemonSet template generation and is not an obsolete survivor from an older spec.`,
-        `This invariant explains the controller's behavior. If an eligible node has no daemon Pod, create one. If a node has a daemon Pod but is no longer eligible, delete it. If the node disappears, remove the obsolete Pod. If the template changes, replace old daemon Pods under the configured rollout budget.`,
+        `This invariant explains the controller\'s behavior. If an eligible node has no daemon Pod, create one. If a node has a daemon Pod but is no longer eligible, delete it. If the node disappears, remove the obsolete Pod. If the template changes, replace old daemon Pods under the configured rollout budget.`,
       ],
     },
     {
@@ -249,7 +258,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         `It works because reconciliation is tied to node identity rather than cluster-wide count. The controller does not merely ask whether enough Pods exist. It asks which nodes should have Pods, which nodes already have the right Pods, and which rows need repair. This converts node churn into ordinary controller work.`,
-        `It also works because the desired count is derived, not configured directly. If a new eligible node appears, the desired set gains a row. If a node is removed, the desired set loses a row. The object's spec stays stable while the controller adapts to the current cluster shape.`,
+        `It also works because the desired count is derived, not configured directly. If a new eligible node appears, the desired set gains a row. If a node is removed, the desired set loses a row. The object\'s spec stays stable while the controller adapts to the current cluster shape.`,
       ],
     },
     {
@@ -260,7 +269,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `DaemonSets win for node-local infrastructure: CNI plugins, kube-proxy replacements, log shippers, node exporters, security scanners, CSI node plugins, GPU device plugins, host-level backup agents, and local cache warmers. These systems need locality more than independent horizontal scaling.`,
         `They also win for bootstrapping dependencies. A node may be technically present but not useful until the network agent, storage agent, monitoring agent, or device plugin is running. The DaemonSet controller gives the platform a standard way to express that each eligible node needs its own agent instance.`,
@@ -277,11 +286,11 @@ export const article = {
       heading: 'Implementation guidance',
       paragraphs: [
         `Start with the node set. Write down which labels identify target nodes, which taints must be tolerated, whether control-plane nodes are included, and what host privileges are actually required. Then set resource requests as if the daemon will run on the largest plausible cluster, because it will scale with nodes automatically.`,
-        `For rollout safety, define a readiness probe that checks the daemon's real duty, choose maxUnavailable based on tolerated node coverage loss, and alert on eligible nodes without ready current Pods. For troubleshooting, inspect desiredNumberScheduled, currentNumberScheduled, numberReady, numberUnavailable, updatedNumberScheduled, Pod node affinity, tolerations, events, and kubelet logs on uncovered nodes.`,
+        `For rollout safety, define a readiness probe that checks the daemon\'s real duty, choose maxUnavailable based on tolerated node coverage loss, and alert on eligible nodes without ready current Pods. For troubleshooting, inspect desiredNumberScheduled, currentNumberScheduled, numberReady, numberUnavailable, updatedNumberScheduled, Pod node affinity, tolerations, events, and kubelet logs on uncovered nodes.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         `Consider a log-agent DaemonSet. Every worker node should have one ready log-agent Pod. GPU nodes are included only if the node selector allows them. Control-plane nodes are included only if the team intentionally adds the right tolerations. When a worker node joins, the controller creates a Pod for that node. When the Pod is ready, logs from that node begin flowing.`,
         `During a rollout, a safe configuration limits unavailable agents and alerts if logs stop arriving from covered nodes. During a node drain, the old row disappears and the replacement node creates a new desired row. During an incident, the useful audit question is not "how many replicas exist?" It is "which eligible nodes lack a ready current agent, and why?"`,
@@ -293,5 +302,64 @@ export const article = {
         `Primary sources: Kubernetes DaemonSet documentation at https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/, Kubernetes Nodes documentation at https://kubernetes.io/docs/concepts/architecture/nodes/, and Kubernetes taints and tolerations at https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/. Study Kubernetes Taints and Tolerations Node Pool, Kubernetes Affinity and Topology Spread Placement, Kubernetes Deployment Rolling Update, Kubernetes Node Pressure Eviction Signal, and Kubernetes Service and EndpointSlice Traffic next.`,
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for kubernetes-daemonset-node-coverage-controller-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

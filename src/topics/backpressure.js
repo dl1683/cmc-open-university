@@ -166,14 +166,14 @@ export function* run(input) {
 const legacyArticle = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
         `Backpressure is a feedback signal from the congested part of a system back to the producer of work. The overloaded side says, directly or indirectly, "slow down." A client, producer, sender, or upstream stage honors that signal by reducing rate, blocking, requesting fewer items, or retrying later.`,
         `It is the cooperative counterpart to load shedding and retry discipline. Shedding protects the server by rejecting work. Retry discipline keeps clients from amplifying failure. Backpressure lets the two sides communicate so the system settles near capacity instead of collapsing into queues and retry storms.`,
       ],
     },
     {
-      heading: `Legacy visual note`,
+      heading: `How to read the animation`,
       paragraphs: [
         `In the feedback-loop view, compare the direction of the loop. The first graph is positive feedback: slowness causes timeouts, timeouts cause retries, retries cause more slowness. The second graph inserts an overload signal that makes clients slow down. The AIMD plot turns that idea into behavior: the sawtooth is controlled probing around capacity, not instability.`,
         `In the wild view, each row shows where the pressure signal lives. TCP windows, 429 responses, bounded queues, stream demand, and consumer lag all let the consumer limit the producer. The pull-versus-push table tells you who sets the pace, and the final table gives the invariant: pressure must reach the source of demand, or an intermediate buffer only delays the failure.`,
@@ -188,7 +188,7 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `The mechanism is often cheap: a queue cap, a semaphore, a request-n counter, a window size, or a Retry-After header. The hard part is discipline. Producers must actually respect the signal, and intermediate layers must not hide it behind unbounded buffers.`,
         `Backpressure may reduce peak offered load, but that is the point. It trades uncontrolled throughput spikes for stable useful throughput and lower tail latency. The main failure cost is delayed feedback: if pressure has to pass through several buffers before reaching the producer, the system can oscillate between too much and too little work.`,
@@ -202,7 +202,7 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `A slow server is not backpressure by itself. Backpressure requires a signal and a producer that honors it. A 429 ignored by a client that immediately retries is just wasted bytes.`,
         `The absorbing-buffer trap is the big one. If a service accepts everything into an unbounded queue, the caller believes work was accepted while the true bottleneck gets no relief. That is deferred failure, not backpressure. Prefer bounded queues, pull APIs, explicit credits, and clear refusal when the downstream cannot keep up.`,
@@ -216,95 +216,51 @@ const legacyArticle = {
         `For deeper mechanics, study TCP Congestion Control, Message Queue, Semaphore Permit Counter, and Exchange Operator Parallel Query. LLM Serving Admission-Control Goodput Gate applies the same feedback idea to GPU serving capacity, token budgets, and queue age.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is hidden queue debt: producers keep sending while the consumer backlog grows.',
+        'With a cap of 3 and a consumer at 1 item/sec, a burst of 10 makes the first few items look fine, then creates unbounded wait and delayed collapse.',
+        'Bounded queues plus explicit backpressure signals let the producer pause before the system turns latency into runaway memory growth.',
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Use queue cap 2. Producer emits 5 items instantly, consumer drains 1 item per second.',
+        'After two emits the queue is full, so items 3–5 must wait and upstream should slow or drop with explicit policy.',
+        'If the system drops silently with no signal, latency explodes and users experience timeout; if it respects backpressure, throughput stabilizes quickly.',
+      ],
+    },
+],
 };
 
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The "two feedback loops" view shows two directed graphs side by side. The first graph is a positive feedback loop: server slows, clients time out, clients retry, load rises. Every edge is green-highlighted when active. The second graph rewires the same four stages into a negative feedback loop: server signals strain, clients reduce rate, load falls, server recovers. Watch the edge colors: red edges amplify, green edges damp.',
+        'Below the graphs, the AIMD plot draws two live load curves against a capacity line at 100 req/s. The red "deaf clients" curve flatlines at 240 req/s -- pure retry amplification. The green "listening clients" curve produces a sawtooth that oscillates around 100. The sawtooth is the system working correctly: probing up, backing off, probing again.',
+        'The "backpressure in the wild" view uses matrix tables. Each row names a layer (TCP, HTTP, queues, reactive streams, Kafka) and describes how pressure travels backward at that layer. Highlighted cells mark the simplest form (bounded queue) and the most formally specified form (reactive-stream demand). The pull-vs-push table contrasts who sets the pace. The final table states the invariant: pressure must reach the source of demand, or a buffer is just deferred failure.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Backpressure exists because overload is a feedback problem. A server slows down, clients time out, clients retry, load rises, queues grow, and the server slows further. Without a signal that reaches the producer, the response to overload creates more overload.',
-        'The core job is simple: let the congested part of the system tell upstream producers to slow down, pause, request less, or retry later. That signal can be a TCP window, a bounded queue, a stream demand counter, an HTTP 429, a Retry-After header, consumer lag, or an admission-control gate.',
-        'Backpressure is the cooperative companion to load shedding and retry discipline. Shedding says "I cannot accept this." Retry discipline says "do not make failure worse." Backpressure says "change your sending rate because downstream is strained."',
+        'Any system where a producer can outrun a consumer has a flow-control problem. Without a signal that travels backward from the congested point to the source of demand, the response to overload creates more overload: the server slows, clients time out and retry, retries add load, and the server slows further. This positive-feedback spiral is the root cause of most retry storms and cascading failures in distributed systems.',
+        'The term "backpressure" comes from fluid dynamics -- literal resistance that a downstream constriction exerts on upstream flow. In computing it entered common use through TCP congestion control (Jacobson, 1988), where the network feeds loss signals back to senders so they reduce rate. The same idea now appears at every layer: HTTP 429 responses (RFC 6585, 2012), Reactive Streams demand signals (2013 specification, adopted into java.util.concurrent.Flow in Java 9), Kafka consumer lag, bounded Go channels, and Node.js stream highWaterMark.',
+        'Backpressure complements two related defenses. Load shedding protects the server by rejecting work it cannot finish. Retry discipline keeps clients from amplifying failure. Backpressure closes the loop: it lets the congested side tell the producer to change its sending rate before shedding or retries become necessary.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to buffer more. If producers are faster than consumers, add a bigger queue and smooth the burst. That works for short bursts, but unbounded buffering hides the overload signal from the producer and converts a live control problem into delayed failure.',
-        'Another shortcut is retrying on timeout. That is useful for transient loss but dangerous during overload. Instant retries add traffic exactly when the system is already slow.',
-        'A third shortcut is monitoring the consumer only. If the producer never receives and honors the signal, the loop is incomplete. Backpressure must travel to the source of demand.',
+        'The first instinct is to buffer more. If the producer is faster than the consumer, put a queue between them and let the queue absorb bursts. For short spikes this works -- a 200-request burst against a 100 req/s consumer drains in two seconds if the queue can hold 200 items. Engineers reach for unbounded queues (Java LinkedBlockingQueue with no capacity, Python asyncio.Queue with no maxsize, an SQS queue with no redrive policy) because they never throw "queue full" exceptions and the code is simpler.',
+        'A second instinct is to retry on timeout. If a request does not come back, send it again. For transient packet loss or a single crashed backend, retries are correct. They feel like a safety net.',
+        'A third instinct is to monitor only the consumer. Dashboards show queue depth, p99 latency, error rate. If something goes wrong, an engineer can intervene. The producer is not involved in the feedback loop at all.',
       ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is negative feedback. In a positive feedback loop, overload causes behavior that increases overload. In a negative feedback loop, overload causes behavior that reduces overload.',
-        'AIMD captures the shape: increase slowly while healthy, decrease sharply when congestion appears. No sender needs perfect knowledge of capacity. The feedback loop discovers a usable rate by probing upward and backing off when the receiver signals strain.',
-        'The invariant is that pressure must not be absorbed silently by an infinite buffer. A bounded queue, window, credit count, or request-n signal is useful precisely because it refuses to hide the downstream limit.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'At the transport layer, TCP receivers advertise windows and congestion control changes send rate based on loss or other congestion signals. At the application layer, APIs can return 429 or Retry-After, and clients can honor those signals with budgets and backoff.',
-        'Inside a process, a bounded queue can block or reject producers when consumers fall behind. In reactive streams, the subscriber requests a number of items and the publisher may not exceed that demand. In Kafka-like systems, consumer lag, quotas, and pull behavior tell producers and operators where pressure is accumulating.',
-        'Backpressure can be pull-based or push-based. Pull systems make the consumer set the pace by asking for more work. Push systems need explicit windows, credits, acknowledgments, or rate signals. Push without credits is where overload usually becomes a surprise.',
-        'A correct implementation also defines what happens when pressure persists. Some systems block producers, some reject new work, some drop low-priority messages, and some reduce quality. The important part is that the policy is explicit and visible instead of hidden in an expanding queue.',
-        'Cancellation is part of the same story. If downstream no longer needs work, upstream should stop producing it. Deadlines, abort signals, and context cancellation prevent the system from spending capacity on results nobody will use.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The first feedback graph proves the retry spiral. Slowness creates timeouts, timeouts create retries, retries create load, and load creates more slowness.',
-        'The second graph proves the repair: overload must create a signal that makes clients reduce demand. The system becomes damped rather than amplified.',
-        'The AIMD plot proves why sawtooth behavior is acceptable. The system probes capacity, crosses it, backs off, and probes again. Smoothness is less important than stability around usable capacity.',
-        'The ladder view proves that the same idea appears at many layers: TCP windows, 429 responses, bounded queues, stream demand, and consumer lag are all ways to push pressure backward.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Backpressure works because it connects cause and effect. The producer is the only party that can reduce future work. A full queue or strained server can only help if that state changes producer behavior.',
-        'AIMD works because additive increase avoids sudden overload during probing, while multiplicative decrease reacts strongly when capacity is exceeded. Many independent clients can converge toward fair shares without centralized rate assignment.',
-        'Bounded buffers work because refusal is information. A full queue tells the producer the consumer is behind. An unbounded queue hides that information until latency, memory, or failure explodes.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'Backpressure can reduce apparent throughput because it refuses work that would otherwise be queued. That is the right trade when queued work would miss deadlines or trigger retry storms. Useful throughput is more important than accepted-but-doomed work.',
-        'The tradeoff is latency versus utilization. A very conservative limit protects latency but may underuse capacity. A very loose limit maximizes bursts but risks queue growth. Control loops need thresholds, hysteresis, and monitoring to avoid oscillation.',
-        'Implementation also costs coordination. Clients must respect signals, libraries must expose bounded queues or demand APIs, and middle layers must not silently absorb pressure.',
-        'There is a product tradeoff too. A video pipeline might lower quality, a search system might return partial results, and a payment system might reject quickly rather than risk duplicate work. Backpressure should name the acceptable degradation mode.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Backpressure matters in network protocols, HTTP APIs, message queues, streaming systems, databases, LLM serving, browser streams, file pipelines, and any producer-consumer chain where one side can outrun another.',
-        'It is especially important in systems with retries. Without backpressure, retries can amplify a small slowdown into an outage. With backpressure, the same overload can become a controlled slowdown, fast rejection, or scheduled retry.',
-        'It also wins in multi-stage pipelines. If stage three is slow, stage two should slow down, and stage one should eventually stop producing at the old rate. Otherwise every stage becomes a buffer for the same problem.',
-        'It is also useful inside a single machine. Thread pools, file readers, network writers, GPU batchers, and browser streams all need a way for the slower stage to set the pace before memory grows without bound.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'A slow server is not backpressure by itself. Backpressure requires a signal and a producer that honors it. A 429 ignored by a client that immediately retries is just wasted traffic.',
-        'The absorbing-buffer trap is the big one. If a service accepts everything into an unbounded queue, the caller believes work was accepted while the true bottleneck gets no relief. That is deferred failure, not control.',
-        'Fairness also depends on enforcement. AIMD-style behavior works best when clients follow rules. Aggressive clients can take more than their share unless the server enforces quotas, windows, or admission limits.',
-        'A final failure is signal ambiguity. If overload responses look like ordinary errors, clients may retry harder instead of slowing down. Backpressure signals should be machine-readable, documented, and tested under overload.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Retries, Backoff & Jitter for client behavior, Load Shedding & Graceful Degradation for server protection, Circuit Breakers & Deadlines for fast failure, TCP Congestion Control for transport feedback, Message Queue for buffering tradeoffs, Semaphore Permit Counter for bounded admission, and LLM Serving Admission-Control Goodput Gate for GPU-serving capacity control.',
-        'When reviewing a design, ask where pressure is measured, where it is signaled, who changes rate, and what bounded resource enforces the answer.',
-      ],
-    },
+    }
   ],
 };

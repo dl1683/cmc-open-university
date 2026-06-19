@@ -1,4 +1,4 @@
-// Omega case study: Google's shared-state cluster scheduling design, where
+﻿// Omega case study: Google's shared-state cluster scheduling design, where
 // many schedulers optimistically write against a common cell-state view.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -241,14 +241,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         'Omega is often discussed alongside Borg, Mesos, and Kubernetes because they expose different scheduler-control-plane choices. Borg represents an integrated production cluster manager with a strong central system. Mesos is associated with resource offers and framework schedulers. Kubernetes has a default scheduler but also permits custom schedulers, controllers, admission policies, and reconciliation loops around a shared API server. The details differ, but the pressure is the same: many actors want to change one cluster.',
         'The idea also travels outside cluster scheduling. Any control plane with multiple reconcilers faces an Omega-shaped problem. Cloud infrastructure controllers, deployment systems, CI runners, quota managers, and agent orchestration systems all need independent decision loops that write to shared state. If those loops act without validation, they conflict. If every loop waits for one global coordinator, feature velocity and throughput suffer. Optimistic shared-state commits are one tool between those extremes.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The main failure mode is contention. If many schedulers want the same scarce resources, retries can turn into thrashing. GPUs, high-memory machines, special storage locality, or urgent low-latency capacity can become hot spots. Under those conditions, the system may need reservations, quota, priority, partitioning, or a more coordinated scheduler for that resource class.',
         'Another failure mode is policy fragmentation. Independent schedulers can optimize locally in ways that harm global fairness, efficiency, or reliability. A shared state store can reject direct conflicts, but it does not automatically decide what is fair. The system still needs admission control, quotas, priority rules, preemption policy, and a way to audit scheduler behavior.',
@@ -256,24 +256,120 @@ export const article = {
       ],
     },
     {
-      heading: 'A worked example',
+      heading: 'Worked example',
       paragraphs: [
         'Imagine a service scheduler and a batch scheduler both read a cell snapshot where machine A has enough CPU and memory. The service scheduler chooses A because it satisfies anti-affinity and latency constraints. The batch scheduler chooses A because it improves packing. Both choices are reasonable from their snapshots. The service scheduler commits first. The shared state records the service task on A and advances the relevant version. The batch scheduler then tries to commit and fails because the resource facts it depended on changed.',
         'The failed batch placement is not a correctness problem if it stays speculative. The batch scheduler refreshes the state and chooses another machine. The conflict is a performance cost, not a cluster-corrupting event. If this happens rarely, Omega wins. If it happens constantly, the design is telling you that the resource class needs more explicit coordination.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Omega is not just a scheduler paper. It is a general pattern for parallel control-plane decisions: share the state, let specialized actors compute independently, validate writes atomically, and retry when the world changed. The pattern is powerful because it separates policy diversity from state authority.',
         'The limit is just as important. Optimistic scheduling works when conflicts are uncommon, retries are cheap, and failed plans do not leak into real machines. When the cluster is dominated by scarce hot resources or strict latency promises, optimism needs help from admission control, quotas, reservations, or central coordination.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Google paper PDF at https://research.google.com/pubs/archive/41684.pdf, Google Research page at https://research.google/pubs/omega-flexible-scalable-schedulers-for-large-compute-clusters/, and ACM DOI at https://dl.acm.org/doi/10.1145/2465351.2465386. Study Borg Cluster Scheduler Case Study, Mesos Resource Manager Case Study, Kubernetes Admission Policy Gate, Lock-Free Queue, MVCC Internals & VACUUM, Bulkheads & Resource Isolation, and Ray Distributed Execution Case Study next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for omega-scheduler-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

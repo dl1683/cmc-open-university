@@ -188,6 +188,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Software Supply Chain Provenance Graph. Model software provenance as a graph from source commit to builder, dependencies, artifact digest, attestation, signature, transparency log, and policy gate..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `Modern software arrives as packages, containers, binaries, generated code, plugins, and dependencies built by systems the consumer did not personally watch. A name and version string do not prove where the bytes came from. A familiar registry, project name, or maintainer account can still deliver bytes that were built by the wrong workflow, from the wrong commit, or with unexpected dependencies.`,
@@ -196,7 +205,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The simple approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The simple approach is to trust the package name, version, maintainer, registry, or signature. If the artifact is called the right thing and a cryptographic check passes, the deployment gate lets it through. That is better than no check, but it is not enough for a serious release path.`,
         `A signature proves that an identity signed some bytes or metadata. It does not automatically prove that the bytes came from the expected source, were built by the expected builder, used the expected workflow, or included only expected dependencies. A trusted identity can sign the wrong thing, and a compromised build path can produce a signed artifact from clean source.`,
@@ -204,7 +213,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `The artifact digest is the anchor. Every useful claim must attach to the exact bytes being consumed. The verifier starts by hashing the artifact it actually downloaded. If that digest does not match the attestation subject, the rest of the metadata may be valid but it is about different bytes.`,
         `From that anchor, provenance becomes a graph query. The artifact was produced by a build. The build used source and dependencies. The build ran on a builder. The builder and parameters appear in an attestation. The attestation is signed by an identity. The signed claim may appear in a transparency log. A policy decides whether that whole path is allowed.`,
@@ -212,7 +221,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         `The provenance view shows the build story as a chain of linked evidence. Source and dependency inputs feed a builder. The builder produces an artifact. The artifact digest and build details appear in an attestation. The attestation is signed, optionally logged, and then evaluated by policy. The point is the linkage, not the diagram shape.`,
         `The policy-verification view starts with the bytes in hand. That order matters. A verifier should not begin by admiring metadata. It should hash the downloaded artifact, check that the digest is the attestation subject, verify the signature, then test whether the builder, source, dependencies, and log proof match policy.`,
@@ -220,7 +229,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         `A provenance attestation is authenticated metadata about an artifact. In SLSA-style provenance, the subject identifies artifact digests, the build definition describes the build type and parameters, resolved dependencies can record external inputs, and run details identify the builder and invocation. SLSA v1.2 describes build provenance at https://slsa.dev/spec/v1.2/build-provenance.`,
         `SLSA recommends using the in-toto attestation framework for external verification. The SLSA attestation model explains this relationship at https://slsa.dev/attestation-model, and the in-toto provenance predicate is defined at https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md. The key idea is that provenance is machine-checkable evidence, not a human release note.`,
@@ -247,7 +256,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The first cost is build-system integration. Builders must emit useful attestations, sign them, and preserve enough detail for verification. If the build system cannot reliably name source, parameters, builder identity, and dependencies, policy will either be weak or noisy.`,
         `The second cost is storage and distribution. Attestations must travel with artifacts or be discoverable by digest. Signatures and log proofs must be retrievable during verification. Policy engines need failure handling for missing metadata, stale logs, network errors, and artifacts built before the provenance requirement existed.`,
@@ -256,7 +265,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and where it does not',
+      heading: 'Where it fails',
       paragraphs: [
         `Provenance wins at release gates, container admission controllers, artifact registries, package mirrors, high-risk dependency updates, regulated pipelines, and incident response. It gives teams a way to answer "where did these bytes come from?" without reconstructing the whole build by hand.`,
         `It works best when artifacts are content-addressed, builders have strong identities, source repositories and workflows are constrained, signatures are verified, transparency logs are monitored, and policy is explicit about which graph edges are required. The more deterministic and automated the build pipeline is, the more useful provenance becomes.`,
@@ -264,7 +273,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Misconceptions and pitfalls',
+      heading: 'Where it fails (2)',
       paragraphs: [
         `The biggest misconception is "signed equals safe." A signature is necessary evidence in many workflows, but it is not a complete policy. The verifier must know which identity may sign for which source, builder, workflow, and artifact class. Otherwise a valid signature can become a universal permission slip.`,
         `Another pitfall is trusting tags. Tags and version strings are mutable or ecosystem-dependent labels. Digests are the stable anchor. A policy that checks image names but not digests can accept unexpected bytes while appearing strict.`,
@@ -281,12 +290,84 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Primary sources: SLSA Build Provenance at https://slsa.dev/spec/v1.2/build-provenance, SLSA Build Track Basics at https://slsa.dev/spec/v1.2/build-track-basics, in-toto attestation provenance predicate at https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md, Sigstore in-toto attestations at https://docs.sigstore.dev/cosign/verifying/attestation/, and Sigstore Rekor at https://docs.sigstore.dev/logging/overview/.`,
         `Study Content-Addressed Merkle DAG Object Store for digest anchoring, Transparency Log Witnessing Case Study for public inclusion, Git Internals for source identity, Claim Graph and Source Ledger for evidence graphs, TUF Update Metadata Case Study for signed update metadata, SLSA Build and Source Trust Ladder for trust levels, Sigstore Keyless Signing Transparency for identity-backed signing, OPA Rego Policy Decision Graph for admission policy, and Kubernetes Admission Policy Gate for deployment enforcement.`,
         `A useful next exercise is to write a tiny admission rule in plain English. Name one artifact class, one allowed source, one allowed builder, one signer identity, one required digest match, and one response for missing provenance. If the rule cannot say what evidence it needs, the graph cannot save it.`,
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Software Supply Chain Provenance Graph moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

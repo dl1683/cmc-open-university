@@ -217,122 +217,181 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Tabular data looks simple because it arrives as rows and columns. That appearance is misleading. The columns usually have units, rules, and business meaning: account age, utilization, claims count, lab value, inventory age, payment delay, distance, salary, or days since signup. The coordinate system is already a domain model.`,
-        `Feature-basis orientation matters because model families use that coordinate system differently. A tree can split directly on utilization > 0.40. A linear model sees weighted sums. A neural network can mix coordinates, but it must learn the useful mixtures from data and optimization. A rotation, scaling choice, ratio, embedding, or noise column can change which family looks strong.`,
-        `This primer exists to stop a common mistake: treating preprocessing as a neutral prelude to model selection. The representation is part of the model comparison. If it is changed casually, the benchmark may reward the transform rather than the model family.`,
+        'The axis-splits view shows a flow graph: raw columns feed into three transforms -- rotation, ratios, and noise -- which then enter a tree and a neural net. Both models produce scores, and scores feed a diagnostic node. Active (green) nodes and edges mark the path under discussion. Compare (blue) nodes show the contrasting model or transform.',
+        'The threshold plot draws a step function (tree split) against a smooth curve (neural fit) on the same raw feature axis. The cut marker shows where the tree places its discontinuity. The rotated-basis plot shows the same signal after coordinate mixing: the step is gone, replaced by a jagged path the tree must approximate with multiple splits.',
+        {
+          type: 'note',
+          text: 'Switch to the diagnostic protocol view to see each preprocessing choice treated as a separate benchmark arm. The noise-injection plot shows GBDT degrading slowly while MLP drops steeply -- this is the core visual evidence that irrelevant features cost different model families different amounts.',
+        },
+        {
+          type: 'diagram',
+          text: '  raw cols -----> rotate -----> tree -----> score -----> diagnose\n             +--> ratios -----> net  -----+\n             +--> noise  -------+----------+',
+          label: 'Simplified flow: each transform path changes which model family looks strong',
+        },
       ],
     },
     {
-      heading: `The Obvious Approach and the Wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to choose one feature pipeline, run several models, and declare the winner. The pipeline might scale numeric features, one-hot encode categories, compute embeddings, add ratios, or rotate the numeric matrix with PCA. That is convenient, but it hides the question of which representation each model needed.`,
-        `The wall is that the same transform can help one family and hurt another. Scaling often helps gradient-based models. Axis-aligned trees often do not need it. Rotating features can help smooth or linear methods find directions, but it can hide a simple threshold that a tree would otherwise capture in one split. Adding many weak columns may barely affect a strong tree but can consume neural capacity and increase overfitting risk.`,
-        `A fair comparison must separate model ability from representation fit. Otherwise the team may conclude that deep learning lost when the real issue was a weak neural preprocessing pipeline, or that a neural model won when it was given engineered features that the tree baseline never received.`,
+        'Tabular data arrives as rows and columns, but the columns already encode a domain model. Account age, credit utilization, lab values, claims count, payment delay -- each column has units, thresholds, and business rules. The coordinate system is not neutral. It is a representation choice, and different model families exploit it differently.',
+        {
+          type: 'quote',
+          text: 'The inductive bias of a model interacts with the feature representation. Evaluating models on a single fixed preprocessing pipeline conflates model capacity with representation fit.',
+          attribution: 'Grinsztajn, Oyallon, and Varoquaux, NeurIPS 2022',
+        },
+        'A tree splits directly on utilization > 0.40. A linear model sees weighted sums. A neural net can mix coordinates, but it must learn the useful mixtures from data and gradient steps. A rotation, scaling choice, or added noise column can flip which family appears to win. Treating preprocessing as a neutral prelude to model selection is the mistake this primer exists to prevent.',
       ],
     },
     {
-      heading: `Core Insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Treat the feature basis as an experimental variable. Raw columns, scaled columns, rotated columns, engineered ratios, target encodings, categorical embeddings, feature selection, and injected noise are different interfaces between data and model. They are not cosmetic alternatives.`,
-        `The core invariant is comparison discipline. When you change the basis, record what changed, which model family used it, how it was tuned, which data split was used, which leakage guards were applied, and how the result behaved by slice. A model-selection result without that record is hard to trust and hard to reproduce.`,
-        `This is not an argument that trees always beat neural nets or that raw columns are always best. It is an argument that the coordinate system is part of the inductive bias. The right question is: which representation makes the true signal easiest for this model family to learn without leaking future information or overfitting noise?`,
+        'Pick one feature pipeline -- scale numerics, one-hot encode categories, maybe add PCA -- then run several models through it and declare the winner. This is fast and feels fair because every model sees the same inputs.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# The one-pipeline-fits-all pattern\npipe = Pipeline([\n    ("scale", StandardScaler()),\n    ("pca", PCA(n_components=20)),\n])\nX_train_t = pipe.fit_transform(X_train)\nfor model in [xgb, mlp, logistic]:\n    model.fit(X_train_t, y_train)\n    print(model, score(model, X_val_t, y_val))',
+        },
+        'The approach is reasonable when the team needs a quick signal. It becomes dangerous when the results are taken as ground truth about model families, because the pipeline was designed -- consciously or not -- for one family and inherited by the others.',
       ],
     },
     {
-      heading: `Axis-Aligned Splits`,
+      heading: 'The wall',
       paragraphs: [
-        `Decision trees and gradient-boosted trees build rules from thresholds on individual features. If a medical risk changes sharply after a lab value crosses a clinical boundary, or credit risk jumps after utilization passes a threshold, a tree can express that rule cheaply. The split aligns with the raw column.`,
-        `That strength depends on the basis. If a rotation mixes utilization, income, age, and payment history into synthetic coordinates, the original threshold still exists mathematically, but it no longer sits on one axis. A tree may need many splits to approximate what used to be one split.`,
-        `This is why domain features and ratios often matter in tabular work. A debt-to-income ratio, utilization ratio, distance-per-delivery, or claims-per-month feature can create an axis that matches a business rule. The model did not become smarter; the basis made the rule easier to express.`,
+        'The same transform can help one model family and hurt another. Scaling helps gradient-based optimizers converge but is irrelevant to tree split selection. PCA rotation can reveal directions a linear model uses cleanly, but it hides a simple threshold that a tree would capture in one split. Adding many weak columns may barely affect a strong tree (it skips them at split time) but can consume neural capacity and increase overfitting.',
+        {
+          type: 'table',
+          headers: ['Transform', 'Helps', 'Hurts', 'Mechanism'],
+          rows: [
+            ['StandardScaler', 'MLP, logistic', 'Nothing (but wastes tree time)', 'Equalizes gradient magnitudes across features'],
+            ['PCA rotation', 'Linear, some neural', 'Tree axis alignment', 'Mixes original thresholds across synthetic coordinates'],
+            ['Domain ratios', 'Tree, linear', 'Nothing (if leakage-safe)', 'Creates axis that matches a business rule directly'],
+            ['Noise columns', 'Nothing', 'MLP >> tree', 'Neural net receives every input; tree can skip at split time'],
+            ['Target encoding', 'Tree, neural', 'Validation integrity', 'Leaks label statistics unless computed inside each fold'],
+          ],
+        },
+        'A fair comparison must separate model ability from representation fit. Without that separation, the team may conclude deep learning lost when the real issue was a weak preprocessing pipeline, or that a neural model won when it received engineered features the tree baseline never saw.',
       ],
     },
     {
-      heading: `Neural and Linear Models`,
+      heading: 'How it works',
       paragraphs: [
-        `Neural networks and linear models interact with basis in a different way. Scaling matters because gradient descent is sensitive to feature magnitude. If one column ranges from 0 to 1 and another ranges from 0 to 1,000,000, the optimizer may spend effort dealing with scale rather than learning useful structure.`,
-        `Neural models can learn feature interactions, but the phrase "can learn" is not a guarantee. They may need more data, regularization, embedding design, normalization, architecture tuning, and training time. On small or medium tabular datasets with strong axis-aligned rules, a boosted tree can be a hard baseline to beat.`,
-        `Linear models can benefit from rotations or engineered interactions because their decision surface is simple. A rotation can reveal a direction that a linear classifier uses cleanly. But the same rotation may make a tree less efficient. That is the central orientation tradeoff.`,
+        'Treat the feature basis as an experimental variable. Build a grid where each row is one (transform, model family) pair, all sharing the same data split, target, evaluation metric, and tuning budget.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Basis-orientation diagnostic grid\ntransforms = {\n    "raw":     identity,\n    "scaled":  StandardScaler(),\n    "rotated": PCA(n_components=k),\n    "ratios":  add_domain_ratios,   # debt/income, util/limit\n    "noise50": add_random_cols(50),  # 50 Gaussian noise columns\n    "trimmed": drop_low_importance,  # remove bottom-quartile features\n}\nmodels = {"xgb": XGBClassifier, "mlp": MLPClassifier, "lr": LogisticRegression}\n\nfor t_name, t_fn in transforms.items():\n    X_t = t_fn(X_train)\n    for m_name, m_cls in models.items():\n        m = tune(m_cls, X_t, y_train, budget=100)\n        record(transform=t_name, model=m_name,\n               auc=auc(m, X_val_t), cal=calibration(m, X_val_t),\n               slices=slice_metrics(m, X_val_t, groups))',
+        },
+        'For each run, the ledger stores: dataset version, split policy, transform name, leakage guard, model family, hyperparameter budget, aggregate metric, slice metrics, calibration error, training cost, inference latency, and feature availability at serving time.',
+        {
+          type: 'note',
+          text: 'Vary one representation choice at a time. Add ratios without rotation. Rotate without ratios. Inject noise without trimming. These single-variable ablations reveal whether the win came from the basis, the model, the tuning budget, or an accidental leak.',
+        },
+        'The output is not a leaderboard. It is a basis ledger that explains why each model won or lost under each representation, so the decision can be reproduced and challenged.',
       ],
     },
     {
-      heading: `Noise and Irrelevant Features`,
+      heading: 'Why it works',
       paragraphs: [
-        `Irrelevant columns are not harmless. A tree can often ignore a weak feature by never selecting it for a split, although enough noise can still waste search budget and increase variance. A neural model receives every coordinate at the input layer, so junk features can consume capacity, distort gradients, and invite overfitting.`,
-        `Noise injection is a useful diagnostic. Add random columns under controlled conditions and watch how each model family degrades. If a neural model collapses as noise grows while the tree degrades slowly, the issue may be feature selection, regularization, or input representation rather than a deep truth about the dataset.`,
-        `The point is not to sabotage the model. The point is to measure robustness. Production tables often gain columns over time, some useful and some weak. A model that is fragile to irrelevant features needs a stronger feature gate before deployment.`,
+        'The diagnostic converts vague model arguments into controlled comparisons with named variables.',
+        {
+          type: 'bullets',
+          items: [
+            'If the tree wins on raw columns but loses after rotation, it was exploiting axis alignment -- the threshold sat on one coordinate.',
+            'If the neural model improves only after scaling and embeddings, the original neural baseline was underprepared, not inherently weaker.',
+            'If both models fail on a time-safe split but succeed on a random split, the problem is data drift, not architecture.',
+            'If a ratio feature boosts every model, check for label leakage -- the ratio may encode future information.',
+            'If a neural model wins by 0.3 AUC points after 10x the tuning budget and 3x the inference cost, the ledger forces that cost into the decision.',
+          ],
+        },
+        'The deeper reason is that the feature basis is part of the inductive bias. A tree with axis-aligned splits and a neural net with learned mixtures are not using the same coordinate system even when they receive the same input matrix. The diagnostic makes that invisible difference measurable.',
+        {
+          type: 'quote',
+          text: 'The right question is not which model is best. It is which representation-model pair is reliable for this task, this data, this split policy, and this serving constraint.',
+          attribution: 'Basis-orientation principle',
+        },
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A basis-orientation diagnostic starts with a clean data split, usually time-safe for business data. Train a strong tree baseline, a linear baseline, and a neural or tabular deep-learning baseline under documented tuning budgets. Then vary one representation choice at a time.`,
-        `A compact grid might include raw columns, scaled columns, rotated numeric columns, leakage-safe domain ratios, categorical encodings, noise-injected variants, and feature-trimmed variants. Each row in the grid should keep the target, split policy, evaluation metric, and tuning budget explicit.`,
-        `The output is a basis ledger. For each run, store dataset version, split, transform, leakage guard, model family, hyperparameter budget, aggregate metric, slice metrics, calibration, training cost, inference cost, and feature availability at serving time. The ledger explains the result instead of leaving only a leaderboard.`,
+        'The diagnostic is a multiplicative grid. If you test T transforms and M model families with B tuning budget per cell, total cost is T x M x B training runs.',
+        {
+          type: 'table',
+          headers: ['Grid dimension', 'Typical size', 'Cost driver'],
+          rows: [
+            ['Transforms (T)', '4-8', 'Feature engineering time + leakage audit per transform'],
+            ['Model families (M)', '2-4', 'Each family needs its own tuning search space'],
+            ['Tuning budget (B)', '50-200 trials', 'Dominates wall-clock time; use early stopping'],
+            ['Slice evaluation', '5-20 slices', 'Cheap after training; expensive to define well'],
+            ['Repeated splits', '3-5 seeds or folds', 'Multiplies everything; needed for confidence intervals'],
+          ],
+        },
+        'A practical grid with 6 transforms, 3 models, and 100 trials is 1,800 training runs. With 5-fold cross-validation, that becomes 9,000. On a single GPU with XGBoost and a small MLP, this runs overnight for datasets under 1M rows. For larger tables, subsample the tuning phase and run full evaluation on the best configurations only.',
+        {
+          type: 'note',
+          text: 'The grid cost is front-loaded. Once the basis ledger is built, adding a new model family costs M rows. Adding a new transform costs T rows. The structure amortizes across the project lifetime.',
+        },
       ],
     },
     {
-      heading: `Animation Notes`,
+      heading: 'Where it wins',
       paragraphs: [
-        `The axis-splits view shows raw columns flowing into rotations, ratios, noise, trees, neural models, and score slices. The important contrast is between a domain-aligned feature that gives a tree a clean threshold and a rotated basis that spreads the same information across coordinates.`,
-        `The threshold plot separates a step-like rule from a smooth fit. The rotated-basis plot shows why a once-simple rule can become jagged for a tree after mixing coordinates. The diagnostic protocol view treats each preprocessing choice as a benchmark arm rather than a harmless setup detail.`,
+        'The diagnostic is most valuable in domains where columns carry domain meaning and business decisions depend on specific population slices.',
+        {
+          type: 'bullets',
+          items: [
+            'Credit risk: utilization thresholds, debt-to-income ratios, and thin-file borrower slices make axis alignment and ratio features critical. Regulators ask why the model decided, not just how well it scored.',
+            'Healthcare: lab values have clinical cutoffs (eGFR < 60, HbA1c > 6.5). A tree split on the raw lab value matches clinical reasoning. Rotation destroys that interpretability.',
+            'Fraud detection: transaction velocity, amount-to-average ratios, and device fingerprints are domain axes. Noise columns from third-party enrichment vendors often hurt neural models more than trees.',
+            'Insurance pricing: loss ratios, exposure counts, and territory codes are meaningful features. GLMs need interactions engineered; GBDTs find them from raw columns.',
+            'Churn and retention: days-since-last-login, session-count-per-week, and feature-adoption flags are axis-aligned signals. Adding 50 behavioral columns without selection can drown an MLP.',
+          ],
+        },
+        'The method also resolves team debates. Instead of arguing whether trees or neural nets are better in general, the team can point to the ledger: raw axes mattered here, rotation hurt tree efficiency there, scaling was necessary for the MLP, and serving requires these exact transforms.',
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: 'Where it fails',
       paragraphs: [
-        `The diagnostic works because it converts vague model arguments into controlled comparisons. If the tree wins on raw columns but loses after rotation, the tree was using axis alignment. If the neural model improves mainly after scaling and embeddings, the original neural baseline was underprepared. If both models fail on a time-safe split, the problem may be data drift rather than architecture.`,
-        `It also catches fake improvements. A ratio feature may look brilliant because it leaks the future. A target encoding may work because validation rows influenced the encoding table. A neural model may win by a small amount after ten times the tuning budget and three times the inference cost. The ledger forces those facts into the decision.`,
-        `Most importantly, it changes the conversation from "which model is best?" to "which representation and model pair is reliable for this task?" That is the question production systems actually need answered.`,
+        {
+          type: 'table',
+          headers: ['Failure mode', 'What goes wrong', 'Mitigation'],
+          rows: [
+            ['Leaky split', 'Random validation mixes future and past; every transform looks good', 'Use time-based or group-based splits for business data'],
+            ['Underpowered comparison', 'Small data or unstable labels make representation effects look like noise', 'Repeated splits with confidence intervals'],
+            ['Overgeneralization', 'Team reads one dataset result as a universal law about model families', 'Log the dataset version, split, and tuning budget -- the result is conditional'],
+            ['Leaky transforms', 'Target encoding or rolling features computed before the split leak future labels', 'Compute all derived features inside each training fold'],
+            ['Unequal tuning', 'Default GBDT vs. heavily tuned MLP (or vice versa) says nothing about families', 'Fix a comparable search budget per cell; document it'],
+          ],
+        },
+        'The diagnostic also fails silently when feature availability differs between training and serving. A strong offline feature that arrives late in production is not a real online feature. The basis ledger should flag which features are online-safe, batch-only, or subject to privacy constraints.',
+        'Finally, the grid can become a comfort blanket. Running 9,000 experiments feels rigorous, but if the split is wrong or the metric hides calibration failures, the volume of runs adds false confidence rather than real evidence.',
       ],
     },
     {
-      heading: `Worked Example`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Suppose a credit-risk table contains utilization, income, account age, missed payments, region, device type, bureau fields, and several weak vendor features. A boosted tree finds a strong split near utilization > 0.40 and another split on recent missed payments. It mostly ignores the weak vendor columns.`,
-        `Now rotate the numeric features. The utilization threshold is no longer aligned with one coordinate, so the tree needs several splits to approximate the same rule. Add a leakage-safe debt-to-income ratio and the tree recovers because the useful domain axis is restored. The raw basis and ratio basis made the tree efficient; the rotated basis made it work harder.`,
-        `A neural model tells a different story. It improves after scaling, stable categorical embeddings, and stronger regularization. It degrades when many weak vendor columns are added. On aggregate score it may be close to the tree, but on high-utilization thin-file borrowers it may be worse calibrated. The useful conclusion is not "always use trees" or "always use neural nets." The useful conclusion is which representation each family needs and which slices remain risky.`,
-      ],
-    },
-    {
-      heading: `Evaluation Discipline`,
-      paragraphs: [
-        `Fairness starts with comparable budgets. A default gradient-boosted tree against a heavily tuned neural network says little. A default neural network against a carefully engineered GBDT pipeline says little. Set a search budget, document it, and avoid changing preprocessing and model search at the same time unless the whole bundle is what you intend to compare.`,
-        `Use multiple views of quality. Average accuracy, AUC, or loss can hide calibration problems, rare-category failures, temporal drift, and high-value customer slices. Tabular systems often make business decisions, so slice metrics and calibration can matter more than a small aggregate win.`,
-        `Keep serving constraints in the evaluation. A feature that exists in training but arrives late in production is not a real online feature. A target encoding that cannot be updated safely is operational debt. A neural model that needs heavy preprocessing and GPU serving may not beat a simpler tree once latency and cost are included.`,
-      ],
-    },
-    {
-      heading: `Implementation Guidance`,
-      paragraphs: [
-        `Build the diagnostic as a reproducible experiment table, not as a notebook memory. Each run should have a stable id, data version, transform code, split seed or time window, model settings, metric output, and artifact path. If a model wins, future engineers should be able to rerun the reason it won.`,
-        `Guard leakage at every transform. Ratios are usually safe when they use only contemporaneous inputs. Target encodings, aggregations, rolling features, and customer histories need stricter rules. Compute them inside the training fold or with time-aware windows so validation and future information do not leak backward.`,
-        `Use ablations. Add ratios without rotation. Rotate without ratios. Add noise without feature trimming. Drop weak columns without changing the model. These small comparisons reveal whether the win came from the basis, the model family, the tuning budget, or an accidental leak.`,
-        `Record feature availability. A strong offline feature can still fail at serving time if it is late, expensive, or inconsistent. The basis ledger should say which features are online-safe, batch-only, customer-specific, shared, derived from labels, or subject to privacy constraints.`,
-      ],
-    },
-    {
-      heading: `Where It Wins`,
-      paragraphs: [
-        `This diagnostic is most useful in credit, insurance, healthcare, fraud, pricing, churn, ranking, supply chain, advertising, and operations data. These domains have meaningful columns, nonlinear thresholds, categorical effects, and business slices where average metrics can mislead.`,
-        `It is also useful when a team is deciding between gradient-boosted trees, random forests, logistic regression, generalized linear models, MLP-style tabular nets, transformer-style tabular models, and hybrid systems that combine feature stores with learned embeddings.`,
-        `The method gives teams a practical language for model choice. Instead of saying one family is generally better, the team can say raw axes matter, ratio features help, rotation hurts tree efficiency, neural models need scaling and feature selection, and serving requires these exact transforms.`,
-      ],
-    },
-    {
-      heading: `Where It Fails`,
-      paragraphs: [
-        `The diagnostic fails when the split is wrong. If validation randomly mixes future and past in a time-dependent problem, every representation may look better than it is. Time leakage can overpower the basis lesson.`,
-        `It fails when the comparison is underpowered. Small datasets, unstable labels, and high metric variance can make representation effects look like noise. Use repeated splits or confidence intervals when the decision is expensive.`,
-        `It fails when teams read it as a universal law. A result on one dataset does not prove that trees always win or neural networks always lose. It proves how model family, basis, tuning, and data quality interacted on that task under that evaluation protocol.`,
-      ],
-    },
-    {
-      heading: `Study Next`,
-      paragraphs: [
-        `Study Tabular Deep Learning vs GBDT Case Study, Gradient Boosting, Random Forest, Logistic Regression, PCA, SVD, Feature Hashing Signed Projection Primer, Data Leakage, Cross Validation, Calibration Curves, Benchmark Variance Model Selection, and Feature Store.`,
-        `For research context, read work comparing tree-based models and deep learning on tabular data, especially studies that examine dataset size, irrelevant features, rotations, categorical handling, and hyperparameter budgets. Use those papers as prompts for better diagnostics, not as substitutes for measuring your own table.`,
+        {
+          type: 'table',
+          headers: ['Source', 'Role', 'Key claim'],
+          rows: [
+            ['Grinsztajn, Oyallon, Varoquaux -- "Why do tree-based models still outperform deep learning on typical tabular data?" (NeurIPS 2022)', 'Primary research', 'Trees outperform neural nets on medium tabular data partly because of uninformative features and irregular target functions that favor axis-aligned splits'],
+            ['Gorishniy et al. -- "Revisiting Deep Learning Models for Tabular Data" (NeurIPS 2021)', 'Architecture survey', 'ResNet-like and Transformer-like tabular models can match GBDT when properly tuned, but tuning cost is higher and the gap depends on dataset properties'],
+            ['Shwartz-Ziv and Armon -- "Tabular Data: Deep Learning Is Not All You Need" (2022)', 'Benchmark discipline', 'XGBoost outperforms or matches deep models on most tabular benchmarks; ensembling a tree with a neural net sometimes helps'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Gradient Boosting and PCA to understand why axis-aligned splits and rotated bases behave differently.',
+            'Extension: study Tabular Deep Learning vs GBDT Case Study for a full benchmark comparison with tuning budgets and slice metrics.',
+            'Contrast: study Feature Hashing Signed Projection Primer for a basis transform designed to reduce dimensionality rather than align with domain axes.',
+            'Practice: study Data Leakage and Cross Validation to build the leakage guards the diagnostic requires.',
+            'Production: study Feature Store and Calibration Curves for the serving and evaluation constraints that complete the basis ledger.',
+          ],
+        },
       ],
     },
   ],

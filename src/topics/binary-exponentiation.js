@@ -1,4 +1,4 @@
-// Binary exponentiation: compute huge powers in a handful of steps by
+﻿// Binary exponentiation: compute huge powers in a handful of steps by
 // squaring your way up the exponent's binary digits. The arithmetic trick
 // that makes RSA possible — and the reason your TLS handshake is instant.
 
@@ -31,13 +31,13 @@ export function* run(input) {
   yield {
     state: bitView(),
     highlight: {},
-    explanation: `Compute ${base}^${exp} mod ${mod}. The naive way multiplies ${base} into a running product ${exp - 1} times. Fine here — but RSA does this with exponents over 600 DIGITS long, where "one multiply per unit of exponent" would outlast the universe. The escape: look at the exponent in BINARY. ${exp} = ${bits.join('')}₂ — just ${bits.length} bits.`,
+    explanation: `Compute ${base}^${exp} mod ${mod}. The naive way multiplies ${base} into a running product ${exp - 1} times. Fine here — but RSA does this with exponents over 600 DIGITS long, where "one multiply per unit of exponent" would outlast the universe. The escape: look at the exponent in BINARY. ${exp} = ${bits.join('')}â‚‚ — just ${bits.length} bits.`,
   };
 
   yield {
     state: bitView(),
     highlight: { active: bits.map((b, i) => (b === '1' ? `i${i}` : null)).filter(Boolean) },
-    explanation: `Why binary helps: squaring DOUBLES an exponent (x^k · x^k = x^2k). So reading the exponent's bits left to right: each bit means "square what you have" — and each 1-bit additionally means "multiply in one ${base}". ${bits.length} bits → at most ${bits.length} squarings + ${bits.filter((b) => b === '1').length} extra multiplies, instead of ${exp - 1}.`,
+    explanation: `Why binary helps: squaring DOUBLES an exponent (x^k Â· x^k = x^2k). So reading the exponent's bits left to right: each bit means "square what you have" — and each 1-bit additionally means "multiply in one ${base}". ${bits.length} bits â†’ at most ${bits.length} squarings + ${bits.filter((b) => b === '1').length} extra multiplies, instead of ${exp - 1}.`,
     invariant: 'After processing the first k bits, the result equals base raised to the number those k bits spell — mod m.',
   };
 
@@ -48,12 +48,12 @@ export function* run(input) {
     const before = result;
     result = (result * result) % mod;
     squarings += 1;
-    let text = `Bit ${i + 1} ('${bits[i]}'): SQUARE — ${before}² = ${before * before}${before * before >= mod ? ` ≡ ${result} (mod ${mod})` : ''}.`;
+    let text = `Bit ${i + 1} ('${bits[i]}'): SQUARE — ${before}² = ${before * before}${before * before >= mod ? ` â‰¡ ${result} (mod ${mod})` : ''}.`;
     if (bits[i] === '1') {
       const beforeMul = result;
       result = (result * base) % mod;
       multiplies += 1;
-      text += ` The bit is 1, so also MULTIPLY by ${base}: ${beforeMul} × ${base} = ${beforeMul * base}${beforeMul * base >= mod ? ` ≡ ${result} (mod ${mod})` : ''}.`;
+      text += ` The bit is 1, so also MULTIPLY by ${base}: ${beforeMul} Ã— ${base} = ${beforeMul * base}${beforeMul * base >= mod ? ` â‰¡ ${result} (mod ${mod})` : ''}.`;
     } else {
       text += ' The bit is 0 — squaring alone suffices.';
     }
@@ -81,6 +81,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Binary Exponentiation. Square-and-multiply along the exponent bits — huge powers in O(log n) steps instead of n..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `Binary exponentiation exists because repeated multiplication is the wrong unit of work for large powers. Computing a^10 by multiplying by a ten times is harmless. Computing a^n that way when n has hundreds or thousands of bits is impossible. The exponent may describe an astronomically large count, but the exponent itself has only O(log n) bits.`,
@@ -102,14 +111,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The invariant',
+      heading: 'Why it works',
       paragraphs: [
         `The invariant is the reason the short loop is trustworthy. After processing the first k bits of the exponent, result equals base raised to the number represented by those k bits, modulo m if a modulus is being used. The algorithm is not guessing; it is maintaining this statement one bit at a time.`,
         `When the next bit arrives, squaring changes a^x into a^(2x), which is exactly what appending a binary digit does to the number represented so far. If the appended bit is 1, multiplying by the base changes a^(2x) into a^(2x + 1). If the bit is 0, the square alone is enough.`,
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         `The bit array is the exponent written in the form the algorithm actually uses. Each highlighted bit corresponds to one square. A highlighted 1-bit also corresponds to one multiply by the base. The displayed "exponent so far" value is the invariant becoming visible after each step.`,
         `The modulus in the visual is not decoration. It proves that huge powers can be computed with small stored numbers. After each square and multiply, only the residue modulo m is kept. The true power may be enormous, but the algorithm only needs the residue class that determines the final answer.`,
@@ -132,28 +141,28 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it works generally',
+      heading: 'Why it works (2)',
       paragraphs: [
         `Binary exponentiation is not limited to ordinary integers. It works anywhere there is an associative operation with an identity element. That includes modular multiplication, matrices under multiplication, permutations under composition, function composition in some settings, and monoids in algebraic programming.`,
         `This is why the same idea reappears under different names. Matrix exponentiation computes Fibonacci numbers and Markov transitions quickly. Permutation powers answer repeated shuffling questions. Elliptic-curve scalar multiplication uses the related double-and-add pattern, where doubling a point plays the role of squaring a power.`,
       ],
     },
     {
-      heading: 'Costs and complexity',
+      heading: 'Cost and behavior',
       paragraphs: [
         `If n has b bits, the left-to-right method performs b squarings and at most b extra multiplications. That is O(log n) arithmetic operations. Space is O(1) if the exponent bits are streamed, or O(log n) if the bit string is materialized as an array.`,
         `The arithmetic operation itself may be expensive. Big integers, modular reduction, and matrix multiplication all have their own costs. Binary exponentiation does not make multiplication free; it reduces how many times multiplication is called. That distinction matters when comparing plain number powers, modular powers, and matrix powers.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Modular exponentiation powers RSA decryption and signatures, classic Diffie-Hellman key exchange, primality testing routines, and many number-theory protocols. The whole point is that exponents can be very large while the loop stays tied to their bit length.`,
         `Outside cryptography, it is a standard tool for fast recurrence computation, graph walk counts through adjacency-matrix powers, Markov Chains & Steady States, PageRank-style transition powers, and repeated transformation composition. The same pattern also teaches why binary representation is an algorithmic tool, not just a storage format.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The speedup does not come from the modulus. It comes from reading the exponent in binary. The modulus keeps values bounded and prevents overflow, but a non-modular power can still use exponentiation by squaring. Mixing those ideas up leads to poor explanations and sometimes poor implementations.`,
         `Security code has an extra failure mode: secret exponent bits must not control observable timing, memory access, or branching. A straightforward square-if-bit-then-multiply loop is educational, not automatically safe for private keys. Production libraries use constant-time methods, blinding, windowing, Montgomery arithmetic, and careful side-channel review.`,
@@ -167,5 +176,78 @@ export const article = {
         `Then compare Fibonacci methods: naive Recursion is exponential, Memoization (Dynamic Programming) is linear, and matrix exponentiation is logarithmic. For matrix-heavy applications, continue to Markov Chains & Steady States, PageRank, Eigenvalues & Eigenvectors, and SVD & Low-Rank Approximation.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Binary Exponentiation moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

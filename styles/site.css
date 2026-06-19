@@ -69,7 +69,10 @@ body {
 }
 
 a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 h1, h2, h3 { line-height: 1.2; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
 .visually-hidden {
@@ -77,6 +80,13 @@ h1, h2, h3 { line-height: 1.2; }
   clip: rect(0 0 0 0); white-space: nowrap;
 }
 .fine-print { color: var(--muted); font-size: 0.8rem; }
+
+.skip-link {
+  position: absolute; top: -100%; left: 16px; z-index: 999;
+  background: var(--accent); color: #fff; padding: 8px 16px;
+  border-radius: 0 0 8px 8px; text-decoration: none; font-weight: 600;
+}
+.skip-link:focus { top: 0; }
 
 /* ------------------------------------------------------------- buttons */
 
@@ -94,6 +104,15 @@ h1, h2, h3 { line-height: 1.2; }
   text-decoration: none;
 }
 .btn:hover { border-color: var(--accent); }
+.btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn-secondary {
+  background: var(--panel-2);
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -148,7 +167,9 @@ h1, h2, h3 { line-height: 1.2; }
   color: var(--text);
   box-shadow: var(--shadow);
 }
-.card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.card { transition: border-color 180ms, transform 180ms, box-shadow 180ms; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgb(16 24 40 / 10%); }
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card h3 { margin: 0 0 6px; font-size: 1.05rem; color: var(--accent); }
 .card p { margin: 0; font-size: 0.88rem; color: var(--muted); }
 .empty-results { color: var(--muted); padding: 24px 4px; }
@@ -236,6 +257,85 @@ h1, h2, h3 { line-height: 1.2; }
 .track-count {
   color: var(--muted);
   font-size: 0.82rem;
+}
+.track-prereq {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.track-followups {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.learning-path-panel {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: color-mix(in oklab, var(--panel) 92%, var(--text) 8%);
+}
+.learning-path-state {
+  margin: 6px 0 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.learning-path-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.learning-path-node {
+  font-size: 0.84rem;
+  color: var(--text);
+  text-decoration: none;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--panel) 95%, var(--accent) 5%);
+}
+
+.learning-path-node.current {
+  font-weight: 700;
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 16%, var(--panel) 84%);
+}
+
+.learning-path-upcoming p {
+  margin: 6px 0 2px;
+}
+
+.track-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.learning-path-note {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.track-progress {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 0;
+}
+.track-progress progress {
+  width: 100%;
+  height: 0.8rem;
+  accent-color: var(--accent);
+}
+.track-progress span {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 .track-card-compact .track-outcome {
   display: none;
@@ -337,6 +437,11 @@ h1, h2, h3 { line-height: 1.2; }
 .topic-main { padding: 22px 26px 50px; min-width: 0; }
 .topic-header h1 { margin: 0; font-size: 1.6rem; }
 .topic-summary { color: var(--muted); margin: 6px 0 12px; max-width: 70ch; }
+.topic-progress {
+  margin: 2px 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
 
 .link-chips { margin-bottom: 14px; }
 .chip-row { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -488,6 +593,50 @@ h1, h2, h3 { line-height: 1.2; }
   border-radius: var(--radius);
   padding: 16px 20px;
 }
+.learn-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 10px;
+}
+.study-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.frame-log {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0 8px;
+}
+.frame-log-title {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.frame-log-list {
+  margin: 0 0 0 18px;
+  padding: 0;
+  max-height: 116px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.frame-log-item {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.frame-log-item.active {
+  color: var(--accent);
+  font-weight: 700;
+}
 .explanation {
   font-size: 1.12rem;
   line-height: 1.6;
@@ -562,6 +711,16 @@ h1, h2, h3 { line-height: 1.2; }
   padding: 18px 22px;
   box-shadow: var(--shadow);
 }
+.study-section summary {
+  cursor: pointer;
+  list-style: none;
+}
+.study-section summary::-webkit-details-marker {
+  display: none;
+}
+.study-section-body {
+  margin-top: 10px;
+}
 .study-section:first-child,
 .study-section:nth-child(2),
 .study-section:last-child {
@@ -577,10 +736,105 @@ h1, h2, h3 { line-height: 1.2; }
   line-height: 1.68;
   max-width: 104ch;
 }
+.study-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+}
+.study-list li {
+  margin: 8px 0;
+  line-height: 1.6;
+  max-width: 104ch;
+}
 .study-section:first-child p,
 .study-section:nth-child(2) p,
 .study-section:last-child p {
   max-width: 112ch;
+}
+
+.study-quote {
+  margin: 16px 0;
+  padding: 12px 20px;
+  border-left: 4px solid var(--accent, #4fc3f7);
+  background: rgba(79, 195, 247, 0.06);
+  border-radius: 0 6px 6px 0;
+  max-width: 104ch;
+}
+.study-quote p {
+  margin: 0;
+  font-style: italic;
+  line-height: 1.6;
+}
+.study-quote cite {
+  display: block;
+  margin-top: 8px;
+  font-style: normal;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+.study-table {
+  margin: 16px 0;
+  border-collapse: collapse;
+  font-size: 0.92em;
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+.study-table th,
+.study-table td {
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.study-table th {
+  font-weight: 600;
+  background: rgba(255,255,255,0.04);
+  position: sticky;
+  top: 0;
+}
+.study-table tr:hover td {
+  background: rgba(79, 195, 247, 0.04);
+}
+
+.study-code {
+  margin: 16px 0;
+  padding: 14px 18px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.88em;
+  line-height: 1.5;
+  max-width: 104ch;
+}
+.study-code code {
+  font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+}
+
+.study-diagram {
+  margin: 16px 0;
+  padding: 14px 18px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85em;
+  line-height: 1.4;
+  overflow-x: auto;
+  max-width: 104ch;
+  white-space: pre;
+}
+
+.study-note {
+  margin: 16px 0;
+  padding: 12px 18px;
+  background: rgba(255, 183, 77, 0.08);
+  border-left: 4px solid rgba(255, 183, 77, 0.6);
+  border-radius: 0 6px 6px 0;
+  max-width: 104ch;
+}
+.study-note p {
+  margin: 0;
+  line-height: 1.6;
 }
 
 @media (max-width: 880px) {
@@ -625,6 +879,7 @@ h1, h2, h3 { line-height: 1.2; }
     word-break: normal;
   }
   .topic-summary,
+  .topic-progress,
   .explanation,
   .invariant,
   .study p,
@@ -683,6 +938,13 @@ h1, h2, h3 { line-height: 1.2; }
     max-width: 100%;
     overflow-wrap: anywhere;
     word-break: normal;
+  }
+  .frame-log-list {
+    max-height: 94px;
+  }
+  .learn-tools {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .controls {
     display: grid;
@@ -914,4 +1176,18 @@ svg text {
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   overflow-wrap: anywhere;
+}
+
+/* Print: students should be able to print study notes cleanly */
+@media print {
+  .site-header, .site-footer, .topic-nav, .controls,
+  .player-bar, .vis-panel, .search-box, .frame-log,
+  .track-actions, .export-area, .skip-link { display: none !important; }
+  .topic-layout { display: block; }
+  .topic-main { padding: 0; }
+  .study-section { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+  .study-section[open] { display: block; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  a { color: #000; text-decoration: underline; }
+  .study-jump-list a::after { content: " (#" attr(href) ")"; font-size: 0.8em; }
 }

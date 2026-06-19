@@ -195,61 +195,6 @@ export function* run(input) {
   else throw new InputError('Pick a distributed-snapshot view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'A distributed snapshot records one coherent global state of a running distributed system without stopping all processes at the same instant. The classic Chandy-Lamport algorithm solves this for processes connected by reliable FIFO channels. It gives each process a way to record local state and channel state so the final snapshot describes a possible execution of the system.',
-        'The key concept is the consistent cut. Imagine drawing a line across the timelines of many machines. A cut is consistent when it is closed under causality: if it includes a receive event, it must also include the send event that caused it. A cut that contains a receive without its send is impossible, like a database row appearing before the transaction that wrote it.',
-        'This topic builds on Clocks & Ordering, Message Queue, Write-Ahead Log, and Streaming Watermarks. It is the missing paper-level bridge between causal ordering and modern systems such as Flink Checkpointing Case Study and MillWheel Streaming Case Study.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The initiator records its local state and sends a marker on every outgoing channel before it sends any more ordinary messages on those channels. When a process receives its first marker, it records its local state, treats the marker channel as empty for the snapshot, and sends markers on its outgoing channels. For every other incoming channel, it records ordinary messages until that channel also delivers a marker.',
-        'Those recorded ordinary messages are channel state. They represent messages that were sent before the sender crossed the cut but received after the receiver crossed the cut. Without channel state, a collection of local process snapshots can lose work that was in transit. With channel state, the snapshot can include both memory and in-flight communication.',
-        'The algorithm works because the marker is a boundary message. FIFO channels ensure that any ordinary message sent before the marker arrives before the marker, and any message sent after the marker arrives after it. The marker therefore divides each channel into before-snapshot and after-snapshot regions. The protocol assembles those regions into one consistent global state.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read a consistent cut as a snapshot that never includes an effect without its cause. If a message receive is in the cut, the matching send must also be in the cut; otherwise the snapshot describes a state that could not have happened.',
-        'The marker animation is teaching how to snapshot without stopping the world. Processes record local state, markers separate old in-flight messages from new ones, and channel state fills in the messages that crossed the boundary.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Chandy-Lamport pays one marker per channel per snapshot plus memory for local snapshots and channel logs. The hard cost is often not the marker itself but the state copied while normal work continues. A large process heap, large keyed state, or slow checkpoint storage can make snapshots expensive even if the coordination protocol is elegant.',
-        'The assumptions matter. The original algorithm assumes reliable FIFO channels and a stable set of processes. Real production systems add retries, backpressure, non-FIFO transports, partitions, dynamic operators, transactions, and external side effects. That is why streaming engines talk about barriers, alignment, unaligned checkpoints, source offsets, sink commits, and durable checkpoint storage rather than only markers.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Consider a streaming fraud detector that reads card events from Kafka, keeps rolling per-card counters, fires timers when windows close, and writes alerts to a database. If a worker crashes after updating memory but before committing an alert, recovery must not skip the event. If it commits the alert and then replays the event, recovery must not duplicate the alert. A checkpoint boundary has to include source offsets, per-card state, timer state, and the sink protocol boundary.',
-        'The Chandy-Lamport lesson is the same: the runtime needs a consistent cut, not a pile of local dumps. A Flink barrier marks which Kafka records are before checkpoint N. Operators snapshot state when the barrier reaches them. The sink can commit only after the checkpoint is complete if it wants end-to-end exactly-once behavior. The production version is messier, but the conceptual backbone is the marker algorithm.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'The most common misconception is that a snapshot means every machine stops at the same wall-clock instant. Distributed snapshots avoid that impossible requirement. They record a causally consistent boundary instead. Another misconception is that local state is enough. In-flight messages are state too, and they are exactly where distributed bugs hide.',
-        'A second trap is applying the paper without checking assumptions. If channels are not FIFO, markers no longer cleanly separate earlier messages from later messages. If external sinks are not transactional or idempotent, a consistent internal snapshot does not guarantee consistent external effects. If snapshots happen too often, the system can spend more time copying and uploading state than doing useful work.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Chandy and Lamport, "Distributed Snapshots: Determining Global States of Distributed Systems," at https://lamport.azurewebsites.net/pubs/chandy.pdf; Apache Flink fault-tolerance docs explaining asynchronous barrier snapshotting at https://nightlies.apache.org/flink/flink-docs-stable/docs/learn-flink/fault_tolerance/; Flink checkpointing docs at https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/fault-tolerance/checkpointing/; and the Google Dataflow paper at https://research.google.com/pubs/archive/43864.pdf. Study Flink Checkpointing Case Study, MillWheel Streaming Case Study, Streaming Watermarks, Two-Phase Commit, and Write-Ahead Log next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

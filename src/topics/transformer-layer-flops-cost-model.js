@@ -1,4 +1,4 @@
-// Transformer layer FLOPs cost model: split the dense per-token work from
+﻿// Transformer layer FLOPs cost model: split the dense per-token work from
 // the pairwise attention work so long-context tradeoffs are visible.
 
 import { matrixState, plotState, InputError } from '../core/state.js';
@@ -186,6 +186,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Transformer Layer FLOPs Cost Model. A decoder-layer cost primer: why dense projections scale like n d^2, attention scales like n^2 d, and long context changes the bottleneck..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Transformer inference sounds like one cost until you try to make a serving decision. Then the word hides several different bills: dense matrix multiplies, attention over token pairs, KV-cache reads, activation movement, batching overhead, and queueing. A simple FLOPs model is useful because it separates the arithmetic shape before hardware details enter the argument.`,
@@ -193,7 +202,7 @@ export const article = {
       ],
     },
     {
-      heading: `The naive shortcut`,
+      heading: `The obvious approach`,
       paragraphs: [
         `The common shortcut is to say attention is quadratic and stop there. That is partly true and often misleading. Attention has an n^2 term, but a normal decoder layer also has several n d^2 terms. When d is large and n is modest, the dense projections and MLP can dominate arithmetic. When n becomes very large, the pairwise term catches up and then passes them.`,
         `The second shortcut is to treat FLOPs as latency. FLOPs describe arithmetic work, especially in training and prompt prefill. Cached decode often waits on bytes: model weights, KV cache pages, memory bandwidth, kernel launch overhead, and scheduler decisions. A FLOPs model is the first map, not the whole serving system.`,
@@ -214,7 +223,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works`,
       paragraphs: [
         `The first table separates dense rows from attention rows. QKV, output projection, and MLP are per-token matrix work. QK and AV are pairwise attention work. The optimizer table then prevents category errors: FlashAttention improves attention IO and materialization, grouped-query attention mainly reduces KV-cache size and bandwidth during serving, and mixture-of-experts changes which feed-forward experts run.`,
         `The plot fixes d at 4096 and grows n. Dense terms rise linearly with n. Attention rises quadratically. Setting 24 n d^2 equal to 4 n^2 d gives n = 6d, so the crossover is around 24k tokens for d = 4096. A 4k chat, a 32k agent run, and a 128k document prompt are different workload shapes, not just bigger versions of the same request.`,
@@ -235,21 +244,21 @@ export const article = {
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Every lever has a cost. Windowed attention bounds the pair count but may remove useful distant context. Retrieval keeps n smaller but depends on chunking, ranking, and citation discipline. Prefix caching helps repeated prompts but adds cache lookup, invalidation, and memory pressure. Quantization improves memory traffic and capacity but can hurt quality if applied carelessly.`,
         `Grouped-query and multi-query attention reduce KV-cache footprint by sharing keys and values across query heads, but they change architecture assumptions. Mixture-of-experts can reduce active feed-forward work per token while adding routing, load balancing, expert placement, and communication costs. The formula helps by making each tradeoff name the term it attacks.`,
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `Use this model during early sizing. It helps estimate whether a long-context feature is likely to be a kernel problem, a cache policy problem, or a product-context problem. It also helps compare two ideas that sound similar. A request router, a prefix cache, a sliding window, and a bigger GPU all improve different parts of the serving stack.`,
         `It is especially useful when a team is tempted to buy context length as if it were free. Long context can be valuable, but the cost curve is not linear once full attention dominates. The correct question is not "can the model accept this many tokens?" The correct question is whether those tokens are worth their arithmetic, memory, and latency cost.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `Do not use this as a benchmark replacement. Real latency includes memory bandwidth, tensor parallel communication, request queueing, p99 tail effects, cache fragmentation, scheduler policy, network transfer, and framework overhead. A layer can have modest FLOPs and still be slow if decode is memory-bound or if cache pages are scattered.`,
         `Also avoid treating FlashAttention as if it removes the mathematical n^2 relationship. It changes how attention is computed and stored so the GPU does less wasteful memory movement. That is a major win, but it does not make every very long context cheap. The same caution applies to any single optimization: it improves one part of the stack, not the whole serving problem.`,
@@ -262,5 +271,87 @@ export const article = {
         `Primary sources worth reading are Attention Is All You Need at https://arxiv.org/abs/1706.03762, the JAX scaling book chapters on transformer and inference math at https://jax-ml.github.io/scaling-book/transformers/ and https://jax-ml.github.io/scaling-book/inference/, Efficiently Scaling Transformer Inference at https://arxiv.org/abs/2211.05102, and FlashAttention at https://arxiv.org/abs/2205.14135.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Transformer Layer FLOPs Cost Model moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

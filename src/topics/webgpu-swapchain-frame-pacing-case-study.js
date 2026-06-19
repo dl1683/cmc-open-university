@@ -201,62 +201,6 @@ export function* run(input) {
   else throw new InputError('Pick a WebGPU swapchain view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A renderer cannot draw directly to the screen whenever it wants. The browser compositor owns presentation cadence, the GPU executes queued work later, and JavaScript runs on its own event loop. A WebGPU present loop exists to connect those timelines without tearing, stale targets, or unbounded latency.',
-        'A WebGPU canvas render loop configures a GPUCanvasContext, obtains a current texture for each frame, records commands that render into it, submits those commands to the GPU queue, and lets the browser compositor present the result.',
-      ],
-    },
-    {
-      heading: 'The tempting wrong answer',
-      paragraphs: [
-        'The easy mistake is to cache the current texture view and reuse it. That breaks the ownership model. getCurrentTexture gives a presentable image for this frame, not a permanent render target.',
-        'The other mistake is to maximize frames in flight without thinking about input age. Extra buffering can keep the GPU busy, but it can also display older input. Frame pacing is the trade between throughput and latency, not just a higher frame counter.',
-      ],
-    },
-    {
-      heading: 'Core model',
-      paragraphs: [
-        'The canvas context is configured with a GPUDevice and canvas texture format, commonly navigator.gpu.getPreferredCanvasFormat. During a frame, getCurrentTexture returns the next GPUTexture that will be composited into the document. The render pass uses a view of that texture as a color attachment.',
-        'The invariant is per-frame ownership. Acquire the current texture inside the frame, record commands that use it, submit those commands, and stop treating that view as app-owned. Render graph code may create many transient textures for depth, G-buffer, bloom, or postprocessing, but the final pass writes to the current canvas texture.',
-        'The WebGPU API separates command recording from GPU execution. That helps validation and portability, but readback and synchronization stay explicit. If the CPU asks for results too soon, it can stall behind the GPU queue. If it records against stale frame resources, validation or visual bugs follow.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'In the present-loop view, follow ownership: rAF opens the CPU frame, getCurrentTexture acquires the present target, the encoder records a pass into its view, queue.submit moves work to the GPU timeline, and the compositor presents later. The current texture should appear only inside that frame path.',
-        'In the in-flight view, the images show why buffering helps and why it costs latency. One image can be displayed while another is rendered. More frames in flight can smooth throughput, but each extra queued frame can be one more frame of input delay. The interesting question is not just "did the GPU stay busy?" but "how old is the input in the frame the user sees?"',
-      ],
-    },
-    {
-      heading: 'Where it wins and fails',
-      paragraphs: [
-        'This model wins in browser 3D viewers, games, simulation tools, and GPU dashboards where the final frame is a resource graph ending at the canvas target. A viewer can start rAF, update camera state, obtain the current texture, record geometry, lighting, postprocessing, and UI passes, submit one command buffer, and let the compositor blend the canvas with the page.',
-        'It fails when a long JavaScript task misses the frame budget, when unlimited queued frames increase input latency, when resize does not recreate depth and intermediate attachments, when readback stalls the CPU behind the GPU, or when getCurrentTexture is treated as a general texture allocator.',
-        'WebGPU hides platform swapchain details, but not the rule: acquire a presentation target, render before release, pace CPU and GPU work, rebuild size-dependent resources when the surface changes, and keep latency visible.',
-      ],
-    },
-    {
-      heading: 'Practical guidance',
-      paragraphs: [
-        'Treat frame resources as per-size and per-frame. Recreate depth textures, intermediate attachments, and cached views when canvas size or devicePixelRatio changes; acquire the current texture inside the frame that records commands for it.',
-        'Measure CPU frame time, GPU queue time, dropped frames, and input-to-present latency separately. A renderer can hit high throughput while feeling sluggish if it lets too many frames queue ahead of user input.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: WebGPU specification at https://www.w3.org/TR/webgpu/, MDN GPUCanvasContext.configure at https://developer.mozilla.org/en-US/docs/Web/API/GPUCanvasContext/configure, MDN GPUCanvasContext.getCurrentTexture at https://developer.mozilla.org/en-US/docs/Web/API/GPUCanvasContext/getCurrentTexture, and Vulkan WSI swapchain documentation at https://docs.vulkan.org/spec/latest/chapters/VK_KHR_surface/wsi.html.',
-        'Study WebGPU Buffer & Bind Group Case Study first, then requestAnimationFrame Frame Budget, OffscreenCanvas Worker Renderer, Render Graph Framegraph Resource Lifetimes, Texture Atlas & Mipmaps, Depth Buffer Z-Test, Deferred G-Buffer, Browser Rendering, and Dirty Rectangle Damage Tracking next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

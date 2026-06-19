@@ -166,6 +166,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Raft Leader Lease Read Safety. How Raft systems trade ReadIndex quorum checks for leader leases with lease start, clock-drift bounds, commit index, apply index, and stale-leader hazards..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why It Exists',
       paragraphs: [
         `Raft gives a replicated system a single ordered log, but reads still need care. A client asking the leader for the current value wants a linearizable answer: if a write completed before the read began, the read must reflect it.`,
@@ -174,19 +183,19 @@ export const article = {
       ],
     },
     {
-      heading: 'The Obvious Approach and the Wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious safe approach is ReadIndex: prove current leadership through a quorum for the read and wait for local apply. It is easy to defend because it depends on fresh communication instead of timing assumptions.`,
-        `The obvious fast approach is to read directly from the leader's memory. That is unsafe. A process can pause, lose its lease, miss an election, resume, and still believe it is the leader if the read path does not force it to check.`,
+        `The obvious fast approach is to read directly from the leader\'s memory. That is unsafe. A process can pause, lose its lease, miss an election, resume, and still believe it is the leader if the read path does not force it to check.`,
         `The wall is time. A lease-read design must account for election timeout, heartbeat timing, clock drift, process pauses, message delay, and state-machine apply lag. If those assumptions are not explicit, the system is guessing.`,
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The core insight',
       paragraphs: [
         `A leader lease is a cached proof of leadership. A recent quorum interaction establishes that the leader was recognized by enough voters at a known local time. For a carefully bounded interval after that point, the leader can infer that a different leader could not yet have been elected.`,
         `That proof handles only leadership freshness. A safe read also needs state freshness: the local state machine must have applied at least the committed index that the read depends on. A valid leader with an old apply index can still return stale data.`,
-        `The mental model is two gates, not one. The lease gate says "this node is still allowed to answer as leader." The apply gate says "this node's local state is caught up enough to answer this read."`,
+        `The mental model is two gates, not one. The lease gate says "this node is still allowed to answer as leader." The apply gate says "this node\'s local state is caught up enough to answer this read."`,
       ],
     },
     {
@@ -198,32 +207,32 @@ export const article = {
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
         `The conservative baseline is ReadIndex. The leader contacts a quorum, confirms it is still leader in its term, obtains or confirms a read index, and waits until its state machine has applied through that index before serving the read.`,
-        `A lease read moves the quorum check out of the individual read. The leader starts or renews a lease when it receives quorum acknowledgement under the protocol's timing rules. Until that lease expires, it may serve eligible reads locally.`,
+        `A lease read moves the quorum check out of the individual read. The leader starts or renews a lease when it receives quorum acknowledgement under the protocol\'s timing rules. Until that lease expires, it may serve eligible reads locally.`,
         `The implementation still checks the local apply index. If the read depends on commit index 120 and the state machine has applied only through 118, the leader waits. Serving from unapplied state would violate linearizability even if leadership is fresh.`,
         `If the lease proof is missing, expired, or made suspicious by timing uncertainty, the read path falls back to ReadIndex. The fallback is part of the design; it is how the fast path preserves the same external contract as the slow path.`,
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         `Raft safety depends on there being at most one leader whose log can make progress in a term. A lease-read proof extends that idea to reads by showing that, during the lease interval, a quorum cannot have elected and accepted a newer leader.`,
-        `The proof depends on overlap. The leader's lease was established through voters that would also be needed to elect another leader. If those voters cannot legally vote for a new leader before the lease interval expires, the old leader can safely answer reads during that interval.`,
+        `The proof depends on overlap. The leader\'s lease was established through voters that would also be needed to elect another leader. If those voters cannot legally vote for a new leader before the lease interval expires, the old leader can safely answer reads during that interval.`,
         `The apply-index check completes the argument. The lease says the leader is still authoritative; the apply index says the local state machine includes all committed writes before the read boundary. Linearizable reads require both facts.`,
       ],
     },
     {
-      heading: 'Worked Case Study',
+      heading: 'Worked example',
       paragraphs: [
         `Consider a Kubernetes-style control plane backed by a Raft store. The API server issues many small reads for objects, leases, and coordination keys. A quorum round trip for every linearizable read would add latency and load to the hottest path.`,
-        `The leader renews authority through heartbeats and tracks a conservative lease interval. A read arriving during that interval can use the local fast path only after the state machine has applied through the read's required index. Followers redirect or ask the leader for a safe read path.`,
+        `The leader renews authority through heartbeats and tracks a conservative lease interval. A read arriving during that interval can use the local fast path only after the state machine has applied through the read\'s required index. Followers redirect or ask the leader for a safe read path.`,
         `Now add a long pause. The leader stops sending heartbeats, followers elect a replacement, and clients can still reach the old process when it wakes up. The old process must notice that its lease is expired or uncertain. If it serves from memory anyway, it can return a value older than a write already accepted by the new leader.`,
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The benefit is latency and load reduction. A valid lease lets the leader serve many reads without sending each one through the quorum path.`,
         `The cost is a timing contract. The system must choose lease durations with room for clock drift, scheduling pauses, network delay, and election timing. It must also keep enough instrumentation to detect apply lag and lease uncertainty.`,
@@ -231,14 +240,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Lease reads win in read-heavy replicated metadata systems where most reads go to the leader, writes are still ordered by Raft, and the deployment can keep tight bounds on clock drift and pauses.`,
         `They are especially useful for control-plane databases where linearizable reads matter but the workload is dominated by small lookups. The optimization turns repeated "prove you are leader" checks into a bounded cached proof.`,
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         `They fail when timing assumptions are weak. Unbounded process pauses, bad clocks, overloaded event loops, long garbage-collection stops, or unclear election timing can make a lease proof impossible to defend.`,
         `They also fail when teams treat serializable stale reads and linearizable reads as interchangeable. A stale read can be useful for caches and monitoring. It is not safe for decisions that require the latest committed state.`,
@@ -246,11 +255,70 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: etcd API guarantees at https://etcd.io/docs/v3.5/learning/api_guarantees/, etcd Raft package documentation at https://pkg.go.dev/go.etcd.io/raft/v3, the Raft extended paper at https://raft.github.io/raft.pdf, and TiKV lease-read implementation discussion at https://tikv.org/blog/lease-read/.',
         'Study Raft ReadIndex Case Study, Raft Leader Election, Clocks & Ordering, NTP & PTP, Fencing Token Zombie Writer, and Distributed Locks next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for raft-leader-lease-read-safety-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

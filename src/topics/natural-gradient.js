@@ -1,6 +1,6 @@
-// Natural gradient: gradient descent measures step size with a ruler laid
+﻿// Natural gradient: gradient descent measures step size with a ruler laid
 // on the PARAMETERS, but what we actually move is a DISTRIBUTION. The Fisher
-// information matrix is the right ruler — and F⁻¹∇ is descent that uses it.
+// information matrix is the right ruler — and F⁻Â¹âˆ‡ is descent that uses it.
 
 import { plotState, matrixState, InputError } from '../core/state.js';
 
@@ -8,16 +8,16 @@ export const topic = {
   id: 'natural-gradient',
   title: 'Natural Gradient & Fisher Information',
   category: 'Concepts',
-  summary: 'Why the same parameter step can be a huge or tiny change in distribution space — and the F⁻¹∇ correction that makes optimization coordinate-free.',
+  summary: 'Why the same parameter step can be a huge or tiny change in distribution space — and the F⁻Â¹âˆ‡ correction that makes optimization coordinate-free.',
   controls: [
     { id: 'view', label: 'View', type: 'select', options: ['distance lies in parameter space', 'the natural gradient'], defaultValue: 'distance lies in parameter space' },
   ],
   run,
 };
 
-// The running example: fit a Gaussian N(μ, σ²) to a target N(2, 0.5²) by
+// The running example: fit a Gaussian N(μ, Ïƒ²) to a target N(2, 0.5²) by
 // minimizing the expected negative log-likelihood (= KL + constant):
-// L(μ, σ) = log σ + (σ*² + (μ − μ*)²) / (2σ²).
+// L(μ, Ïƒ) = log Ïƒ + (Ïƒ*² + (μ âˆ’ μ*)²) / (2Ïƒ²).
 const MU = 2;
 const SIG = 0.5;
 const L = (m, s) => Math.log(s) + (SIG * SIG + (m - MU) ** 2) / (2 * s * s);
@@ -25,15 +25,15 @@ const dMu = (m, s) => (m - MU) / (s * s);
 const dSig = (m, s) => 1 / s - (SIG * SIG + (m - MU) ** 2) / (s ** 3);
 const L_MIN = L(MU, SIG);
 
-// For a Gaussian, the Fisher information matrix is exactly diag(1/σ², 2/σ²):
-// the natural gradient F⁻¹∇ multiplies ∂μ by σ² and ∂σ by σ²/2.
+// For a Gaussian, the Fisher information matrix is exactly diag(1/Ïƒ², 2/Ïƒ²):
+// the natural gradient F⁻Â¹âˆ‡ multiplies âˆ‚μ by Ïƒ² and âˆ‚Ïƒ by Ïƒ²/2.
 function descend(kind, m, s, lr, cap) {
   const path = [{ x: m, y: s }];
   while (L(m, s) - L_MIN > 1e-3 && path.length <= cap) {
     let gm = dMu(m, s);
     let gs = dSig(m, s);
     if (kind === 'natural') { gm *= s * s; gs *= (s * s) / 2; }
-    if (kind === 'logsigma') gs *= s * s; // GD in (μ, log σ), mapped back: chain rule twice
+    if (kind === 'logsigma') gs *= s * s; // GD in (μ, log Ïƒ), mapped back: chain rule twice
     m -= lr * gm;
     s = Math.max(0.01, s - lr * gs);
     path.push({ x: m, y: s });
@@ -48,8 +48,8 @@ const NAT_SHARP = descend('natural', 2.5, 0.12, 0.2, 400);
 const steps = (p) => p.length - 1;
 const GD_STUCK = L(GD_SHARP.at(-1).x, GD_SHARP.at(-1).y) - L_MIN > 0.01;
 
-// Exact NLL contours: at level c, (μ − 2)² = 2σ²(c − log σ) − σ*², solved
-// per σ — closed curves around the optimum, like a contour map should be.
+// Exact NLL contours: at level c, (μ âˆ’ 2)² = 2Ïƒ²(c âˆ’ log Ïƒ) âˆ’ Ïƒ*², solved
+// per Ïƒ — closed curves around the optimum, like a contour map should be.
 function lossRing(c, id) {
   const right = [];
   for (let s = 0.05; s <= 3.45; s += 0.01) {
@@ -61,11 +61,11 @@ function lossRing(c, id) {
   return { id, label: id === 'c0' ? 'equal-loss rings' : '', points: [...upper, ...lower, upper[0]] };
 }
 const RINGS = [0.1, 0.45, 1.0, 1.8].map((c, i) => lossRing(c, `c${i}`));
-const AXES = { x: { label: 'μ', min: -1.2, max: 5.2 }, y: { label: 'σ', min: 0, max: 3.5 } };
+const AXES = { x: { label: 'μ', min: -1.2, max: 5.2 }, y: { label: 'Ïƒ', min: 0, max: 3.5 } };
 
 // A ball of FIXED KL radius, drawn in parameter space: for small steps,
-// KL(N(μ+δμ, σ+δσ) ‖ N(μ, σ)) ≈ (δμ² + 2δσ²) / (2σ²) — so the ball has
-// radius σ√(2c) in μ and σ√c in σ. It scales with WHERE you stand.
+// KL(N(μ+δμ, Ïƒ+δÏƒ) ‖ N(μ, Ïƒ)) â‰ˆ (δμ² + 2δÏƒ²) / (2Ïƒ²) — so the ball has
+// radius Ïƒâˆš(2c) in μ and Ïƒâˆšc in Ïƒ. It scales with WHERE you stand.
 function klBall(m0, s0, c, id, label) {
   const points = [];
   for (let t = 0; t <= 48; t++) {
@@ -78,44 +78,44 @@ function klBall(m0, s0, c, id, label) {
 function* distanceLies() {
   yield {
     state: plotState({
-      axes: { x: { label: 'μ', min: -3.2, max: 3.2 }, y: { label: 'σ', min: 0, max: 3.4 } },
+      axes: { x: { label: 'μ', min: -3.2, max: 3.2 }, y: { label: 'Ïƒ', min: 0, max: 3.4 } },
       series: [
-        klBall(0, 2.4, 0.08, 'big', 'KL = 0.08 at σ = 2.4'),
+        klBall(0, 2.4, 0.08, 'big', 'KL = 0.08 at Ïƒ = 2.4'),
         klBall(0, 1.2, 0.08, 'mid', ''),
-        klBall(0, 0.5, 0.08, 'small', 'KL = 0.08 at σ = 0.5'),
+        klBall(0, 0.5, 0.08, 'small', 'KL = 0.08 at Ïƒ = 0.5'),
       ],
     }),
     highlight: { compare: ['big', 'small'] },
-    explanation: 'Three rings, one meaning: every point on a ring is a Gaussian exactly KL = 0.08 away from the Gaussian at its center. The rings are wildly different SIZES in parameter space — the one at σ = 2.4 is nearly 5× wider than the one at σ = 0.5 (radius scales with σ, drawn live from the small-step KL formula). Read it as a warning: a parameter step of 0.3 down at σ = 0.5 tears the distribution apart, while the same 0.3 up at σ = 2.4 barely moves it. Euclidean distance on parameters is a LIE about how much the model changed — and gradient descent\'s "small step" is defined in exactly that lying ruler.',
-    invariant: 'Locally KL ≈ ½ δᵀFδ: the same parameter displacement means more distribution change wherever Fisher information is large.',
+    explanation: 'Three rings, one meaning: every point on a ring is a Gaussian exactly KL = 0.08 away from the Gaussian at its center. The rings are wildly different SIZES in parameter space — the one at Ïƒ = 2.4 is nearly 5Ã— wider than the one at Ïƒ = 0.5 (radius scales with Ïƒ, drawn live from the small-step KL formula). Read it as a warning: a parameter step of 0.3 down at Ïƒ = 0.5 tears the distribution apart, while the same 0.3 up at Ïƒ = 2.4 barely moves it. Euclidean distance on parameters is a LIE about how much the model changed — and gradient descent\'s "small step" is defined in exactly that lying ruler.',
+    invariant: 'Locally KL â‰ˆ Â½ δáµ€Fδ: the same parameter displacement means more distribution change wherever Fisher information is large.',
   };
 
   yield {
     state: plotState({
       axes: AXES,
       series: [...RINGS,
-        { id: 'gd', label: `GD on (μ, σ) — ${steps(GD_FAR)} steps`, points: GD_FAR },
-        { id: 'log', label: `GD on (μ, log σ) — ${steps(LOG_FAR)} steps`, points: LOG_FAR }],
+        { id: 'gd', label: `GD on (μ, Ïƒ) — ${steps(GD_FAR)} steps`, points: GD_FAR },
+        { id: 'log', label: `GD on (μ, log Ïƒ) — ${steps(LOG_FAR)} steps`, points: LOG_FAR }],
     }),
     highlight: { compare: ['gd', 'log'] },
-    explanation: `Here is the scandal that motivates everything: run plain gradient descent twice on the SAME objective from the SAME start (0, 3) with the SAME learning rate — once parameterizing the Gaussian by (μ, σ), once by (μ, log σ) — and you get two DIFFERENT paths (${steps(GD_FAR)} versus ${steps(LOG_FAR)} steps, computed live). Nothing about the problem changed; only the coordinates did. Gradient descent is coordinate-DEPENDENT: rewrite the same model with different variables and "steepest descent" points somewhere else, because steepest-per-unit-of-parameter depends on what a unit of parameter means. An optimizer whose answer depends on notation should bother you.`,
-    invariant: 'The gradient direction changes under reparameterization: ∇ descent answers "steepest per parameter unit," not "steepest per model change."',
+    explanation: `Here is the scandal that motivates everything: run plain gradient descent twice on the SAME objective from the SAME start (0, 3) with the SAME learning rate — once parameterizing the Gaussian by (μ, Ïƒ), once by (μ, log Ïƒ) — and you get two DIFFERENT paths (${steps(GD_FAR)} versus ${steps(LOG_FAR)} steps, computed live). Nothing about the problem changed; only the coordinates did. Gradient descent is coordinate-DEPENDENT: rewrite the same model with different variables and "steepest descent" points somewhere else, because steepest-per-unit-of-parameter depends on what a unit of parameter means. An optimizer whose answer depends on notation should bother you.`,
+    invariant: 'The gradient direction changes under reparameterization: âˆ‡ descent answers "steepest per parameter unit," not "steepest per model change."',
   };
 
   yield {
     state: matrixState({
-      title: 'The Fisher information matrix of N(μ, σ²) — the true local ruler',
+      title: 'The Fisher information matrix of N(μ, Ïƒ²) — the true local ruler',
       rows: [
-        { id: 'fmu', label: 'F[μ, μ] = 1/σ²' },
-        { id: 'fsig', label: 'F[σ, σ] = 2/σ²' },
-        { id: 'kl', label: 'KL(θ + δ ‖ θ) ≈ ½ δᵀFδ' },
+        { id: 'fmu', label: 'F[μ, μ] = 1/Ïƒ²' },
+        { id: 'fsig', label: 'F[Ïƒ, Ïƒ] = 2/Ïƒ²' },
+        { id: 'kl', label: 'KL(θ + δ ‖ θ) â‰ˆ Â½ δáµ€Fδ' },
       ],
       columns: [{ id: 'reads', label: 'what it says' }],
       values: [[1], [2], [3]],
-      format: (v) => ['', 'small σ ⇒ huge entry: μ-steps are dangerous near sharp distributions', 'σ is twice as sensitive as μ at the same scale', 'F is the metric: it converts parameter steps into distribution distance'][v],
+      format: (v) => ['', 'small Ïƒ â‡’ huge entry: μ-steps are dangerous near sharp distributions', 'Ïƒ is twice as sensitive as μ at the same scale', 'F is the metric: it converts parameter steps into distribution distance'][v],
     }),
     highlight: { active: ['kl:reads'] },
-    explanation: 'The fix starts by naming the right ruler. The FISHER INFORMATION MATRIX is the curvature of KL divergence around the current distribution — the Hessian of "how different is the model" rather than "how high is the loss" (compare The Hessian: Curvature & Newton\'s Step, where the matrix lived on the loss; this one lives on the distribution itself, the same KL geometry that Entropy & Information builds). For our Gaussian it has a closed form, diag(1/σ², 2/σ²): exactly the 1/σ² blow-up that made the KL rings shrink at small σ. Measure every step with F and "step size" finally means "amount the model changed" — the quantity that was invariant all along.',
+    explanation: 'The fix starts by naming the right ruler. The FISHER INFORMATION MATRIX is the curvature of KL divergence around the current distribution — the Hessian of "how different is the model" rather than "how high is the loss" (compare The Hessian: Curvature & Newton\'s Step, where the matrix lived on the loss; this one lives on the distribution itself, the same KL geometry that Entropy & Information builds). For our Gaussian it has a closed form, diag(1/Ïƒ², 2/Ïƒ²): exactly the 1/Ïƒ² blow-up that made the KL rings shrink at small Ïƒ. Measure every step with F and "step size" finally means "amount the model changed" — the quantity that was invariant all along.',
     invariant: 'F is the Hessian of KL at zero displacement: the unique local metric on distributions, independent of parameterization.',
   };
 }
@@ -129,21 +129,21 @@ function* naturalDescent() {
         { id: 'nat', label: `natural gradient — ${steps(NAT_FAR)} steps`, points: NAT_FAR }],
     }),
     highlight: { found: ['nat'], visited: ['gd'] },
-    explanation: `The natural gradient is F⁻¹∇L: divide the gradient by the Fisher metric before stepping, exactly as Newton divides by the loss Hessian. For the Gaussian that means multiply ∂μ by σ² and ∂σ by σ²/2 — and the μ-update collapses to something beautiful: μ ← μ − lr·(μ − μ*), a CONSTANT-rate pull toward the target no matter what σ is. From this gentle start at (0, 3), same lr = 0.2, the two look almost evenly matched — ${steps(GD_FAR)} steps for plain GD, ${steps(NAT_FAR)} for natural, computed live — but look at HOW they move: GD\'s early strides are timid (the raw gradient (μ−μ*)/σ² is nine times weaker than the geometry deserves at σ = 3) and only pick up as σ shrinks, while the natural path pulls μ at the same rate from the first step to the last. The gap in step counts is small here because this start happens to be benign. The next step shows a start that is not.`,
+    explanation: `The natural gradient is F⁻Â¹âˆ‡L: divide the gradient by the Fisher metric before stepping, exactly as Newton divides by the loss Hessian. For the Gaussian that means multiply âˆ‚μ by Ïƒ² and âˆ‚Ïƒ by Ïƒ²/2 — and the μ-update collapses to something beautiful: μ â† μ âˆ’ lrÂ·(μ âˆ’ μ*), a CONSTANT-rate pull toward the target no matter what Ïƒ is. From this gentle start at (0, 3), same lr = 0.2, the two look almost evenly matched — ${steps(GD_FAR)} steps for plain GD, ${steps(NAT_FAR)} for natural, computed live — but look at HOW they move: GD\'s early strides are timid (the raw gradient (μâˆ’μ*)/Ïƒ² is nine times weaker than the geometry deserves at Ïƒ = 3) and only pick up as Ïƒ shrinks, while the natural path pulls μ at the same rate from the first step to the last. The gap in step counts is small here because this start happens to be benign. The next step shows a start that is not.`,
     invariant: 'Natural gradient steps are uniform in KL, not in parameters: each stride moves the distribution the same amount.',
   };
 
   yield {
     state: plotState({
-      axes: { x: { label: 'μ', min: -5.2, max: 5.2 }, y: { label: 'σ', min: 0, max: 3.5 } },
+      axes: { x: { label: 'μ', min: -5.2, max: 5.2 }, y: { label: 'Ïƒ', min: 0, max: 3.5 } },
       series: [
-        { id: 'gd', label: `GD from σ = 0.12 (${GD_STUCK ? `lost — still far after ${steps(GD_SHARP)} steps` : 'recovered'})`, points: GD_SHARP.slice(0, 12) },
+        { id: 'gd', label: `GD from Ïƒ = 0.12 (${GD_STUCK ? `lost — still far after ${steps(GD_SHARP)} steps` : 'recovered'})`, points: GD_SHARP.slice(0, 12) },
         { id: 'nat', label: `natural gradient — ${steps(NAT_SHARP)} steps, same lr`, points: NAT_SHARP },
       ],
     }),
     highlight: { removed: ['gd'], found: ['nat'] },
-    explanation: `Now start where the distribution is SHARP: (2.5, 0.12), μ almost correct, σ too confident. Plain GD reads ∂μ = (μ−μ*)/σ² ≈ 35, takes one lr = 0.2 stride, and CATAPULTS μ to ${GD_SHARP[1].x.toFixed(1)} while σ rockets to ${GD_SHARP[1].y.toFixed(0)} — the same learning rate that was nine times too timid at σ = 3 is dozens of times too violent at σ = 0.12, and after the explosion the optimizer is marooned on the flat plateau (still unconverged after ${steps(GD_SHARP)} capped steps, loss verified far from optimal). The natural gradient, SAME learning rate: F⁻¹ multiplies that ferocious gradient by σ² = 0.0144, the step shrinks to match the geometry, and it converges in ${steps(NAT_SHARP)} steps. One lr, both regimes — because step size is measured where it matters.`,
-    invariant: 'No single lr fits a coordinate-dependent gradient: F⁻¹ rescales automatically — gentle where sharp, bold where flat.',
+    explanation: `Now start where the distribution is SHARP: (2.5, 0.12), μ almost correct, Ïƒ too confident. Plain GD reads âˆ‚μ = (μâˆ’μ*)/Ïƒ² â‰ˆ 35, takes one lr = 0.2 stride, and CATAPULTS μ to ${GD_SHARP[1].x.toFixed(1)} while Ïƒ rockets to ${GD_SHARP[1].y.toFixed(0)} — the same learning rate that was nine times too timid at Ïƒ = 3 is dozens of times too violent at Ïƒ = 0.12, and after the explosion the optimizer is marooned on the flat plateau (still unconverged after ${steps(GD_SHARP)} capped steps, loss verified far from optimal). The natural gradient, SAME learning rate: F⁻Â¹ multiplies that ferocious gradient by Ïƒ² = 0.0144, the step shrinks to match the geometry, and it converges in ${steps(NAT_SHARP)} steps. One lr, both regimes — because step size is measured where it matters.`,
+    invariant: 'No single lr fits a coordinate-dependent gradient: F⁻Â¹ rescales automatically — gentle where sharp, bold where flat.',
   };
 
   yield {
@@ -157,11 +157,11 @@ function* naturalDescent() {
       ],
       columns: [{ id: 'how', label: 'how it uses F' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'policy steps trust-region-bounded in KL — natural gradient is the first-order solution', 'per-layer Kronecker-factored F⁻¹ for deep nets', 'divides by RMS gradients ≈ diagonal empirical Fisher — the cheapest echo of the natural gradient', 'natural-gradient VI: the update on exponential-family posteriors becomes closed-form'][v],
+      format: (v) => ['', 'policy steps trust-region-bounded in KL — natural gradient is the first-order solution', 'per-layer Kronecker-factored F⁻Â¹ for deep nets', 'divides by RMS gradients â‰ˆ diagonal empirical Fisher — the cheapest echo of the natural gradient', 'natural-gradient VI: the update on exponential-family posteriors becomes closed-form'][v],
     }),
     highlight: { active: ['trpo:how'] },
-    explanation: 'Where you have already met this idea wearing other clothes. Policy-gradient RL is the flagship: a policy is a distribution, parameter steps that look small can change behavior catastrophically, so TRPO constrains each update to a KL trust region — the natural gradient direction — and PPO approximates the same constraint with clipping. K-FAC from the Hessian toolbox is a Fisher method (for many losses the Fisher equals the expected Hessian, which is why the two pages rhyme). And Adam\'s division by RMS gradients is a diagonal empirical-Fisher approximation — the production-grade shadow of F⁻¹∇. Amari named the idea in 1998; modern training has been quietly converging on it ever since.',
-    invariant: 'Whenever the thing being optimized is a distribution, the principled step is measured in KL — and its first-order form is F⁻¹∇.',
+    explanation: 'Where you have already met this idea wearing other clothes. Policy-gradient RL is the flagship: a policy is a distribution, parameter steps that look small can change behavior catastrophically, so TRPO constrains each update to a KL trust region — the natural gradient direction — and PPO approximates the same constraint with clipping. K-FAC from the Hessian toolbox is a Fisher method (for many losses the Fisher equals the expected Hessian, which is why the two pages rhyme). And Adam\'s division by RMS gradients is a diagonal empirical-Fisher approximation — the production-grade shadow of F⁻Â¹âˆ‡. Amari named the idea in 1998; modern training has been quietly converging on it ever since.',
+    invariant: 'Whenever the thing being optimized is a distribution, the principled step is measured in KL — and its first-order form is F⁻Â¹âˆ‡.',
   };
 }
 
@@ -175,88 +175,135 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Natural gradient exists because ordinary gradient descent measures the wrong kind of distance for many models. A neural-network policy, a Gaussian variational posterior, or a probabilistic classifier is not just a point in parameter space. It represents a distribution. What matters is how much that distribution changes, not how many raw parameter units were moved.`,
-        `Plain gradient descent says a small step is small in coordinates. But coordinates can be arbitrary. The same Gaussian can be parameterized by sigma or by log sigma. The same policy can be written with different logits. If changing notation changes the optimization path, the optimizer is listening to the coordinate system instead of the model. Natural gradient repairs that by measuring steps with the Fisher information matrix.`,
+        'The first view draws three ellipses in parameter space (mu, sigma). Each ellipse is the set of Gaussians exactly KL = 0.08 away from the Gaussian at its center. The ellipses have the same KL radius but wildly different coordinate sizes -- the one at sigma = 2.4 is nearly five times wider than the one at sigma = 0.5. That size difference is the entire problem: a fixed parameter step means a huge distribution change near small sigma and a tiny one near large sigma.',
+        'The second view overlays loss contours and two descent paths from the same start with the same learning rate -- one using ordinary gradient descent, one using reparameterized (log sigma) gradient descent. They follow different paths to different step counts, proving that GD is coordinate-dependent. Switch to "the natural gradient" view to see natural gradient plotted against plain GD, including a sharp-start case where GD explodes and natural gradient converges calmly.',
+        {
+          type: 'diagram',
+          text: 'Parameter space (mu, sigma)\n  sigma\n  3.0 |   (--------)        <-- KL ball at sigma=2.4: wide\n      |  (----------)\n  2.0 |\n      |     (-----)          <-- KL ball at sigma=1.2: medium\n  1.0 |\n      |       (--)           <-- KL ball at sigma=0.5: tiny\n  0.5 |\n      +---+---+---+----> mu\n     -2   0   2   4\n\nSame KL radius, different coordinate footprint.\nThe "ruler" on parameters lies about distribution distance.',
+          label: 'KL balls shrink in coordinates as sigma shrinks',
+        },
+        '"Found" markers highlight the natural gradient path. "Visited" markers highlight the plain GD path. The matrix view shows the Fisher information entries and their interpretation. At each frame, ask: how much did the distribution actually change, and does the step size reflect that?',
       ],
     },
     {
-      heading: `The Naive Approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive approach is to run gradient descent directly on the chosen parameters. Compute the loss gradient, multiply by a learning rate, subtract, and repeat. That works when the coordinates are a faithful ruler for the thing being changed. It breaks when equal coordinate moves mean very different distribution moves.`,
-        `For a Gaussian, moving the mean by 0.3 is mild when sigma is large and violent when sigma is tiny. The narrow Gaussian places most probability mass in a small region, so a sideways shift changes the distribution sharply. Plain gradient descent does not know this. It sees a parameter displacement and treats that displacement as the unit of motion.`,
+        'Gradient descent computes the steepest direction for a loss function -- but "steepest" requires a definition of distance. Ordinary GD silently uses Euclidean distance in parameter coordinates: the direction that decreases the loss most per unit of coordinate displacement. When the parameters represent a probability distribution, coordinate displacement is the wrong unit. A step of 0.3 in mu at sigma = 0.1 reshapes the entire distribution; the same step at sigma = 10 is invisible. The optimizer treats both as the same size move.',
+        {
+          type: 'quote',
+          text: 'The ordinary gradient of a function depends on the coordinate system used, while the natural gradient is coordinate-invariant. The space of probability distributions has a Riemannian structure given by the Fisher information matrix, and the steepest descent direction in this space is the natural gradient.',
+          attribution: 'Shun-ichi Amari, "Natural Gradient Works Efficiently in Learning", Neural Computation, 1998',
+        },
+        'Amari recognized that the set of all parameterized distributions is not a flat Euclidean space. It is a Riemannian manifold whose local metric is the Fisher information matrix. The natural gradient replaces the Euclidean ruler with this intrinsic metric, so the optimizer measures how much the distribution changed rather than how far the parameters moved. The result is an update direction that does not depend on whether you wrote sigma or log sigma, logits or probabilities, or any other arbitrary coordinate choice.',
       ],
     },
     {
-      heading: `The Core Insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that "steepest" is not a complete instruction until a metric says what distance means. Ordinary gradient descent silently uses Euclidean distance in parameter coordinates. Natural gradient uses the local KL distance between model distributions.`,
-        `Once distance is measured in distribution space, the update has to compensate for sensitive and insensitive directions. The Fisher information matrix is that local sensitivity map. Multiplying the raw gradient by F^-1 turns a coordinate-level slope into the direction that changes the distribution efficiently without pretending every parameter unit has the same meaning.`,
+        'The reasonable first attempt is plain gradient descent on whatever parameters you chose. Compute the loss gradient, scale by a learning rate, subtract, repeat. For a Gaussian with parameters (mu, sigma) fitting a target, the gradient of the negative log-likelihood is straightforward: dL/dmu = (mu - mu*) / sigma^2 and dL/dsigma = 1/sigma - (sigma*^2 + (mu - mu*)^2) / sigma^3. Multiply each by a learning rate, step, and iterate.',
+        'This works when all parameters have roughly equal sensitivity -- when a unit step in any direction produces a comparable change in model behavior. For many simple regressions or well-conditioned problems, Euclidean GD converges without incident. The trouble begins when parameter sensitivity varies by orders of magnitude across the space, which is the norm for distributions, not the exception.',
       ],
     },
     {
-      heading: `The Gaussian Example`,
+      heading: 'The wall',
       paragraphs: [
-        `The module uses a two-parameter Gaussian with mean mu and standard deviation sigma. The target is another Gaussian. The loss is equivalent to KL divergence plus a constant, so minimizing it means making the model distribution match the target distribution. This keeps the math small while preserving the real problem: parameters are only a representation of a distribution.`,
-        `In the ordinary parameterization, the gradient with respect to mu scales like 1 / sigma^2. When sigma is wide, that gradient is small and progress can be timid. When sigma is tiny, the same kind of error can create a huge gradient and an explosive step. Rewriting the model with log sigma changes the raw gradient path again, even though the underlying distributions are the same.`,
+        'The wall is coordinate dependence. Run gradient descent on the same Gaussian fitting problem twice, once parameterized by (mu, sigma) and once by (mu, log sigma), with the same learning rate and the same start. You get two different paths with different step counts. Nothing about the distributions changed -- only the notation. An optimizer whose answer depends on how you write the model is broken in a way that no learning rate schedule can fix.',
+        'The deeper failure is explosive sensitivity near sharp distributions. At sigma = 0.12, the gradient dL/dmu = (mu - mu*) / sigma^2 amplifies a small mean error by a factor of nearly 70. A learning rate that was safe at sigma = 3 catapults mu to an absurd value and blows the distribution apart. The animation shows this live: from start (2.5, 0.12), GD with lr = 0.2 launches mu past 9 on the first step and never recovers. No single learning rate can be simultaneously safe for sigma = 0.12 and efficient for sigma = 3, because the Euclidean metric treats both regimes identically.',
+        {
+          type: 'note',
+          text: 'This is not a quirk of Gaussians. Any parameterized distribution family has regions where Fisher information entries span orders of magnitude. Neural network policies in RL hit this wall routinely: a small logit change near a near-deterministic policy flips the action distribution entirely, while the same logit change near a uniform policy does almost nothing.',
+        },
       ],
     },
     {
-      heading: `The Fisher Metric`,
+      heading: 'How it works',
       paragraphs: [
-        `The Fisher information matrix is the local ruler for distributions. Around the current parameters, a small displacement delta changes the distribution by roughly one half times delta transpose F delta. In plain language: F converts a parameter move into an approximate KL-distance move. Large entries mean the distribution is sensitive in that direction.`,
-        `For the Gaussian in this topic, the Fisher matrix is diagonal: 1 / sigma^2 for the mean direction and 2 / sigma^2 for the sigma direction. That is exactly the geometry the plots show. Narrow distributions have large Fisher entries, so a small parameter move is a large model change. Wide distributions have smaller entries, so the same coordinate move is less dramatic.`,
+        'The natural gradient replaces the Euclidean steepest-descent direction with the steepest direction on the Riemannian manifold of distributions. The update rule is: theta <- theta - lr * F^{-1} * grad(L), where F is the Fisher information matrix at the current parameters. F^{-1} rescales the raw gradient so that a step of size epsilon moves the distribution by approximately epsilon in KL divergence, regardless of which coordinates you chose.',
+        'The Fisher information matrix F is the expected outer product of the score function: F = E[grad(log p(x|theta)) * grad(log p(x|theta))^T]. Equivalently, it is the Hessian of KL divergence at zero displacement: KL(p(theta + delta) || p(theta)) is approximately (1/2) * delta^T * F * delta for small delta. This second characterization is why F is the right metric -- it measures local distributional distance directly.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Fisher information matrix via score outer product\n# For a model p(x | theta), sample data x_1..x_n from p:\nimport torch\n\ndef fisher_information(model, data, params):\n    """Estimate Fisher via score outer product."""\n    d = len(params)\n    F = torch.zeros(d, d)\n    for x in data:\n        log_p = model.log_prob(x)          # scalar\n        score = torch.autograd.grad(\n            log_p, params, create_graph=False\n        )                                   # tuple of grads\n        s = torch.cat([g.flatten() for g in score])  # (d,)\n        F += s.outer(s)                     # rank-1 update\n    F /= len(data)\n    return F  # (d, d) -- invert for natural gradient\n\n# Natural gradient step:\n# F_inv = torch.linalg.inv(F + damping * I)\n# nat_grad = F_inv @ vanilla_grad\n# params -= lr * nat_grad',
+        },
+        'For the Gaussian in this animation, the Fisher matrix is diagonal: F = diag(1/sigma^2, 2/sigma^2). The natural gradient multiplies the mean gradient by sigma^2 and the sigma gradient by sigma^2/2. The mean update collapses to mu <- mu - lr * (mu - mu*) -- a constant-rate pull toward the target, independent of sigma. From the sharp start at sigma = 0.12, F^{-1} multiplies the explosive gradient by sigma^2 = 0.0144, taming it to a gentle step. From the wide start at sigma = 3, F^{-1} multiplies the timid gradient by sigma^2 = 9, giving it the boldness the geometry warrants. One learning rate, both regimes.',
       ],
     },
     {
-      heading: `The Natural Step`,
+      heading: 'Why it works',
       paragraphs: [
-        `The natural gradient direction is F^-1 times the ordinary gradient. The inverse Fisher shrinks updates in sensitive directions and stretches updates in insensitive directions. It is similar in spirit to Newton's method, but the matrix comes from distribution geometry, not from the loss surface alone.`,
-        `In the Gaussian example, multiplying by F^-1 means multiplying the mean gradient by sigma^2 and the sigma gradient by sigma^2 / 2. The mean update becomes a steady pull toward the target mean rather than a step that is too timid at high sigma and too violent at low sigma. The learning rate now controls approximate distribution change, not raw coordinate change.`,
+        'Steepest descent always depends on a norm. The ordinary gradient is the steepest direction under the L2 norm on parameters: it solves "which unit-ball direction decreases L the most?" with the ball defined by ||delta||^2 = delta^T * I * delta. The natural gradient solves the same problem with the ball defined by delta^T * F * delta -- the KL ball. Since KL is invariant to reparameterization (KL between two distributions does not care how you name their parameters), the resulting direction is also invariant.',
+        'Formally, if you reparameterize theta = h(phi), the Fisher matrix transforms as F_phi = J^T * F_theta * J where J is the Jacobian of h. The natural gradient F_phi^{-1} * grad_phi(L) = J^{-1} * F_theta^{-1} * grad_theta(L), which maps back to the same direction in distribution space. The coordinate system cancels out. This is the defining property of a Riemannian gradient: the update direction lives on the manifold, not in any particular chart.',
+        {
+          type: 'diagram',
+          text: 'Euclidean space               Riemannian manifold of distributions\n(flat, coordinates matter)     (curved, only KL distance matters)\n\n   grad L                         F^{-1} grad L\n     |                               |\n     v                               v\n  +------+                      +---------+\n  | unit |  = circle in         | unit KL |  = ellipse in\n  | ball |    all directions    |  ball   |    coordinates,\n  +------+                      +---------+   but circle in\n                                               distribution space\n\nSame step SIZE means           Same step SIZE means\nsame parameter distance.       same distribution distance.\nBreaks when sensitivity         Works regardless of\nvaries across directions.       parameterization.',
+          label: 'Euclidean vs Riemannian steepest descent',
+        },
+        'The connection to KL divergence also explains why natural gradient surfaces in trust-region methods. TRPO constrains each policy update to KL(new || old) < epsilon. The first-order solution to "minimize L subject to KL < epsilon" is a step along F^{-1} * grad(L), scaled to touch the trust-region boundary. Natural gradient is trust-region policy optimization in its purest form.',
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The first view proves that a fixed KL radius does not look like a fixed Euclidean radius in parameter space. The rings are wider when sigma is large and tighter when sigma is small. That is the whole problem in one picture: a coordinate step is not a reliable measure of model change.`,
-        `The descent views prove the practical consequence. Plain gradient descent can follow different paths under different parameterizations. From a sharp start, it can take a huge raw mean step and blow up the distribution. Natural gradient rescales the same loss gradient with the Fisher metric, so the step is small where the model is sensitive and larger where the model is flat.`,
+        'The exact natural gradient requires forming F (d x d), storing it (d^2 memory), and inverting it (O(d^3) time). For a model with d = 100M parameters, that is 10^16 entries and an inversion no hardware can touch. This is the same wall that full Newton methods face, and the reason natural gradient is never used exactly in deep learning.',
+        {
+          type: 'table',
+          headers: ['Method', 'Per-step cost', 'Memory overhead', 'Convergence (steps)', 'Coord-invariant?'],
+          rows: [
+            ['SGD', 'O(d)', 'O(d)', 'Slow, sensitive to lr & parameterization', 'No'],
+            ['Natural gradient (exact)', 'O(d^3)', 'O(d^2)', 'Fast, invariant steps', 'Yes'],
+            ['Adam', 'O(d)', 'O(d) -- two moment buffers', 'Good practice, diagonal only', 'No (diagonal approx)'],
+            ['K-FAC', 'O(d) per layer, periodic O(k^3) inversions', 'O(k^2) per layer (k = layer width)', 'Near-natural-gradient convergence', 'Approx (block Kronecker)'],
+            ['Diagonal Fisher', 'O(d)', 'O(d)', 'Better than SGD, worse than K-FAC', 'No (diagonal approx)'],
+          ],
+        },
+        'K-FAC (Kronecker-Factored Approximate Curvature) is the most successful production approximation. For a layer with input dimension m and output dimension n, the exact Fisher block is mn x mn. K-FAC approximates it as a Kronecker product of an m x m input covariance and an n x n gradient covariance, reducing inversion from O(m^3 n^3) to O(m^3 + n^3). The factors are estimated as running averages and inverted every few steps, amortizing the cubic cost.',
+        'Adam divides each gradient coordinate by the square root of its exponential moving average. This is a diagonal rescaling -- structurally similar to a diagonal Fisher inverse. The connection is real but loose: Adam uses the empirical Fisher diagonal (squared gradients of the loss), not the true Fisher (squared gradients of the log-likelihood). For many losses they coincide, but for others they diverge. Adam is the cheapest echo of the natural gradient idea, not a faithful implementation of it.',
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Natural gradient works because steepest descent always depends on a metric. Ordinary gradient descent silently chooses the Euclidean metric on parameters. Natural gradient chooses the local KL metric on distributions. Once that metric is chosen, the steepest direction is no longer the raw gradient; it is the gradient preconditioned by F^-1.`,
-        `This also explains the coordinate-free claim. If two parameterizations describe the same distributions, KL distance between nearby distributions is the same object in both descriptions. The Fisher matrix transforms with the coordinates, and the F^-1 gradient transforms back into the same distribution-level direction. The notation changes, but the model move remains consistent.`,
+        'Reinforcement learning is the flagship application. A policy maps states to action distributions. Small logit changes near a near-deterministic policy can flip the entire action distribution -- exactly the sensitivity mismatch that natural gradient corrects. TRPO constrains policy updates inside a KL trust region; the natural gradient is the first-order solution. PPO approximates the same constraint with probability-ratio clipping, trading geometric precision for implementation simplicity.',
+        'Variational inference is a natural fit. When the variational family is an exponential family, the Fisher matrix of the variational parameters has a closed form, and natural-gradient VI updates reduce to moment-matching steps that are simpler and more stable than ordinary-gradient updates. This is the backbone of scalable Bayesian methods like natural-gradient stochastic variational inference (Hoffman et al., 2013).',
+        'K-FAC has shown wall-clock speedups over Adam in large-scale supervised training (ImageNet, language modeling) when the per-step overhead of maintaining Kronecker factors is offset by fewer total steps. The tradeoff depends on model size, hardware, and implementation quality -- K-FAC wins when convergence speed matters more than per-step cost, which is increasingly true as models grow.',
       ],
     },
     {
-      heading: `Costs And Approximations`,
+      heading: 'Where it fails',
       paragraphs: [
-        `The exact natural gradient is expensive for large models. With d parameters, the Fisher matrix has d by d entries. Forming it can be costly, storing it can be impossible, and inverting it directly is usually out of the question. That is the same broad cost wall that full Newton methods hit.`,
-        `Production methods use approximations. A diagonal Fisher keeps only per-parameter scale and costs O(d). K-FAC uses Kronecker-factored blocks that fit neural-network layers better than a diagonal while staying tractable. Iterative solvers can estimate F^-1 times a vector without explicitly forming the inverse. Adam is not natural gradient, but its RMS normalization is a cheap echo of diagonal curvature or empirical-Fisher scaling.`,
+        'The main failure is trusting a bad Fisher approximation. The true Fisher, the empirical Fisher (score outer product computed on minibatches of the loss gradient rather than the log-likelihood gradient), and the generalized Gauss-Newton matrix are three different objects that coincide only for specific loss functions. Using the wrong one introduces a systematic bias in the preconditioner. Kunstner et al. (2019) showed that the empirical Fisher can point in a worse direction than the raw gradient for some models.',
+        'Damping is mandatory and fragile. The raw F^{-1} can amplify noise in low-curvature directions. Every practical implementation adds a damping term: (F + lambda * I)^{-1}. Too little damping and the step explodes; too much and the method collapses back to plain GD. Tuning lambda is a second hyperparameter that partially defeats the "one learning rate" promise.',
+        'Natural gradient corrects the local ruler, not the global landscape. Nonconvex loss surfaces, saddle points, bad architectures, poor data, and distribution shift are not geometry problems -- they are objective problems. Natural gradient will walk efficiently toward a local minimum that may still be terrible. It is a coordinate correction, not an oracle.',
+        {
+          type: 'bullets',
+          items: [
+            'Empirical Fisher != true Fisher: the cheap estimate can be worse than no preconditioning.',
+            'Damping sensitivity: lambda too small amplifies noise; lambda too large kills the curvature correction.',
+            'Stale factors: K-FAC recomputes Kronecker factors periodically; stale factors in rapidly changing regions degrade the approximation.',
+            'Memory cost: even K-FAC stores O(k^2) per layer; for very wide layers this can rival the model itself.',
+            'Not a convergence guarantee: natural gradient finds the steepest local direction on the manifold, not the global optimum.',
+          ],
+        },
       ],
     },
     {
-      heading: `Where It Wins`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Natural gradient is most valuable when parameters control a distribution and bad updates change behavior more than the loss value suggests. Reinforcement learning is the classic case. A policy step that looks small in logits can make an agent choose very different actions. TRPO handles this by constraining the policy update inside a KL trust region, and the natural gradient is the first-order solution to that constrained problem.`,
-        `Variational inference is another strong fit. Exponential-family posteriors have natural parameters and expectation parameters, and natural-gradient updates often become cleaner than ordinary-gradient updates. The same idea appears in second-order training tools, approximate curvature methods, and any setting where stability is more important than taking the largest raw loss-gradient step.`,
-      ],
-    },
-    {
-      heading: `Failure Modes`,
-      paragraphs: [
-        `The main failure mode is using the wrong Fisher approximation and trusting it too much. The empirical Fisher, the true Fisher, and the generalized Gauss-Newton matrix can differ. Mini-batch estimates can be noisy. A poorly damped inverse can amplify numerical errors. Most implementations add damping, trust-region checks, clipping, or line search to keep the preconditioned step sane.`,
-        `A second failure is expecting natural gradient to fix every training problem. It repairs the local ruler, not the whole objective. Nonconvex loss surfaces, bad models, poor data, unstable reward estimates, and implementation bugs still matter. It is a geometry correction, not a guarantee of global convergence.`,
-      ],
-    },
-    {
-      heading: `Study Next`,
-      paragraphs: [
-        `Study Gradient Descent first to see what ordinary steepest descent assumes. Then read Entropy and Information for KL divergence, because KL is the distance notion behind the Fisher metric. The Hessian and Newton's Step explains the nearby idea of matrix-scaled optimization, while Eigenvalues and Eigenvectors explains why ill-conditioned matrices make raw gradients behave badly.`,
-        `After that, connect this topic to reinforcement learning trust regions, PPO clipping, K-FAC, variational inference, and second-order methods. The useful mental link is simple: whenever the object being optimized is a probability distribution, ask whether the optimizer is measuring parameter motion or distribution motion.`,
+        {
+          type: 'bullets',
+          items: [
+            'Amari, "Natural Gradient Works Efficiently in Learning", Neural Computation 1998 -- the founding paper. Defines the Fisher metric on parameter space and derives the natural gradient update.',
+            'Martens and Grosse, "Optimizing Neural Networks with Kronecker-Factored Approximate Curvature", ICML 2015 -- K-FAC: the practical bridge between exact natural gradient and scalable deep learning.',
+            'Schulman et al., "Trust Region Policy Optimization", ICML 2015 -- TRPO: natural gradient applied to policy optimization with KL trust regions.',
+            'Kunstner, Balles, Hennig, "Limitations of the Empirical Fisher Approximation for Natural Gradient Descent", NeurIPS 2019 -- why the cheap Fisher estimate can mislead.',
+            'Hoffman et al., "Stochastic Variational Inference", JMLR 2013 -- natural gradient in variational inference at scale.',
+          ],
+        },
+        'Prerequisite: study Gradient Descent to see the Euclidean steepest-descent assumption this topic replaces, and Entropy and Information for KL divergence, which is the distance notion behind the Fisher metric. Related: The Hessian and Newton\'s Step covers loss-surface curvature preconditioning -- the same matrix-times-gradient idea, but the matrix comes from the loss Hessian rather than the distribution metric. Eigenvalues and Eigenvectors explains why ill-conditioned matrices make raw gradients zigzag. Extension: connect to TRPO/PPO in reinforcement learning, K-FAC in deep learning, and natural-gradient variational inference in Bayesian methods.',
       ],
     },
   ],
 };
+

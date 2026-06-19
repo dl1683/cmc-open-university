@@ -1,4 +1,4 @@
-// Base-128 varints and ZigZag encoding: compact integers for wire formats,
+﻿// Base-128 varints and ZigZag encoding: compact integers for wire formats,
 // logs, indexes, and schema-driven serialization.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -201,121 +201,132 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The base-128 varint view traces an unsigned integer through four stages: splitting into 7-bit payload groups, attaching the continuation bit to each group, emitting the final byte sequence, and reversing the process to decode. Active highlights mark the stage currently executing. Found highlights mark values that have been fully resolved. Compare highlights contrast byte counts across value ranges.',
+        'The ZigZag signed-integer view adds a preliminary stage: mapping a signed integer to an unsigned integer before the varint pipeline runs. Active highlights mark the ZigZag mapping or the varint encoding. Found highlights mark the final wire bytes. The matrix frames show the signed-to-unsigned correspondence and the byte cost for each mapping.',
+        {
+          type: 'diagram',
+          text: 'Unsigned path:\n  value --> split into 7-bit groups --> attach continuation bits --> emit bytes\n    300 -->        [44, 2]          -->      [0xac, 0x02]      --> ac 02\n\nSigned path (ZigZag first):\n  signed --> ZigZag map --> unsigned --> varint encode --> emit bytes\n    -2   -->     3      -->    3     -->     [0x03]    --> 03',
+          label: 'Two encoding paths: unsigned values go straight to varint; signed values pass through ZigZag first',
+        },
+        'At each frame, ask: how many bytes does this value actually cost, and would a fixed-width encoding waste or save space here?',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Base-128 varints exist because many serialized integers are small. Field numbers, length prefixes, enum values, status codes, counts, offsets, retry numbers, and delta-encoded ids often fit in one or two bytes. A fixed 32-bit or 64-bit slot is simple, but it wastes space when the common case is tiny.',
-        'Variable-length integer encoding turns that skew into smaller messages. A one-byte value costs one byte. A larger value spends more bytes only when it needs more bits. This is why varints appear in Protocol Buffers, Avro, database logs, inverted indexes, binary RPC protocols, and file formats that store many small integers.',
-        'ZigZag exists because signed integers need one extra step. Plain two-complement negative values look huge when interpreted as unsigned. ZigZag maps signed values near zero to unsigned values near zero, then the normal varint machinery can encode them compactly.',
+        {type: 'quote', text: 'Each key in the streamed message is a varint with the value (field_number << 3) | wire_type -- in other words, the last three bits of the number store the wire type.', attribution: 'Protocol Buffers Encoding Guide, protobuf.dev'},
+        'Most serialized integers are small. Field numbers in Protocol Buffers are typically under 16. Length prefixes for strings and embedded messages are usually under a few hundred bytes. Enum values, boolean flags, retry counts, status codes, and delta-encoded document ids all cluster near zero. A fixed 32-bit or 64-bit slot encodes these values correctly, but it wastes space when the information content fits in one or two bytes.',
+        'Variable-length integer encoding exploits that skew. A value that fits in 7 bits costs one byte. A value that needs 14 bits costs two bytes. The format only spends more bytes when the value demands more bits. This is why varints appear in Protocol Buffers, Apache Avro, SQLite record headers, Git packfile offsets, LevelDB block metadata, Lucene postings lists, and WebAssembly LEB128 immediates.',
+        'ZigZag solves a secondary problem. Two-complement signed integers represent -1 as all bits set. If a format treats that bit pattern as unsigned, the value looks maximal and costs the maximum number of varint bytes. ZigZag remaps signed values so that small magnitudes -- positive or negative -- produce small unsigned values, keeping the varint cost low.',
+        {type: 'note', text: 'Varints are not compression. They are a byte-level primitive that reduces average size when the value distribution is skewed small. Real compression (Snappy, zstd, LZ4) operates on top of or instead of varints, depending on the format.'},
       ],
     },
     {
-      heading: 'The fixed-width baseline',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Fixed-width integers have real strengths. They are easy to decode, easy to skip, and easy to index because the byte offset of item i is predictable. A column of uint32 values can be scanned with simple loads. A binary record with fixed offsets can jump directly to the field it needs.',
-        'The cost is that fixed width pays for the maximum range every time. An int64 value of 3 takes eight bytes even though the information content is tiny. A message full of small tags and short lengths can become mostly padding.',
-        'Varints trade fixed offsets for smaller average size. That trade is good when the distribution is skewed toward small values and bad when values are uniformly large, random, or scanned in a setting where branchy decode loops dominate.',
+        'The straightforward choice is fixed-width encoding: store every integer in exactly 4 bytes (uint32) or 8 bytes (uint64). This buys three properties that varints cannot match.',
+        {type: 'bullets', items: [
+          'Random access: the byte offset of element i is i * width, so you can jump to any element without scanning.',
+          'SIMD friendliness: fixed-width columns can be loaded, compared, and filtered with vector instructions that process 4, 8, or 16 values per cycle.',
+          'Trivial parsing: no branch, no loop, no continuation-bit check. Read N bytes, done.',
+        ]},
+        'Fixed width is the right default for in-memory arrays, memory-mapped columns, and any context where decode throughput matters more than wire size. Database analytics engines (DuckDB, ClickHouse, Arrow) use fixed-width columnar layouts precisely because SIMD scans dominate their cost model.',
+        'The trade is space. A Protobuf message with 20 fields, each tagged with a field number under 16 and a value under 128, would use 160 bytes in fixed uint64 encoding. The same message uses roughly 40 bytes with varints. Over millions of RPC calls per second, that difference determines whether the network or the CPU is the bottleneck.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        'A base-128 varint is a self-delimiting sequence of seven-bit payload groups. Each byte contributes seven value bits. The high bit is not part of the integer; it is the continuation flag. If the high bit is set, another byte follows. If it is clear, this byte is the last group.',
-        'The invariant is positional notation in base 128. Payload group i contributes payload * 128^i, or equivalently payload shifted left by 7 * i. Decoding reconstructs the unsigned value by accumulating those groups until the first byte with a clear continuation bit.',
-        'The byte order is little-endian at the group level: low seven bits first, then the next seven bits, and so on. This lets encoders emit bytes as they repeatedly shift the value right by seven.',
+        'Fixed-width encoding hits a wall when the value distribution is heavily skewed and the bottleneck is bandwidth, not decode speed. A stream of Protobuf field tags, most under 16, stored as uint64 wastes 7 bytes per tag. A log of delta-encoded timestamps, most under 1000, wastes 6 bytes per delta. A Lucene postings list of document-id gaps, most under 128, wastes 7 bytes per gap.',
+        'The waste is not just theoretical. A Protobuf-serialized RPC payload where 80% of integer fields hold values under 128 is roughly 4x larger with fixed uint32 than with varints. At 100,000 messages per second, that is the difference between saturating a 1 Gbps link and fitting comfortably.',
+        {type: 'note', text: 'The wall is distribution-dependent. If most values are large (random 64-bit ids, cryptographic hashes, uniformly distributed timestamps), fixed-width encoding wastes nothing and varints may cost more due to the continuation-bit overhead. The wall only exists when small values dominate.'},
+        'There is a second wall specific to signed integers. Two-complement representation makes -1 look like 0xFFFFFFFFFFFFFFFF when treated as unsigned. A naive varint encoder would spend 10 bytes on -1. Without ZigZag, signed varints are worse than fixed width for any negative value.',
       ],
     },
     {
-      heading: 'Using the views',
+      heading: 'How it works',
       paragraphs: [
-        'In the base-128 varint view, follow the value through seven-bit groups, continuation-bit decisions, emitted bytes, and decoding. The byte-count table is the cost model. Values 0 through 127 use one byte; values 128 through 16,383 use two; a uint64 worst case uses ten.',
-        'In the ZigZag signed-integer view, focus on the mapping before the bytes. ZigZag -1 becomes 1, 1 becomes 2, -2 becomes 3, and 2 becomes 4. The signed path is always two stages: map signed to unsigned, then varint-encode the unsigned value.',
+        'Base-128 varint encoding is a loop with three operations per iteration: extract the low 7 bits as the payload, check whether any higher bits remain, and emit one byte with the continuation bit set or clear.',
+        {type: 'code', language: 'javascript', text: '// Encode unsigned integer to varint bytes\nfunction encodeVarint(value) {\n  const bytes = [];\n  while (value > 0x7f) {\n    bytes.push((value & 0x7f) | 0x80);  // low 7 bits + continuation\n    value >>>= 7;                        // unsigned shift right\n  }\n  bytes.push(value & 0x7f);              // final byte, no continuation\n  return bytes;\n}\n// encodeVarint(300) => [0xac, 0x02]'},
+        'Decoding reverses the process. Read one byte at a time. Mask with 0x7f to isolate the payload. Shift it left by 7 * position and OR into an accumulator. If bit 7 is set, read the next byte. If bit 7 is clear, the integer is complete.',
+        {type: 'diagram', text: 'Encoding 300:\n\n  300 = 0b100101100\n              |---------|  7 low bits = 0101100 = 44 = 0x2c\n        |--|               remaining   = 10      = 2  = 0x02\n\n  Byte 0: 0x2c | 0x80 = 0xac  (continuation bit set)\n  Byte 1: 0x02                (continuation bit clear = last)\n\n  Wire bytes: [ac] [02]\n\nDecoding:\n  Byte 0: 0xac & 0x7f = 0x2c = 44,  shift by 0  => 44\n  Byte 1: 0x02 & 0x7f = 0x02 = 2,   shift by 7  => 256\n  Result: 44 + 256 = 300', label: 'Bit-level trace of encoding and decoding 300'},
+        'ZigZag is a preprocessing step for signed values. Before entering the varint loop, the signed integer is mapped to an unsigned integer. The formula for 32-bit values is: zigzag = (n << 1) ^ (n >> 31). For 64-bit: zigzag = (n << 1) ^ (n >> 63). The arithmetic right shift propagates the sign bit across all positions, creating a mask of all zeros (nonnegative) or all ones (negative). XOR with the left-shifted value flips all bits for negative inputs, interleaving positive and negative magnitudes around zero.',
+        'The inverse is: n = (zigzag >>> 1) ^ -(zigzag & 1). The low bit determines the sign; the remaining bits determine the magnitude.',
       ],
     },
     {
-      heading: 'Unsigned encoding mechanics',
+      heading: 'Why it works',
       paragraphs: [
-        'To encode an unsigned integer, take the low seven bits as the payload. If any higher bits remain, set the high continuation bit and emit that byte. Shift the value right by seven and repeat. The final byte is emitted with the continuation bit clear.',
-        'Encoding 300 shows the whole idea. 300 mod 128 is 44, or 0x2c. More bits remain, so the first byte is 0x2c | 0x80 = 0xac. After shifting right by seven, the remaining value is 2. That fits in the final byte 0x02. The byte sequence is ac 02.',
-        'The algorithm is simple because it never needs to know the final byte count in advance. It streams low groups first until the value becomes zero. That is useful in encoders that write directly into a byte buffer.',
+        'The varint invariant is positional notation in base 128. Each payload group contributes payload * 128^i to the final value, where i is the group index starting from zero. This is identical to how base-10 digits work, except the radix is 128 and the "digit separator" is a single bit inside each byte. Because positional notation uniquely represents every nonnegative integer, the encoding is unambiguous as long as leading zero groups are not emitted (canonical form).',
+        'The continuation bit is a self-delimiting signal. A decoder never needs to know the byte length in advance. It reads until it finds a byte with bit 7 clear. This property is what makes varints composable: a stream of varints can be decoded without a separate length field or delimiter, because each varint announces its own end.',
+        'ZigZag correctness follows from the bijection between signed and unsigned integers. Every signed 32-bit integer maps to exactly one unsigned 32-bit integer, and vice versa. The mapping preserves magnitude ordering: values close to zero (in signed magnitude) map to values close to zero (in unsigned representation). This means the varint byte count for a ZigZag-encoded value depends on the magnitude of the original signed value, not on its two-complement bit pattern.',
+        {type: 'note', text: 'Corner case: zero encodes as a single byte 0x00. This is the only varint where the payload is zero and the continuation bit is clear. A decoder that initializes its accumulator to zero and encounters 0x00 correctly produces zero, because 0 OR-shifted by any amount is still zero.'},
       ],
     },
     {
-      heading: 'Unsigned decoding mechanics',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'To decode, read one byte at a time. Mask with 0x7f to remove the continuation bit. Shift the payload by 0, 7, 14, 21, and so on, then OR it into the accumulator. Stop when the high bit is clear.',
-        'A decoder must be defensive. It should reject an unterminated byte run, reject values that overflow the target integer width, and usually reject non-canonical encodings such as using two bytes for a value that should fit in one. Otherwise attackers can create ambiguous encodings or force excessive work.',
-        'The maximum length depends on the target type. A uint32 varint needs at most five bytes. A uint64 varint needs at most ten. If a stream keeps sending continuation bytes beyond that limit, the decoder should fail rather than keep shifting forever.',
-      ],
-    },
-    {
-      heading: 'ZigZag for signed values',
-      paragraphs: [
-        'Two-complement signed integers are efficient for CPU arithmetic, but they are awkward for unsigned varints. In a 64-bit representation, -1 has all bits set. If a format treats that bit pattern as an unsigned value, it looks like the largest possible uint64 and costs the maximum number of varint bytes.',
-        'ZigZag changes the ordering. Nonnegative n maps to 2n. Negative n maps to -2n - 1. The sequence 0, -1, 1, -2, 2, -3, 3 maps to 0, 1, 2, 3, 4, 5, 6. Small magnitudes stay small regardless of sign.',
-        'The inverse is equally simple. Even unsigned values decode to nonnegative numbers by shifting right one bit. Odd unsigned values decode to negative numbers by shifting right one bit and negating with the offset restored. Protocol Buffers sint32 and sint64 use this idea; Avro int and long do too.',
-      ],
-    },
-    {
-      heading: 'Signed worked examples',
-      paragraphs: [
-        'Encoding -2 with ZigZag maps it to unsigned 3. The value 3 fits in one seven-bit payload group, so the varint byte is 03. Decoding 03 gives unsigned 3. Because 3 is odd, the ZigZag inverse returns -2.',
-        'Encoding 2 maps it to unsigned 4, which also fits in one byte. Encoding -64 maps to 127, still one byte. Encoding 64 maps to 128, which needs two bytes. That asymmetry is expected because ZigZag interleaves negative and positive magnitudes around zero.',
-        'ZigZag is not compression by itself. If signed values are huge or uniformly distributed across the whole integer range, ZigZag does not make them small. It only makes the common near-zero signed values friendly to an unsigned varint.',
-      ],
-    },
-    {
-      heading: 'JavaScript implementation guidance',
-      paragraphs: [
-        'JavaScript has two integer worlds. Number is safe only for integers up to 2^53 - 1. Bitwise operators on Number operate on 32-bit signed values. That means a clean uint64 varint implementation should usually use BigInt for arithmetic, or deliberately restrict itself to uint32 and enforce that limit.',
-        'For uint32, bitwise shifts can be fine if the code handles unsigned conversion carefully. For uint64, use BigInt shifts and masks: payload = value & 0x7fn, value >>= 7n, and set the continuation bit when value is nonzero. When writing to Uint8Array, convert only the final byte-sized value back to Number.',
-        'For ZigZag with BigInt, encode nonnegative n as n << 1n and negative n as ((-n) << 1n) - 1n, or use the standard width-aware formula when the signed width is fixed. Decoding should return the expected numeric type and reject values outside the application range.',
-      ],
-    },
-    {
-      heading: 'Cost model',
-      paragraphs: [
-        'The storage win is distribution-dependent. Values 0 through 127 take one byte. Values under 16,384 take two. A uint64 value near the maximum takes ten. If most values are small, the average byte count drops sharply. If values are random 64-bit identifiers or hashes, the average byte count stays high.',
-        'The CPU cost is a loop with data-dependent branches. Many decoders are fast because the common case exits after one byte, but branch misprediction and bounds checks can matter in high-throughput scans. Fixed-width arrays or block codecs can be faster when data is processed in bulk.',
-        'Varints also make random access harder. To find the 1,000th integer, a decoder may need to scan the previous 999 unless there is an index. Formats often solve that with block boundaries, length prefixes, page indexes, or a higher-level table of offsets.',
+        {type: 'table', headers: ['Value range', 'Varint bytes', 'Fixed uint32', 'Fixed uint64', 'Savings vs uint64'], rows: [
+          ['0 to 127', '1', '4', '8', '87.5%'],
+          ['128 to 16,383', '2', '4', '8', '75%'],
+          ['16,384 to 2,097,151', '3', '4', '8', '62.5%'],
+          ['2,097,152 to 268,435,455', '4', '4', '8', '50%'],
+          ['268,435,456 to 2^32 - 1', '5', '4', '8', '37.5%'],
+          ['2^32 to 2^63 - 1', '5 to 9', 'N/A', '8', '0 to 37.5%'],
+          ['2^63 to 2^64 - 1', '10', 'N/A', '8', '-25% (worse)'],
+        ]},
+        'Encoding and decoding are both O(b) where b is the number of bytes in the varint, which is O(log value / 7). For practical 64-bit values, b is at most 10, so the cost is effectively constant. The real cost is the branch per byte: the continuation-bit check is a data-dependent branch that the CPU cannot predict until the byte is read.',
+        'For small values (the common case), the loop exits after one iteration. Modern branch predictors learn this pattern quickly, so single-byte varints decode almost as fast as fixed-width reads. Two-byte varints add one misprediction on the first encounter, then settle. The pain comes from mixed-length streams where the byte count varies unpredictably -- branch misprediction rates climb, and decode throughput drops.',
+        'Space overhead for maximum-range values is real. A uint64 near 2^64 costs 10 varint bytes versus 8 fixed bytes -- a 25% increase. The continuation bits steal one bit per byte, so 8 bytes of payload require ceiling(64/7) = 10 bytes of wire space. Varints are a bet that this worst case is rare.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Varints win in wire formats, schema tags, length prefixes, binary logs, LSM-tree metadata, search index postings, small counters, and RPC payloads where values cluster near zero and bytes matter.',
-        'They compose especially well with other transforms. Search indexes often delta-encode sorted document ids first, producing small gaps, then encode those gaps. Columnar formats may use varints for headers or lengths while using bit-packing inside data pages.',
-        'They are also good for self-delimiting fields. A decoder can read a length prefix without knowing the fixed width chosen by the sender, then use that length to skip or parse the following bytes.',
+        'Varints win wherever small integers dominate and wire size matters.',
+        {type: 'bullets', items: [
+          'Protocol Buffers: field tags (field_number << 3 | wire_type) are almost always under 128, costing one byte. Length prefixes for strings and submessages are usually under 16,384, costing two bytes.',
+          'Apache Avro: all integers use ZigZag varints. Schema-defined int and long fields encode deltas, counts, and enum ordinals that cluster near zero.',
+          'Search indexes (Lucene, Tantivy): postings lists store delta-encoded document ids. After delta encoding, most gaps are small, so varints compress them efficiently.',
+          'Git packfile format: object sizes and offsets use a varint variant (OFS_DELTA) to keep packfile headers compact.',
+          'SQLite: record headers use varints for column types and payload lengths, keeping the per-row overhead small for narrow tables.',
+          'WebAssembly: LEB128 varints encode instruction immediates, function indices, and section sizes in the binary format.',
+          'LevelDB / RocksDB: block metadata, key lengths, and value lengths use varints in the SSTable format.',
+        ]},
+        'The pattern generalizes: any format that stores many small integers and is read sequentially (not randomly) benefits from varints. The savings compound with delta encoding, run-length encoding, or dictionary encoding applied before the varint stage.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Varints fail for uniformly random identifiers, cryptographic hashes, encrypted data, SIMD-heavy fixed-width scans, and values that are already inside compressed blocks. In those settings the branchy loop can cost more than the saved bytes.',
-        'They also fail when canonical rules are missing. If the same value can be represented in multiple byte sequences, signatures, hashes, caches, and equality checks can disagree. Protocols should define whether overlong encodings are rejected and what the maximum byte length is for each integer type.',
-        'Signed varints fail when a format forgets the ZigZag distinction. Protocol Buffers, for example, has different field types for plain int32 or int64 and ZigZag-backed sint32 or sint64. Choosing the wrong one can make negative values unexpectedly large on the wire.',
+        'Varints are the wrong choice in several well-defined situations.',
+        {type: 'table', headers: ['Scenario', 'Why varints lose', 'Better alternative'], rows: [
+          ['Random 64-bit ids / UUIDs', 'Values are uniformly large; average varint cost is 9-10 bytes vs 8 fixed', 'Fixed uint64 or uint128'],
+          ['Cryptographic hashes', 'Every bit is pseudorandom; no small-value skew to exploit', 'Fixed-width byte array'],
+          ['SIMD columnar scans', 'Variable width breaks alignment; branch per value kills vectorization', 'Fixed-width Arrow/Parquet columns'],
+          ['Random access by index', 'Cannot compute byte offset of element i without scanning all preceding elements', 'Fixed-width array or block index'],
+          ['Already-compressed data', 'Data inside zstd/LZ4/Snappy frames gains nothing from varint; adds decode cost', 'Let the compressor handle it'],
+          ['Negative values without ZigZag', 'Two-complement -1 costs 10 bytes as a varint; worse than fixed uint64', 'Use sint32/sint64 (ZigZag) or fixed'],
+        ]},
+        'A subtle failure mode is non-canonical encoding. If a protocol allows overlong varints (encoding 1 as 81 00 instead of 01), the same logical value has multiple byte representations. This breaks content-addressed storage, signature verification, cache deduplication, and equality checks. Protocols must define whether overlong encodings are valid and decoders must enforce the rule.',
+        'Protobuf itself has a canonical-encoding trap: int32 and int64 fields encode negative values as 10-byte varints (sign-extended to 64 bits), while sint32 and sint64 use ZigZag. Choosing int32 for a field that regularly holds -1 silently wastes 9 bytes per value. This is a schema design error, not a varint limitation, but it catches many teams.',
       ],
     },
     {
-      heading: 'Security and parser hygiene',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A varint decoder is a parser. It should have a byte limit, an overflow check, and a clear error for truncated input. It should not read past the buffer while searching for a terminating byte. It should not shift by unbounded amounts. It should not silently wrap a value into a smaller integer type.',
-        'Canonical encoding matters for signed messages and content-addressed data. If a protocol signs bytes, the encoder must produce one representation and the decoder should reject alternatives. If a storage system hashes records, non-canonical integers can produce duplicate logical records with different byte hashes.',
-        'Test vectors should cover zero, one-byte boundary 127, two-byte boundary 128, the worked value 300, maximum uint32, maximum uint64 if supported, -1, -2, positive and negative boundary values for ZigZag, overlong encodings, unterminated continuations, and overflow inputs.',
-      ],
-    },
-    {
-      heading: 'Choosing the right primitive',
-      paragraphs: [
-        'Use a base-128 varint when the reader consumes a stream, the value distribution is skewed small, and fixed offsets are not essential. Add ZigZag when the logical values are signed and near-zero negatives are common.',
-        'Use fixed width when random access, SIMD scans, memory-mapped arrays, or constant-time offsets matter more than byte savings. Use block integer compression, such as delta bit-packing or frame-of-reference encoding, when you have many integers together and can amortize metadata across the block.',
-        'The right design is often mixed. A file format may use varints for field tags and lengths, fixed-width values for timestamps, and block compression for postings lists. Varint is a primitive, not a universal compression strategy.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Protocol Buffers encoding guide at https://protobuf.dev/programming-guides/encoding/ and Apache Avro binary encoding specification at https://avro.apache.org/docs/1.11.1/specification/. Study Protobuf Wire Format, Avro Binary Encoding, HPACK Dynamic Table HTTP/2 Case Study, Delta Bit-Packing Integer Compression, Elias-Fano Encoding, Huffman Coding, Roaring Bitmaps, and Schema Registry Case Study next.',
+        {type: 'bullets', items: [
+          'Protocol Buffers Encoding Guide -- https://protobuf.dev/programming-guides/encoding/ -- the canonical reference for base-128 varint encoding, wire types, ZigZag mapping, and field tag layout.',
+          'Apache Avro Specification, Binary Encoding -- https://avro.apache.org/docs/1.12.0/specification/#binary-encoding -- defines how Avro uses ZigZag varints for all integer types.',
+          'SQLite File Format -- https://www.sqlite.org/fileformat2.html -- Section 2.1 defines the varint format used in record headers and B-tree page metadata.',
+          'WebAssembly Binary Format -- https://webassembly.github.io/spec/core/binary/values.html#integers -- specifies LEB128 (unsigned and signed) for all integer immediates in the Wasm binary.',
+          'Ian Lance Taylor, "LEB128" -- https://en.wikipedia.org/wiki/LEB128 -- concise overview of the Little Endian Base 128 family, including ULEB128, SLEB128, and DWARF debug info usage.',
+        ]},
+        {type: 'note', text: 'Study Protobuf Wire Format, Avro Binary Encoding, Delta Bit-Packing Integer Compression, Elias-Fano Encoding, Huffman Coding, Roaring Bitmaps, and HPACK Dynamic Table (HTTP/2) next. Each builds on the idea that encoding cost should reflect value distribution, not worst-case range.'},
       ],
     },
   ],
 };
+

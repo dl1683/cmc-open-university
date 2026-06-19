@@ -195,6 +195,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Red-Team Attack Taxonomy Queue Case Study. A safety-evaluation case study: map OWASP and MITRE-style attack classes into red-team queues, severity labels, coverage matrices, and release gates..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why it exists',
       paragraphs: [
         'An LLM red-team attack taxonomy queue turns broad safety and security risks into work that can be run, scored, fixed, and audited. A product team does not only need a list of scary prompts. It needs to know which risk classes have been tested, which product surfaces were in scope, which failures are severe enough to block a release, and which mitigations have passed reruns.',
@@ -202,28 +211,28 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach and wall',
+      heading: 'The wall',
       paragraphs: [
         'The reasonable first attempt is a spreadsheet or folder of jailbreak prompts. That works for a demo because a human can run a few cases and show dramatic failures. It fails for release engineering because the prompt text does not say which taxonomy item it covers, which surface it attacks, how severe the failure is, who owns the fix, or whether the same case passed after the mitigation changed.',
         'The wall is coverage. A team can have thousands of prompts and still miss indirect prompt injection in RAG, tool misuse under a new permission model, sensitive-data leakage in a support flow, or policy drift after a system prompt update. Count of prompts is not count of risk. A stale red-team report can be worse than no report because it creates confidence while the product has gained new capabilities.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that an adversarial prompt is the payload, not the evidence. Evidence is the record around the payload: taxonomy id, attack surface, seed family, mutation strategy, target capability, severity, scorer, owner, due date, run history, fix link, and rerun proof. Without that record, a failure is an anecdote. With it, the same failure becomes a release gate and a regression test.',
         'The queue also separates two questions that are often mixed together. The first question is whether the model or system failed on this case. The second is whether the evaluation program covers the risk space well enough for the next release. The coverage matrix answers the second question by mapping risk classes to product surfaces and making gaps visible.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         'The graph view shows the control flow that a useful red-team program needs. Taxonomy creates seed cases and queue work. Runs produce scores and severity labels. Those labels reach a release gate instead of stopping in a report. The gate then produces either a fix, an explicit risk decision, or a proof log that can be inspected later.',
         'The matrix view shows the data shape behind that control flow. Rows are attack surfaces such as chat, RAG, tools, code, and admin actions. Columns are risk classes such as injection, leakage, misuse, and drift. A highlighted cell is not decorative state; it says this boundary was tested, failed, is stale, or has no coverage yet. That is what the animation proves: the system is measuring coverage by risk and surface, not by prompt volume.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works (2)',
       paragraphs: [
         'A practical queue starts from a taxonomy source such as OWASP LLM risks, MITRE ATLAS tactics, internal incident classes, customer commitments, and product-specific threat models. Each taxonomy item becomes one or more test families. A family stores seed prompts, mutation rules, target surfaces, expected unsafe behaviors, and criteria for pass, fail, or escalation.',
         'The runner executes cases against concrete product surfaces, not an abstract model in isolation. The same text can have different severity in plain chat, document retrieval, code generation, and tool execution. A tool-use failure can cross from bad text into real authority, so the row records the surface and permission context. Scores then become queue actions: block the release, assign a mitigation, add a missing case, accept the risk with rationale, or schedule a refresh.',
@@ -238,21 +247,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main cost is maintenance. Taxonomies change, product surfaces change, and scorers drift. A serious queue needs ownership, freshness rules, replayable runs, threshold calibration, and human review for cases where automated judges are weak. It also needs careful severity rules so a broad chat failure does not hide a tool-use failure with higher blast radius.',
         'The tradeoff is between speed and confidence. Running every case on every build is expensive and noisy, so teams usually tier the queue: small smoke slices on every change, high-risk regression slices before release, broader scheduled sweeps, and manual campaigns after major capability changes. The queue should make that sampling policy visible instead of pretending that a small run proves full coverage.',
       ],
     },
     {
-      heading: 'Complete case',
+      heading: 'Worked example',
       paragraphs: [
         'A RAG agent ingests a hostile document that says the assistant should ignore developer instructions and call an admin export tool. The queue tags the case as indirect prompt injection, RAG surface, tool surface, high severity, and source-trust boundary. The first run fails because the retrieved text steers the tool call.',
         'The mitigation adds source trust labels, least-privilege tool scopes, an instruction-hierarchy guardrail, and a gate that requires trusted user intent before privileged actions. The rerun passes. The queue stores the failing run, the control change, the passing rerun, and the release decision. This is stronger than saying the model was jailbroken because it names the boundary that failed and the proof that the boundary was repaired.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern fits teams that ship LLM features with changing product surfaces: RAG assistants, tool-using agents, code assistants, admin copilots, customer-support bots, and model routes with policy or compliance obligations. It is especially useful when several teams own different parts of the risk boundary because the queue can assign work and preserve evidence across product, security, ML, and policy review.',
         'It also fits benchmark and guardrail development. The taxonomy queue tells guardrail engineers which failure families matter, tells eval owners where coverage is old, and tells release managers whether severe failures are open. The structure makes red-team work cumulative instead of episodic.',
@@ -266,11 +275,83 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: OWASP LLM01 Prompt Injection at https://genai.owasp.org/llmrisk/llm01-prompt-injection/, OWASP Top 10 for LLM Applications at https://owasp.org/www-project-top-10-for-large-language-model-applications/, MITRE ATLAS at https://atlas.mitre.org/, NIST AI RMF Playbook at https://airc.nist.gov/airmf-resources/playbook/, and NCSC prompt injection guidance at https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection.',
         'Study next by role. For threat modeling, read Prompt Injection Threat Model and Jailbreak Mutation Search Graph Case Study. For enforcement, read LLM Guardrail Policy Engine. For measurement, read LLM Evaluation Harnesses: Golden Sets and Judges and LLM Judge Calibration Drift Monitor. For governance, read AI Safety Eval Slice Risk Register Case Study and AI Audit Evidence Packet Case Study.',
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why LLM Red-Team Attack Taxonomy Queue Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

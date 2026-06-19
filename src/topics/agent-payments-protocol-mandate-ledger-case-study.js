@@ -1,4 +1,4 @@
-// Agent Payments Protocol: signed checkout/payment mandates, constrained
+﻿// Agent Payments Protocol: signed checkout/payment mandates, constrained
 // autonomous purchasing, role separation, receipts, and dispute evidence.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -296,7 +296,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Agent Payments Protocol Mandate Ledger Case Study. A protocol and data-structure case study for agentic commerce: AP2 roles, signed checkout/payment mandates, human-present and autonomous flows, constraint evaluation, scoped payment tokens, receipts, and dispute evidence..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'The Agent Payments Protocol, or AP2, is an open protocol for agentic commerce. It addresses the gap created when an AI agent, rather than a human directly clicking buy, initiates a purchase. The core questions are authorization, authenticity, and accountability: did the user authorize this exact purchase, does the request reflect true user intent, and what evidence exists if the transaction is disputed?',
         'AP2 is available as an extension for Agent2Agent and other commerce protocols. It is not a replacement for payment rails. It is a security and evidence layer around agent-driven checkout and payment: signed mandates, deterministic verification, scoped payment credentials, receipts, and role separation.',
@@ -317,7 +326,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         'The mandate-chain view shows how authority narrows over time. Broad open constraints become a specific closed checkout, then a scoped payment authorization, then receipts. Each artifact should point to the prior artifact it depends on.',
         'The risk-gates view shows the threat model: the LLM-controlled agent is not trusted to authorize itself. Constraints, scoped tokens, signatures, hashes, and receipts bound the worst financial effect of a bad or manipulated agent action.',
@@ -339,7 +348,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study: sneaker drop',
+      heading: 'Worked example',
       paragraphs: [
         'A user tells a shopping agent: buy one pair of a specific sneaker model from either of two merchants, size 10, under $180, only on launch day, using a chosen wallet. The trusted surface renders that intent and signs open checkout and payment mandates. The user leaves. When inventory appears, the agent assembles a checkout from an allowed merchant. The merchant signs the checkout JWT. The agent signs closed checkout and payment mandates bound to that checkout hash.',
         'The merchant checks that the closed checkout satisfies the open checkout mandate. The credential provider checks the payment mandate constraints and releases a scoped payment token only for this checkout. The merchant payment processor verifies the payment mandate in the token before charging. The checkout receipt and payment receipt enter the evidence ledger. If a dispute occurs, the parties can reconstruct user intent, cart contents, payment amount, agent authority, and acceptance receipts.',
@@ -354,7 +363,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
         'Do not treat AP2 as permission for an agent to spend generally. It authorizes specific closed transactions or bounded autonomous constraints. Do not expose more user intent than the verifier needs; use selective disclosure. Do not release payment tokens before final mandate verification. Do not allow multiple overlapping autonomous closed mandates from the same open mandate without receipt handling. Do not treat a merchant catalog result as trustworthy simply because an agent selected it.',
         'AP2 also does not replace fraud, compliance, settlement, chargeback, KYC, AML, or merchant risk systems. It gives those systems better evidence and consistent agent-presence signals. Payment processors and issuers still need their ordinary risk engines and operational controls.',
@@ -369,11 +378,89 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: AP2 docs at https://ap2-protocol.org/, AP2 specification at https://ap2-protocol.org/ap2/specification/, AP2 flows at https://ap2-protocol.org/ap2/flows/, Checkout Mandate at https://ap2-protocol.org/ap2/checkout_mandate/, Payment Mandate at https://ap2-protocol.org/ap2/payment_mandate/, Security and Privacy Considerations at https://ap2-protocol.org/ap2/security_and_privacy_considerations/, Implementation Considerations at https://ap2-protocol.org/ap2/implementation_considerations/, Google Cloud announcement at https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol, AP2 GitHub at https://github.com/google-agentic-commerce/AP2, and PayPal AP2 discussion at https://developer.paypal.com/community/blog/PayPal-Agent-Payments-Protocol/.',
         'Study Agent2Agent Protocol Task State Case Study, Model Context Protocol Case Study, Double-Entry Payment Ledger Execution Trace, Idempotency & Exactly-Once Delivery, JWT Verification, OAuth PKCE Token Lifecycle Case Study, WebAuthn Passkeys, Capability Security & Attenuation, Agent Tool Permission Lattice, Prompt Injection Threat Model, Min-Cost Max-Flow, Message Queue, Distributed Tracing, and Temporal Workflow Case Study next.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for agent-payments-protocol-mandate-ledger-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

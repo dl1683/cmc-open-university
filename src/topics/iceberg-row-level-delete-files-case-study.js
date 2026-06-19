@@ -207,6 +207,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Iceberg Row-Level Delete Files. An Iceberg row-level mutation case study: equality deletes, position deletes, and v3 deletion vectors are tracked by delete manifests and applied during scan planning..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Apache Iceberg row-level deletes exist because analytical tables are stored as large immutable files, but real tables still need mutations. A customer asks for erasure. A CDC feed says `id = 7` was deleted. A merge job discovers that three rows in a Parquet file are no longer visible. Rewriting the whole file for every small delete would turn a row-level change into a file-level tax.',
@@ -215,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is copy-on-write. When a delete touches rows in a file, read the file, remove those rows, write a replacement file, and commit a snapshot that drops the old file. This is simple for readers. They only scan live data files. It is also attractive because compaction and delete application happen at the same time.',
         'The wall is write amplification. If a 512 MB Parquet file contains one deleted row, copy-on-write rewrites 512 MB to remove one row. A CDC stream with many small deletes can spend most of its compute rewriting cold data. For high-ingest lakehouse tables, that can make row-level mutation too expensive to use continuously.',
@@ -224,7 +233,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is merge-on-read. A data file does not have to be physically rewritten before the table can hide rows from new snapshots. A visible row is a data-file row that survives every delete artifact that applies to it in the chosen snapshot.',
         'That makes delete metadata part of table state. A snapshot points through a manifest list to data manifests and delete manifests. Delete manifests track equality delete files, position delete files, and, in Iceberg v3, deletion-vector metadata. During planning, the engine does not merely choose data files. It also attaches the delete filters or masks that must be applied while reading those files.',
@@ -268,7 +277,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Row-level delete files reduce write amplification but increase read complexity. Equality deletes are cheap to write from CDC data, yet they can be expensive to apply if they match many files or require large in-memory hash sets. Position deletes are precise, but they are tied to physical row positions and are deprecated for new writes in v3 tables. Deletion vectors make execution-time masking efficient, but writers must merge delete state so each data file has at most one vector in a snapshot.',
         'Metadata growth is a real cost. Delete manifests, delete files, Puffin blobs, sequence metadata, and metrics all become part of planning. Many small delete files can make planning slow before row scanning even begins. Many broad equality deletes can make every scan pay a predicate-matching tax. Many tiny deletion-vector blobs can create file-system and object-store overhead even if each bitmap is compact.',
@@ -277,7 +286,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'Iceberg row-level deletes win in analytical tables that receive ongoing mutation but still mostly serve scans. CDC landing tables, privacy deletes, slowly changing dimensions, merge-heavy lakehouse tables, fraud-event correction, and feature-training datasets all benefit. The common fit is a table where immediate physical rewrite would be too expensive, but readers can afford some merge-on-read work until maintenance catches up.',
         'They are the wrong fit for high-rate OLTP updates where users expect indexed point reads and millisecond commit latency. A transactional database is better for that. They are also a poor fit when query engines in the organization cannot all read the delete format being written. Table-format features only help if every important reader honors them.',
@@ -285,7 +294,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         'The delete-format view shows three different ways to represent the same logical idea: hide this row. Equality deletes use values, position deletes use file coordinates, and deletion vectors use a bitmap for one referenced file. The copy-on-write row is there to show the alternative: rewrite the data now and keep reads simple.',
         'The scan-planning view shows why delete manifests are consulted before execution. A reader has to pair each selected data file with all delete metadata that can affect it. The visible table is not just the data manifest. It is the data manifest plus the delete manifests interpreted under the snapshot rules.',
@@ -299,5 +308,64 @@ export const article = {
         'Study Apache Iceberg Table Format Case Study first if snapshots, manifest lists, and manifest entries are not yet clear. Study Delta Lake Deletion Vector Bitmap Case Study to compare another lakehouse design for row masks. Study Parquet Page Index Case Study to understand the file-level and page-level metadata readers use before row filtering. Study Roaring Bitmaps because deletion vectors rely on compact bitmap membership. Study MVCC Internals & VACUUM to connect logical deletion, snapshot retention, and physical cleanup.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for iceberg-row-level-delete-files-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

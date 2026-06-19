@@ -1,4 +1,4 @@
-// Escape analysis: prove an allocation does not escape, then replace the object
+﻿// Escape analysis: prove an allocation does not escape, then replace the object
 // with scalar fields that can live in registers, stack slots, or optimized IR.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -135,75 +135,188 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. "No escape object" traces how the compiler builds a use graph for an allocation, checks each edge for escape, and replaces the object with scalar fields when no edge leaks identity. "Deopt recovery" shows the second half: how the runtime rebuilds eliminated objects when optimized code falls back to the interpreter.',
+        'Active nodes are the current analysis step. Compared nodes (dimmed) mark paths that would force allocation if reached. Found nodes mark facts the compiler has established. The decision matrix maps each use category to its ruling: no-escape uses become scalar replacements; escaping uses force heap allocation.',
+        {
+          type: 'note',
+          text: 'Watch the edge between "graph" and "escape" carefully. That single edge is the legal boundary between a field bundle the compiler can dissolve and a real heap object it must preserve.',
+        },
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Modern languages make allocation feel cheap because objects are the natural way to bundle values. A point has x and y. An iterator has current state. A tuple carries two results out of a helper. In source code those objects make the program clearer. In a hot loop they can become noise: headers, zeroing, write barriers, remembered-set traffic, young-generation pressure, and later garbage-collector work for data that never needed an independent heap identity.`,
-        `Escape analysis exists because a compiler can sometimes prove that an allocation is only a temporary carrier of fields. If no outside code can observe the object as an object, the runtime does not need to put it on the heap. Scalar replacement is the follow-up optimization: split the aggregate into its fields and keep those fields as SSA values, registers, stack slots, or optimized intermediate representation values.`,
-        `The important word is prove. A compiler cannot remove an allocation because it looks small or short-lived. It must preserve every observable effect of the source program: reference equality, field mutation order, exceptions, synchronization, weak references, finalization, debugger state, and deoptimization. The optimization is valuable because many real allocations are temporary values, but it is safe only when the object boundary is invisible to the rest of the program.`,
+        'Objects are the natural way to bundle values. A point has x and y. An iterator has current state. A tuple carries two results out of a helper. In source code those objects make the program clearer. In a hot loop they become noise: headers, zeroing, write barriers, remembered-set traffic, young-generation pressure, and garbage-collector work for data that never needed an independent heap identity.',
+        'Escape analysis exists because a compiler can sometimes prove that an allocation is only a temporary carrier of fields. If no outside code can observe the object as an object, the runtime does not need to put it on the heap. Scalar replacement is the follow-up: split the aggregate into its fields and keep those fields as SSA values, registers, or stack slots.',
+        {
+          type: 'quote',
+          text: 'An object that does not escape is not an object. It is a naming convention over scalars.',
+          attribution: 'Compiler folklore, paraphrasing Choi et al. 1999',
+        },
+        'The important word is prove. A compiler cannot remove an allocation because it looks small or short-lived. It must preserve every observable effect: reference equality, field mutation order, exceptions, synchronization, weak references, finalization, debugger state, and deoptimization recovery. The optimization is valuable because many real allocations are temporary, but it is safe only when the object boundary is invisible to the rest of the program.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious runtime approach is literal allocation: every object expression creates a heap object, and a generational garbage collector makes most short-lived objects cheap. That approach is simple, correct, and good enough for a large amount of application code. Bump-pointer allocation in a young generation can be close to pointer arithmetic, and batch collection makes many dead objects disappear together.`,
-        `The wall is that "cheap" is not free. A loop that creates a pair object for every iteration still writes object headers, initializes fields, may execute barriers, increases allocation rate, and pushes more bytes through the memory hierarchy. If the loop runs millions of times per second, the collector and allocator become part of the algorithm's cost. The program did not need heap reachability; it needed two numbers to survive until the next expression.`,
-        `The wall gets sharper in JIT-compiled languages because optimized code may inline several helpers and expose a whole chain of temporary allocations. A source program that looks object-oriented can lower to arithmetic on a few fields. If the compiler keeps the object boundaries after it has enough proof to remove them, it leaves performance on the table.`,
+        'The obvious runtime approach is literal allocation: every object expression creates a heap object, and a generational garbage collector makes most short-lived objects cheap. Bump-pointer allocation in a young generation is close to pointer arithmetic, and batch collection makes many dead objects disappear together. This approach is simple, correct, and good enough for a large amount of application code.',
+        'Teams reach for generational GC because it exploits the generational hypothesis -- most objects die young. For code that allocates moderately, the cost per object is low enough that nobody notices. The collector is a well-tested, general-purpose mechanism that handles every allocation pattern without per-site reasoning.',
+        {
+          type: 'note',
+          text: 'This is not a bad approach. It is the right default. Escape analysis is for the small fraction of allocations where "cheap" is still too expensive because they sit inside a hot loop.',
+        },
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is to analyze the allocation's observation boundary. An object can be removed when all of its uses are local enough that the rest of the program cannot tell whether the object was ever materialized. Field reads and writes are internal. Returning the object, storing it into a global, storing it into another heap object, passing it to unknown code, publishing it to another thread, or throwing it through an escaping path may expose identity.`,
-        `Once the no-escape proof holds, the aggregate can be represented by its scalar fields. A read of obj.x becomes the current SSA value for x. A write to obj.x becomes a new SSA version of x. If obj.y is never read, y may disappear. If both fields feed arithmetic, later optimizations can fold constants, remove dead stores, or keep everything in registers. The allocation is no longer an event in the generated code.`,
-        `This is why escape analysis is tied to inlining. A call boundary hides facts. Before inlining, passing an object to helper(obj) may look like an escape. After inlining, the compiler may see that helper only reads obj.x and obj.y. The same source program can move from "must allocate" to "can scalar replace" when the optimizer gets more context.`,
+        '"Cheap" is not free. A loop that creates a pair object every iteration still writes an object header, initializes fields, may execute a write barrier, increases allocation rate, and pushes more bytes through the memory hierarchy. If the loop runs millions of times per second, the collector and allocator become part of the algorithm\'s cost. The program did not need heap reachability; it needed two numbers to survive until the next expression.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Stack/register', 'Heap (young gen)'],
+          rows: [
+            ['Allocate', 'Free (stack frame exists)', '~8-16 ns bump pointer + header write'],
+            ['Access field', 'Register read or stack load', 'Pointer chase + possible cache miss'],
+            ['Write barrier', 'None', 'Card mark or remembered-set update'],
+            ['Deallocation', 'Free (frame pop)', 'GC pause (amortized but real)'],
+            ['Memory overhead', '0 bytes header', '12-16 bytes header per object'],
+            ['Cache pressure', 'Hot in L1', 'Scattered, competes with app data'],
+          ],
+        },
+        'The wall gets sharper in JIT-compiled languages. Optimized code may inline several helpers and expose a chain of temporary allocations. A source program that looks object-oriented can lower to arithmetic on a few fields. If the compiler keeps the object boundaries after it has enough proof to remove them, it leaves performance on the table.',
+        'The generational GC wall is also a throughput wall, not just a latency wall. Higher allocation rates mean more frequent young-gen collections, and each collection must scan roots, copy survivors, and update references. The collector scales with allocation rate, not with live-set size.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
-        `The graph view is an observation-boundary test. The allocation node is harmless by itself. Edges to local fields and inlined code are still inside the optimizer's known world. Edges to return values, global stores, unknown calls, heap stores, or exceptional exits point toward observers that may care about object identity. The visual distinction is the legal line between a field bundle and a real heap object.`,
-        `The decision table shows why the optimizer is conservative. A local field-only object can be scalar replaced. A returned object must be allocated because the caller can observe it. A global store must be allocated because later code can load the reference. An unknown call is not automatically bad, but without a body, a trusted summary, or a guard, the compiler has to assume the call may keep or publish the reference.`,
-        `The deoptimization view proves the second half of the contract. Optimized code can run without the object, but lower-tier code, a debugger, or an exception path may need the logical object state at a safepoint. The rematerialization map records how to rebuild the object from live scalars. Removing the allocation is safe only because the runtime can re-create the illusion when execution falls back.`,
+        'The compiler builds a connection graph (Choi et al. 1999) that tracks how object references flow through the program. Each allocation site is a node. Edges represent assignments, field stores, returns, and calls. The analysis classifies each reference into one of three escape states: NoEscape (local to the method and its inlined callees), ArgEscape (passed as an argument but not stored globally), and GlobalEscape (reachable from a global, returned, or passed to unknown code). Only NoEscape objects are candidates for scalar replacement.',
+        {
+          type: 'diagram',
+          label: 'Connection graph and escape determination',
+          text: [
+            '  Point p = new Point(x, y);    // allocation site',
+            '  double d = p.x * p.x + p.y * p.y;  // field reads',
+            '  return d;                      // scalar return, p not returned',
+            '',
+            '  Connection graph:',
+            '    [alloc: Point] --field--> [p.x]  (NoEscape)',
+            '                  --field--> [p.y]  (NoEscape)',
+            '    [p.x] --read--> [d computation]  (scalar use)',
+            '    [p.y] --read--> [d computation]  (scalar use)',
+            '    [return] --value--> [d]          (scalar, not p)',
+            '',
+            '  Verdict: p is NoEscape. All uses are field reads',
+            '  feeding scalar arithmetic. Replace p with locals.',
+          ].join('\n'),
+        },
+        'Once the graph proves NoEscape, scalar replacement decomposes the object. Each field becomes an independent SSA value. A read of obj.x becomes the current SSA value for x. A write to obj.x becomes a new SSA definition. If a field is never read, it is dead and disappears. If both fields feed arithmetic, downstream optimizations can fold constants, eliminate dead stores, or keep everything in registers.',
+        {
+          type: 'code',
+          language: 'java',
+          text: [
+            '// BEFORE escape analysis (source code)',
+            'double distance(double x1, double y1, double x2, double y2) {',
+            '    Point p = new Point(x2 - x1, y2 - y1);  // heap alloc',
+            '    return Math.sqrt(p.x * p.x + p.y * p.y);',
+            '}',
+            '',
+            '// AFTER escape analysis + scalar replacement (compiler IR)',
+            'double distance(double x1, double y1, double x2, double y2) {',
+            '    double p_x = x2 - x1;   // scalar in register',
+            '    double p_y = y2 - y1;   // scalar in register',
+            '    return Math.sqrt(p_x * p_x + p_y * p_y);',
+            '    // no allocation, no GC pressure, no object header',
+            '}',
+          ].join('\n'),
+        },
+        'Inlining is the key enabler. Before inlining, passing an object to helper(obj) looks like an escape. After inlining, the compiler sees that helper only reads obj.x and obj.y. The same source program moves from "must allocate" to "can scalar replace" when the optimizer gets more context. This is why escape analysis runs after inlining in every major JIT.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument is observational equivalence. If every use of the object can be rewritten as use of its fields, and no allowed program operation can detect the missing identity, then the optimized program has the same behavior as the source program. Field reads see the same values. Field writes update the next scalar version. Dead fields remain unobserved. The object header, address, and allocation event were implementation details, not source-level facts.`,
-        `SSA form makes the rewrite tractable. Each field version has a clear definition and a set of uses. At control-flow joins, phi nodes represent which scalar value reaches the join. If the analysis cannot represent a merge precisely enough, it must allocate. If a field is passed to arithmetic, arithmetic gets the scalar directly. The invariant is that every path that would have reached a field load now reaches the scalar value that the field would contain on that path.`,
-        `Partial escape analysis extends the same idea to paths. An object may escape only on a rare branch. A path-sensitive optimizer can keep the common path scalarized and sink allocation into the branch that publishes the object. That is still the same proof: materialize the object at the first point where observation becomes possible, and keep it absent before that point.`,
+        'The correctness argument is observational equivalence. If every use of the object can be rewritten as a use of its fields, and no program operation can detect the missing identity, the optimized program has the same behavior as the source. Field reads see the same values. Field writes update the next scalar version. Dead fields remain unobserved. The object header, address, and allocation event were implementation details, not source-level facts.',
+        'SSA form makes the rewrite tractable. Each field version has a clear definition and a set of uses. At control-flow joins, phi nodes represent which scalar value reaches the merge. If a field feeds arithmetic, arithmetic gets the scalar directly. The invariant: every path that would have reached a field load now reaches the scalar value that the field would contain on that path.',
+        'Partial escape analysis (Stadler et al., GraalVM) extends this to paths. An object may escape only on a rare branch -- say, an exception handler. A path-sensitive optimizer keeps the common path scalarized and sinks the allocation into the branch that actually publishes the object. The allocation happens only when observation becomes possible, and is absent everywhere else.',
+        {
+          type: 'note',
+          text: 'In Go, escape analysis works at compile time rather than JIT time. The compiler decides per-allocation whether to place the object on the stack or the heap. The go build -gcflags="-m" flag prints escape decisions. Go does not do scalar replacement -- it does stack allocation of non-escaping objects, which avoids GC pressure without decomposing the struct.',
+        },
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The analysis itself costs compiler time and memory. A simple method-local analysis is cheaper and easier to reason about, but it misses objects that only become provably local after inlining or path reasoning. Interprocedural summaries can help, but summaries must be invalidated when assumptions change. A JIT also has a budget: spending too long proving away one allocation can delay optimized code enough that the program loses overall.`,
-        `The runtime payoff is concrete. Successful scalar replacement lowers allocation rate, reduces young-generation collection pressure, removes write barriers, exposes scalar values to register allocation, and can unlock constant folding or dead-store elimination. When input size doubles, the asymptotic algorithm may be unchanged, but the allocation multiplier inside the loop can decide whether the program is CPU-bound, memory-bound, or GC-bound.`,
-        `The hidden tax is recovery metadata. A deoptimizing runtime must know which eliminated objects exist logically and how to rebuild them. Each safepoint needs enough mapping from optimized scalar state to interpreter-visible state. More aggressive scalarization can therefore increase metadata size and make compiler bugs more dangerous.`,
+        'The analysis itself costs compiler time and memory. A simple method-local analysis is cheap but misses objects that only become provably local after inlining. Interprocedural summaries (connection graph summaries per method) can extend reach, but summaries must be invalidated when callee code changes. A JIT has a budget: spending too long proving away one allocation can delay compilation enough that the program loses overall.',
+        {
+          type: 'table',
+          headers: ['Analysis scope', 'Cost', 'What it catches', 'What it misses'],
+          rows: [
+            ['Method-local', 'O(n) in IR nodes', 'Purely local temps', 'Objects passed to helpers'],
+            ['After inlining', 'O(n) but n is larger', 'Most temporary objects', 'Objects crossing uninlined boundaries'],
+            ['Interprocedural summaries', 'O(n * m) methods', 'Cross-method temps', 'Dynamic dispatch, reflection'],
+            ['Partial (Graal PEA)', 'O(n * paths) worst case', 'Path-conditional escapes', 'Complex merge points, deep aliasing'],
+          ],
+        },
+        'The runtime payoff is concrete. Successful scalar replacement lowers allocation rate, reduces young-gen collection pressure, removes write barriers, exposes scalars to register allocation, and unlocks constant folding. The asymptotic algorithm is unchanged, but the constant factor inside a hot loop can decide whether the program is CPU-bound, memory-bound, or GC-bound.',
+        'The hidden tax is recovery metadata. A deoptimizing JIT must know which eliminated objects exist logically and how to rebuild them from live scalars at each safepoint. More aggressive scalarization increases metadata size. In HotSpot, each safepoint records a "scope object" description mapping fields to register/stack locations so the interpreter can reconstruct the object on deopt.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        `Escape analysis wins on temporary tuples, small numeric objects, iterator result objects, autoboxed values, geometry points, complex-number helpers, stream pipelines, and allocation-heavy hot loops. These are cases where source-level objects improve program structure but the machine only needs fields.`,
-        `It also matters in language implementations. JavaScript engines, JVM JITs, and other optimizing runtimes use escape reasoning to close part of the gap between high-level allocation-heavy source and lower-level scalar code. The V8 note on disabling an older escape-analysis implementation describes the intended optimization: when an object does not escape, fields can be treated as local variables and stored in registers or on the stack. The OpenJDK HotSpot report frames scalar replacement the same way: decompose an object into fields and replace field access with local variables.`,
-        `The best fit is stable hot code. Profiling should show allocation pressure near the top of the cost. The object should have simple fields, limited aliasing, and calls that inline or have trusted summaries. Without those conditions, the optimizer may spend effort only to conclude that the object escapes.`,
+        'Escape analysis wins on temporary tuples, small numeric objects (Point, Complex, Vec3), iterator result objects, autoboxed primitives, stream pipeline stages, and allocation-heavy hot loops. These are cases where source-level objects improve program structure but the machine only needs fields.',
+        {
+          type: 'bullets',
+          items: [
+            'JVM: HotSpot C2 compiler performs escape analysis after inlining. Objects proven NoEscape are scalar-replaced; ArgEscape objects may be stack-allocated. The -XX:+PrintEscapeAnalysis flag shows decisions.',
+            'GraalVM: partial escape analysis (Stadler, Wurthinger, Mossenbock 2014) sinks allocation to the latest possible point, scalarizing the common path even when a rare branch escapes.',
+            'Go: the compiler performs escape analysis at build time. Non-escaping values are stack-allocated. Use go build -gcflags="-m" to see decisions. No scalar replacement, but stack allocation avoids GC entirely.',
+            'V8 (JavaScript): TurboFan had escape analysis but it was disabled in 2017 due to correctness issues. Maglev and Turboshaft are reconsidering the optimization with simpler, more robust implementations.',
+          ],
+        },
+        'The best fit is stable hot code where profiling shows allocation pressure near the top of the cost. The object should have simple fields, limited aliasing, and calls that inline cleanly. Without those conditions, the optimizer may spend effort only to conclude that the object escapes.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The optimization fails when identity matters. Reference equality, identity hash codes, synchronization monitors, weak references, finalizers, native interop, debugger inspection, and reflective access can all make the object more than a bag of fields. Mutation order can also matter when aliases exist. If two references may point to the same object, replacing fields independently can break aliasing semantics unless the compiler proves the aliases are impossible or equivalent.`,
-        `Unknown calls are a common barrier. If a callee can store the reference, return it, compare it, synchronize on it, or pass it elsewhere, the caller has to allocate before the call. Inlining, type feedback, and method summaries reduce that uncertainty, but dynamic languages and virtual dispatch keep some calls opaque.`,
-        `Wrong proofs are not harmless performance bugs. They are miscompiles. In a browser or VM running untrusted code, an escape-analysis bug can turn into a security problem because optimized code may expose impossible states after deoptimization or speculation failure. That is why production compilers keep the analysis conservative and why deopt metadata is part of the correctness story, not an implementation detail.`,
+        'The optimization fails when identity matters. Reference equality, identity hash codes, synchronization monitors, weak references, finalizers, native interop (JNI), debugger inspection, and reflective access all make the object more than a bag of fields. If two references may alias the same object, replacing fields independently can break aliasing semantics unless the compiler proves the aliases are impossible.',
+        'Unknown calls are the most common barrier. If a callee can store the reference, return it, compare it by identity, synchronize on it, or pass it elsewhere, the caller must allocate before the call. Inlining, type feedback, and method summaries reduce that uncertainty, but dynamic languages, virtual dispatch, and interface calls keep some boundaries opaque.',
+        'Wrong proofs are not harmless performance bugs -- they are miscompiles. In a browser or VM running untrusted code, an escape-analysis bug can turn into a security vulnerability because optimized code may expose impossible states after deoptimization. This is why V8 disabled its escape analysis in 2017 rather than ship a subtle correctness risk, and why production compilers keep the analysis conservative.',
+        {
+          type: 'bullets',
+          items: [
+            'Objects stored into collections (List.add, Map.put) escape immediately.',
+            'Objects passed to logging, serialization, or toString() may escape via reflection.',
+            'Objects with finalizers must always be heap-allocated because the finalizer thread needs a real reference.',
+            'Synchronized objects need a monitor, which requires a heap identity.',
+          ],
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Static Single Assignment and phi nodes next, because scalar replacement is easiest to understand when each field update becomes a new SSA value. Then study alias analysis, inlining heuristics, deoptimization stack maps, safepoints, generational garbage collection, and JIT tiering. Those topics explain why the proof exists, why it is hard, and how the runtime can recover from optimized code.`,
-        `Primary sources worth reading are V8's escape-analysis note at https://v8.dev/blog/disabling-escape-analysis, the OpenJDK HotSpot escape-analysis report at https://cr.openjdk.org/~cslucas/escape-analysis/EscapeAnalysis.html, the partial escape analysis paper at https://ssw.jku.at/Research/Papers/Stadler14/Stadler2014-CGO-PEA.pdf, and Kotzmann and Mossenbock on escape analysis with dynamic compilation and deoptimization.`,
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Choi et al., "Escape Analysis for Java" (OOPSLA 1999)', 'The foundational connection-graph algorithm for JVM escape analysis'],
+            ['Stadler, Wurthinger, Mossenbock, "Partial Escape Analysis and Scalar Replacement for Java" (CGO 2014)', 'Path-sensitive escape analysis in Graal -- sinks allocation to the branch that escapes'],
+            ['Kotzmann & Mossenbock, "Escape Analysis in the Context of Dynamic Compilation and Deoptimization" (VEE 2005)', 'How escape analysis interacts with JIT tiering and deopt recovery'],
+            ['OpenJDK HotSpot escape analysis report: cr.openjdk.org/~cslucas/escape-analysis/EscapeAnalysis.html', 'Implementation-level walkthrough of C2 escape analysis'],
+            ['V8 blog: "Disabling escape analysis" (2017)', 'Why V8 disabled escape analysis and the correctness risks involved'],
+            ['Go specification and compiler docs: go build -gcflags="-m"', 'Stack vs heap decisions in a non-JIT, ahead-of-time compiled language'],
+          ],
+        },
+        'Study SSA form and phi nodes next, because scalar replacement is easiest to understand when each field update becomes a new SSA definition. Then study alias analysis (proving two references do not point to the same object), inlining heuristics (what the compiler needs to see before it can prove no-escape), and deoptimization stack maps (how the runtime reconstructs eliminated objects at safepoints).',
+        'For the broader picture, study generational garbage collection (the system escape analysis is optimizing against), JIT tiering (why the proof is done at one tier and recovery is needed at another), and speculative optimization (escape analysis is one instance of the general pattern: assume a property holds, optimize aggressively, deoptimize if the assumption breaks).',
       ],
     },
   ],
 };
+

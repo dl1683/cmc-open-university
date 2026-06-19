@@ -1,4 +1,4 @@
-// Local-first sync engine: durable local state, CRDT change history,
+﻿// Local-first sync engine: durable local state, CRDT change history,
 // peer sync state, missing-change exchange, compaction, and transport adapters.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -202,6 +202,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Local-First Sync Engine Case Study. How local-first apps synchronize CRDT documents with op logs, heads, peer sync state, durable storage, transports, and compaction..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `A CRDT merge rule is not an application. It tells you how concurrent edits can converge, but it does not tell you how an editor saves local work, resumes after a crash, finds missing changes, avoids resending the whole document, or protects a private note from the wrong peer. A local-first sync engine is the runtime around the merge rule.`,
@@ -209,21 +218,21 @@ export const article = {
       ],
     },
     {
-      heading: `The obvious design`,
+      heading: `The obvious approach`,
       paragraphs: [
         `The obvious design makes the server the source of truth and treats the client as a cache. The app sends an edit to the server, waits for acceptance, then updates local state. That design is easy to reason about while every device is online, the server is close, and the product does not need instant response.`,
         `It fails the moment the product expects offline work, low-latency editing, multi-tab continuity, or peer-to-peer collaboration. If the server is in the acknowledgement path for every useful edit, a train tunnel can become a write outage. If the client cache is not the real store, a tab crash can lose work the user already saw on screen.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `The core insight is to treat document history as data, not as a side effect of the latest document snapshot. A CRDT change names its dependencies. Concurrent changes can produce multiple heads. Heads are the frontier of known history. If two peers report different heads, they are not merely "stale"; they know different branches of the change graph.`,
         `Sync then becomes a gap-filling problem. Each peer summarizes what it has, asks for what it lacks, applies missing changes in causal order when possible, and updates its frontier. The document value is the materialized result of the history, but the history is what lets peers converge after partitions.`,
       ],
     },
     {
-      heading: `How the engine works`,
+      heading: `How it works`,
       paragraphs: [
         `A local edit first updates the in-memory document and appends a durable change record. The engine also updates the heads set and queues sync work for known peers. The network is not required for the local acknowledgement. That is the difference between local-first and a web form with optimistic UI.`,
         `When a peer appears, the engine compares sync state. It remembers what heads the peer reported, which changes were already sent, which requests are in flight, and whether the peer is too far behind for a small incremental message. The transport carries sync messages; the engine decides what those messages mean. WebSocket, WebRTC, BroadcastChannel, file export, or a relay can all be adapters.`,
@@ -237,7 +246,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works`,
       paragraphs: [
         `The handshake graph shows the local edit entering the document, change log, and heads set before it reaches the wire. That ordering is the point. Local usefulness does not wait for remote permission. Sync explains already-durable local history to other replicas.`,
         `The storage graph separates UI, repository, local disk, snapshots, change tail, compaction, queue, and network because each one has a different failure mode. If storage and transport blur together, offline support becomes a demo. If snapshots and causal summaries blur together, compaction can make old peers impossible to repair.`,
@@ -251,21 +260,21 @@ export const article = {
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Local-first systems trade central simplicity for edge bookkeeping. Every device needs durable storage, migration logic, quota handling, conflict visibility, and sync observability. Every document may need encryption, share permissions, tombstone strategy, garbage collection, and a way to repair a peer that missed old changes.`,
         `The payoff is responsiveness and resilience. Notes, design tools, field apps, offline forms, personal knowledge bases, project planners, and collaborative editors can keep accepting work under bad Wi-Fi or no Wi-Fi. A central server can still relay messages, store encrypted blobs, perform access checks, and help devices discover each other. It is useful infrastructure, not the only place truth can exist.`,
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `This architecture wins when user trust depends on continuity. A writer should not wonder whether a paragraph typed on a plane counted. A field worker should not lose an inspection because a warehouse had bad coverage. A designer should not wait for a round trip on every shape movement. The local repository accepts the work first and reconciles later.`,
         `It also wins when multiple local surfaces need coordination. Tabs, workers, native shells, mobile background tasks, and browser storage can all see different timing. A sync engine with explicit heads, outboxes, and peer state gives the product a shared truth model across those surfaces instead of ad hoc cache invalidation.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `The hardest failures are often outside the merge law: lost local writes, broken compaction, stale peer state that resends forever, unauthorized peers receiving data, quota exhaustion, schema drift, clock assumptions, and invisible stuck queues. A correct CRDT can still produce a bad product if users cannot tell whether work is saved locally, syncing, synced, blocked, or at risk.`,
         `Security needs its own design. Sharing rules, authentication, encryption or capability discipline, revocation, device loss, and audit logs do not appear automatically because the merge function converges. Observability matters too. Engineers need per-peer sync traces, reset tools, compaction metrics, queue depth, storage pressure, and enough event history to debug a replica that refuses to catch up.`,
@@ -285,5 +294,74 @@ export const article = {
         `Primary sources worth reading are Local-First Software at https://www.inkandswitch.com/essay/local-first/, the local-first paper at https://martin.kleppmann.com/papers/local-first.pdf, Automerge documentation at https://automerge.org/docs/hello/ and https://automerge.org/docs/reference/concepts/, Automerge sync module documentation at https://automerge.org/automerge/automerge/sync/index.html, and Byzantine Eventual Consistency at https://arxiv.org/abs/2012.00472.`,
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for local-first-sync-engine-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

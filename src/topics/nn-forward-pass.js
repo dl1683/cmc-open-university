@@ -1,4 +1,4 @@
-// A neural network forward pass, number by number: a tiny 2-3-1 network
+﻿// A neural network forward pass, number by number: a tiny 2-3-1 network
 // turns two inputs into one prediction. Matrix multiply, add bias, bend,
 // repeat — that is the entire secret.
 
@@ -10,7 +10,7 @@ export const topic = {
   category: 'AI & ML',
   summary: 'Watch two inputs flow through a tiny 2-3-1 network: weights, biases, ReLU, prediction.',
   controls: [
-    { id: 'inputs', label: 'Inputs x₁, x₂', type: 'number-list', defaultValue: '2, -1' },
+    { id: 'inputs', label: 'Inputs xâ‚, xâ‚‚', type: 'number-list', defaultValue: '2, -1' },
   ],
   run,
 };
@@ -32,29 +32,29 @@ export function* run(input) {
   const [x1, x2] = parseNumberList(input.inputs, { min: 2, max: 2, label: 'inputs' }).map(round2);
 
   const hiddenCols = [0, 1, 2].map((j) => ({ id: `h${j}`, label: `h${j + 1}` }));
-  const inputCols = [{ id: 'x1', label: 'x₁' }, { id: 'x2', label: 'x₂' }];
+  const inputCols = [{ id: 'x1', label: 'xâ‚' }, { id: 'x2', label: 'xâ‚‚' }];
 
   yield {
     state: matrixState({
-      title: 'Layer 1 weights W₁ (inputs × hidden neurons)',
+      title: 'Layer 1 weights Wâ‚ (inputs Ã— hidden neurons)',
       rows: inputCols.map((c) => ({ id: `r${c.id}`, label: c.label })),
       columns: hiddenCols,
       values: W1,
     }),
     highlight: {},
-    explanation: `A neural network is layers of numbers. This one has 2 inputs, 3 hidden neurons, 1 output — and these are its first-layer WEIGHTS: column j holds what hidden neuron j pays attention to. Weight w[i][j] means "how much input i matters to neuron j". Training (see Gradient Descent) is nothing more than nudging these numbers; today they're frozen so we can watch data flow.`,
+    explanation: `A neural network is layers of numbers. This one has 2 inputs, 3 hidden neurons, 1 output — and these are its first-layer WEIGHTS: column j holds what hidden neuron j pays attention to. Weight w[i][j] means "how much input i matters to neuron j". Training (see Gradient Descent) is nothing more than nudging these numbers; today they\'re frozen so we can watch data flow.`,
   };
 
   const z = [0, 1, 2].map((j) => round2(x1 * W1[0][j] + x2 * W1[1][j] + B1[j]));
   yield {
     state: matrixState({
-      title: 'Hidden pre-activations z = x·W₁ + b₁',
+      title: 'Hidden pre-activations z = xÂ·Wâ‚ + bâ‚',
       rows: [{ id: 'z', label: 'z' }],
       columns: hiddenCols,
       values: [z],
     }),
     highlight: { active: hiddenCols.map((c) => c.id) },
-    explanation: `Feed in x = [${x1}, ${x2}]. Each hidden neuron computes a WEIGHTED SUM of the inputs plus its bias: z₁ = ${x1}×${W1[0][0]} + ${x2}×${W1[1][0]} + ${B1[0]} = ${z[0]}; same recipe gives z₂ = ${z[1]}, z₃ = ${z[2]}. So far this is pure linear algebra — and a stack of ONLY these steps could never learn a curve.`,
+    explanation: `Feed in x = [${x1}, ${x2}]. Each hidden neuron computes a WEIGHTED SUM of the inputs plus its bias: zâ‚ = ${x1}Ã—${W1[0][0]} + ${x2}Ã—${W1[1][0]} + ${B1[0]} = ${z[0]}; same recipe gives zâ‚‚ = ${z[1]}, zâ‚ƒ = ${z[2]}. So far this is pure linear algebra — and a stack of ONLY these steps could never learn a curve.`,
     invariant: 'Every neuron = weighted sum of the previous layer + bias, then a nonlinearity.',
   };
 
@@ -69,26 +69,26 @@ export function* run(input) {
     }),
     highlight: clipped.length ? { removed: clipped } : {},
     explanation: `Now the bend: ReLU(z) = max(0, z) (see Activation Functions). ${clipped.length
-      ? `Neuron${clipped.length > 1 ? 's' : ''} ${clipped.map((id) => Number(id.slice(1)) + 1).join(' and ')} computed negative z, so ReLU silences ${clipped.length > 1 ? 'them' : 'it'} to exactly 0 — for THIS input, ${clipped.length > 1 ? 'those neurons' : 'that neuron'} simply doesn't participate. Different inputs wake different neurons; that input-dependent routing is where the network's expressive power lives.`
+      ? `Neuron${clipped.length > 1 ? 's' : ''} ${clipped.map((id) => Number(id.slice(1)) + 1).join(' and ')} computed negative z, so ReLU silences ${clipped.length > 1 ? 'them' : 'it'} to exactly 0 — for THIS input, ${clipped.length > 1 ? 'those neurons' : 'that neuron'} simply doesn\'t participate. Different inputs wake different neurons; that input-dependent routing is where the network\'s expressive power lives.`
       : `All three z values were positive, so they pass through unchanged this time — but feed in different inputs and some neurons will be silenced to 0. That input-dependent switching is the nonlinearity doing its job.`}`,
   };
 
   const out = round2(a[0] * W2[0][0] + a[1] * W2[1][0] + a[2] * W2[2][0] + B2[0]);
   yield {
     state: matrixState({
-      title: 'Output = a·W₂ + b₂',
-      rows: [{ id: 'out', label: 'ŷ' }],
+      title: 'Output = aÂ·Wâ‚‚ + bâ‚‚',
+      rows: [{ id: 'out', label: 'Å·' }],
       columns: [{ id: 'y', label: 'prediction' }],
       values: [[out]],
     }),
     highlight: { active: ['out:y'] },
-    explanation: `The output layer is the same recipe once more: ŷ = ${a[0]}×${W2[0][0]} + ${a[1]}×${W2[1][0]} + ${a[2]}×${W2[2][0]} + ${B2[0]} = ${out}. For classification you'd push this through Softmax & Temperature to get probabilities; for regression, ${out} IS the answer.`,
+    explanation: `The output layer is the same recipe once more: Å· = ${a[0]}Ã—${W2[0][0]} + ${a[1]}Ã—${W2[1][0]} + ${a[2]}Ã—${W2[2][0]} + ${B2[0]} = ${out}. For classification you\'d push this through Softmax & Temperature to get probabilities; for regression, ${out} IS the answer.`,
   };
 
   yield {
     state: matrixState({
       title: 'The whole network, end to end',
-      rows: [{ id: 'flow', label: 'x→ŷ' }],
+      rows: [{ id: 'flow', label: 'xâ†’Å·' }],
       columns: [
         { id: 'in', label: `[${x1}, ${x2}]` },
         { id: 'hid', label: `[${a.join(', ')}]` },
@@ -97,74 +97,137 @@ export function* run(input) {
       values: [[0.2, 0.55, 0.95]],
     }),
     highlight: {},
-    explanation: `That's a complete forward pass: multiply, add, bend — twice. Everything else is scale: GPT-class models do this exact dance with thousands of dimensions per layer and ~100 layers, mixing in Attention Mechanism blocks between the multiplies. And when the prediction is wrong, the error flows BACKWARD through these same weights to compute the nudge each one needs — gradient descent's backpropagation, the other half of the story.`,
+    explanation: `That\'s a complete forward pass: multiply, add, bend — twice. Everything else is scale: GPT-class models do this exact dance with thousands of dimensions per layer and ~100 layers, mixing in Attention Mechanism blocks between the multiplies. And when the prediction is wrong, the error flows BACKWARD through these same weights to compute the nudge each one needs — gradient descent\'s backpropagation, the other half of the story.`,
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A neural network forward pass is the computation that turns input tensors into output tensors using the network's current parameters. The input might be two numbers, an image, a token sequence, a graph, or a table row. The parameters are weights, biases, normalization statistics, embeddings, and other learned arrays. During a forward pass, those parameters are read, not changed. Data flows through layers, each layer applies a mathematical transform, and the final layer produces a prediction, score, embedding, reconstruction, or next-token logit.`,
-        `The demo uses a tiny 2-3-1 network: two inputs, three hidden neurons, and one output. It computes an affine transform, applies ReLU, then computes another affine transform. That small example is enough to show the contract used by much larger models. A transformer block, a convolutional classifier, and a recommender tower all run forward passes. They differ in layer types and tensor shapes, but they share the same discipline: apply fixed learned parameters to activations in a defined order.`,
+        'The animation traces a single forward pass through a 2-3-1 network: two inputs, three hidden neurons, one output. Each frame shows one stage of the computation: the weight matrix, the weighted sums (pre-activations), the ReLU activation, the output, and then the full end-to-end summary.',
+        'Active (highlighted) cells are the values being computed right now. When a neuron\'s pre-activation is negative, ReLU silences it to zero and the animation marks it as removed -- that neuron contributes nothing to the output for this particular input. Different inputs activate different subsets of neurons; watch how changing the inputs in the control box reshapes which neurons fire.',
+        'The key inference at each frame: the weighted sum is pure linear algebra (rotation, scaling, shifting). The ReLU bend is what makes the network more than a single matrix multiply. Without that bend, every layer would collapse into one.',
       ],
     },
     {
-      heading: `The Obvious Approach And The Wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach to prediction is to hand-write a rule: if income is high and debt is low, approve the loan; if a pixel pattern looks like an edge, mark the image; if a sentence contains certain words, classify it as spam. Hand-written rules hit a wall because real patterns are too numerous, noisy, and interacting. Neural networks replace thousands of brittle rules with arrays of parameters learned from data. The forward pass is how those learned parameters are applied after training.`,
-        `A second wall appears if the model is only linear. A stack of affine layers without nonlinearities collapses into one affine layer. It can rotate, scale, and shift data, but it cannot carve curved decision regions or build input-dependent features. Activations such as ReLU, sigmoid, tanh, GELU, and softmax add the bends that make composition useful. The forward pass therefore alternates linear mixing with nonlinear operations and sometimes normalization, pooling, attention, or residual addition.`,
+        'In 1943, Warren McCulloch and Walter Pitts published the first mathematical model of a neuron: a binary threshold unit that fires when the weighted sum of its inputs exceeds a threshold. It was a logic gate, not a learning machine, but it proved that networks of simple units could compute any Boolean function. The question shifted from "can a machine compute?" to "can a machine learn which computation to perform?"',
+        'Frank Rosenblatt answered in 1958 with the Perceptron: a single-layer network with a learning rule that adjusted weights from labeled examples. The Perceptron could learn any linearly separable function -- and it came with a convergence proof. If a separating hyperplane exists, the algorithm finds it in finite steps. For a few years, connectionism looked like the path to artificial intelligence.',
+        'Then in 1969, Marvin Minsky and Seymour Papert published Perceptrons, proving that a single-layer perceptron cannot learn XOR. The four points (0,0)=0, (0,1)=1, (1,0)=1, (1,1)=0 are not linearly separable -- no single line in 2D divides the 0-class from the 1-class. This was not a flaw in the learning rule. It was a representational limit: one layer of weights can only carve linear boundaries. The book chilled neural network research for over a decade.',
+        'The fix was hiding layers. A multi-layer network with nonlinear activations can learn XOR and much more. Rumelhart, Hinton, and Williams showed in 1986 that backpropagation could train these deeper networks by propagating error gradients layer by layer. And Cybenko proved in 1989 that a single hidden layer with enough neurons and a squashing activation can approximate any continuous function to arbitrary precision (the Universal Approximation Theorem). The forward pass -- multiply by weights, add bias, apply nonlinearity, repeat -- is the computation that makes all of this work.',
       ],
     },
     {
-      heading: `The Core Insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that a neural network is a composed function whose intermediate values are learned representations. The first layer does not need to solve the whole task. It only needs to transform raw input into features that later layers can use. A hidden activation is not just a number produced on the way to the answer; it is the current representation of the example at that depth. Later layers recombine those representations into more task-specific evidence.`,
-        `This also explains why the same forward pass is central to both inference and training. In inference, the output is consumed by an application. In training, the output is compared with a target to compute a loss. The backward pass then reuses many stored forward values to compute gradients. Without a correct forward pass, there is no prediction, no loss, and no useful gradient.`,
+        'The simplest learnable predictor is the linear model: y = Wx + b. It is fast, interpretable, and optimal when the true relationship is a hyperplane. Logistic regression extends it to classification by pushing the linear output through a sigmoid. These models work well when features are hand-engineered and the decision boundary is roughly linear.',
+        'The wall is nonlinearity. XOR is the textbook example: no single line separates (0,0)/(1,1) from (0,1)/(1,0). But the same limit bites in practice everywhere. Classifying images by raw pixel sums fails because object identity depends on spatial patterns, not pixel averages. Predicting stock returns from raw prices fails because the relationship is nonlinear and context-dependent. Any problem where the answer depends on interactions between features -- not just their weighted sum -- defeats a linear model.',
       ],
     },
     {
-      heading: `Mechanism And Data Structures`,
+      heading: 'The wall',
       paragraphs: [
-        `The main data structures are tensors. A single example is often represented as a vector. A batch is a matrix or higher-rank tensor whose leading dimension is batch size. A dense layer stores a weight matrix and a bias vector. If activations have shape B by M and the layer maps M inputs to N outputs, the weight matrix has shape M by N, the bias has shape N, and the output has shape B by N. The layer computes output = input * weight + bias, with broadcasting used to add the bias to every row in the batch.`,
-        `The demo's hidden layer follows exactly that rule. For input x = [2, -1], each hidden neuron reads one column of the first weight matrix, computes a weighted sum, and adds its bias. The pre-activation values are z1 = 0.7, z2 = -2.3, and z3 = 1.95. ReLU converts them to [0.7, 0, 1.95]. The zero is meaningful: for this input, the second hidden neuron is inactive and sends no positive signal to the next layer. The output layer then combines the three hidden activations with a second weight matrix and one output bias.`,
-        `Implementations also store metadata: tensor shape, dtype, device placement, memory layout, and sometimes strides. During training, the framework stores activations or recomputes them later so the backward pass can calculate gradients. During inference, many of those saved training buffers are unnecessary, but large models still store temporary activations, key-value caches, attention masks, and output logits. The forward pass is simple in concept, but the runtime is a careful schedule of matrix multiplications, memory reads, kernel launches, and reductions.`,
+        'Stacking linear layers does not help. If layer 1 computes h = W1*x + b1 and layer 2 computes y = W2*h + b2, substitution gives y = W2*(W1*x + b1) + b2 = (W2*W1)*x + (W2*b1 + b2). The composition of two affine transforms is still one affine transform. Ten layers of linear maps collapse into a single matrix multiply. Depth without nonlinearity is an illusion.',
+        'The fix is simple: insert a nonlinear activation between layers. ReLU(z) = max(0, z) is the most common choice. After the linear mix, ReLU zeros out negative values and passes positive values unchanged. This piecewise-linear bend means the composition of two layers is no longer reducible to one. Each layer can carve the input space into regions and build features that the next layer recombines. The forward pass alternates: linear transform, nonlinear activation, linear transform, nonlinear activation.',
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: 'The core insight',
       paragraphs: [
-        `A forward pass works because training has already shaped the parameters into useful transformations. A random network also has a forward pass, but its outputs are usually meaningless. Training adjusts weights so that useful signals survive and unhelpful signals are suppressed. Once learned, those weights define a function that can be evaluated quickly on new inputs. The model does not look up a stored answer for each example. It applies a parameterized computation that can generalize when the learned structure matches the data distribution.`,
-        `Composition is the reason this scales. One layer can detect simple features, the next can combine them, and deeper layers can represent more abstract relationships. In language models, embedding layers turn token ids into vectors, attention mixes information across positions, feed-forward layers transform each position, and the final projection produces logits over the vocabulary. The output is still the result of a forward pass: read current activations, apply learned tensors, pass the result onward.`,
+        'A neural network is a composed function whose intermediate values are learned representations. The first layer does not solve the whole task. It transforms raw input into features the next layer can use. A hidden activation is not just a number on the way to the answer -- it is the network\'s internal representation of the input at that depth.',
+        'This is why depth matters more than width. Each layer composes features from the previous layer into higher-level abstractions. In a vision network, early layers detect edges, middle layers combine edges into textures and shapes, deep layers recognize objects. In a language model, early layers capture token identity, middle layers build syntactic structure, deep layers encode semantic meaning. A single wide layer could in theory approximate any function (Universal Approximation), but the number of neurons required can grow exponentially. Depth lets the network reuse features compositionally, which is dramatically more parameter-efficient.',
+        'The forward pass is also the foundation of training. During inference, the output is consumed by an application. During training, the output is compared to a target to compute a loss. Backpropagation then flows error gradients backward through the same layers, using stored forward-pass activations to compute how each weight should change. No correct forward pass means no meaningful loss and no useful gradient.',
       ],
     },
     {
-      heading: `Evaluation And Operational Signals`,
+      heading: 'How it works',
       paragraphs: [
-        `For correctness, inspect output shapes, dtype, value ranges, and whether the final activation matches the task. Regression may need an unconstrained number. Binary classification may need a logit passed through sigmoid. Multiclass classification usually produces logits passed through softmax. Ranking systems may use scores without calibrated probabilities. If the downstream system expects probabilities, calibration matters; a high logit margin is not automatically a trustworthy probability.`,
-        `For operations, monitor latency, throughput, memory use, batch size, device utilization, and numerical stability. On GPUs, dense layers are often limited by matrix-multiplication throughput or memory bandwidth. Small batches may underuse the device; huge batches may increase latency or exceed memory. In language models, prompt prefill is dominated by processing the input sequence, while token decoding repeatedly runs smaller forward passes that reuse a key-value cache. Quantization, fused kernels, compilation, and batching all change forward-pass economics without changing the mathematical function in the article's tiny example.`,
+        'A dense (fully connected) layer stores a weight matrix W of shape M-by-N and a bias vector b of shape N, where M is the input dimension and N is the output dimension. Given an input vector x of length M, the layer computes z = x*W + b, producing a vector of length N. For a batch of B examples, the input is a B-by-M matrix, and the output is B-by-N, with the bias broadcast across rows.',
+        'The demo\'s hidden layer follows this rule exactly. For input x = [2, -1], each of the three hidden neurons reads one column of the 2-by-3 weight matrix, computes a weighted sum with the two inputs, and adds its scalar bias. The pre-activation values are z1 = 2*0.5 + (-1)*0.4 + 0.1 = 0.7, z2 = 2*(-0.6) + (-1)*0.9 + (-0.2) = -2.3, z3 = 2*0.8 + (-1)*(-0.3) + 0.05 = 1.95.',
+        'ReLU converts these to [0.7, 0, 1.95]. The zero matters: for this input, the second neuron is inactive. It sends no signal to the output layer. Different inputs activate different subsets of neurons -- this input-dependent routing is the source of the network\'s expressive power. The output layer then combines the three hidden activations with a second weight matrix (3-by-1) and one bias to produce the final scalar prediction.',
+        'In production frameworks, the forward pass also manages tensor metadata (shape, dtype, device placement, memory layout), gradient tape for training, and temporary buffers for attention masks, key-value caches, and intermediate activations. The math is simple; the runtime is a carefully scheduled sequence of matrix multiplications, memory transfers, and kernel launches.',
       ],
     },
     {
-      heading: `Where It Is Useful`,
+      heading: 'Why it works',
       paragraphs: [
-        `Every deployed neural application is built around forward passes. A fraud model scores a transaction. A medical classifier scores an image. A recommender ranks candidate items. A speech model turns audio frames into token probabilities. A vision encoder produces embeddings for search. A language model runs a forward pass over the prompt and then another step for each generated token. Even when a system includes retrieval, rules, caching, or tools, the neural component still enters through this same left-to-right tensor computation.`,
-        `Training workloads also spend much of their time in forward passes. Each mini-batch runs forward to compute predictions and a loss before backpropagation begins. Debugging training often starts by checking the forward pass on one batch: Are shapes correct? Are logits finite? Is the loss nonzero? Do activations saturate? Does a tiny model overfit a tiny dataset? These checks catch many errors before optimizer settings matter.`,
+        'A trained network\'s forward pass works because gradient descent has already shaped its parameters into useful transformations. A randomly initialized network also runs a forward pass, but its outputs are meaningless noise. Training iteratively adjusts weights so that useful input features produce strong signals and irrelevant features are suppressed. After training, the weights encode a function that generalizes to new inputs -- not by memorizing examples, but by learning the structure of the input-output relationship.',
+        'Composition is the mechanism that lets this scale. A single ReLU neuron divides the input space with one hyperplane. A layer of N neurons divides it with N hyperplanes, creating up to 2^N regions. A second layer can combine these regions into more complex shapes. Deeper networks compose exponentially more decision regions per parameter than wide shallow networks. This is why a 100-layer transformer with 175 billion parameters can model language: each layer builds on the representations computed by the layer below, creating an abstraction hierarchy from tokens to syntax to semantics.',
       ],
     },
     {
-      heading: `Where It Fails`,
+      heading: 'Cost and behavior',
       paragraphs: [
-        `A forward pass is only as good as the learned parameters and the input representation. If features at serving time differ from training features, the computation can be perfectly executed and still wrong. If a classifier receives out-of-distribution examples, it may produce confident logits because the function is forced to output something. If preprocessing is inconsistent, token ids, normalized values, or image channels can be shifted before the network even begins.`,
-        `Do not anthropomorphize individual neurons. A neuron computes a weighted sum, bias, and activation. Interpretability becomes difficult because many such computations compose across layers and because features may be distributed. Do not confuse inference with learning either. Unless weights, adapter parameters, memory, or some external state are updated, a forward pass is applying what training already stored. Prompting a language model changes the input context; it does not update the model weights.`,
+        'A single dense layer with M inputs and N outputs costs O(M*N) multiplications plus N additions for bias. The demo\'s 2-3-1 network does 6 multiplies in layer 1 and 3 in layer 2 -- trivial. For GPT-scale models with hidden dimension 12,288 and 96 layers, each feed-forward block runs two matmuls of size 12,288 by 49,152, totaling roughly 2.4 billion multiplies per layer per token.',
+        'Memory follows the same pattern. Inference stores activations for the current layer plus weight tensors. Training stores activations from every layer because backpropagation needs them for gradient computation. Doubling hidden dimension quadruples weight count per dense layer and doubles activation memory per layer. Doubling depth doubles both compute and activation memory linearly.',
+        'On GPUs, the dominant cost is usually memory bandwidth for reading weight matrices, not arithmetic. Small batch sizes underuse the hardware because the GPU finishes the math before the next weight tile arrives from memory. Larger batches amortize the weight-read cost across more examples, improving throughput until memory limits hit.',
       ],
     },
     {
-      heading: `What To Study Next`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Study activation functions to understand the bends that make neural networks more than linear maps. Study backpropagation and gradient descent to see how the same computation becomes trainable. Study softmax, logits, and calibration for classifier outputs. Study layer normalization, residual connections, attention, convolution, and transformer blocks to see richer layer contracts. For serving systems, study quantization, batching, key-value caches, and GPU memory bandwidth, because most production cost is paid while running forward passes at scale.`,
+        'Every deployed neural system is built around forward passes. A fraud detector scores transactions by running account features through a feedforward network. Medical imaging classifiers run pixel arrays through convolutional layers (which are structured forward passes with weight sharing). Recommender systems score candidate items by forwarding user and item embeddings through interaction layers. Language models run a forward pass over the prompt (prefill) and then one forward pass per generated token (decode), each time producing a probability distribution over the vocabulary.',
+        'Training is also dominated by forward passes. Each mini-batch runs forward to compute predictions and loss before backpropagation begins. Debugging training starts with forward-pass sanity checks: are shapes correct, are logits finite, is the loss nonzero, do activations saturate, can a tiny model overfit a tiny dataset? These checks catch most errors before optimizer settings matter.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A forward pass is only as good as its learned weights and its input representation. If serving-time features differ from training features (different normalization, different tokenization, shifted distributions), the computation executes perfectly and still produces wrong answers. Out-of-distribution inputs are dangerous because the network must produce some output -- it cannot say "I don\'t know" without explicit calibration or abstention mechanisms.',
+        'Do not anthropomorphize neurons. A neuron computes a weighted sum, adds a bias, and applies an activation. Individual neurons rarely have clean semantic interpretations because features are distributed across many neurons and composed across layers. Do not confuse inference with learning: unless weights or adapter parameters are updated, a forward pass applies what training already stored. Prompting a language model changes the input context; it does not change the model\'s weights.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Input: x = [2, -1]. Layer 1 weights W1 (shape 2x3), biases B1 (shape 3).',
+        'Hidden pre-activations: z1 = 2*0.5 + (-1)*0.4 + 0.1 = 0.7. z2 = 2*(-0.6) + (-1)*0.9 + (-0.2) = -2.3. z3 = 2*0.8 + (-1)*(-0.3) + 0.05 = 1.95.',
+        'ReLU activation: a = [max(0, 0.7), max(0, -2.3), max(0, 1.95)] = [0.7, 0, 1.95]. Neuron 2 is dead for this input because its pre-activation was negative.',
+        'Output: y = 0.7*0.7 + 0*(-0.5) + 1.95*0.6 + 0.15 = 0.49 + 0 + 1.17 + 0.15 = 1.81. That single number is the network\'s prediction for input [2, -1] given these frozen weights.',
+      ],
+    },
+    {
+      heading: 'Worked example: XOR with a hidden layer',
+      paragraphs: [
+        'XOR cannot be solved by a single-layer perceptron. Here is a 2-2-1 network that solves it, with actual weights you can verify by hand.',
+        'Inputs: (0,0), (0,1), (1,0), (1,1). Targets: 0, 1, 1, 0. Hidden layer: 2 neurons, W1 = [[1,1],[1,1]], b1 = [0,-1], activation = ReLU.',
+        'Trace each input. (0,0): z = [0+0+0, 0+0-1] = [0,-1], h = ReLU = [0,0]. (0,1): z = [0+1+0, 0+1-1] = [1,0], h = [1,0]. (1,0): z = [1+0+0, 1+0-1] = [1,0], h = [1,0]. (1,1): z = [1+1+0, 1+1-1] = [2,1], h = [2,1].',
+        'The hidden layer has remapped the four input points into a new space. In the original 2D space, XOR is not linearly separable. In the hidden space, the points that should output 1 -- (0,1) and (1,0) -- both land at [1,0], while (0,0) lands at [0,0] and (1,1) lands at [2,1]. A single line in this new space can separate them.',
+        'Output layer: W2 = [1,-2], b2 = 0. y(0,0) = 0*1 + 0*(-2) = 0. y(0,1) = 1*1 + 0*(-2) = 1. y(1,0) = 1*1 + 0*(-2) = 1. y(1,1) = 2*1 + 1*(-2) = 0. XOR solved. The hidden layer\'s job was to create a representation where the problem becomes linearly separable. That is what every hidden layer in every neural network does.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'McCulloch & Pitts 1943 (A Logical Calculus of the Ideas Immanent in Nervous Activity -- first mathematical neuron model, binary threshold units computing Boolean functions). Rosenblatt 1958 (The Perceptron: A Probabilistic Model for Information Storage and Organization in the Brain -- single-layer learning with convergence proof). Minsky & Papert 1969 (Perceptrons -- proved single-layer networks cannot learn XOR, paused the field for a decade). Rumelhart, Hinton & Williams 1986 (Learning Representations by Back-propagating Errors -- made training multi-layer networks practical). Cybenko 1989 (Approximation by Superpositions of a Sigmoidal Function -- Universal Approximation Theorem). Hornik 1991 (generalized universal approximation to arbitrary activations).',
+        'Study next: Backpropagation (how error gradients flow backward through these same layers to compute weight updates -- the other half of neural network training). Activation Functions (ReLU, sigmoid, tanh, GELU -- the nonlinear bends between layers that make depth useful; without them, the network collapses to a single linear transform). Gradient Descent (how computed gradients become actual weight updates -- learning rate, momentum, Adam). Loss Functions (what the network is trying to minimize -- MSE for regression, cross-entropy for classification, the choice shapes what "correct" means). Transformer (the modern architecture that replaced feedforward-only networks for sequence tasks -- attention layers interleaved with the same multiply-add-bend forward pass shown here).',
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Prerequisites: matrix multiplication (the forward pass is matmuls -- if you cannot multiply a 2x3 matrix by a 3x1 vector, start there), activation functions (what makes a network nonlinear), loss functions (what the network optimizes).',
+        'This unlocks: all of deep learning. CNNs, RNNs, Transformers, GANs, autoencoders, diffusion models -- every one runs forward passes with the same multiply-add-bend discipline shown here, just with different layer types and tensor shapes.',
+        'Transfer: a neural network is a differentiable function approximator. Any problem reducible to "learn a function from input-output examples" is a neural network candidate. Fraud detection, protein folding, speech recognition, image generation, and language modeling all reduce to this pattern.',
+      ],
+    },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you compute the forward pass for a 2-layer network: input x=[1,2], W1=[[0.5,0.3],[0.2,0.8]], b1=[0,0], activation=ReLU, W2=[0.4,0.6], b2=0? [h=ReLU([0.5*1+0.3*2, 0.2*1+0.8*2])=ReLU([1.1,1.8])=[1.1,1.8], y=0.4*1.1+0.6*1.8=1.52].',
+            'Can you explain why a network without activations is just one big linear function? Composing linear functions: W2*(W1*x) = (W2*W1)*x -- the product of two matrices is still a matrix, so any number of linear layers collapses to one.',
+            'Can you show that XOR requires a hidden layer? Draw the four points (0,0)=0, (0,1)=1, (1,0)=1, (1,1)=0 in 2D space and verify that no single straight line separates the 0-class from the 1-class.',
+            'Can you explain the Universal Approximation Theorem in one sentence? A single hidden layer with enough neurons and a nonlinear activation can approximate any continuous function on a compact set to arbitrary precision.',
+          ],
+        },
       ],
     },
   ],
 };
+

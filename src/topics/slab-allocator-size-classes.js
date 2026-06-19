@@ -224,6 +224,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Slab Allocator & Size Classes. A small-object allocation pattern: round requests to size classes, keep free objects inside slabs/spans, and cache hot freelists per thread or CPU..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "Modern systems allocate huge numbers of small objects: request structs, map entries, timers, socket buffers, AST nodes, queue items, and short-lived strings. Treating every 24-byte, 72-byte, or 128-byte request as a custom heap search wastes time and creates fragmentation.",
@@ -252,14 +261,14 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         "The size-class view shows the common path. A request is rounded, mapped to a class, and served from a local free list if possible. The key idea is that allocation is no longer a search problem for the common case; it is a table lookup and a pop.",
         "The slabs-and-caches view shows why the hierarchy exists. Local caches give speed, central lists give sharing, and page-level memory gives large backing chunks. A good allocator moves memory between those layers without making every allocation pay the full coordination cost.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         "Allocation starts by mapping the requested size to a class. That mapping may be a lookup table for small sizes and arithmetic for larger classes. The allocator checks a thread-local, CPU-local, or arena-local cache for that class. If a slot is available, it pops the slot and returns it.",
         "On a local miss, the allocator refills from a central free list, usually in a batch. On a central miss, it obtains a new slab or span from page-level memory and carves it into equal slots. Free usually returns the object to the local cache for its class. If that cache is too full, it flushes a batch back to the central pool.",
@@ -295,7 +304,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         "Slab allocation wins for frequent small allocations with repeatable sizes and lifetimes: kernel objects, network buffers, request structs, compiler nodes, runtime objects, cache entries, and server-side data structures. It is especially valuable when the same sizes are allocated and freed repeatedly.",
         "Linux SLAB and SLUB organize kernel objects into caches and slabs above page allocation. TCMalloc uses front-end caches, central free lists or transfer caches, and a page heap. jemalloc uses size classes, thread caches, arenas, bins, and extents. The names differ, but the hierarchy is stable: local free lists, central pools, and larger backing memory.",
@@ -309,18 +318,73 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         "Watch for retained memory after traffic drops, class imbalance where one size class grows without bound, cross-thread frees that defeat locality, false sharing between adjacent objects, and debug features that change the performance profile. Allocator telemetry should separate requested bytes, allocated class bytes, retained bytes, and returned-to-OS bytes.",
         "Security hardening also changes the picture. Quarantine, guard pages, canaries, memory tagging, junk filling, and randomization can make allocation safer but slower or larger. A production allocator choice is a systems tradeoff, not just a data-structure benchmark.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         "Primary sources: Linux slab allocator chapter at https://www.kernel.org/doc/gorman/html/understand/understand011.html, Oracle Linux SLUB internals at https://blogs.oracle.com/linux/linux-slub-allocator-internals-and-debugging-1, TCMalloc design at https://google.github.io/tcmalloc/design.html, gperftools TCMalloc notes at https://pages.cs.wisc.edu/~danb/google-perftools-0.98/tcmalloc.html, jemalloc manual at https://jemalloc.net/jemalloc.3.html, and Meta engineering on jemalloc at https://engineering.fb.com/2011/01/03/core-infra/scalable-memory-allocation-using-jemalloc/.",
         "Study Buddy Allocator Free Lists for page-level backing memory, TLSF Real-Time Allocator Bitmap Index for bounded-time allocation, GPU Memory Pool Fragmentation Ledger for another pooling problem, Generational Arena Slot Map for stable object handles, Linked List and Ring Buffer for free-list mechanics, Hazard Pointers and Epoch Reclamation for safe reclamation, and LRU Cache for object reuse under pressure.",
       ],
     },
-  ],
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Slab Allocator & Size Classes moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

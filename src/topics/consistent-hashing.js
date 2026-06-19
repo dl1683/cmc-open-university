@@ -104,107 +104,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why consistent hashing exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Distributed caches and storage systems need a deterministic answer to one question: which node owns this key? The answer must keep working while nodes are added, removed, replaced, or temporarily unreachable.',
-        'The constraint is movement. Reassigning every key after one node change is not just expensive; it can destroy cache hit rate, flood the network with migration traffic, and make recovery slower than the original failure.',
-        'Consistent hashing is the classic ring-based answer: put both nodes and keys in the same hash space, then assign each key to the first node clockwise from the key.',
+        'The circle is the hash ring -- a continuous space from 0 to 2^32 (shown here as 0 to 359 degrees for clarity). Server nodes sit at fixed positions on the ring. Keys also hash onto the ring, and each key belongs to the first server found by walking clockwise from the key\'s position. The label on each key shows its current owner.',
+        'When a server is added, watch which keys change labels. Only keys sitting between the new server and its counter-clockwise neighbor move. Every other key still finds the same first-clockwise server. When a server is removed, only that server\'s keys continue clockwise to the next live node. The animation makes the local-movement property visible: ring changes are neighborhood events, not global reshuffles.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is modulo hashing: `owner = hash(key) % server_count`. It is simple, stateless, and balanced when the server count is fixed.',
-        'The wall is that the divisor is part of the answer. Change 10 servers to 11 and most remainders change. A scale-out event becomes a near-total reshuffle, exactly when the system is already under operational pressure.',
-        'A ring separates placement from the raw number of servers. Membership changes alter token ranges rather than changing the arithmetic for every key.',
+        'Distributed caches and storage clusters need a deterministic rule for "which server owns this key?" The rule must survive topology changes -- servers join, crash, and scale out routinely. Karger, Lehman, Leighton, and colleagues at MIT introduced consistent hashing in 1997 to solve this for Akamai\'s web caching layer. The core guarantee: when a server joins or leaves, only K/N keys need to move (K total keys, N servers), not all of them.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A node owns an interval on the ring. Adding a node splits one existing interval. Removing a node hands one interval to the next live node. The invariant is local movement: membership changes disturb neighbors, not the whole cluster.',
-        'The system does not need a central lookup table for every key. It needs agreement on the much smaller token list and on the hash function.',
-        'That is the conceptual shift from modulo hashing. The keyspace stays stable while membership changes. Nodes enter and leave by claiming or releasing ranges inside that stable keyspace.',
+        'Modulo hashing: compute hash(key) % N, where N is the server count. Simple, stateless, and perfectly balanced when N is fixed. No ring, no metadata, no coordination -- just arithmetic.',
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'The wall',
       paragraphs: [
-        'In the first frame, read the server positions as token ownership boundaries. A key belongs to the first server clockwise from its hash position. The note on each key shows the owner produced by that rule.',
-        'In the add-server view, S4 splits the range that previously flowed to S1. Only keys inside that range move. In the remove-server view, only keys owned by the removed server continue to the next live token.',
-        'The animation is showing why ring movement is local. It is not proving load balance by itself; virtual nodes and capacity weighting are the production mechanisms that smooth uneven gaps.',
+        'N is baked into every assignment. Change 3 servers to 2, and nearly every key gets a new remainder. Concrete example: with 3 servers, key 17 maps to server 17 % 3 = 2, key 42 to 42 % 3 = 0, key 58 to 58 % 3 = 1, key 73 to 73 % 3 = 1, key 86 to 86 % 3 = 2, key 91 to 91 % 3 = 1. Remove one server (N = 2) and recompute: 17 % 2 = 1, 42 % 2 = 0, 58 % 2 = 0, 73 % 2 = 1, 86 % 2 = 0, 91 % 2 = 1. Five of six keys changed owners. In a cache cluster, every remapped key is a cache miss. The backend absorbs a spike of requests for data that was cached seconds ago. At scale, this miss storm can cascade into a full outage -- and it happens precisely when the system is already under stress from a server failure.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A client hashes the key onto a ring, finds the first token clockwise, and sends the request to the physical node that owns that token. The token list is sorted, so lookup is a binary search over ring positions.',
-        'Real deployments use virtual nodes, also called tokens. One physical node appears at many ring positions so random gaps smooth out. Capacity weighting becomes a metadata problem: give a larger machine more tokens or larger ranges. Replication usually walks clockwise to the next distinct physical nodes.',
+        'Hash both keys and servers onto a circular space [0, 2^32). Each key walks clockwise until it hits a server; that server is the owner. The ring is stored as a sorted array of server tokens, so finding the owner is a binary search for the first token >= hash(key), wrapping to the first token if the hash exceeds the maximum.',
+        'Virtual nodes (vnodes) solve load balance. Instead of one ring position per physical server, each server claims many positions -- typically 100 to 200 -- computed as hash(server_id + "-" + i) for i from 0 to v-1. With enough vnodes the central limit theorem kicks in: each server\'s share of the ring converges toward 1/N. Capacity weighting is straightforward -- give a stronger machine more vnodes.',
+        'Adding a server places new tokens on the ring. Each new token steals a slice of keyspace from its clockwise successor and nothing else. Removing a server deletes its tokens; each slice merges into the next live successor. Replication follows the same ring: store copies on the next distinct physical nodes clockwise, giving a deterministic failover list without a per-key replica table.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is interval ownership. Every point on the ring has exactly one first clockwise token, so every key has a deterministic owner when membership is known. When a token is inserted, only points between the previous token and the new token see a different first-clockwise answer.',
-        'When a token is removed, only the points in its old interval need a new owner. They move to the next live token. All other points still find the same first-clockwise server as before.',
+        'Every point on the ring has exactly one first-clockwise token, so every key has a deterministic owner given the same membership list. When a new token is inserted, only points between the new token and its predecessor see a different first-clockwise answer. When a token is removed, only its owned interval moves -- to the next live token. All other keys are unaffected.',
+        'The K/N bound follows from symmetry: with N servers each owning roughly 1/N of the ring, a new server\'s tokens collectively cover about 1/N of the total keyspace, so roughly K/N keys move. Virtual nodes make this bound tight by smoothing interval sizes, turning the expected K/N from an average-case claim into a near-certain outcome.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Suppose S1, S2, and S3 own token ranges on a ring. Key 86 hashes into the range before S1, so S1 owns it. Adding S4 at token 320 splits the old S1 range. Keys between S3 and S4 now move to S4; keys elsewhere do not move.',
-        'If S2 fails, only S2-owned keys move to S3, its clockwise successor. Replicated systems usually store copies on successors already, so failover is a matter of routing plus consistency repair rather than inventing a new placement rule.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Lookup is O(log T) with binary search over T sorted tokens, or effectively constant when T is small and cached. Ring metadata is O(T), where T is the number of virtual tokens, not the number of keys.',
-        'Rebalancing is the real cost. Adding one equal-capacity node to N nodes moves roughly K / (N + 1) keys, plus network transfer, compaction, cache warming, and replica repair. The algorithm minimizes which keys move; it does not make moving bytes free.',
-        'Virtual nodes add another cost: more metadata and more ranges to track. That is usually worth it because a few physical nodes placed randomly on a ring can have very uneven interval sizes. Many tokens per node turn one unlucky large interval into many smaller independent intervals.',
+        'Lookup costs O(log T) via binary search over T sorted tokens. With vnodes, T = N * v. For 50 servers with 150 vnodes each, that is log2(7500) -- about 13 comparisons. The token array is small enough to sit in L1 cache, so each comparison takes nanoseconds.',
+        'Membership changes move O(K/N) keys. The algorithm decides which keys move; it does not make moving bytes free. Each migration still involves network transfer, cache warming, compaction, and replica repair.',
+        'Space is O(T) for the token ring metadata -- proportional to virtual node count, not to key count. 7,500 tokens at 8 bytes each is 60 KB. The tradeoff for vnodes is more metadata and more ranges to track, but without them three physical servers can produce wildly uneven arcs (one server owning 50% of the ring while another owns 15%).',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Consistent hashing fits caches, Dynamo-style storage, Cassandra-style token ranges, CDN routing, and any key-owned service where membership changes are routine. Clients can compute ownership locally as long as they share the same ring metadata.',
-        'It also pairs naturally with storage engines: the ring decides which node owns a row, and the local storage engine decides how that node writes, indexes, compacts, and repairs the row.',
+        'Amazon Dynamo (2007) built its key-value storage on consistent hashing with vnodes. The ring determines primary ownership and replica placement; adding capacity means assigning new token ranges, not reshuffling the cluster. Apache Cassandra adopted the same model -- each node owns a token range and replicates to the next N-1 distinct clockwise nodes.',
+        'Memcached client libraries use the ketama algorithm (from Last.fm): each server gets 100-200 points on a 32-bit ring, and clients binary-search locally to route keys. Adding a server to a 10-node pool moves roughly 10% of keys, not 90%. CDN edge routing works the same way -- Akamai, co-founded by Karger, used consistent hashing from the start to assign URLs to edge caches.',
+        'The pattern fits any system where clients can compute ownership locally given shared ring metadata: load balancers, distributed locks, sharded queues, and Chord-style DHTs.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The ring is deterministic only if participants see the same membership list. A stale client can route to the wrong owner. Systems need gossip, a control plane, or a strongly consistent metadata store to distribute ring changes.',
-        'Even key counts are not even work. One celebrity user, hot product, or tenant batch job can dominate a shard. Virtual nodes smooth ownership, not popularity. Hot-key mitigation needs splitting, caching, batching, or application-level aggregation.',
-        'It also fails when placement must follow physical constraints the hash does not know about. Rack, region, disk class, tenant isolation, and compliance boundaries often require a placement policy layered above the ring.',
+        'The ring is deterministic only when participants see the same membership list. A stale client routes to the wrong server. Systems need gossip, a control plane, or a consistent metadata store to propagate ring changes -- the ring does not solve its own coordination.',
+        'Even key counts are not even load. A single hot key (celebrity user, viral product page, tenant batch job) can saturate one shard. Virtual nodes smooth ownership shares, not request popularity. Hot-key mitigation requires splitting, caching, or application-level routing above the ring.',
+        'Physical constraints break pure hashing. Rack awareness, region affinity, disk class, tenant isolation, and compliance boundaries all require a placement policy layered on top. The ring provides a candidate list; the policy filters it.',
+        'For static server sets where membership never changes, jump consistent hashing (Lamping and Veach, 2014) is simpler: O(1) memory, O(ln N) time, perfect balance, no ring or vnodes. The tradeoff is that it only supports appending or removing the last server, not arbitrary membership changes.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Version the ring metadata and make clients report which version they used for each routed request. During membership changes, this makes stale-routing errors diagnosable instead of mysterious cache misses or misplaced writes.',
-        'Keep token ownership, replica ownership, and data movement as separate records. The ring can say who should own a range; a migration controller still has to copy bytes, verify repair, shift traffic, and retire the old owner safely.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A distributed cache adds a new node during a traffic spike. With modulo hashing, most keys remap and the cache suffers a broad miss storm. With consistent hashing, the new node takes only the ranges that fall between its tokens and their predecessors.',
-        'The cache still has work to do. It must warm those ranges, route clients through a consistent membership view, and avoid overloading the new node while it fills. Consistent hashing limits the blast radius; operational rollout decides whether the change is smooth.',
-      ],
-    },
-    {
-      heading: 'Replica placement',
-      paragraphs: [
-        'Replication usually follows the same ring order but skips duplicate physical nodes. The primary owner is the first clockwise token. The next replicas are the next distinct nodes clockwise. That gives the system a deterministic failover list without storing a per-key replica table.',
-        'Production systems often add placement constraints so replicas do not land on the same rack, zone, or failure domain. The ring gives an ordered candidate list; the placement policy filters that list until it finds acceptable distinct owners.',
+        'Three servers on a ring: S1 at token 20, S2 at 140, S3 at 260. Six keys: key 17 at position 65, key 42 at 110, key 58 at 180, key 73 at 235, key 86 at 295, key 91 at 345. The first-clockwise rule gives: S2 owns keys 17 and 42 (arc 21-140), S3 owns keys 58 and 73 (arc 141-260), S1 owns keys 86 and 91 (arc 261-20, wrapping).',
+        'Add S4 at token 320. S4 takes the arc from 261 to 320, which previously belonged to S1. Key 86 (position 295) now hits S4 before S1. Key 91 (position 345) is past 320, so it still reaches S1. One key moved. The other five are untouched -- each still finds the same first-clockwise server.',
+        'Instead, suppose S2 dies. Its arc (21-140) merges into S3\'s range, because S3 is the next live server clockwise. Keys 17 and 42 move to S3. Keys 58, 73, 86, and 91 stay put. Two keys migrated out of six, compared to five of six under modulo hashing. That is the K/N property: with 3 servers and 6 keys, removing one server moves about 6/3 = 2 keys.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Karger et al. on consistent hashing at https://dl.acm.org/doi/10.1145/258533.258660 and the Dynamo paper at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf.',
-        'Study Hash Table, Sharding & Partitioning, Jump Consistent Hash Case Study, Rendezvous Hashing, Maglev Load Balancer Case Study, CAP Theorem, Gossip Protocol, LSM Trees, Bloom Filter, and Hot Rows & Append-and-Aggregate next.',
+        'Karger, D., Lehman, E., Leighton, T., Panigrahy, R., Levine, M., and Lewin, D. "Consistent Hashing and Random Trees: Distributed Caching Protocols for Relieving Hot Spots on the World Wide Web." ACM STOC, 1997. DeCandia, G. et al. "Dynamo: Amazon\'s Highly Available Key-Value Store." ACM SOSP, 2007. Lamping, J. and Veach, E. "A Fast, Minimal Memory, Consistent Hash Algorithm." arXiv:1406.2294, 2014.',
+        'Prerequisite: Hash Table -- the hash function mechanics that consistent hashing builds on. Extensions: Distributed Hash Table (Chord) for the full peer-to-peer protocol layering routing, replication, and membership atop a ring. Alternatives: Jump Consistent Hashing for static server sets. Related problems: Load Balancing for the broader work-distribution problem; Bloom Filter for the probabilistic membership test often paired with distributed caches.',
       ],
     },
   ],

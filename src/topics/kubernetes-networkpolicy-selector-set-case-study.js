@@ -225,7 +225,8 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
-        'The invariant is deny by isolation, then allow by membership. A Pod is non-isolated until a policy selects it for ingress or egress. Once isolated, traffic must match at least one allowed peer and port expression for that direction.',
+        'The model separates selection from enforcement. Kubernetes stores declarative policy objects. The CNI plugin turns the current selector results into datapath rules. When Pods appear, disappear, or change labels, the selected sets change and the plugin updates enforcement.',
+        'The invariant is deny by isolation, then allow by membership. A Pod is non-isolated until a policy selects it for ingress or egress. Once isolated, traffic must match at least one allowed peer and port expression for that direction. Isolation is direction-specific: a Pod with no matching ingress policy is non-isolated for ingress, and egress has the same shape independently. That is why a policy can surprise teams that only protect ingress but forget DNS or external egress.',
         'For a connection to work, both sides can matter. The destination may need an ingress allow, and the source may need an egress allow. Because policies are additive, adding a new policy can only add allowed traffic for selected Pods; it cannot subtract an older allow.',
       ],
     },
@@ -234,13 +235,6 @@ export const article = {
       paragraphs: [
         'The API object is small, but enforcement cost sits in the network plugin. The CNI must watch policies, Pods, namespaces, labels, IP blocks, and sometimes Services, then update datapath state as membership changes. Label churn can be policy churn.',
         'Human cost is often larger than runtime cost. Review the policy graph as a ledger: which Pods are isolated, which policies add ingress, which add egress, which labels might include future Pods, and which egress exceptions are required for DNS, telemetry, backup, or package mirrors.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The model works because it separates selection from enforcement. Kubernetes stores declarative policy objects. The CNI plugin turns the current selector results into datapath rules. When Pods appear, disappear, or change labels, the selected sets change and the plugin updates enforcement.',
-        'The safety invariant is direction-specific isolation. A Pod with no matching ingress policy is non-isolated for ingress. Once any ingress policy selects it, ingress becomes closed except for the union of allowed peers and ports. Egress has the same shape independently. That is why a policy can surprise teams that only protect ingress but forget DNS or external egress.',
       ],
     },
     {

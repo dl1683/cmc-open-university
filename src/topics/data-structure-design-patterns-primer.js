@@ -1,4 +1,4 @@
-// A capstone primer that links advanced data structures by recurring design
+﻿// A capstone primer that links advanced data structures by recurring design
 // patterns: locality, indirection, summaries, persistence, and precomputation.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -235,92 +235,123 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `This primer exists because advanced data structures can look like a long shelf of unrelated names. SwissTable, FM-index, wavelet tree, segment tree beats, radix heap, roaring bitmap, piece table, and star-tree index seem separate until you ask what design move each one repeats.`,
-        `The useful question is not "what is this structure called?" The useful question is: what invariant makes the important operation cheap, and what cost does that invariant add? Once you learn that question, the curriculum becomes a map. New structures become variations on locality, summaries, precomputation, indirection, persistence, approximation, and workload shape.`,
+        'The pattern-map view draws five reusable design moves -- augmentation, lazy deletion, amortization, path compression, fractional cascading -- as nodes in a graph. Active nodes (highlighted) are the pattern currently under discussion. Found nodes are patterns already connected to concrete structures.',
+        'The tradeoff-audit view is a matrix. Each row is a question you should answer about your workload before choosing a pattern. The plot at the end maps patterns by the speed they buy against the cost they charge. A pattern near the top-right corner buys a lot but charges a lot; one near the bottom-left is cheap but modest.',
+        'Watch how patterns compose: union-find appears at the intersection of path compression and union by rank. That composition is the real lesson. Single patterns solve single problems; composed patterns solve systems problems.',
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to memorize a catalog: arrays are O(1), heaps are O(log n), hash tables are expected O(1), B-trees are for databases, Bloom filters are approximate. That is a decent starting list, but it does not teach design. It does not tell you why one structure fits a workload and another becomes a liability.`,
-        `A second obvious approach is to choose the most advanced structure you know. That usually makes systems worse. A star-tree without stable query shapes wastes storage. A sketch where exactness is required gives wrong answers. A clever cache policy before measuring reuse hides the real bottleneck under complexity.`,
+        'Data structures are usually taught as a catalog: arrays, linked lists, trees, hash tables. Each one gets its own page, its own Big-O table, its own set of operations. That works for learning the parts, but it does not explain how experienced engineers design new structures or modify existing ones to fit a workload.',
+        'Behind every useful modification to a data structure is a reusable pattern -- a move that appears in many contexts under different names. Augmentation shows up in order-statistic trees and interval trees. Lazy deletion shows up in heaps and B-trees. Amortization shows up in dynamic arrays and splay trees. Path compression shows up in union-find and suffix links. Fractional cascading shows up in multi-level search structures and computational geometry.',
+        'This primer names those patterns explicitly so you can recognize them when they appear and apply them when you need them.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The wall is workload shape. Two structures with the same asymptotic lookup time can behave differently because one follows cache lines and the other pointer-chases. Two indexes can answer the same query, but one tolerates writes and the other assumes a mostly static table. Two approximate structures can both save memory, but one permits false positives and another overestimates counts.`,
-        `Big-O is necessary, but it is not enough. Real choices depend on distribution skew, update frequency, range scans, memory layout, concurrency, failure recovery, and whether an occasional wrong answer is allowed. A design pattern primer helps because it names those hidden dimensions before a learner reaches for a famous name.`,
+        'When a data structure does not support an operation efficiently, the obvious fix is to compute the answer from scratch each time. Need the rank of a node in a BST? Walk the left subtree and count. Need to delete from a heap? Find the element by linear scan, remove it, and rebuild. Need to merge two disjoint sets? Copy one set into the other.',
+        'This works. It is correct. For small inputs, it is fast enough. The approach fails only when scale arrives: counting subtree sizes on every query turns O(log n) lookups into O(n) walks; rebuilding heaps after every delete wastes work that could have been saved; copying sets on every merge makes a sequence of n merges cost O(n^2) instead of nearly O(n).',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        `A data structure is a workload-specific invariant with an update cost. The invariant may be sorted order, heap order, hash placement, tree balance, prefix sharing, segment summaries, bitmap compression, reference counts, or probabilistic bit patterns. The update cost is the work required to keep that invariant true as data changes.`,
-        `Design means weakening the right thing. A Bloom filter gives up false-positive-free membership to save memory. A Count-Min Sketch gives up exact counts. A sparse table gives up cheap updates for fast static range queries. A piece table avoids rewriting an edited document by keeping original and add buffers. These are not tricks. They are explicit trades.`,
-        `Each pattern works by preserving information in a form that matches future work. Sorted order lets binary search discard half the candidates. Heap order exposes the minimum without sorting everything. A trie shares prefixes. A segment tree stores enough summaries to combine subranges. A Bloom filter stores enough hashed evidence to prove absence when any required bit is missing.`,
-        `The proof style changes by structure, but the theme is stable. State the invariant, show it is true after construction, show each update preserves it, and show each query reads enough of the invariant to answer correctly or within the promised error. If you cannot state that chain, the structure is not understood yet.`,
+        'The wall is repeated work. Each of the naive approaches above recomputes something that could have been maintained incrementally. Counting subtree sizes recomputes the same subtree sizes on every rank query. Scanning a heap for the delete target ignores the heap structure. Copying set elements moves data that a smarter representation could leave in place.',
+        'The deeper wall is that these costs compound. A system that makes n queries, each costing O(n), pays O(n^2). A system that makes n merges, each copying O(n) elements, also pays O(n^2). At scale, the difference between O(n^2) and O(n log n) or O(n alpha(n)) is the difference between a system that works and one that does not.',
       ],
     },
     {
-      heading: 'Locality and Layout',
+      heading: 'How it works',
       paragraphs: [
-        `Locality is the design move that asks where the next byte will come from. A linked list has simple pointer updates, but traversal can miss cache on every node. A B-tree stores many keys per node so one disk page or cache line eliminates many possibilities. SwissTable packs control bytes and probes in a way that makes hash lookup friendly to SIMD and cache behavior.`,
-        `The layout pattern wins when memory movement dominates arithmetic. Column stores make analytical scans fast because the query touches only needed columns. Archetype ECS stores components by shape so a game loop scans dense arrays. The tax is rigidity: changing shape, moving objects, or preserving stable references becomes harder.`,
+        'Each pattern solves repeated work in a different way. Here are the five patterns and how they operate.',
+        {
+          type: 'table',
+          headers: ['Pattern', 'Core move', 'Classic example', 'What it buys'],
+          rows: [
+            ['Augmentation', 'Store extra data at each node', 'Order-statistic tree (subtree sizes in BST)', 'O(log n) rank/select without traversal'],
+            ['Lazy deletion', 'Mark deleted, clean up later', 'Binary heap with tombstones', 'O(log n) delete without search'],
+            ['Amortization', 'Spread rare expensive ops over many cheap ones', 'Dynamic array doubling', 'O(1) amortized append despite O(n) copies'],
+            ['Path compression', 'Shortcut long chains during traversal', 'Union-find: point nodes directly at root', 'Nearly O(1) find after compression'],
+            ['Fractional cascading', 'Thread pointers between sorted lists', 'Multi-level binary search', 'O(log n + k) search across k sorted lists'],
+          ],
+        },
+        'Augmentation adds metadata to nodes so queries can be answered from local information instead of subtree walks. In an order-statistic tree, each node stores the size of its subtree. To find the rank of a node, walk from root to target, accumulating sizes of left subtrees and the node itself. Insertions and deletions update sizes along the path -- O(log n) extra work per mutation, but rank queries drop from O(n) to O(log n).',
+        {
+          type: 'diagram',
+          label: 'Augmented BST with subtree sizes',
+          text: '        [15] size=7\n       /           \\\n    [10] size=3   [20] size=3\n    /    \\        /    \\\n  [5]    [12]  [17]   [25]\n  s=1    s=1   s=1    s=1\n\nRank of 17: left subtree of 15 has size 3,\nplus 15 itself = 4, then 17 is in left subtree\nof 20, so rank = 3 + 1 + 1 = 5.',
+        },
+        'Lazy deletion marks elements as removed without immediately restructuring. A binary heap supporting arbitrary deletes can mark the target and ignore it when it surfaces at the top during extract-min. The heap property is maintained for all live elements; dead ones are garbage-collected on contact. The tradeoff is that the heap may hold dead weight, wasting memory and slightly slowing extract-min until tombstones are purged.',
+        'Amortization accepts occasional expensive operations as long as the average over a sequence stays cheap. A dynamic array doubles its capacity when full. The doubling costs O(n), but it happens only after n cheap O(1) appends. Spread over the sequence, each append costs O(1) amortized. The banker method assigns two credits per append -- one to pay for the append itself, one saved for the future copy. When the array doubles, the saved credits pay the bill.',
+        'Path compression flattens long chains so future traversals are fast. In union-find, find(x) walks from x to the root of its tree. Path compression makes every node along that path point directly to the root. The next find on any of those nodes is O(1). Combined with union by rank (always attach the shorter tree under the taller one), a sequence of n operations on n elements costs O(n * alpha(n)), where alpha is the inverse Ackermann function -- effectively constant for any practical input size.',
+        'Fractional cascading eliminates redundant binary searches across multiple sorted lists. Given k sorted lists and a query value, naive binary search costs O(k log n). Fractional cascading threads every other element from list i+1 into list i, with pointers back to the original position. The first list still requires O(log n) binary search, but each subsequent list follows a pointer and does O(1) work. Total cost drops to O(log n + k).',
       ],
     },
     {
-      heading: 'Summaries and Precomputation',
+      heading: 'Why it works',
       paragraphs: [
-        `Summaries make repeated questions cheap by storing partial answers. Segment trees store range summaries. Fenwick trees store prefix summaries. Sparse tables precompute overlapping intervals for static queries. Zone maps, min-max indexes, and block statistics let databases skip data that cannot match a predicate.`,
-        `Precomputation is the same move with a larger bill. Apache Pinot star-trees pre-aggregate configured query shapes, making common analytical queries fast by storing grouped results ahead of time. The wall is freshness and flexibility. If the query shape changes or writes are frequent, the precomputed structure may cost more than it saves.`,
+        'Each pattern has a correctness argument rooted in invariant preservation.',
+        'Augmentation works because the stored metadata is updated on every structural change. If every insertion, deletion, and rotation maintains subtree sizes along the affected path, then the size at any node always equals the number of descendants plus one. The rank query reads correct sizes because no mutation leaves a stale count.',
+        'Lazy deletion works because marking an element dead does not violate the structural invariant for live elements. A heap with tombstones still satisfies the heap property among live nodes. The correctness risk is that extract-min must skip dead elements at the top, so the implementation must loop until it finds a live minimum.',
+        'Amortization works because the expensive operation cannot happen often enough to dominate the total cost. The potential function (or credit argument) proves this: each cheap operation raises potential by a bounded amount, and each expensive operation drops potential by at least as much as it costs. The total cost is bounded by the sum of amortized costs plus the net potential change, which is non-negative.',
+        'Path compression works because flattening a tree does not change which elements belong to which set -- it only changes the internal shape. The root stays the same, so find still returns the correct representative. Union by rank ensures trees stay shallow, and compression makes them shallower still. Tarjan proved the combined bound of O(n * alpha(n)) using a potential function based on rank and depth.',
+        'Fractional cascading works because the threaded pointers preserve the relative order between lists. Each pointer from list i to list i+1 lands within one position of the correct answer, so a constant number of comparisons suffice to locate the query value in the next list.',
       ],
     },
     {
-      heading: 'Indirection, Versions, and Approximation',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Indirection adds a level of naming so data can move without breaking users. Handles, page tables, mapping tables, ropes, tries, and LSM manifests all use this idea. The extra lookup is a cost, but the benefit is freedom: move blocks, split nodes, compact files, or keep stable references while storage changes underneath.`,
-        `Versioning is indirection through time. Persistent segment trees copy only the nodes on an update path. MVCC databases keep old versions so readers and writers do not block each other. Piece tables preserve the original file and append new text elsewhere. The tax is garbage collection, memory growth, and more complicated reasoning about which version a reader sees.`,
-        `Approximate structures are useful when the exact answer is too expensive and the product can tolerate a bounded kind of error. Bloom filters answer "definitely absent or maybe present." Count-Min Sketch estimates frequencies with one-sided error. HyperLogLog estimates cardinality. Quantile sketches summarize distributions without storing every value.`,
-        `The important discipline is to name the allowed error before choosing the structure. False positives may be fine for avoiding unnecessary disk reads, but not for authorizing access. Overestimated counts may be fine for telemetry, but not for billing. Approximation is a contract, not a shortcut.`,
+        {
+          type: 'table',
+          headers: ['Pattern', 'Time cost', 'Space cost', 'When input doubles'],
+          rows: [
+            ['Augmentation', 'O(log n) extra per update to maintain metadata', 'O(n) -- one extra field per node', 'Update cost grows by ~1 step; space doubles'],
+            ['Lazy deletion', 'O(1) delete (mark), amortized O(log n) cleanup', 'Up to O(n) tombstones in worst case', 'Tombstone overhead can double; periodic rebuild keeps it bounded'],
+            ['Amortization', 'O(1) amortized per operation', 'O(n) after doubling (up to 2x waste)', 'One extra doubling event; amortized cost unchanged'],
+            ['Path compression', 'O(alpha(n)) amortized per find', 'O(n) for parent pointers', 'alpha(n) stays effectively constant; space doubles'],
+            ['Fractional cascading', 'O(log n + k) for search across k lists', 'O(n * k) augmented storage', 'First search grows by ~1 step; per-list cost unchanged'],
+          ],
+        },
+        'Amortization deserves extra attention because the amortized cost is not the worst-case cost of any single operation. A dynamic array append is usually O(1), but occasionally O(n). If your system cannot tolerate occasional latency spikes -- real-time audio, hard-deadline robotics -- amortized O(1) is not the same as worst-case O(1). Deamortization techniques exist (incremental doubling, rebuilding a fraction per operation) but add implementation complexity.',
+        'Path compression has an amortized cost of O(alpha(n)) per operation, where alpha(n) <= 4 for any n that fits in the observable universe. For practical purposes, treat it as O(1). But the amortized qualifier matters: a single find can still cost O(log n) if the tree is deep and uncompressed. The guarantee is over sequences of operations, not individual ones.',
       ],
     },
     {
-      heading: 'What the Visual Proves',
+      heading: 'Where it wins',
       paragraphs: [
-        `The pattern-map view is a routing diagram. Locality, summary, precompute, version, and approximation are not ranked from basic to advanced. They are questions to ask about the workload. Is the pain bytes? repeated queries? lost history? too much raw data? bounded error?`,
-        `The tradeoff-audit view shows why design starts before implementation. Operation mix, skew, memory layout, error tolerance, and version needs decide whether a structure fits. The plot makes the main engineering point: every move buys speed somewhere and pays in updates, storage, complexity, or risk somewhere else.`,
+        'Augmentation wins whenever you need to answer aggregate queries about subtrees or subranges without scanning. Order-statistic trees power rank/select in databases and text editors. Interval trees augment BSTs with maximum endpoints to find all overlapping intervals in O(log n + k). Red-black trees augmented with subtree sizes power Java TreeMap operations like headMap().size().',
+        'Lazy deletion wins in priority queues that must support cancellation. Dijkstra implementations often push updated distances without removing stale entries; the heap skips stale entries when they surface. Kafka consumer groups use tombstone-based deletion in compacted logs. LSM-tree storage engines use tombstones across levels, deferring physical deletion to compaction.',
+        'Amortization wins in any dynamic collection that grows unpredictably. Every resizable array in every major language runtime (Python list, Java ArrayList, Go slice, Rust Vec) uses geometric growth with amortized O(1) append. Splay trees use amortization to achieve O(log n) amortized access without storing balance metadata, which simplifies the implementation at the cost of unpredictable individual operations.',
+        'Path compression wins in connectivity and equivalence problems. Union-find with path compression and union by rank is the backbone of Kruskal minimum spanning tree, connected components in image processing, equivalence class tracking in compilers, and online graph connectivity. The nearly-constant per-operation cost makes it practical for millions of elements.',
+        'Fractional cascading wins in computational geometry (layered range trees, multi-level search) and any setting where the same query must be resolved against multiple sorted indexes simultaneously.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Where it fails',
       paragraphs: [
-        `The costs are not decorative. Locality can require relocation. Precomputation slows writes. Compression complicates random access. Persistence grows memory until old versions are collected. Approximation needs parameter choices and error monitoring. Indirection adds extra lookups and can hide fragmentation.`,
-        `There is also an organizational cost. A plain array or hash map is easy to inspect, profile, serialize, and recover. A custom index needs tests, metrics, rebuild paths, corruption checks, and migration rules. Choose the simplest structure that makes the dominant workload cheap enough and keeps the failure modes visible.`,
+        'Augmentation fails when the metadata is expensive to maintain. If every insertion requires updating O(n) ancestor nodes (as in a degenerate tree), the augmentation cost overwhelms the query savings. Augmentation also assumes the extra field is cheap to compute from children. If the aggregate function is not decomposable (cannot be computed from left-child and right-child aggregates), augmentation does not apply directly.',
+        'Lazy deletion fails when tombstones accumulate faster than they are cleaned. A heap where most operations are deletes and few are extract-mins will fill with dead entries, degrading both memory and extract-min performance. Systems using tombstones need a compaction or rebuild policy, and that policy needs monitoring.',
+        'Amortization fails when worst-case guarantees matter. A single O(n) resize in a dynamic array can blow a latency budget. Amortized bounds also do not compose safely with other amortized bounds in all cases -- the accounting can interfere. In concurrent settings, a resize can block all threads, turning an amortized cost into a system-wide pause.',
+        'Path compression fails when you need a persistent (undoable) union-find. Compression mutates the tree structure, so rolling back requires either copying the whole structure or using a weighted union without compression (which gives O(log n) instead of O(alpha(n))). Path compression also makes it impossible to enumerate elements in a specific set without auxiliary data structures.',
+        'Fractional cascading fails when the sorted lists change frequently. The threaded pointers must be rebuilt on insertions and deletions, which costs O(k) per update in the worst case. For dynamic lists, other structures (e.g., range trees with fractional cascading only on the static dimension) are more appropriate.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Sources and study next',
       paragraphs: [
-        `This primer wins when a learner is moving from individual algorithms to systems design. It helps connect database indexing, compiler tables, text search, graph traversal, caches, column stores, storage engines, editors, and game runtimes. The same few moves recur at different scales.`,
-        `For systems, follow Database Indexing into B-tree, LSM, zone maps, star-trees, and columnar formats. For text, follow Suffix Array into Wavelet Tree and FM-index. For memory-resident performance, follow Hash Table into SwissTable and filters. For editors, follow Rope and Piece Table. For runtime identity, follow Slab Allocator into Generational Arena Slot Map and Sparse Set Entity Index.`,
-      ],
-    },
-    {
-      heading: 'Failure Modes',
-      paragraphs: [
-        `The main failure mode is pattern shopping. If every problem looks like it needs an advanced structure, the primer has been misused. Many workloads are best served by an array, a hash map, a heap, a sorted file, or a database index already maintained by the storage engine.`,
-        `Another failure mode is hiding the workload. Average-case benchmarks can miss skew. Microbenchmarks can miss cache effects under real object sizes. Exactness requirements can rule out sketches. Concurrency can turn a clean invariant into a locking problem. Measure the real access pattern before and after the design change.`,
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        `Study Big-O Growth, Arrays, Hash Tables, Heaps, Binary Search Trees, B-trees, and Tries as the base vocabulary. Then study SwissTable Hash Map for locality, Segment Tree and Sparse Table for summaries, FM-index and Wavelet Tree for compressed text, Bloom Filter and Count-Min Sketch for approximation, and Piece Table Text Buffer for persistence.`,
-        `For production case studies, read Apache Pinot Star-Tree Index, RocksDB LSM, Lucene Inverted Index, DuckDB Vectorized Execution, Archetype ECS Column Store, and Modern Cache Eviction. Keep one question in front: what invariant made the important operation cheap, and what tax did the system accept to keep that invariant true?`,
+        {
+          type: 'note',
+          text: 'Cormen, Leiserson, Rivest, Stein. Introduction to Algorithms (CLRS), chapters 13-14 (augmenting data structures), chapter 17 (amortized analysis), chapter 21 (disjoint-set forests). Chazelle and Guibas, "Fractional Cascading" (1986). Tarjan, "Efficiency of a Good but Not Linear Set Union Algorithm" (1975).',
+        },
+        'Prerequisites: Binary Search Trees, Heaps, and Big-O Growth. These provide the structural vocabulary that the patterns modify.',
+        'Direct extensions: study Order-Statistic Trees for augmentation in practice, Union-Find for path compression and union by rank composed, Splay Trees for amortization via rotations, and Segment Trees for augmentation applied to range queries.',
+        'For production applications: study Dijkstra (lazy deletion in the priority queue), Dynamic Arrays (amortization via geometric growth), and LSM-Tree storage engines (lazy deletion via tombstones across sorted levels). Each case study shows a pattern carrying real system weight, not just passing an asymptotic benchmark.',
       ],
     },
   ],
 };
+

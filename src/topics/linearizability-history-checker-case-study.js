@@ -249,6 +249,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Linearizability History Checker. Check a concurrent object by placing each operation at one instant between call and return while preserving real-time order and object semantics..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why linearizability checking exists',
       paragraphs: [
         `Concurrent objects can fail in schedules that look harmless from the source code. A queue may have two enqueues and one dequeue overlapping, and the final size may look correct even though the dequeue returned the wrong item. A map may return an old value after a completed write. A stack may skip an entry only when two pops race.`,
@@ -257,7 +266,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious way to test a concurrent object is to run many threads, record operations, and compare simple end conditions. For a queue, count enqueues and dequeues. For a map, check final key values. For a register, look for reads outside the range of writes.`,
         `The wall is that final state is too weak. A queue can have the right final size while returning values in an impossible order. A map can end with the right value while one read in the middle observed a state that no sequential map could produce.`,
@@ -273,21 +282,21 @@ export const article = {
       ],
     },
     {
-      heading: 'The invariant',
+      heading: 'Why it works',
       paragraphs: [
         `The invariant is local but strict: each operation must appear to take effect at one point inside its own interval. That point cannot move before the invocation or after the response. The witness may be hard to find, but once found, it gives a sequential story for the whole history.`,
         `The second invariant is real-time order. If one operation completed before another began, every legal witness must preserve that order. This is why linearizability is stronger than plain serializability and why it matches what clients can observe from outside the object.`,
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         `The history-intervals view draws each operation as a horizontal segment from invocation to response. A legal linearization point must land somewhere on that segment. When intervals overlap, the model shows why the checker has freedom. When one interval ends before another begins, the ordering is forced.`,
         `The real-time table separates timing constraints from object semantics. Timing says which orders are allowed. The queue table then asks whether any allowed order can explain the return value. The checking-proof view combines those two inputs: real-time edges prune the search, and the sequential spec rejects orders that produce the wrong result.`,
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works (2)',
       paragraphs: [
         `The input history contains invocations, responses, arguments, return values, process or thread identifiers, and timing. The checker first derives real-time edges. If operation A returned before operation B was invoked, A must precede B in every candidate order.`,
         `The checker then searches candidate sequential orders that respect those edges. Each candidate operation is interpreted by a sequential specification. For a FIFO queue, enqueue appends and dequeue removes from the front. For a stack, pop removes the newest item. For a register, reads observe the latest preceding write.`,
@@ -295,7 +304,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it works',
+      heading: 'Why it works (2)',
       paragraphs: [
         `The correctness argument is direct. If a witness order exists, every operation can be treated as if it happened atomically at its chosen point. The real-time edges preserve facts that clients could observe, and the sequential specification preserves the meaning of the object.`,
         `If no witness exists, then every possible placement violates either timing or semantics. That is stronger than saying a test assertion failed. It says the observed history cannot be explained by any correct atomic object of that kind.`,
@@ -311,7 +320,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Linearizability checking wins when the object has a clear single-object specification and bugs appear only under rare interleavings. Queues, stacks, registers, maps, sets, semaphores, and many lock-free containers fit this pattern.`,
         `It also wins as a teaching tool. A lock-free algorithm can have helper threads, retries, delayed pointer updates, and memory reclamation concerns. Linearizability separates the abstract safety question from the performance and progress questions: did every completed operation appear to happen atomically at a legal point?`,
@@ -335,11 +344,92 @@ export const article = {
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Study next',
       paragraphs: [
         `Read Herlihy and Wing, Linearizability: A Correctness Condition for Concurrent Objects, at https://dl.acm.org/doi/10.1145/78969.78972, with a freely available PDF at https://cs.brown.edu/people/mph/HerlihyW90/p463-herlihy.pdf. Then compare linearizability with serializability, sequential consistency, and eventual consistency.`,
         `Inside this curriculum, study Lock-Free Queue, ABA Tagged Pointer Stack, Nonblocking Progress Guarantees, Sequence Locks, Read-Copy-Update, Hazard Pointers and Epoch Reclamation, Distributed Snapshot Consistent Cut, Logical Clocks, and Distributed Tracing.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Linearizability History Checker Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

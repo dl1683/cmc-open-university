@@ -111,79 +111,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this block exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A Transformer block exists because a language model needs two jobs at the same time. Each token must look at other tokens to gather context, and each token must transform its own internal features after that context arrives. A plain feed-forward network can transform features, but it cannot let the word "sat" read information from "cat." A plain attention layer can move information between positions, but it is not enough by itself to build deep, stable representations.`,
-        `The block is the repeatable unit that combines those jobs. It accepts a token-by-dimension matrix, applies attention, adds the original signal back, normalizes the result, applies a feed-forward network, adds and normalizes again, and returns the same shape. That same-shape contract is what lets GPT-style models stack dozens or hundreds of blocks without redesigning the interface between layers.`,
+        'Each frame shows a token-by-dimension matrix. Rows are tokens (“the”, “cat”, “sat”). Columns are hidden dimensions. The matrix enters the block, passes through attention, residual addition, layer normalization, a feed-forward network, another residual addition and normalization, and exits with the same shape. That shape invariant is the contract that lets blocks stack.',
+        'Active rows (highlighted) mark the tokens currently being transformed. The attention frame shows the result of row-to-row communication: every token has absorbed a weighted mix of every other token. The feed-forward frame shows row-local transformation: each row changes independently. Found rows at the end confirm the output shape matches the input shape, ready for the next block.',
+        'Watch two things across the frames. First, the rows mix during attention but stay separate during the FFN. Second, the residual additions keep the original signal present, so no sublayer can destroy information that a later layer might need.',
       ],
     },
     {
-      heading: `The tempting wrong model`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious design is to turn every token into a vector, run one big neural network over the sequence, and hope the network learns the rest. That fails in two ways. If the network treats positions independently, no token can use context from another token. If the network fully mixes every token with every other token through dense layers, the parameter count depends directly on the maximum sequence length, which makes variable-length text awkward and expensive.`,
-        `The Transformer block splits the problem. Attention handles token-to-token communication with shared matrices that work for many sequence lengths. The feed-forward sublayer handles per-token feature transformation. Residual paths and normalization make the result trainable at depth. The design is modular rather than one giant undifferentiated operation.`,
+        'Before 2017, sequence models meant recurrent neural networks. RNNs read tokens one at a time: the hidden state at position t depends on position t-1. That serial dependency made them slow to train on GPUs (which thrive on parallelism) and fragile over long distances (gradients vanish or explode across hundreds of steps). Attention mechanisms (Bahdanau et al. 2015) helped by letting a decoder look at all encoder states at once, but the encoder itself was still an RNN, still sequential.',
+        'Vaswani et al. asked the obvious question: if attention already outperforms the RNN hidden states it reads from, why keep the RNN at all? Their 2017 paper “Attention Is All You Need” replaced recurrence entirely with stacked self-attention layers. The result trained faster, scaled better, and set new records on English-to-German and English-to-French translation. Every large language model since, BERT, GPT, T5, PaLM, Llama, is a stack of the block they described.',
       ],
     },
     {
-      heading: `The core contract`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The input to the block is a matrix X with one row per token and one column per hidden dimension. The output has the same shape. Inside the block, each row changes because it has absorbed information from other rows and passed through learned feature transforms. Outside the block, the next layer does not need to know how that happened. It only sees another token-by-dimension matrix.`,
-        `That contract is the reason the block is a data-structure idea as much as a neural-network idea. The representation has a stable shape, the operations preserve that shape, and the stack can be extended by repeating the same interface. The model becomes a pipeline of compatible state transformations.`,
+        'The natural starting point is an RNN encoder-decoder (Sutskever et al. 2014). The encoder reads a source sentence token by token, compressing it into a single fixed-length hidden vector. The decoder unrolls from that vector, generating target tokens one at a time. Each step is a matrix multiply plus a nonlinearity, cheap on its own.',
+        'LSTMs (Hochreiter & Schmidhuber 1997) improved this by adding gates that control what information flows through the hidden state, reducing vanishing gradients. Attention over LSTM hidden states (Bahdanau et al. 2015) further improved quality by letting the decoder selectively read from all encoder positions instead of squeezing everything through one bottleneck vector. These were real advances, and they dominated NLP from 2014 to 2017.',
       ],
     },
     {
-      heading: `The attention sublayer`,
+      heading: 'The wall',
       paragraphs: [
-        `Attention is the communication step. The block projects X into queries, keys, and values. A query asks what this token wants. A key advertises what another token contains. A value carries the information to mix in if the score is high. Dot products between queries and keys create scores, softmax turns those scores into weights, and the weighted values become the attention output.`,
-        `In a decoder model, a causal mask prevents a token from reading future tokens during training and generation. During inference, keys and values for old tokens are stored in a KV cache so the model does not recompute them on every new token. The mathematical sublayer is simple; the serving version becomes a memory-layout and scheduling problem.`,
+        'The RNN is sequential by definition. Token t cannot be computed until token t-1 finishes. A 512-token sentence requires 512 serial steps during both training and inference. GPUs have thousands of cores, but the RNN uses one core\'s worth of work at each step. Training time scales linearly with sequence length even when hardware could handle the full sequence in parallel.',
+        'Attention over RNN hidden states does not fix this. The attention mechanism itself is parallel (every query can score against every key simultaneously), but it still reads from hidden states that were produced serially. The bottleneck is not the attention computation; it is the RNN underneath it. The path length between position 1 and position n is O(n) through the recurrence, degrading gradient flow for long-range dependencies regardless of the attention on top.',
       ],
     },
     {
-      heading: `Residuals and normalization`,
+      heading: 'How it works',
       paragraphs: [
-        `A residual connection adds the input of a sublayer back to its output. Instead of replacing X with attention(X), the block uses X plus attention(X). This gives gradients a shorter route through many layers and lets the model refine a representation rather than rebuild it from scratch at every step. If attention is unhelpful for a token, the residual path still carries the old information forward.`,
-        `Layer normalization keeps each token row on a controlled scale. Without normalization, small scale errors can grow across deep stacks and make training unstable. Modern decoder models often use pre-norm, where normalization happens before each sublayer, while older descriptions often show post-norm, where normalization follows the residual addition. Both serve the same broad purpose: keep deep repeated blocks numerically usable.`,
+        'The original Transformer has an encoder stack and a decoder stack, each built from identical blocks. The encoder block has two sublayers: multi-head self-attention followed by a position-wise feed-forward network. The decoder block has three sublayers: masked multi-head self-attention, multi-head cross-attention over encoder outputs, and the same feed-forward network. Every sublayer is wrapped in a residual connection and layer normalization.',
+        'Multi-head attention is the core mechanism. The input matrix X (shape: n tokens by d_model dimensions) is projected into queries Q = XW_Q, keys K = XW_K, and values V = XW_V. For each head, the projection reduces d_model to d_k = d_model/h. Attention scores are computed as QK^T / sqrt(d_k), then softmax converts scores to weights, and the output is the weighted sum of values. The original paper uses d_model = 512, h = 8 heads, so d_k = d_v = 64. Each head learns a different attention pattern. The 8 head outputs are concatenated (back to 512 dimensions) and projected through W_O (512 x 512).',
+        'The feed-forward network applies to each position independently: FFN(x) = max(0, xW_1 + b_1)W_2 + b_2. The inner dimension d_ff = 2048, four times d_model. This is where the model adds per-position capacity after attention has gathered cross-position context.',
+        'Positional encoding injects sequence order because attention itself is permutation-invariant. The original paper uses fixed sinusoidal functions: PE(pos, 2i) = sin(pos / 10000^(2i/d_model)), PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model)). Each dimension oscillates at a different frequency, giving every position a unique signature. These are added to the token embeddings before the first block.',
+        'In the decoder, a causal mask sets all attention scores from position t to positions t+1, t+2, ... to negative infinity before softmax. This prevents tokens from reading the future during training and autoregressive generation. Cross-attention lets the decoder attend to encoder outputs, using decoder states as queries and encoder states as keys and values.',
       ],
     },
     {
-      heading: `The feed-forward sublayer`,
+      heading: 'Why it works',
       paragraphs: [
-        `After attention has moved context between tokens, the feed-forward network transforms each row independently. It is usually a small multilayer perceptron applied with the same weights at every position. In many LLMs it expands the hidden width, applies a nonlinearity or gated activation, and projects back to the model width. This is where a token's mixed context becomes richer features.`,
-        `The feed-forward sublayer is not minor glue. It often contains a large share of the parameters and compute in a Transformer layer. Attention decides what other positions should be consulted. The feed-forward network decides what to do with the resulting representation at each position.`,
+        'The path length between any two positions is O(1). Token 1 can attend directly to token 500 in a single layer, compared to O(n) sequential steps through an RNN. Short path lengths mean gradients flow cleanly during backpropagation, and the model can learn long-range dependencies without fighting vanishing gradients.',
+        'Attention is a weighted average: each output position is a convex combination of value vectors. The FFN adds nonlinear capacity that a weighted average alone cannot provide. Together, attention gathers relevant context and the FFN transforms it into richer features. Neither sublayer alone is sufficient: attention without the FFN is just a linear remix; the FFN without attention has no cross-position communication.',
+        'Residual connections give gradients a highway through the entire stack. If a sublayer produces unhelpful output for some token, the residual path carries the original representation forward unchanged. Layer normalization keeps activation magnitudes stable across dozens of stacked blocks, preventing the exponential growth or collapse that kills deep networks without it.',
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The visual keeps the same token rows visible across the whole block. That is the proof. Embeddings start as token vectors. Attention changes each row by mixing information from other rows. Add-and-normalize keeps the old signal and stabilizes the scale. The feed-forward step changes features inside each row. The final add-and-normalize returns a matrix with the same shape as the input.`,
-        `The important distinction is row communication versus row transformation. Attention is the only sublayer in this toy block where rows directly exchange information. The feed-forward network is row-local. Once you can see that split, many Transformer variations become easier to classify: they either change how tokens communicate, how rows are transformed, or how the repeated stack is stabilized.`,
+        'Self-attention costs O(n^2 * d) per layer: every token scores against every other token (n^2 scores), and each score involves a d_k-dimensional dot product. For the original base model with d_model = 512, d_ff = 2048, 6 encoder layers, 6 decoder layers, and 8 heads, the total parameter count is about 65 million. The feed-forward sublayer costs O(n * d * d_ff) per layer, which dominates at short sequences since d_ff = 4d.',
+        'When n doubles, attention cost quadruples. A 1024-token sequence needs 4x the attention computation of a 512-token sequence. Memory is also quadratic: storing the full n-by-n attention matrix for each head and each layer adds up fast. At n = 4096 with 32 heads and 32 layers, that is 32 * 32 * 4096^2 * 4 bytes, roughly 69 GB of attention matrices alone in fp32. This is the fundamental scaling wall that motivated Flash Attention, sparse attention, sliding-window attention, and linear-attention variants.',
+        'During autoregressive inference, KV caching avoids recomputing keys and values for previous tokens: each new token only computes one query row and appends one K and V row. This changes decode from O(n^2 * d) per token to O(n * d), but the cache memory grows linearly with sequence length and must be stored per request.',
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Where it wins',
       paragraphs: [
-        `For sequence length n and model width d, attention prefill costs about O(n^2 d) because every token can score every other token. The feed-forward network costs about O(n d d_ff), where d_ff is often several times wider than d. At short context lengths, dense projections and the feed-forward layer may dominate. At long context lengths, the quadratic attention term and KV cache memory become central.`,
-        `The block also has training cost that is easy to miss. Optimizer state multiplies parameter memory. Activations must be saved or recomputed for backpropagation. LayerNorm and residual additions look cheap in arithmetic, but they touch memory and can affect latency. Production systems therefore optimize the block with fused kernels, quantization, attention kernels, tensor parallelism, and cache-aware scheduling rather than only changing the high-level formula.`,
+        'NLP: BERT (Devlin et al. 2019) uses the encoder stack for bidirectional pre-training. GPT (Radford et al. 2018) uses the decoder stack for autoregressive language modeling. T5 (Raffel et al. 2020) uses the full encoder-decoder. These three designs, all built from the same block, have set records on reading comprehension, text generation, translation, summarization, and question answering.',
+        'Computer vision: Vision Transformer (Dosovitskiy et al. 2021) splits an image into 16x16 patches, treats each patch as a token, and runs them through a standard Transformer encoder. It matches or beats CNNs on image classification when given enough training data.',
+        'Speech: Whisper (Radford et al. 2023) uses a Transformer encoder-decoder for speech recognition, trained on 680,000 hours of audio. The encoder processes log-mel spectrogram frames as a token sequence.',
+        'Proteins: AlphaFold 2 (Jumper et al. 2021) uses attention over amino-acid sequences and multiple sequence alignments to predict 3D protein structure with atomic accuracy.',
+        'Code: Codex, StarCoder, and every code-completion model stack the same decoder blocks over tokenized source code. The Transformer does not know the input is code; it just learns the statistical patterns of the token sequence.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Transformer blocks win when the task benefits from flexible context. Language needs pronouns, syntax, topic, style, and long-range dependencies. Code needs variable names, scopes, imports, and tests. Vision Transformers use patch tokens instead of word tokens. Speech models use audio frames. The same block pattern works because the input is represented as a sequence of vectors and the block learns how positions should influence each other.`,
-        `The design also wins operationally because it is regular. Large matrix multiplications map well to GPUs and accelerators. Blocks can be stacked, sharded, quantized, adapted with LoRA, and served with KV caching. Most LLM infrastructure work is about making this repeated block cheaper, faster, or easier to route.`,
+        'Quadratic attention cost makes naive Transformers impractical for very long sequences. A 100K-token document produces 10 billion attention scores per layer. Workarounds include sparse attention (Longformer, BigBird), sliding-window attention (Mistral), linear attention (Katharopoulos et al. 2020), and Flash Attention (Dao et al. 2022), which reduces memory from O(n^2) to O(n) by never materializing the full attention matrix.',
+        'Positional encoding limits generalization to unseen lengths. Sinusoidal encodings do not extrapolate well beyond the training sequence length. Rotary positional embeddings (RoPE, Su et al. 2021) improve length generalization but do not eliminate the problem. ALiBi (Press et al. 2022) takes a different approach by biasing attention scores based on distance rather than adding position to embeddings.',
+        'The Transformer has no built-in inductive bias for locality, hierarchy, or compositionality. A CNN knows that nearby pixels matter more; a Transformer must learn this from data. For small datasets, this lack of bias means the Transformer needs more examples to match architectures that encode the right prior. ViT underperforms CNNs on small-scale image tasks precisely because it must learn spatial locality from scratch.',
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Worked example',
       paragraphs: [
-        `A Transformer block is not symbolic reasoning, a database, or a search engine. Attention is weighted aggregation over learned vectors. It can retrieve a useful signal from context, but it does not prove facts or enforce program semantics by itself. The feed-forward layer can store and transform patterns, but it is still a learned function with finite capacity and training bias.`,
-        `More blocks are not free. Extra depth raises latency, memory, optimizer state, and data requirements. Poor initialization, bad learning rates, small numerical precision margins, or weak normalization choices can still destabilize training. During serving, long contexts can exhaust KV memory even when the weights fit. The block is powerful because it is reusable, not because it removes engineering limits.`,
+        'Input: 3 tokens “the”, “cat”, “sat” with d_model = 4, h = 2 heads, d_k = 2. Suppose after embedding plus positional encoding, X = [[0.8, -0.3, 0.5, 0.1], [0.2, 0.7, -0.4, 0.6], [0.6, 0.1, 0.3, -0.2]]. Each head uses the first 2 or last 2 dimensions.',
+        'Head 1 (dims 0-1): Q1 = [[0.8, -0.3], [0.2, 0.7], [0.6, 0.1]], K1 = same (identity projection for simplicity). Scores: “the”-”the” = 0.8*0.8 + (-0.3)*(-0.3) = 0.73. “the”-”cat” = 0.8*0.2 + (-0.3)*0.7 = -0.05. “the”-”sat” = 0.8*0.6 + (-0.3)*0.1 = 0.45. After dividing by sqrt(d_k) = sqrt(2) = 1.41: [0.52, -0.04, 0.32]. Softmax: [0.43, 0.25, 0.35]. Token “the” attends mostly to itself (0.43) and “sat” (0.35).',
+        'Head 2 (dims 2-3): Q2 = [[0.5, 0.1], [-0.4, 0.6], [0.3, -0.2]], K2 = same. “the”-”the” = 0.26, “the”-”cat” = -0.14, “the”-”sat” = 0.13. After /sqrt(2): [0.18, -0.10, 0.09]. Softmax: [0.38, 0.29, 0.35]. Head 2 distributes attention more evenly because the feature patterns in dims 2-3 are less distinctive.',
+        'Each head produces a 3x2 output matrix by multiplying its attention weights with its value vectors. Concatenating the two heads gives a 3x4 matrix. After the output projection W_O (4x4), we get the attention sublayer output. Add X (residual connection), apply LayerNorm (mean-center each row, divide by standard deviation), pass through FFN (expand to d_ff = 16, ReLU, compress back to 4), add the pre-FFN values again, LayerNorm again. Output: a 3x4 matrix, same shape as input, ready for the next block.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Tokenization (BPE), Embeddings & Similarity, Attention Mechanism, and Multi-Head Attention first. Then read BatchNorm & LayerNorm for the stabilizers, Neural Network Forward Pass for the feed-forward sublayer, Softmax & Temperature for the final distribution, and KV Cache for the serving path. Transformer Layer FLOPs Cost Model, Transformer Inference Roofline, Prefix Caching & RadixAttention, and Grouped-Query Attention show how this same block becomes a production systems problem.`,
+        'Vaswani et al. 2017, “Attention Is All You Need,” introduced the Transformer. Sutskever et al. 2014, “Sequence to Sequence Learning with Neural Networks,” established the RNN encoder-decoder baseline. Bahdanau et al. 2015, “Neural Machine Translation by Jointly Learning to Align and Translate,” introduced attention for seq2seq. Hochreiter & Schmidhuber 1997 introduced LSTMs. He et al. 2016, “Deep Residual Learning,” introduced residual connections. Ba et al. 2016, “Layer Normalization,” introduced LayerNorm.',
+        'Prerequisites: Multi-Head Attention (the attention mechanism in detail, what each head specializes to learn). Positional Encoding (how the Transformer knows token order; without it, attention treats the input as a bag of vectors). Softmax & Temperature (how raw scores become probability weights). Residual Connections (skip paths that make deep stacks trainable).',
+        'Extensions: KV Cache (why autoregressive generation does not recompute the full sequence at each step). Flash Attention (tiling the attention computation to avoid materializing the n-by-n matrix, making long contexts practical). Grouped-Query Attention (sharing keys and values across heads to reduce KV cache size). BERT, GPT, and T5 (three ways to use the same block: encoder-only, decoder-only, encoder-decoder).',
+        'Alternatives when the Transformer is the wrong tool: RWKV and Mamba replace quadratic attention with linear-time recurrence for long-context efficiency. State-space models (S4, Hyena) offer O(n log n) sequence mixing without attention. For small-data vision tasks, CNNs still outperform ViT because convolutions encode spatial locality that the Transformer must learn from scratch.',
       ],
     },
   ],

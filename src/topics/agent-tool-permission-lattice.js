@@ -1,4 +1,4 @@
-// Agent tool permission lattice: convert a model's requested tool call into
+﻿// Agent tool permission lattice: convert a model's requested tool call into
 // scoped authority, sandbox profile, approval state, and audit evidence.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -211,6 +211,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Agent Tool Permission Lattice. A control-plane data structure for AI agents: order tool calls by effect, scope, resource, approval, expiry, sandbox profile, and audit requirement..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'An agent tool permission lattice exists because model output is not authority. A model can propose a tool call, but the runtime must decide whether that call is allowed, under which identity, against which resource, for how long, with what sandbox, and with what evidence. Without that control plane, an agent system quietly turns language into action without a reliable boundary between suggestion and effect.',
@@ -218,7 +227,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive design',
+      heading: 'The obvious approach',
       paragraphs: [
         'The naive design has a list of tools and a single flag: this agent may use tools. A slightly better version validates that the JSON arguments match the schema. Both designs fail because schema validity is not authorization. A syntactically valid email_send call can still leak private data. A valid shell command can still mutate the wrong directory. A valid database query can still cross a tenant boundary.',
         'Another naive design asks the model to be careful. That is not enforcement. Tool descriptions, system prompts, and safety instructions are useful context, but they are not a security boundary. Prompt injection, stale context, ambiguous user intent, and model mistakes can all produce a dangerous proposal. The runtime needs to treat every tool call as untrusted until policy, identity, scope, approval, sandbox, and audit checks have made the effect explicit.',
@@ -232,14 +241,14 @@ export const article = {
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
         'Execution starts with a proposed tool call. The runtime validates the argument shape, but that is only the first gate. It then binds the proposal to a real identity: the user, workspace, service account, delegated OAuth token, or narrow capability that the platform recognizes. Next it resolves the target resource and requested effect. The same tool can require different authority depending on whether it reads a public issue, edits a private file, sends a message outside the organization, or touches production infrastructure.',
         'Policy evaluation computes the required lattice element and compares it with the current grant. The result can be allow, deny, downgrade, ask for approval, require a dry run, or change the sandbox profile. A file edit might be allowed only as a patch preview. A shell command might run with a read-only mount, no network, and a temporary filesystem. An email send might require confirmation after showing recipients and body. Every decision should produce an audit event that names the proposal, policy version, grant, result, and evidence.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The permission-lattice view proves that effect authority has shape. No effect, read, draft, write, send, and delete are ordered by blast radius, but the order is not a blanket claim that every read is safe or every write is equal. The table adds the missing dimensions: actor, tool, effect, resource, expiry, and runtime. Together they show why permission must be a record, not a string.',
         'The execution-gate view proves that tool execution is a pipeline. A model proposal flows through schema, identity, scope, policy, sandbox, approval, and audit before any external effect occurs. The final effect is allowed only when those gates agree. If one gate fails, the correct output is not improvisation by the model; it is denial, downgrade, or escalation with evidence. The visual is teaching that the safe boundary lives in the runtime, not in the model text.',
@@ -253,32 +262,105 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is friction and policy maintenance. A lattice that asks for approval on every small action will make the agent feel useless. A lattice with dozens of vague risk levels will be impossible to reason about. The useful version has a small effect taxonomy, clear resource scopes, short-lived grants, and predictable escalation paths. Users should learn the pattern: read can proceed, drafts can be previewed, external sends need confirmation, destructive actions are rare and heavily gated.',
         'There is also engineering cost. Tool manifests must declare effects honestly. Scopes must be enforced at the tool server, not only in the UI. Sandboxes must match the actual risk of code execution, filesystem access, and network egress. Audit logs must be durable enough for review without storing sensitive data carelessly. The lattice does not remove the need for OAuth, capability security, row-level ACLs, policy engines, or operating-system isolation. It coordinates them.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Real-world uses',
       paragraphs: [
         'An enterprise operations agent is a good example. It can read CRM rows, summarize account history, draft a customer email, edit a support note, run a diagnostic script, and open an admin ticket. CRM read gets row-level authorization and a query log. Draft email is allowed because it has no external effect. Sending the email requires confirmation and records the message id. File edits require a diff gate. Shell commands run in a constrained sandbox. Admin API calls require break-glass approval tied to a ticket.',
         'The same pattern applies to developer agents, help-desk bots, browser agents, data-analysis assistants, and personal automation. A coding agent may read the repository freely, propose patches, and run safe checks, but it should not publish secrets, delete unrelated files, or push to production without a stronger grant. A browser agent may fill a form, but payment submission or account deletion should sit higher in the lattice. The system is useful because each action gets the amount of agency it deserves.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
         'The first failure mode is treating the lattice as documentation instead of enforcement. If the tool server ignores scopes, a beautiful policy diagram does nothing. The second is issuing broad, long-lived tokens to an agent and trying to recover safety with prompts. The third is letting the model choose the sandbox profile or approval text. The runtime should choose containment and present approval based on policy, not on the model description of its own risk.',
         'The lattice also has limits. It cannot decide business intent by itself. A permitted email can still be a bad email. A permitted file edit can still be wrong. A human approval prompt can be clicked carelessly if it is noisy or vague. The lattice controls authority, not quality. It should be paired with validation, diff previews, dry runs, tests, rate limits, anomaly detection, and clear undo paths where the domain allows reversal.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Study next',
       paragraphs: [
         'Study capability security and attenuation first. The strongest mental model is that authority should be an explicit, narrow object that can be passed, reduced, expired, and audited. Then study OAuth scopes, MCP authorization, protected resources, policy engines such as OPA, and operating-system sandboxing such as seccomp, containers, and egress allowlists. Those layers provide the mechanics that the lattice organizes.',
         'After that, study prompt injection threat models, guardrail policy engines, audit log design, approval UX, and incident review. The mature agent platform does not trust the model less because it is weak; it trusts the runtime more because the runtime has the right job. The model proposes. The permission lattice decides how much of that proposal may become an effect.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Agent Tool Permission Lattice moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

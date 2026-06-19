@@ -1,4 +1,4 @@
-// Model Context Protocol: a versioned JSON-RPC capability protocol for
+﻿// Model Context Protocol: a versioned JSON-RPC capability protocol for
 // connecting AI clients to tools, resources, prompts, roots, and sampling.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -276,6 +276,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Model Context Protocol (MCP) Case Study. A protocol case study for agent tool integration: JSON-RPC messages, lifecycle negotiation, tools, resources, prompts, transports, roots, and auth..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `AI applications need to connect to local files, databases, APIs, search indexes, prompts, and private tools. Without a shared protocol, each integration becomes a custom plugin with its own authentication story, schema style, transport, error shape, and security review. The result is duplicated adapter code and unclear boundaries between model behavior and application authority.`,
@@ -283,21 +292,21 @@ export const article = {
       ],
     },
     {
-      heading: `The naive integration`,
+      heading: `The obvious approach`,
       paragraphs: [
         `The naive integration is a direct function call from the agent loop into some service code. It works for one app and one tool. Then the tool list grows, another client wants the same integration, tool schemas drift, auth becomes inconsistent, and nobody can tell whether the model, user, host, or server owns the action.`,
         `The next naive version is a REST API with natural-language descriptions pasted into a prompt. That also breaks down. A model can hallucinate endpoints, a client may not know which version the server expects, resources and prompts get confused with actions, and security checks are hidden behind prose. MCP replaces that with explicit JSON-RPC messages, lifecycle negotiation, discoverable capabilities, and typed schemas.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `The core insight is that integrations need different control surfaces. Tools are actions. Resources are context. Prompts are templates. Roots are client-declared boundaries. Sampling lets a server ask the client for model work while the client keeps control of model access. Lumping those together as "tools" loses the security model.`,
         `MCP gives each surface a place in the protocol. The server declares what it can provide. The client decides what to list, read, call, approve, or send to the model. The host owns the user experience and policy. This separation is what makes MCP an API-design case study rather than just another agent library.`,
       ],
     },
     {
-      heading: `How the session works`,
+      heading: `How it works`,
       paragraphs: [
         `In the 2025-11-25 specification, a session starts with initialization. The client sends a protocol version, client capabilities, and implementation metadata. The server replies with its version, server capabilities, and metadata. After that, the client can discover features through list requests, then call tools, read resources, or fetch prompts through normal JSON-RPC operations.`,
         `Requests and responses are correlated by IDs. Errors return through the same message grammar. Notifications have no ID and do not expect a reply. That small JSON-RPC structure matters because it gives cancellation, progress, logging, pagination, and error handling a stable foundation instead of burying everything in prompt text.`,
@@ -311,7 +320,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works`,
       paragraphs: [
         `The protocol-shape graph shows host to client to server before it shows tools, resources, and prompts. That order matters. The host is the user-facing application. The client is the session endpoint inside that host. The server is an integration boundary. The model is not the owner of the whole system.`,
         `The security graph compares stdio and Streamable HTTP. Stdio is local process communication, but it still needs least privilege because the local process may hold credentials. HTTP adds origin checks, authentication, browser reachability, and network exposure. The tool gate and audit log sit near the effect because a schema-valid JSON-RPC message can still be the wrong thing to do.`,
@@ -332,21 +341,21 @@ export const article = {
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `The cost of MCP is protocol surface. A small internal feature may not need version negotiation, a server process, schemas, list operations, transport handling, and security review. Direct service code can be simpler when one host owns the whole feature and no other client needs to discover it.`,
         `MCP earns its keep when independent clients need a shared way to inspect and use independent integrations. It helps when tool schemas need to be explicit, when resources should be listed rather than hallucinated, when prompts should be reusable, when filesystem scope must be declared, and when auditability matters. The tradeoff is more structure up front for less integration chaos later.`,
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `MCP is strong for IDEs, research assistants, enterprise chat apps, local developer tools, data-analysis workspaces, and agent platforms that need a repeatable integration boundary. A database server, file-search server, issue-tracker server, browser automation server, or internal knowledge server can expose capabilities once and be used by multiple hosts.`,
         `It is also useful as an organizational contract. Security teams can review the server boundary. Product teams can decide which capabilities appear in which host. Platform teams can maintain common transports and logging. Integration authors can build against one protocol instead of reverse-engineering every agent runtime.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `The first failure mode is overbroad capability. A server that exposes a filesystem root, broad API token, or destructive tool without clear approval rules turns a protocol boundary into an escalation path. The second is semantic unsafety: a tool call can satisfy its schema and still delete the wrong thing, send private data, or act on injected instructions.`,
         `Other failures are operational. Long-running calls need cancellation and progress. Large lists need pagination. Dynamic capabilities need change notifications. Multiple server versions need compatibility handling. Errors need enough structure for the host to recover. A deployment without logs may pass demos and still fail incident review because nobody can reconstruct what the model asked for and what the host allowed.`,
@@ -359,5 +368,74 @@ export const article = {
         `Primary sources are the MCP 2025-11-25 specification at https://modelcontextprotocol.io/specification/2025-11-25, base protocol at https://modelcontextprotocol.io/specification/2025-11-25/basic, lifecycle at https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle, transports at https://modelcontextprotocol.io/specification/2025-11-25/basic/transports, tools at https://modelcontextprotocol.io/specification/2025-11-25/server/tools, resources at https://modelcontextprotocol.io/specification/2025-11-25/server/resources, prompts at https://modelcontextprotocol.io/specification/2025-11-25/server/prompts, roots at https://modelcontextprotocol.io/specification/2025-11-25/client/roots, sampling at https://modelcontextprotocol.io/specification/2025-11-25/client/sampling, authorization at https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization, and JSON-RPC 2.0 at https://www.jsonrpc.org/specification.`,
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for model-context-protocol-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

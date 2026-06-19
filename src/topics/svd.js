@@ -193,7 +193,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to store the whole matrix, or to throw away small-looking entries. For images, that means keeping pixels. For user ratings, it means keeping observed cells. For a model update, it means training every weight.',
         'The wall is correlation. A smooth image does not need every pixel independently. User tastes are not independent item by item. A fine-tune update may move weights along a few shared directions. Entry-level pruning misses structure that lives in rows and columns together.',
@@ -222,7 +222,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'How to read the animation',
       paragraphs: [
         'In the compression view, read each heatmap as a reconstruction, not a new image. Rank 1 keeps the strongest row-pattern times column-pattern layer. Rank 2 adds the next independent pattern. The ledger shows the storage cost and the recovered matrix energy.',
         'In the applications view, watch the same decomposition change vocabulary. PCA calls the layers components. Image compression calls them visual structure. LoRA calls them adapter directions. Recommenders call them latent tastes. The data changes; the low-rank bet is the same.',
@@ -237,21 +237,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'A full dense SVD costs O(m n min(m,n)), which is too much for many large matrices. Top-k iterative or randomized methods can be far cheaper because they only need the largest directions and can exploit sparse or structured matrix-vector multiplies.',
         'A rank-k approximation stores about k(m + n + 1) numbers instead of m n. That is a win only when k is small relative to both dimensions and the singular spectrum decays. If the spectrum is flat, every direction matters and truncation becomes lossy fast.',
       ],
     },
     {
-      heading: 'Where it wins and where it fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'SVD wins when the matrix has repeated structure: images with smooth regions, centered data with dominant variance directions, user-item ratings with latent tastes, document-term matrices with topics, and neural-network updates that can be expressed in a few directions.',
         'It is not the right tool when interpretability requires nonnegative parts, when missing data is not handled by the chosen objective, when the matrix is too dynamic to refactor, or when the useful signal is spread evenly across many singular directions.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Do not read singular vectors as unique semantic labels. Their signs can flip, nearby equal singular values can rotate within a subspace, and preprocessing can change the spectrum. Centering, scaling, weighting, and missing-value treatment are not cosmetic choices.',
         'Do not confuse optimal rank-k approximation with truth. Truncated SVD gives the best low-rank matrix under a norm, not a guarantee that the dropped directions are noise. Small singular directions can still contain rare but important signal.',
@@ -267,7 +267,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'Worked example (2)',
       paragraphs: [
         'In latent semantic analysis, rows can be documents and columns can be terms. Raw word counts are noisy and sparse. A low-rank SVD keeps broad co-occurrence directions, so documents can be compared by latent topics rather than exact word overlap.',
         'That helps search find related language, but it also loses detail. Rare terms, negation, and domain-specific phrases may sit in smaller directions. The right rank depends on retrieval quality, not just compression ratio.',
@@ -279,5 +279,68 @@ export const article = {
         'Study next by role: PCA for centered data and variance directions, Eigenvectors for the square-matrix skeleton, Matrix Completion for sparse low-rank prediction, LoRA for low-rank neural-network updates, Quantization for another compression axis, and Embeddings Similarity for latent vector geometry.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why SVD & Low-Rank Approximation moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

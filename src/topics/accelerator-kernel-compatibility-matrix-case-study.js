@@ -1,4 +1,4 @@
-// Accelerator kernel compatibility matrix: decide which backend/kernel is
+﻿// Accelerator kernel compatibility matrix: decide which backend/kernel is
 // legal for an op, dtype, shape, and device before serving traffic.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -390,21 +390,30 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Accelerator Kernel Compatibility Matrix. A production portability case study: track op coverage, dtype and shape constraints, dispatch priority, fallbacks, parity checks, and rollout gates across AI accelerators..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'An accelerator kernel compatibility matrix exists because "the model runs on this accelerator" is not a useful production claim. A model is a graph of operations, dtypes, layouts, shapes, memory assumptions, compiler choices, and runtime policies. One op may be fast in bf16, unsupported in fp8, legal only for contiguous inputs, and numerically risky for a dynamic shape. A second op may compile but miss the latency budget. A third may work only after a driver upgrade.',
         'The matrix sits between graph extraction and routing. It answers a narrow but critical question before the serving system spends traffic: for this operation key, on this backend, with this dtype and shape bucket, which kernels are legal, tested, fast enough, and allowed by rollout policy? Without that answer, portability becomes a demo property. The team may know that CUDA, HIP, XLA, CPU, or a vendor NPU path exists and still not know whether a real production trace can run there safely.',
       ],
     },
     {
-      heading: 'The Tempting Shortcut And The Wall',
+      heading: 'The wall',
       paragraphs: [
         'The easy shortcut is to check whether the framework imports and whether the accelerator has an implementation for the op name. That is a reasonable first pass. If matmul, softmax, top-k, and all-reduce all have some backend implementation, a prototype can run and a benchmark slide can look convincing.',
         'The wall is that op name is too coarse. Matmul is not one thing: batch size, transposition, alignment, accumulator type, tile fit, sparsity pattern, quantization scale layout, and graph-capture assumptions all matter. Softmax may be fused for one attention shape and slow for another. A backend may support dynamic shapes through compilation but miss the p99 target after cache misses. The compatibility unit has to be closer to "op schema plus constraints" than "operator family."',
       ],
     },
     {
-      heading: 'Core Data Structure',
+      heading: 'The core insight',
       paragraphs: [
         'The core data structure is a compatibility record keyed by more than a name. A useful key includes op schema, dtype, layout, shape bucket, dynamic-shape guard, device class, backend, kernel variant, memory-pool or address assumption, and model or runtime version. Sparse paths add mask pattern, block layout, pruning artifact version, and density range. Quantized paths add scale format, zero-point convention, calibration version, and accumulator precision.',
         'The value is a decision packet. It stores support status, dispatch priority, guard predicate, numeric tolerance, benchmark status, fallback backend, rollout stage, owner, kernel version, evidence link, and recent telemetry. The invariant is legality before speed. A router may prefer CUDA over CPU, HIP over XLA, or a fused kernel over an unfused one, but it must choose from candidates that satisfy the guard and the rollout gate. Fast but illegal is a bug, not an optimization.',
@@ -418,39 +427,108 @@ export const article = {
       ],
     },
     {
-      heading: 'What The Visual Proves',
+      heading: 'How it works',
       paragraphs: [
         'The support-matrix view proves that coverage is not a green-or-red checkbox. The interesting cells are "test," "miss," "reference," "gate," and "quarantine" because those states shape safe routing. A CPU reference cell may be slow but essential for parity. A HIP test cell may be promising but not allowed for production traffic. A sparse miss may explain a large fraction of fallback even when dense coverage looks strong.',
         'The dispatch-route view proves the order of responsibility. Trace extraction creates the key, the registry returns legal candidates, priority chooses a route, and the audit edge records the reason. The fallback-audit view proves why observability belongs in the data structure. A fallback is not noise; it is a labeled failure of compatibility, parity, memory, stability, or rollout policy. Those labels decide the next porting task.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'The matrix works because it makes implicit dispatch assumptions explicit and testable. A framework dispatcher can choose a kernel only from what it knows. A serving router can choose a backend only from the candidates it has evidence for. By binding an operation key to a guard, evidence pointer, tolerance, and fallback, the matrix turns a runtime surprise into a preflight decision.',
         'Correctness comes from preserving operator semantics under constrained implementation choices. The CPU or reference path defines the baseline behavior. The accelerated path is promoted only when parity cases show acceptable numeric drift for the relevant dtype and shape range. Performance correctness is separate: a kernel can be numerically correct but fail the p99, memory, or stability gate. The data structure keeps those judgments distinct instead of hiding them behind one "supported" bit.',
       ],
     },
     {
-      heading: 'Costs And Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main cost is maintenance. Every framework release, compiler optimization, kernel rewrite, model architecture change, driver update, quantization recipe, and accelerator SKU can invalidate a cell. A stale matrix is worse than no matrix because it creates false confidence. That is why each row needs an owner, evidence date, kernel version, and telemetry feedback from live or shadow traffic.',
         'The second cost is complexity at the boundary between engineering teams. Kernel authors care about legality and speed. Model owners care about parity and quality. Serving teams care about p99, fallback rate, and rollback. Platform teams care about cost and capacity. The matrix has to carry enough information for all of them without becoming an unreadable spreadsheet. The useful version is a typed registry plus dashboards and audit events, not a static document nobody updates.',
       ],
     },
     {
-      heading: 'Where It Wins And Where It Fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins during accelerator migration, multi-backend serving, custom kernel rollout, quantization adoption, and sparse or fused-kernel deployment. It is especially useful when the same model family serves many tenants with different latency budgets or hardware pools. The matrix gives a router a principled fallback path: choose the best legal candidate, record why it was chosen, and turn misses into a prioritized roadmap.',
         'It fails when the state space is allowed to explode without bucketing. If every exact shape becomes a separate manual row, the registry becomes impossible to maintain. It also fails when parity data is thin, when fallback reasons are collapsed into one counter, when rollout status is ignored, or when the CPU fallback is treated as free. The point is not to model every possible future input; it is to classify the shapes and dtypes that actually appear and gate the risky boundaries.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Official sources: PyTorch dispatcher tutorial at https://docs.pytorch.org/tutorials/advanced/dispatcher.html, PyTorch new-backend dispatcher extension guide at https://docs.pytorch.org/tutorials/advanced/extend_dispatcher.html, ONNX Runtime Execution Providers at https://onnxruntime.ai/docs/execution-providers/, StableHLO specification at https://openxla.org/stablehlo/spec, OpenXLA overview at https://openxla.org/, AMD HIP porting guide at https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_porting_guide.html, Khronos SYCL overview at https://www.khronos.org/sycl/, and Triton fused softmax tutorial at https://triton-lang.org/main/getting-started/tutorials/02-fused-softmax.html.',
         'Study Interpreter Dispatch Table for the local dispatch pattern, Feature Flag Control Plane for rollout gates, Inference Kernel Fusion and CUDA Graphs for fast paths, CUDA Graph Shape Cache for shape constraints, Structured Pruning and N:M Sparsity for sparse guard design, Heterogeneous AI Compute Workload Router for placement policy, Tensor Parallelism and GPU All-Reduce for distributed accelerator constraints, Transformer Inference Roofline for cost reasoning, and WebGPU Buffer and Bind Group for another compatibility contract.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for accelerator-kernel-compatibility-matrix-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

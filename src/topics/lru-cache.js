@@ -1,4 +1,4 @@
-// LRU cache: a hash table and a linked list working as one machine.
+﻿// LRU cache: a hash table and a linked list working as one machine.
 // The list remembers WHO is least recent; the hash map finds anyone in O(1).
 
 import { sequenceState, parseNumberList } from '../core/state.js';
@@ -79,88 +79,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: "Why this exists",
+      heading: 'How to read the animation',
       paragraphs: [
-        "A cache is a promise to spend fast memory on values that avoid slower work later. The hard part is that capacity is finite. If the cache keeps everything forever, it becomes the slow store it was meant to protect. If it evicts carelessly, it saves memory but misses the next useful request.",
-        "Least Recently Used is the simplest serious rule for this tradeoff. It assumes temporal locality: an item used recently is more likely to be used again than an item that has gone untouched for a long time. That assumption is not always true, but it is common enough to make LRU a useful baseline in operating systems, databases, HTTP caches, application caches, and teaching examples.",
+        "The animation draws a doubly linked list ordered by recency: head (left) is the most recently used item, tail (right) is the eviction candidate. Behind the list sits a hash map that you do not see drawn, but every hit proves it exists -- the cache jumps to the right node without walking.",
+        "Green nodes are cache hits: the hash map found them in O(1) and they are about to move to the head. Red nodes are eviction victims: they sit at the tail when the cache is full and a new entry needs space. Highlighted nodes are freshly inserted or just promoted.",
+        "The key moment is the move-to-front after a hit. One access changes the entire eviction order. Watch which node ends up at the tail after each promotion -- that node is now closest to death, even if it was safe a moment ago.",
       ],
     },
     {
-      heading: "The naive baseline",
+      heading: 'Why this exists',
       paragraphs: [
-        "The first naive cache is just a hash table with a maximum size. On a miss, insert the fetched value. When the table is full, delete some arbitrary entry. Lookup is fast, but eviction is blind. A popular item can disappear because it happened to be stored next to a cold item or because the implementation picked the first key it saw.",
-        "The second naive design stores a timestamp on each entry and scans the whole cache on every eviction to find the oldest timestamp. This is correct LRU, but it is too expensive when the cache is large or when misses are frequent. Scanning a million entries to free one slot turns a cache miss into a cache-wide maintenance operation.",
+        "Memory is fast. Disk, network, and recomputation are slow. A cache spends a small amount of fast memory to avoid repeating slow work. The problem is that fast memory is finite. A cache that never evicts eventually holds everything and becomes the slow store it was supposed to avoid. A cache that evicts the wrong entry wastes a slot and pays a miss on the next request for that entry.",
+        "Belady showed in 1966 that the optimal eviction policy (MIN) replaces the entry whose next use is farthest in the future. MIN requires knowing the future, so it is useful as a benchmark but impossible to run in practice. LRU approximates MIN by betting on temporal locality: what was used recently will probably be used again soon. This bet pays off in CPU instruction streams, database page accesses, web requests, and DNS lookups -- anywhere the working set is smaller than the total key space and recent access predicts near-future access.",
       ],
     },
     {
-      heading: "The data-structure insight",
+      heading: 'The obvious approach',
       paragraphs: [
-        "LRU becomes practical when the cache separates two questions. A hash table answers whether a key is present and gives a pointer to its entry in expected O(1) time. A doubly linked list records recency order, with the most recent item at the head and the least recent item at the tail.",
-        "Those two structures are useful only together. The hash table alone has no cheap way to name the oldest entry. The linked list alone has no cheap way to find the node for key k. The combination gives fast lookup, fast promotion, and fast victim selection without scanning.",
+        "A FIFO cache is the simplest eviction policy. Keep a queue. Insert new entries at the back. When the cache is full, evict from the front -- the oldest entry. FIFO needs no bookkeeping beyond insertion order.",
+        "FIFO works when old entries are genuinely useless. A log buffer that processes entries once and never re-reads them is a natural FIFO. But most caches serve repeat requests. A configuration value loaded at startup is the oldest entry in the cache, yet it may be accessed on every single request. FIFO evicts it purely because it was inserted first, not because it stopped being useful.",
       ],
     },
     {
-      heading: "How the algorithm works",
+      heading: 'The wall',
       paragraphs: [
-        "On get(k), the cache checks the hash table. If k is absent, the operation is a miss and the caller must fetch the value from the backing store. If k is present, the cache reads the value and moves that node to the front of the list, because this access has made it the most recently used item.",
-        "On put(k, v), the cache either updates an existing node and moves it to the front, or creates a new node at the front. If the new insertion exceeds capacity, the cache removes the tail node and deletes the matching hash-table entry. That tail removal is O(1) because the list always keeps a direct pointer to the least recent item.",
+        "FIFO ignores usage. It treats a cold entry inserted five seconds ago the same as a hot entry inserted five seconds ago. What matters for eviction is not when an entry arrived but when it was last used. Recency of use, not recency of insertion, predicts future need.",
+        "Tracking recency with timestamps is correct but expensive. Store a last-access time with each entry, update it on every get, and on eviction scan all entries to find the oldest timestamp. The scan is O(n). A cache with a million entries pays a million comparisons every time it needs to make room. The bookkeeping that was supposed to save time now dominates it.",
+        "A linked list sorted by recency avoids the scan -- the tail is always the victim -- but finding a node by key requires walking the list: O(n). A hash map finds any key in O(1), but a hash map has no concept of order. Neither structure alone gives O(1) for both lookup and recency maintenance.",
       ],
     },
     {
-      heading: "What the visual is proving",
+      heading: 'The core insight',
       paragraphs: [
-        "The visual is proving the invariant, not just showing list motion. After every operation, the left side of the list is hotter than the right side, the tail is the legal eviction victim, and every key in the hash table points to the current node that carries that key.",
-        "A hit is important because it changes both meaning and structure. The value was already cached, but the evidence about future reuse changed. Moving the node to the head records that evidence. A full-cache miss shows the opposite side of the invariant: the cache does not search for a victim because the tail already names one.",
+        "Fuse the two structures. A hash map maps each key to a direct pointer to a node in a doubly linked list. The list maintains recency order: head is most recent, tail is least recent. The hash map handles the job the list cannot do (fast key lookup), and the list handles the job the hash map cannot do (ordered eviction and O(1) promotion).",
+        "get(k): look up k in the hash map. If present, follow the pointer to the node, read its value, and move the node to the head of the list (two pointer swaps -- O(1) because the list is doubly linked). If absent, it is a cache miss.",
+        "put(k, v): if k exists, update the value and move the node to the head. If k is new and the cache is full, remove the tail node (O(1)), delete its key from the hash map, then insert the new node at the head and record it in the hash map. If k is new and the cache has room, just insert at the head.",
+        "Every operation is O(1). The doubly linked list gives O(1) node detachment because each node knows both its predecessor and successor. The hash map gives O(1) access to any node without walking.",
       ],
     },
     {
-      heading: "Correctness invariants",
+      heading: 'Why it works',
       paragraphs: [
-        "A correct LRU cache maintains three invariants. First, every key in the hash table appears exactly once in the list. Second, every list node has a matching hash-table entry. Third, list order matches the last access time of resident keys, from newest at the head to oldest at the tail.",
-        "Most LRU bugs break one of those invariants. Updating a value without moving it makes the order stale. Removing the tail without deleting the hash entry leaves a pointer to dead state. Creating a second node for an existing key makes capacity accounting lie. Good implementations treat map and list updates as one logical operation.",
+        "The list is always sorted by last-access time, head to tail. Three invariants maintain correctness. First, every key in the hash map corresponds to exactly one node in the list. Second, every node in the list has a matching hash map entry. Third, list order reflects recency -- the head was accessed most recently, the tail least recently.",
+        "Every mutation preserves these invariants. A hit promotes the accessed node to the head, which correctly records that this key is now the most recently used. An eviction removes the tail -- by definition the key with the longest idle time among all cached entries. An insertion places the new entry at the head, because an entry just fetched from the backing store is the most recently used.",
+        "Most LRU bugs break one of the three invariants: updating a value without promoting the node makes recency order stale; removing the tail without deleting its hash map entry leaves a dangling pointer; inserting a duplicate node without removing the old one breaks capacity accounting.",
       ],
     },
     {
-      heading: "Why it works",
+      heading: 'Cost and complexity',
       paragraphs: [
-        "LRU works when recent use is a good predictor of near-future use. User sessions, active database pages, recently loaded modules, browser resources, and repeated API lookups often have this shape. The exact object may not be requested forever, but recent work tends to cluster.",
-        "The policy also works because it is explainable. If a value was evicted, it was the value with the longest quiet period among resident items. That makes LRU easy to debug, easy to simulate from a trace, and easy to compare against more complicated policies that claim better hit rates.",
+        "get and put are both O(1) average time. Space is O(capacity), but each entry carries overhead: two list pointers (prev and next), a hash map bucket pointer, and the stored hash value. For small cached values -- an integer, a short string -- the node metadata can cost more memory than the data itself.",
+        "Every hit rewires the list. In a single-threaded cache this is cheap. In a concurrent cache, constant promotion creates contention: every read modifies shared state. Production systems handle this with sharded LRUs, batched promotions, or approximations like the CLOCK algorithm that avoid pointer rewiring on every access.",
+        "Doubling capacity doubles memory but does not change per-operation cost. Doubling the working set beyond capacity raises the miss rate but each miss still costs O(1) for the cache bookkeeping -- the expensive part is the backing-store fetch (disk read, network round trip, recomputation), which dwarfs the O(1) pointer work.",
       ],
     },
     {
-      heading: "Costs and tradeoffs",
+      heading: 'Real-world uses',
       paragraphs: [
-        "The advertised cost is O(1) average time for lookup, update, promotion, and eviction, plus O(capacity) space. The hidden cost is metadata. Each entry needs hash-table overhead and list pointers. In languages with object allocation overhead, the node structure can cost more memory than small cached values.",
-        "The other hidden cost is mutation on every hit. A read is not only a read; it rewires the list. In a single-threaded toy this is fine. In a highly concurrent cache, constant promotion can create lock contention, cache-line bouncing, or batching complexity. Many production systems shard LRU, approximate it, or move recency maintenance off the hottest path.",
+        "CPU caches (L1, L2, L3) approximate LRU in hardware. True LRU for a 16-way set-associative cache would require tracking 16! orderings per set -- impossible in silicon. CPUs use pseudo-LRU (a tree of bits) or CLOCK (a circular buffer with reference bits) to approximate recency in nanoseconds.",
+        "Database buffer pools keep hot disk pages in RAM. PostgreSQL uses a CLOCK-sweep variant; MySQL's InnoDB uses a modified LRU with midpoint insertion (new pages enter at the 3/8 mark so a full table scan does not flush the hot end).",
+        "Web browsers cache HTTP responses (HTML, CSS, JS, images) in memory and on disk. When the cache exceeds its size budget, the least recently used responses are evicted. HTTP Cache-Control headers govern freshness; LRU governs space.",
+        "CDN edge caches (Cloudflare, Fastly, Akamai) use LRU-like eviction to decide which origin responses to keep at each edge node. Some layer frequency scoring on top to protect steadily popular URLs from bursts of unique traffic.",
+        "OS page replacement uses the CLOCK algorithm, which approximates LRU with a reference bit per page frame. The OS clears reference bits periodically; a page whose bit is still clear on the next sweep is treated as least recently used and evicted.",
+        "DNS caches, Redis (allkeys-lru and volatile-lru policies), and the KV-cache inside LLM inference engines all use LRU or LRU approximations. LeetCode problem 146 is the classic interview formulation.",
       ],
     },
     {
-      heading: "Implementation details",
+      heading: 'Where it fails',
       paragraphs: [
-        "A textbook linked-list implementation needs direct node removal. That is why a doubly linked list is used instead of a singly linked list. Given a node pointer from the hash table, the cache can detach the node by updating its previous and next neighbors, then splice it at the head.",
-        "Capacity also needs a precise definition. A teaching cache usually counts entries. A production cache often counts bytes, weighted cost, or reserved memory. Once capacity is weighted, evicting one tail node may not be enough. The policy may need to keep removing victims until the cache is back under budget.",
+        "Scan resistance is LRU's main weakness. A one-time sequential scan of cold data evicts every hot resident, because LRU only sees recency: the scanned items are newer. When the scan ends and the normal workload returns, the cache is full of useless entries. LRU-K (evict based on the Kth-most-recent access, not just the most recent), ARC (balances recency and frequency using two ghost lists), and CLOCK-Pro (approximates ARC without per-entry metadata) were all designed to fix this.",
+        "LRU ignores frequency. An entry accessed once per hour and an entry accessed once per millisecond look the same if their last-access timestamps happen to match. LFU (Least Frequently Used) tracks access counts instead, but LFU has its own problem: a formerly popular entry that has gone cold keeps its high count forever and monopolizes cache space. Modern hybrid policies like W-TinyLFU use an LRU admission window plus a frequency sketch to combine both signals.",
+        "LRU also ignores entry size, fetch cost, freshness, and write-back cost. A 1 KB object and a 100 MB object get the same treatment. A cache that serves stale data quickly is still wrong. LRU is an eviction policy, not a complete caching system.",
+        "Cold start is unavoidable: an empty LRU cache has a 100% miss rate until the working set loads. Capacity tuning is empirical -- too small and the hit rate suffers, too large and memory is wasted on entries that would never be evicted anyway.",
       ],
     },
     {
-      heading: "Real uses",
+      heading: 'Worked example',
       paragraphs: [
-        "LRU and LRU-like policies appear wherever memory is cheaper than recomputation but still limited. Database buffer pools use recency ideas to keep hot pages near memory. Web caches use them to keep recently requested responses. Language runtimes and services use them for parsed templates, compiled regular expressions, authorization decisions, and request-derived objects.",
-        "JavaScript also has a practical shortcut for small LRU caches: a Map preserves insertion order, so code can delete and reinsert a key on hit, then evict the first key when capacity is exceeded. That is a useful implementation trick, but the underlying idea is the same hash-and-order composition.",
+        "LRU cache, capacity 3. Six operations showing list state (head to tail) and hash map after each step.",
+        "put(1, A): List [1]. Map {1: node1}. One entry, room for two more.",
+        "put(2, B): List [2, 1]. Map {1: node1, 2: node2}. Key 2 is newest. Key 1 drifts toward the tail.",
+        "put(3, C): List [3, 2, 1]. Map {1: node1, 2: node2, 3: node3}. Cache is full. Key 1 is at the tail -- next eviction victim unless something touches it.",
+        "get(1): HIT. Hash map finds node1 in O(1). Detach node1 from the tail (its predecessor's next pointer becomes null) and splice it at the head. List becomes [1, 3, 2]. Key 2 is now the tail -- the least recently used. One access saved key 1 from eviction and condemned key 2 instead.",
+        "put(4, D): Cache is full. Evict the tail: key 2 is removed from the list and deleted from the hash map. Insert key 4 at the head. List becomes [4, 1, 3]. Map {1: node1, 3: node3, 4: node4}. Key 2 is gone. If you expected key 3 to be evicted, trace back: get(1) made key 1 more recent than key 3, so key 2 was the coldest.",
+        "get(2): MISS. Key 2 was evicted in the previous step. The cache cannot serve this request -- the caller must fetch from the backing store. This is the cost of limited capacity: the eviction was correct by the LRU rule, but the workload needed key 2 again.",
       ],
     },
     {
-      heading: "Failure modes and limits",
+      heading: 'Sources and study next',
       paragraphs: [
-        "LRU fails badly on scans. Suppose a cache holds the hot working set, then a one-time batch job reads a long sequence of cold items. Pure LRU admits every scanned item and evicts hot residents simply because the scan is recent. When the normal workload returns, the cache pays misses for values it should have protected.",
-        "LRU also ignores frequency, value size, fetch cost, freshness, and write behavior. A small object used every minute and a huge object used once have the same recency treatment if their last access times match. A cache that serves stale data quickly is still wrong. LRU is an eviction rule, not a complete caching system.",
-      ],
-    },
-    {
-      heading: "Study next",
-      paragraphs: [
-        "Study Hash Table and Linked List first, because LRU is one of the cleanest examples of composing them into a stronger abstraction. Then study Memoization to see the simplest form of reuse, and Cache Invalidation to learn why keeping an answer can be more dangerous than recomputing it.",
-        "After that, move to W-TinyLFU Cache Admission for scan resistance, Modern Cache Eviction for SIEVE and S3-FIFO, Write-Through vs Write-Back for durability timing, Count-Min Sketch for approximate frequency, and Tail Latency for the production cost of cache misses and cache bookkeeping.",
+        "Belady 1966 (A Study of Replacement Algorithms for a Virtual-Storage Computer) proved that evicting the entry whose next use is farthest in the future is optimal (the MIN/OPT algorithm), establishing the benchmark LRU tries to approximate. Denning 1968 (The Working Set Model for Program Behavior) formalized temporal locality. Sleator and Tarjan 1985 (Amortized Efficiency of List Update and Paging Rules) proved LRU is k-competitive: its cost is at most k times optimal for a cache of size k.",
+        "Prerequisites: Hash Table (the O(1) lookup half -- without it, finding a cached item requires scanning) and Doubly Linked List (the O(1) recency half -- without prev pointers, promoting or evicting a node requires walking from the head).",
+        "Extensions: CLOCK algorithm (hardware-friendly LRU approximation using a circular buffer and reference bits), ARC (Adaptive Replacement Cache -- self-tuning balance of recency and frequency), LFU Cache (frequency-based eviction with different failure modes), and Bloom Filter (often placed in front of a cache to avoid lookups for keys that were never stored).",
       ],
     },
   ],
 };
+

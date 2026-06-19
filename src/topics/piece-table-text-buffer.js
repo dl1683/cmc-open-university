@@ -209,7 +209,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What It Is',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Piece Table Text Buffer. A text-editor buffer: keep the original file immutable, append all inserted text to an add buffer, and render through ordered piece descriptors..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'A piece table is a text-buffer representation for editors. It stores the file as two immutable byte sources: the original buffer loaded from disk and an append-only add buffer containing inserted text.',
         'The visible document is not stored as one mutable string. It is stored as an ordered list of piece descriptors. Each descriptor names a source buffer, a start offset, and a length. Rendering the document means reading those slices in descriptor order.',
@@ -217,7 +226,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Baseline and the Wall',
+      heading: 'The wall',
       paragraphs: [
         'The simplest editor buffer is one mutable character array or string. Insert in the middle, shift the suffix. Delete a range, shift again. This is easy to explain but expensive for large files, and it makes undo fight the same storage that holds the current text.',
         'A gap buffer improves local typing by keeping free space near the cursor. It is good when edits cluster near one point, but moving the gap across a large file can be costly. A rope improves split and concatenate, but it does not automatically preserve the original file and every inserted span as stable sources.',
@@ -225,7 +234,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core Insight and Invariant',
+      heading: 'The core insight',
       paragraphs: [
         'Never move old bytes. Keep the original file immutable, append every insertion to the add buffer, and describe the current document with pieces. Editing becomes descriptor surgery instead of bulk text movement.',
         'The main invariant is that rendered text equals the concatenation of all pieces in order. A piece is valid only if its source buffer, start offset, and length name a real slice. The source-buffer order is irrelevant; descriptor order is the document order.',
@@ -233,7 +242,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'In the "insert pieces" view, focus on the split. Inserting "brave " into "hello world" does not rewrite "hello world". The original piece is split into "hello " and "world", the inserted text is appended to the add buffer, and a new piece points at that add-buffer slice.',
         'The piece tree frame shows why a real editor does not stop at a linked list. A long editing session can create many pieces. A balanced tree with lengths and line counts keeps random access, line navigation, and viewport rendering from degrading into full-list scans.',
@@ -241,7 +250,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works (2)',
       paragraphs: [
         'Opening a file creates one original buffer and one initial piece covering that buffer. The add buffer starts empty. The document may already be usable before the editor has copied or normalized the whole file into a separate mutable string.',
         'Insertion finds the piece containing the edit offset. If the edit is in the middle of a piece, that piece is split into left and right pieces. The inserted text is appended to the add buffer, and a new add-buffer piece is spliced between the left and right pieces.',
@@ -249,7 +258,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Is Correct',
+      heading: 'Why it works',
       paragraphs: [
         'Correctness follows from slice preservation. Source buffers are append-only or read-only, so a descriptor that was valid remains valid until the editor deliberately removes it from the visible order. Splitting a descriptor into two adjacent descriptors preserves the same rendered text.',
         'Insertion is correct because it preserves the left slice, inserts a descriptor for exactly the new bytes, and preserves the right slice. Deletion is correct because it removes the descriptors or descriptor subranges that correspond to the deleted visible interval.',
@@ -257,7 +266,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'A plain piece list makes local descriptor edits cheap but can make random offset lookup O(number of pieces). A piece tree adds balancing overhead, but it gives logarithmic search by offset or line when metadata is maintained correctly.',
         'The main practical cost is fragmentation. Many small edits can create many tiny pieces, especially around repeated insert/delete activity. Editors often coalesce adjacent compatible pieces and tune tree nodes to reduce pointer overhead and improve cache behavior.',
@@ -266,7 +275,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'Start with original buffer "hello world" and one piece orig[0..11]. To insert "brave " after "hello ", append "brave " to the add buffer at add[0..6].',
         'Split the original piece at offset 6. The visible descriptor order becomes orig[0..6], add[0..6], orig[6..11]. Rendering those slices gives "hello brave world". The original buffer still contains exactly "hello world".',
@@ -274,7 +283,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Piece tables win in text editors and IDEs that open large files, preserve original bytes, support undo and redo, and render small viewports repeatedly. They also fit diff tools and document systems where stable references to original and inserted text are useful.',
         'They fail when a simpler representation is enough. A tiny text field may not need descriptor trees. A gap buffer can be simpler and faster for strongly cursor-local editing. A rope may be a better fit when the main operation is split and concatenate of large independently owned chunks.',
@@ -282,11 +291,83 @@ export const article = {
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Sources: Visual Studio Code text buffer reimplementation at https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation and Charles Crowley, Data Structures for Text Sequences, linked from https://www.cs.unm.edu/~crowley/papers/sds.pdf.',
         'Study Gap Buffer Text Editor for the cursor-local baseline, Text Rope Data Structure for tree-based string chunks, Implicit Treap Sequence Editor for positional split/merge on generic sequences, Red-Black Tree or Splay Tree for balanced indexing, and Sequence CRDTs or Operational Transformation Collaborative Editing Case Study for remote edit ordering above the buffer.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Piece Table Text Buffer moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

@@ -131,7 +131,7 @@ function* taming() {
       ],
       columns: [{ id: 'why', label: '' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'the mean of ten servers\' p99s is not the fleet p99 — aggregate histograms, then read', 'server-side 50ms can be user-side 800ms (network, queues, redirects)', '"p99 < 200ms over 28 days" — a promise about the tail, with an error budget', 'a 1-minute p99 is noisy; a 1-day p99 hides incidents'][v],
+      format: (v) => ['', 'the mean of ten servers\'s p99s is not the fleet p99 — aggregate histograms, then read', 'server-side 50ms can be user-side 800ms (network, queues, redirects)', '"p99 < 200ms over 28 days" — a promise about the tail, with an error budget', 'a 1-minute p99 is noisy; a 1-day p99 hides incidents'][v],
     }),
     highlight: { active: ['avg:why'], compare: ['slo:why'] },
     explanation: 'Good percentile work starts with measurement hygiene. Do not average server p99s; merge the histograms or sketches and compute the fleet percentile from the combined distribution. Measure user-visible latency, not only handler time. Then turn the target into an SLO, such as "99% under 200ms," so latency has an error budget and incidents have evidence. Distributed tracing tells you which hop spent that budget.',
@@ -148,14 +148,14 @@ export function* run(input) {
 const legacyArticle = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
         `Tail latency is the slow end of the latency distribution: p95, p99, p999, and beyond. It matters because users do not experience your average; they experience one concrete request path. A service can average 60ms while one request in a hundred takes a full second. If each page depends on many requests, that "rare" second becomes common for users.`,
         `This topic exists because large systems compose latencies by waiting for many things at once. A fan-out request waits on the slowest shard. A browser waits on the slowest critical resource. A checkout waits on the slowest required service. Tail work is therefore part measurement, part architecture: measure percentiles correctly, then design so stragglers do not dominate the whole user path.`,
       ],
     },
     {
-      heading: `Legacy visual note`,
+      heading: `How to read the animation`,
       paragraphs: [
         `In the averages view, do not follow the peak of the distribution; follow the right edge. The mean marker shows why averages can look fine, while the p99 marker shows what the slowest real users feel. The session and fan-out tables then multiply the same one-percent tail across many requests. The invariant is max-of-many latency: when a page waits for every dependency, one slow draw can set the whole user experience.`,
         `In the taming view, each row is a different way to change either the distribution or the composition rule. Hedging duplicates only slow cases, retries need budgets and jitter, and shedding rejects doomed work before it becomes tail work. The hygiene table explains how to read the measurements: aggregate histograms before percentiles, measure at the user, and attach SLOs to the tail rather than the average.`,
@@ -170,7 +170,7 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Tail reduction usually costs extra work, less completeness, or stricter admission. Hedging adds duplicate traffic. Timeouts and partial responses may return less data. Load shedding rejects some callers so others finish on time. Retry budgets trade some availability during blips for protection during overload. Instrumentation costs storage and query complexity because you need histograms or quantile sketches, not just averages.`,
         `The hard part is setting boundaries. Hedging needs independent replicas and idempotent or read-only operations. Retries need deadlines and idempotency keys. Scatter-gather needs a timeout and a policy for missing shards. SLO windows need enough sample volume to mean something without hiding short incidents. Tail work is engineering with constraints, not just lowering a number on a dashboard.`,
@@ -184,7 +184,7 @@ const legacyArticle = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `Do not average percentiles across hosts. A fleet p99 must be computed from the combined distribution, or from a sketch designed for that purpose. Do not measure only server handler time if the user waits on network, queueing, browser work, redirects, or retries. Do not trust p99 from tiny samples. Always show request volume next to deep percentiles.`,
         `Also be careful with the cures. Hedging every request can overload replicas. Retrying non-idempotent writes can duplicate work. Cutting fan-out by returning partial answers may be the right product choice, but it should be explicit. A tail-latency plan is credible only when it names the slow path, the duplicate-work budget, the timeout, and the user-visible fallback.`,
@@ -197,7 +197,24 @@ const legacyArticle = {
         `For measurement, study DDSketch Relative-Error Quantiles, t-digest Quantile Sketch, KLL Quantile Sketch, and Greenwald-Khanna Quantile Summary. SLO Error Budget Burn Rate Alert turns percentile misses into an operational paging policy.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is using average latency as a proxy for user experience.',
+        '98 successful requests at 80ms and 2 slow requests at 1,200ms yields an excellent average, but users still hit a painful 99th-percentile response.',
+        'Tail-aware systems optimize for p95/p99 by capping queue depth, controlling slow paths, and setting hard deadlines on optional work.',
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Service A: auth 10ms, profile 15ms, recommender 300ms worst-case.',
+        'Most requests complete in ~50ms, but occasional lock contention adds 300ms; user-visible p99 becomes ~350ms while mean stays deceptively low.',
+        'Tail control: isolate the contender path, add fallback values, and protect the fast path with concurrency limits and timeouts.',
+      ],
+    },
+],
 };
 
 export const article = {
@@ -211,7 +228,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach',
+      heading: 'How to read the animation',
       paragraphs: [
         'The obvious approach is to track average latency. That fails because latency distributions are usually skewed. A small number of very slow requests can hurt users while barely moving the mean.',
         'Another shortcut is to watch p99 for one service and assume the product is fine. That also fails because users experience composed latency. If a page waits on 20 services or a query waits on 100 shards, the probability of at least one slow dependency rises quickly.',
@@ -219,7 +236,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is max-of-many composition. If a user request waits for all dependencies, the slowest dependency sets the visible latency. The more dependencies there are, the more likely the user sees a tail event.',
         'For independent one-percent tail events, the chance of seeing at least one slow request across N calls is 1 - 0.99^N. With 20 calls, that is about 18 percent. With 100 calls, it is about 63 percent. Rare per request becomes routine per session.',
@@ -236,7 +253,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The distribution plot proves that the mean can look healthy while p99 is terrible. The slow edge is small by count but large by user pain.',
         'The session table proves the multiplication effect. A user who performs many dependent actions is much more likely to hit at least one slow request than a single request percentile suggests.',
@@ -254,7 +271,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Tail reduction usually costs extra work, less completeness, or stricter admission. Hedging adds duplicate traffic. Timeouts and partial responses may return less data. Load shedding rejects some callers so others finish on time. Instrumentation costs storage and query complexity.',
         'The hard part is setting boundaries. Hedging needs independent replicas and idempotent or read-only operations. Retries need deadlines and idempotency keys. Scatter-gather needs a timeout and a policy for missing shards. SLO windows need enough sample volume without hiding short incidents.',
@@ -263,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Tail thinking matters in search, social feeds, ad serving, recommendation systems, distributed databases, checkout flows, video startup, mobile APIs, and any system that fans out to many dependencies.',
         'It also matters inside one service. Garbage collection, compaction, cold caches, queue spikes, noisy neighbors, database locks, and retry storms can all create a tail without microservices.',
@@ -272,7 +289,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Do not average percentiles across hosts. A fleet p99 must be computed from merged histograms or a sketch designed for quantiles. Do not show p99 without sample count. Do not measure only server handler time if the user waits on network, browser work, redirects, or retries.',
         'Do not use hedging or retries without budgets. Hedging every request can overload replicas. Retrying non-idempotent writes can duplicate work. Retrying during overload can turn a slow system into a failing one.',
@@ -286,5 +303,51 @@ export const article = {
         'Study Sharding & Partitioning for scatter-gather fan-out, Hot Rows & Append-and-Aggregate for queue-driven tails, Distributed Tracing for finding which hop spent the budget, Retries, Backoff & Jitter for disciplined retry policy, and Load Shedding & Graceful Degradation for overload behavior. For measurement, study DDSketch, t-digest, KLL Quantile Sketch, Greenwald-Khanna Quantile Summary, and SLO Error Budget Burn Rate Alert.',
       ],
     },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Tail Latency & p99 Thinking moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    }
   ],
 };

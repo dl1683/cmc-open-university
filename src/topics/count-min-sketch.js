@@ -178,112 +178,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation shows a d-by-w grid: three rows (one per hash function) and eight columns (counter buckets). Every cell starts at zero.',
+        'When an event arrives, three cells light up -- one per row -- at the column positions chosen by each hash function. Those three counters increment by one; nothing else changes. When the sketch answers a query, it reads the same three positions and returns the smallest value. That minimum is the frequency estimate.',
+        'Track "login" and "bot" through the stream. They collide in rows h1 and h2 (both land in columns 4 and 6), so those rows overcount both keys. Row h0 maps them to different columns (0 vs 5), keeping a clean witness. The min-query picks up that clean row and recovers the true count.',
+        'The merge view adds two shard sketches cell by cell. The result equals a single sketch built over the combined stream, because addition preserves the overestimate invariant.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Streams can contain millions or billions of distinct keys: URLs, IPs, queries, products, tokens, or user ids. An exact hash map grows with the number of distinct keys and can become too large for telemetry, abuse detection, or distributed analytics. Count-Min Sketch exists to answer approximate frequency questions with fixed memory.',
+        'Streams produce keys -- IP addresses, search queries, product SKUs, ad impressions -- and someone needs to know how often each key appeared. Network monitoring needs per-IP request rates. Search engines rank autocomplete by query frequency. Ad platforms bill by impression count. Abuse detection flags accounts with too many login attempts.',
+        'When the stream carries millions or billions of distinct keys, storing an exact counter for every one costs O(n) memory for n distinct items. Cormode and Muthukrishnan (2005) designed the Count-Min Sketch to answer frequency questions using fixed memory that depends only on the desired accuracy, not on the number of distinct keys.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first attempt is a hash table from key to exact count. It is simple, mergeable by key, and correct. It fails when the key universe is huge, the tail is long, and most keys are not important enough to deserve their own stored identity.',
+        'A hash map maps each key to an integer counter. Every event is an O(1) lookup and increment. Queries are an O(1) read. Answers are exact.',
+        'A web server logging 1 billion distinct URLs needs one hash-map entry per URL. At roughly 50 bytes per entry (key storage, counter, hash-table overhead), that is 50 GB of memory for counting alone. Every edge node, analytics worker, and monitoring shard pays this cost independently.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'A single hashed counter per key-like bucket loses too much information because collisions are indistinguishable. A rare key that collides with a hot key looks hot. The wall is bounding collision damage without storing identities for every distinct key.',
+        'Hash-map memory grows with the number of distinct keys, not with the accuracy you need. If you only care whether a key appeared roughly 10,000 times versus 100 times, you still pay to store every key that appeared once. Collapsing keys into fewer buckets does not help: when two keys share a bucket, their counts merge and you cannot tell which key contributed what. One collision destroys both estimates.',
+        'The problem: bounding collision damage without storing the identity of every distinct key. The acceptable trade-off is overcounting (never undercounting), bounded by a tunable error parameter.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'Use several independent hash rows and take the minimum estimate. Collisions only add count, never subtract it. If at least one row is relatively clean, the minimum row is the least polluted witness for the key.',
-      ],
-    },
-    {
-      heading: 'Reading the visualization',
-      paragraphs: [
-        'In the stream-counts view, follow one key across all hash rows. Every touched counter is a noisy witness. The minimum is chosen because collisions only add mass; the least inflated witness is the best estimate.',
-        'In the merge view, notice that mergeability is not an afterthought. Sketches with the same dimensions and hash seeds can be added cell by cell, which is why this structure is useful in distributed streaming systems.',
+        'Use several independent hash functions, each mapping keys into its own row of counters. A collision in one row is unlikely to repeat in every row because the hash functions are independent. Query by reading all rows and returning the minimum. Collisions only add count -- they never subtract -- so the minimum selects the least polluted estimate. One clean row is enough to recover the exact count.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Create d rows and w columns of counters. Each row has its own hash function. Updating key x increments one counter per row. Querying x reads those same counters and returns the smallest. Width lowers collision pressure; depth lowers the chance that every row is badly polluted.',
-        'The key itself is not stored in the sketch. That saves memory, but it means the sketch cannot list all frequent keys. A production heavy-hitter pipeline usually pairs Count-Min with a candidate table, sample store, or exact replay for the small set of keys worth investigating.',
+        'Allocate a table of d rows and w columns, all counters at zero. Each row owns one hash function that maps keys to columns 0 through w-1.',
+        'Insert(x): compute h_1(x), h_2(x), ..., h_d(x). Increment counter[row][h_row(x)] in every row. Exactly d counters change per insert, regardless of how many distinct keys exist.',
+        'Query(x): compute the same d positions. Read counter[row][h_row(x)] from every row. Return min(counter[0][h_1(x)], ..., counter[d-1][h_d(x)]).',
+        'The key itself is never stored. The sketch cannot list its contents or enumerate frequent keys -- it only estimates the count of a key you already know to ask about. Heavy-hitter pipelines pair the sketch with a candidate tracker (Space-Saving, a heap, or a sampled exact window) to decide which keys to query.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'For positive streams, every counter touched by x contains the true count of x plus counts from colliding keys. That means each row is an upper bound. Taking the minimum keeps the estimate one-sided and chooses the row with the least extra mass. The original analysis sizes width and depth for additive error and failure probability.',
+        'Each counter cell accumulates the true counts of every key that hashes there. Key x contributes its true count c(x) to each of its d cells; other keys can only add more, never subtract. So every cell x touches reads at least c(x). Each row independently overestimates.',
+        'Taking the minimum across d independent rows picks the row where x suffered the least collision noise. The error bound: P(estimate(x) > c(x) + epsilon * N) <= delta, where N is the total stream count, provided w = ceil(e / epsilon) and d = ceil(ln(1 / delta)). With width w, the expected overcount from collisions in any single row is at most epsilon * N. With d independent rows, the probability that every row exceeds that bound is at most delta.',
+        'The guarantee is one-sided: Count-Min never underestimates. A missed spike is impossible. A false spike is possible and must be verified downstream.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Update is O(d), query is O(d), and memory is O(d * w), fixed by the desired error rather than stream length. Sketches with the same dimensions and hash seeds merge by cell-wise addition. The bill is statistical: rare keys can be inflated, and the sketch cannot list keys by itself.',
-        'Counter size is also a real systems choice. Small counters save memory but can saturate. Conservative update reduces positive-stream bias. Time-decayed or windowed variants need rotation, subtraction, or multiple sketches, which changes the simple merge story.',
+        'Insert: O(d) time -- compute d hashes, increment d counters. Query: O(d) time -- compute d hashes, read d counters, take the minimum. Space: d * w counters, set entirely by the error parameters.',
+        'Concrete numbers: for epsilon = 0.01, delta = 0.01, w = ceil(e / 0.01) = 272 columns, d = ceil(ln(100)) = 5 rows. That is 1,360 four-byte counters, about 5.3 KB. For 1 million distinct keys at epsilon = 0.001 and delta = 0.01, the hash map needs roughly 12 MB; the sketch uses 54 KB -- over 200x less memory, at the cost of approximate answers.',
+        'Sketches with identical dimensions and hash seeds merge by cell-wise addition. Each shard sketches its local stream; the coordinator sums the matrices. The merged result is identical to a single sketch over the combined stream because addition preserves the overestimate property. No raw events cross the network.',
+        'Doubling the stream length doubles the absolute error bound (epsilon * N) but does not change the table size. Halving epsilon doubles the width. Adding one row multiplies confidence by roughly e (each extra row multiplies delta by 1/e). In practice, d = 4 or 5 rows and a few hundred to a few thousand columns cover most production workloads.',
       ],
     },
     {
-      heading: 'Implementation checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Choose width from tolerated overcount and depth from tolerated probability of a bad estimate. Wider rows reduce collision pressure; more rows reduce the chance that every estimate path is polluted. Record both choices with the metric definition so dashboards remain interpretable.',
-        'Use the same hash functions, seeds, dimensions, and counter widths everywhere a sketch may be merged. A cell-wise sum is meaningful only when every shard put the same logical hash row and bucket in the same cell.',
-        'Pair the sketch with a candidate mechanism when you need heavy hitters. Count-Min can estimate a key you already know, but it cannot enumerate unknown keys because it does not store them. Space-Saving, heap candidates, or sampled exact windows often fill that gap.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Count-Min fits network telemetry, streaming analytics, approximate dashboards, query planning, abuse detection, ad-tech counters, and feature-monitoring pipelines. A common production pattern is message queues feeding stream workers, sketches generating candidates, and an exact store verifying the few decisions that matter.',
-        'It is especially strong when the stream is too large to retain but approximate upper bounds are enough. Alerting on possible spikes, estimating hot keys, and routing suspicious traffic can all tolerate a one-sided estimate as long as final expensive actions are checked elsewhere.',
+        'Network traffic monitoring: edge nodes sketch per-IP request rates locally, merge sketches at the regional aggregator. The dashboard asks "which known IPs might have spiked?" and the sketch supplies safe upper bounds. Banning an IP still requires exact log lookup -- the sketch is the first filter, not the verdict.',
+        'NLP and search: approximate word or n-gram frequency for autocomplete ranking, trending-query detection, and vocabulary filtering. The query stream is too large to count exactly on every serving node.',
+        'Database query optimization: a query planner estimates predicate selectivity from sketched column-value frequencies. The overestimate bias is tolerable because plan cost estimates are already approximate.',
+        'Ad tech and streaming analytics: impression counting, click-through-rate estimation, A/B-test event tallies across distributed workers. The pattern is always the same -- sketch for cheap candidate detection, exact store for the few decisions that carry consequences.',
+        'Anomaly and abuse detection: login-attempt counts per account or IP. A high sketch estimate triggers investigation; enforcement waits for verified counts. Apache Spark and Apache Flink both include Count-Min Sketch implementations for exactly these streaming use cases.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Do not use it for money, inventory, permissions, deletion, or legal decisions without exact verification. It is biased upward and vulnerable to adversarial collision choices if hashing is weak. It also estimates keys you ask about; finding heavy hitters requires a candidate tracker such as Space-Saving or another retained-identity summary.',
-        'It is also the wrong tool for signed updates unless the contract is changed. If counts can decrease, Count-Min loses its one-sided overestimate logic. Count Sketch or another turnstile sketch fits that world better.',
+        'Overcounts, never undercounts. If exact lower bounds matter -- billing, inventory, contractual rate limits -- the sketch alone is not safe. Treat every sketch estimate as a candidate signal, not ground truth.',
+        'No key enumeration. The sketch answers "how often did X appear?" but not "which keys appeared most?" A separate candidate tracker like Space-Saving is needed to surface heavy hitters.',
+        'Skewed streams amplify error. A dominant key collides with most other keys in most rows, inflating estimates across the board. The absolute error bound epsilon * N grows with total stream volume, so hot streams need wider tables.',
+        'No deletion. Decrementing a counter breaks the one-sided guarantee because you might subtract another key\'s contribution. Count-Mean-Min Sketch and conservative updates reduce bias; Count Sketch supports signed (turnstile) updates where counts can increase and decrease.',
+        'For cardinality estimation ("how many distinct keys?") rather than frequency estimation ("how often did this key appear?"), HyperLogLog is the right tool. Count-Min Sketch and HyperLogLog answer different questions.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A stream sees login four times and bot twice. In one row, login collides with bot, so that row reports 6 for login. In another row, login avoids bot and reports 4. Taking the minimum returns 4, which is exact in this toy case. If every row collided, the answer would be too high, never too low.',
-        'In a distributed log pipeline, each shard can keep its own sketch. As long as every shard uses the same hash seeds and dimensions, the coordinator adds matrices cell by cell. The merged sketch behaves like one sketch over the combined stream without shipping raw events.',
-      ],
-    },
-    {
-      heading: 'Rule of thumb',
-      paragraphs: [
-        'Use Count-Min when the cost of exact counting grows with the stream and overestimates are safer than underestimates. Use a different structure when counts can be negative, identity must be retained, or decisions require exactness.',
-        'The most useful production habit is to treat sketch answers as candidate evidence. They are excellent for narrowing attention and dangerous when silently promoted into billing, deletion, or access-control truth.',
-      ],
-    },
-    {
-      heading: 'Operational case study',
-      paragraphs: [
-        'A network telemetry service wants rough request counts for millions of source IPs per minute. Keeping an exact counter for every IP on every edge node is expensive, and shipping those maps centrally is worse. Each edge node can update a Count-Min sketch locally and merge sketches for regional dashboards.',
-        'The dashboard can safely ask candidate questions such as "which known IPs might have spiked?" because the sketch gives upper bounds. It should not ban an IP from the sketch alone. A high estimate should trigger exact log lookup, sampled packet review, or a heavier retained-identity summary before enforcement.',
-        'This pattern is why Count-Min often appears beside other summaries. The sketch gives cheap frequency pressure, Space-Saving keeps candidate identities, and exact storage verifies the small number of decisions that matter.',
-      ],
-    },
-    {
-      heading: 'How to size it',
-      paragraphs: [
-        'Width controls additive error because wider rows spread keys across more buckets. Depth controls confidence because more independent rows make it less likely that every witness for a key is badly polluted. The usual theory expresses this as an error budget and failure probability rather than as a magic table size.',
-        'In production, size is also constrained by cache, network, and counter width. A sketch that fits in CPU cache may beat a theoretically nicer sketch that causes memory stalls. A sketch sent between workers may need compact counters and clear saturation behavior.',
-        'Sizing should be tied to action thresholds. If an alert fires at 10,000 events, an error of 50 may be fine. If an admission decision flips at 8 versus 9 events, the same sketch may be too noisy.',
+        'Setup: w = 5 columns, d = 2 rows. Hash functions (hand-picked for clarity): h1("cat") = 0, h2("cat") = 2. h1("dog") = 3, h2("dog") = 0. h1("fish") = 0, h2("fish") = 4. All counters start at zero.',
+        'Insert "cat" three times. After three inserts: row 0, col 0 = 3; row 1, col 2 = 3. Query("cat") = min(3, 3) = 3. Exact.',
+        'Insert "dog" twice. Row 0, col 3 = 2; row 1, col 0 = 2. Query("dog") = min(2, 2) = 2. Exact. No collision with "cat" because their positions differ in both rows.',
+        'Insert "fish" once. Row 0, col 0 goes from 3 to 4 -- "fish" collides with "cat" in row 0. Row 1, col 4 = 1. Query("fish") = min(4, 1) = 1. Exact, because row 1 stayed clean.',
+        'Query("cat") after "fish": row 0 reads 4 (polluted by "fish"), row 1 reads 3 (clean). min(4, 3) = 3. Still exact -- the clean row rescues the estimate.',
+        'Now the collision cost is visible. Row 0, col 0 holds 4 (3 from "cat" + 1 from "fish"). Any future key that hashes to row 0, col 0 will inherit that inflated count in that row. But as long as at least one row avoids the collision, the min-query recovers the true count. More rows mean more independent chances to avoid collisions; wider rows mean fewer collisions per row.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Cormode and Muthukrishnan, "An Improved Data Stream Summary: The Count-Min Sketch and its Applications" at https://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf. Then study Conservative Count-Min Sketch for lower positive-stream bias, Count Sketch: Signed Frequency for turnstile updates, Feature Hashing Signed Projection Primer for hashed sparse feature vectors, Heavy Hitters: Space-Saving Summaries for retaining candidate keys, and Elastic Sketch Network Telemetry Case Study for a production heavy/light split. Bloom Filter covers approximate membership, Reservoir Sampling covers representative examples, and Message Queues show the production stream that feeds sketches.',
+        'Primary source: Cormode and Muthukrishnan, "An Improved Data Stream Summary: The Count-Min Sketch and its Applications" (2005). Estan and Varghese, "New Directions in Traffic Measurement and Accounting" (2003), provides the heavy-hitter detection context that motivates most deployments.',
+        'Prerequisites: Hash Table (exact counting baseline and hash-function mechanics), Bloom Filter (probabilistic membership -- the closest cousin in the family of hash-based approximate structures).',
+        'Extensions: Conservative Count-Min Sketch (reduces overestimate bias by only incrementing cells that equal the current minimum), Count Sketch (supports signed updates where counts can decrease), Space-Saving (retains candidate identities that Count-Min discards).',
+        'Contrast: HyperLogLog answers "how many distinct items?" -- cardinality, not frequency. Reservoir Sampling keeps representative stream samples. T-Digest and DDSketch estimate streaming quantiles. Each solves a different streaming question with a different probabilistic tradeoff.',
       ],
     },
   ],

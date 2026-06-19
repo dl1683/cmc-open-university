@@ -206,6 +206,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Hazard Pointers & Epoch Reclamation. The missing half of lock-free linked structures: protect nodes while readers hold raw pointers, then retire and reclaim only when reuse is safe..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A lock-free stack, queue, or linked list can be logically correct and still be unsafe. A successful compare-and-swap may unlink a node from the structure, but that does not prove every other thread has stopped holding a raw pointer to that node.',
@@ -214,7 +223,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to free a node immediately after the CAS that removes it. That keeps memory usage low and matches how single-threaded code often feels: once the list no longer points at the node, the node is dead.',
         'The wall is that another thread may have loaded the pointer before the CAS. That pointer can live in a register or stack frame. The allocator cannot see it. If the node is freed and the address is reused, the paused thread can read new data through an old pointer.',
@@ -230,7 +239,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism: hazard pointers',
+      heading: 'How it works',
       paragraphs: [
         'A reader loads a candidate pointer, writes that pointer into its hazard slot, and then reloads or revalidates the shared link. The recheck is essential. Without it, the node could be unlinked and retired in the gap between load and publication.',
         'Once the hazard pointer is published and the recheck passes, the thread may safely dereference the node. A remover can still unlink the node from the structure, but it cannot free or reuse the node while any hazard slot names it.',
@@ -239,7 +248,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism: epoch reclamation',
+      heading: 'How it works (2)',
       paragraphs: [
         'A thread pins or enters the current epoch before operating on the structure. While pinned, it promises that it may hold pointers read during that epoch. When it finishes, it unpins or announces that it is no longer active.',
         'A remover does not free an unlinked node. It retires the node into a bag associated with the current epoch. The global epoch advances only when active participants have moved forward or become inactive.',
@@ -248,7 +257,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works (3)',
       paragraphs: [
         'In the hazard-pointer view, the important transition is load, publish, recheck, use, clear. Publication alone is not enough. The recheck closes the race where a remover could unlink the node before the hazard slot became visible.',
         'The retire-list table is the reclamation decision. A retired node with no hazard hit is freeable. A retired node with a hazard hit stays alive even though it is no longer linked. That distinction is the whole technique.',
@@ -281,7 +290,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Hazard pointers fit lock-free stacks, queues, lists, maps, and freelists when readers may hold a small number of individual node pointers and the system needs portable node-level protection.',
         'Epoch reclamation fits high-throughput structures where operations are short, threads are known participants, and pointer lifetimes are naturally bounded by the operation. It is common in concurrent libraries because the fast path can be very small.',
@@ -289,7 +298,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is the wrong tool',
+      heading: 'Where it fails',
       paragraphs: [
         'Do not use these mechanisms when a normal garbage collector or ownership model already solves the lifetime problem at the right cost. Adding manual reclamation to a managed environment can create complexity without buying safety.',
         'Do not use epoch reclamation across blocking operations, long async awaits, or arbitrary user callbacks. A pinned epoch must be short. If user code can pause forever, memory retention can become unbounded.',
@@ -297,7 +306,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'For hazard pointers, the classic bug is forgetting the recheck after publication. A thread can publish a pointer that was already unlinked, then treat the publication as proof of safety. It is not proof unless the structure still makes the node reachable under the algorithm rules.',
         'Another hazard-pointer bug is clearing the slot too early or using too few slots for the number of pointers an operation may dereference. A node is protected only while the right slot contains the right address.',
@@ -319,5 +328,68 @@ export const article = {
         'Study Linearizability History Checker for correctness after memory safety is handled. Study Lock-Free Queue and Bw-Tree Delta Chain and Mapping Table for larger structures that need reclamation discipline. Study Logical Clocks if the epoch idea made you want a broader model of time in concurrent systems.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Hazard Pointers & Epoch Reclamation moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

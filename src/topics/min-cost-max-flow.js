@@ -191,103 +191,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Each edge label shows capacity/cost. The highlighted path in the residual-cost view is the current augmenting path -- the route from source to sink that can carry more flow. Active nodes and edges trace the path being pushed. Compared nodes are alternatives the algorithm evaluated and rejected because the active path is cheaper.',
+        'When flow is pushed along an edge, a reverse edge appears in the residual graph. Forward residual capacity means more flow can still go that direction. Reverse residual capacity means flow already sent can be cancelled. An augmenting path that uses a reverse edge is not sending flow backward through a pipe -- it is revising an earlier routing decision.',
+        'The potentials node shows Johnson\'s reweighting trick. Reduced cost of edge (u, v) = original cost + potential[u] - potential[v]. This keeps all reduced costs nonnegative so Dijkstra works, even though the true residual graph has negative-cost reverse edges. In the assignment view, source connects to workers, workers connect to tasks with cost edges, tasks connect to sink. Found edges are the final assignments.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Many allocation problems are not just about whether something can be routed. They also ask which feasible routing is cheapest. A delivery platform wants to serve as many jobs as possible, but among those maximum-service plans it wants the least lateness. A scheduler wants to place every job it can, but it prefers cheaper machines. A transport network wants throughput, but fuel, tolls, and congestion matter.',
-        'Plain max flow answers the capacity question and ignores price. Shortest path answers one cheapest route and ignores competition for shared capacity. Min-cost max-flow combines both: send as much flow as possible, then among all flows of that value, choose the one with minimum total edge cost.',
-        'That extra objective is why the structure is useful. It turns matching, transportation, assignment, circulation with lower bounds, and many scheduling problems into one graph model with a small set of rules: capacities limit how much can pass, costs price each unit, and conservation keeps the accounting honest.',
+        'In 1956, during the Cold War, the US Air Force funded a RAND Corporation study on Soviet railway capacity. Lester Ford and Delbert Fulkerson asked: given a network of links with limited capacity, what is the maximum throughput from one point to another? Their answer -- the augmenting-path method and the max-flow min-cut theorem -- became one of the most applied results in combinatorial optimization.',
+        'The problem generalizes far beyond railways. Any situation where material, data, or assignments must pass through a network with capacity constraints is a max-flow problem: how much can the network carry, and which links are the bottleneck? When each link also has a per-unit cost, the problem becomes min-cost max-flow: among all maximum-throughput plans, find the cheapest one. The successive shortest path method solves this by augmenting along the cheapest residual path at each step.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first instinct is to solve max flow, get the largest feasible amount, and then try to improve the cost afterward. That separates two goals that are actually coupled. The cheap edge choices made early can determine which later capacity is even available.',
-        'The second instinct is greedy assignment: repeatedly choose the cheapest available source-to-sink path or the cheapest worker-task pair. That works only when choices do not interact. Flow choices do interact because an edge can be saturated, and a later unit may need a route that passes through the reverse of an earlier choice.',
-        'A third option is to enumerate feasible assignments and pick the cheapest one. That is useful for tiny examples and useless for real inputs. The number of feasible flows can explode even when the graph itself is modest.',
+        'Greedy: find any path from source to sink, push flow equal to the smallest edge capacity on that path (the bottleneck), repeat until no path exists. On simple networks this works. Graph S->A(10), A->T(10), S->B(10), B->T(10) has two independent paths, and greedy finds both for a total of 20 units.',
+        'Adding costs to the greedy idea: always pick the cheapest available path. Each individual augmentation is locally optimal, so the total cost should be low. This feels reasonable.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that a locally cheap unit of flow can be globally wrong. Suppose driver A can do delivery X for cost 1 or Y for cost 2, while driver B can do X for cost 2 or Y for cost 100. Greedy picks A-X first because it costs 1. The second delivery then forces B-Y, for total cost 101. The best maximum assignment is A-Y and B-X, total cost 4.',
-        'The hard part is not noticing that the first decision was wrong. The hard part is representing a legal repair without tearing the whole solution down. Once A-X has been chosen, the algorithm needs a way to say: cancel A-X, move A to Y, and give X to B.',
-        'That repair is exactly what a residual graph can express. Without reverse edges, the search can only add new flow. With reverse edges, the search can add flow and undo earlier flow as part of the same path.',
+        'Greedy can get stuck at suboptimal total flow. Consider S->A(10), S->B(10), A->B(1), A->T(10), B->T(10). Greedy might pick path S->A->B->T first, pushing only 1 unit through the bottleneck A->B. Then S->A->T carries 9 and S->B->T carries 9, totaling 19. The optimum is 20: send 10 through S->A->T and 10 through S->B->T, ignoring A->B entirely. The greedy choice consumed a narrow bottleneck that blocked a better global plan.',
+        'The cost version is worse. Driver A can serve job X for cost 1 or job Y for cost 2. Driver B can serve X for cost 2 or Y for cost 100. Greedy assigns A->X first (cheapest single edge), forcing B->Y, total cost 101. The true cheapest complete assignment is A->Y plus B->X, total cost 4. One locally cheap decision created a globally expensive plan, and pure greedy cannot undo it.',
+        'The key insight: flow must be undoable. The algorithm needs a mechanism to reverse earlier choices when they turn out to be globally suboptimal.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Keep a residual network that records both remaining capacity and the cost of undoing current flow. A forward residual edge means more flow can still be sent that way. A reverse residual edge means some existing flow can be cancelled, and its cost is the negative of the original edge cost because cancelling refunds that earlier decision.',
-        'Then each augmentation asks a precise question: what is the cheapest residual source-to-sink path that increases the total flow? That path may use ordinary forward edges, reverse edges that cancel prior assignments, or both. The result is not greedy in the naive sense; it is greedy over the current space of legal corrections.',
-        'Potentials are the other key idea in efficient implementations. Reverse edges introduce negative costs. Potentials reweight edges into nonnegative reduced costs so Dijkstra can be used repeatedly while preserving which residual path is cheapest in the original cost model.',
-      ],
-    },
-    {
-      heading: 'Reading the residual-cost view',
-      paragraphs: [
-        'In the residual-cost view, read every edge as an option still available to the optimizer. A forward edge with capacity is unused room. A reverse edge is a refund button for flow that has already been sent. If a shortest residual path crosses a reverse edge, the algorithm is not sending physical material backward; it is revising the current plan.',
-        'Watch how the total cost changes after each augmenting path. The path cost is the marginal price of increasing the flow by the pushed amount. When the path includes a negative reverse edge, that negative term is the value recovered by cancelling an older choice.',
-        'The important question after each frame is: what did this path make possible that was not possible before? In min-cost flow, the answer is often a reroute. A small local cancellation can unlock a much cheaper global assignment.',
-      ],
-    },
-    {
-      heading: 'Reading the assignment view',
-      paragraphs: [
-        'In the assignment view, the source connects to supply nodes such as drivers, workers, machines, or warehouses. Demand nodes such as jobs or deliveries connect to the sink. Middle edges carry the pairwise cost of assigning one supply unit to one demand unit. Unit capacities enforce one-to-one matching; larger capacities model pooled supply.',
-        'The model maximizes how many demands can be served before it worries about which maximum assignment is cheapest. If serving fewer jobs is allowed, add dummy jobs or dummy workers with explicit penalty costs. That keeps tradeoffs inside the graph instead of hiding them in special-case code.',
-        'When a later augmenting path uses a reverse assignment edge, read it as a swap. The algorithm is saying that an existing worker should give up one job because another worker can cover it more cheaply once the whole plan is considered.',
+        'The residual graph makes every decision reversible. After pushing flow along edge u->v, the algorithm creates a reverse edge v->u. The forward residual edge (remaining capacity) says "more flow can still go this way." The reverse residual edge (equal to flow already sent) says "cancel some of what already went this way." For min-cost flow, the reverse edge carries the negated cost -- cancelling flow refunds the price paid.',
+        'An augmenting path through the residual graph can mix forward and reverse edges. When it uses a reverse edge, the algorithm is not physically sending flow backward. It is revising the plan: undo part of an earlier route, reroute that flow through a cheaper or higher-capacity combination. This turns a sequence of irrevocable greedy steps into a correctable search over all possible flow configurations.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Start with zero flow. Build residual edges for every original edge: a forward edge with the original capacity and cost, and a reverse edge with zero residual capacity and negative cost. Repeatedly find the cheapest source-to-sink path in the residual graph. Push as much flow as the bottleneck capacity allows. Update forward and reverse residual capacities.',
-        'If all capacities are one, each augmentation adds one unit of flow. With larger capacities, one path may push many units. The accounting is the same: total flow increases by the pushed amount, and total cost increases by pathCost * pushedAmount.',
-        'With potentials, each edge cost is replaced during shortest-path search by reducedCost(u, v) = cost(u, v) + potential[u] - potential[v]. After a shortest-path run, potentials are updated by the computed distances. That keeps reduced costs nonnegative when the invariant is maintained, so binary-heap Dijkstra is available even though the true residual graph contains negative reverse edges.',
+        'Ford-Fulkerson method (capacity only): start with zero flow everywhere. Build the residual graph -- for each edge with capacity c, create a forward residual edge (capacity c) and a reverse residual edge (capacity 0). While there exists any path from source to sink in the residual graph: find the path, compute the bottleneck (minimum residual capacity along the path), push that much flow (subtract bottleneck from forward edges, add bottleneck to reverse edges). When no augmenting path exists, the current flow is maximum.',
+        'Edmonds-Karp refinement: use BFS to find the shortest augmenting path (fewest edges). This single change guarantees O(VE^2) worst-case time regardless of capacity values, because each BFS augmentation increases the shortest-path distance from source to at least one node, and distances only grow.',
+        'Min-cost max-flow (successive shortest paths): add costs to every edge. Instead of any augmenting path, find the cheapest one. Maintain node potentials so reduced costs stay nonnegative: reduced cost of (u, v) = cost(u, v) + potential[u] - potential[v]. After each shortest-path computation, update potentials by the distances found. This lets Dijkstra with a binary heap run in O(E log V) per augmentation, even with negative-cost reverse edges in the true residual graph.',
+        'The assignment model is a direct application. Source connects to each worker (capacity 1, cost 0). Each worker connects to feasible tasks (capacity 1, assignment cost on each edge). Each task connects to sink (capacity 1, cost 0). Maximum flow assigns as many workers as possible; the min-cost objective picks the cheapest such assignment.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'For a fixed current flow, every legal way to increase that flow by one or more units corresponds to a path or set of paths in the residual graph. Reverse edges encode the cancellation parts of the change. So the cheapest residual augmenting path is the cheapest local change that raises the flow value.',
-        'After each augmentation, the residual graph represents the new space of legal changes. If there is no source-to-sink residual path, no more flow can be sent, so the flow is maximum. If the algorithm always augments along cheapest residual paths and maintains valid potentials, the flow after each value increase is minimum-cost among flows of that value.',
-        'Another way to say the invariant: a cheaper flow of the same value would imply a negative-cost cycle in the residual graph. Correct min-cost-flow algorithms either avoid such cycles or cancel them. Successive shortest path with potentials maintains the shortest-path structure needed for that guarantee.',
+        'Max-flow min-cut theorem (Ford and Fulkerson, 1956): the maximum flow from source to sink equals the minimum cut capacity. A cut partitions nodes into a source-side set S and a sink-side set T. Cut capacity is the sum of edge capacities from S to T. When no augmenting path exists in the residual graph, the nodes reachable from the source form S, and the unreachable nodes form T. Every edge from S to T is fully saturated (no forward residual capacity), and every edge from T to S carries zero flow (no reverse residual capacity). The flow across this partition equals the cut capacity, so it is maximum.',
+        'For the cost objective: if the current flow is not minimum-cost for its value, a negative-cost cycle exists in the residual graph -- rerouting flow around that cycle would reduce total cost without changing total flow. Augmenting along cheapest paths with valid potentials guarantees no negative-cost residual cycle at any step. By induction, the flow is minimum-cost at every intermediate value, so it remains minimum-cost when it reaches the maximum.',
+        'Flow conservation enforces feasibility. At every node except source and sink, total flow in equals total flow out. Combined with capacity limits and the successive shortest path optimality, the result is both feasible and optimal.',
       ],
     },
     {
-      heading: 'Worked example: repairing a bad dispatch',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Use the two-driver example. A-X costs 1, A-Y costs 2, B-X costs 2, and B-Y costs 100. The first cheapest path is source -> A -> X -> sink, so A gets X and the current cost is 1.',
-        'For the second unit, the residual graph contains X -> A with cost -1 because A-X can be cancelled. The cheapest augmenting path is source -> B -> X -> A -> Y -> sink. Its cost is 2 + (-1) + 2 = 3. Pushing through it assigns B to X, cancels A-X, and assigns A to Y.',
-        'The final cost is 1 + 3 = 4. That matches the true optimum A-Y plus B-X. The example is small, but it shows the reason residual reverse edges exist: they let the algorithm improve a maximum assignment by expressing a swap as one path.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The common successive-shortest-path implementation costs roughly O(F * shortestPathCost), where F is the amount of flow sent. With Dijkstra and potentials, that is often written as O(F * E log V). Other min-cost-flow algorithms have different bounds and are better for some dense or high-capacity cases.',
-        'The implementation is easy to get subtly wrong. Reverse-edge indices must stay paired. Costs should use a numeric type large enough for path cost times flow. Initial potentials require care if negative original costs exist. A wrong reduced-cost update can produce a feasible flow that is not actually minimum-cost.',
-        'The modeling cost matters too. A graph with every worker connected to every task may be too dense. A graph that encodes soft business rules as arbitrary edge costs may be misleading. Min-cost flow is strongest when capacities, conservation, and additive costs are genuinely the structure of the problem.',
+        'Ford-Fulkerson with DFS: O(E * |f*|) where |f*| is the maximum flow value. Each augmentation sends at least 1 unit (with integer capacities), and each DFS costs O(E). Fine for small integer capacities. Pathological on large or irrational capacities -- the flow can increase by vanishingly small amounts, and the algorithm may not terminate.',
+        'Edmonds-Karp with BFS: O(VE^2). At most O(VE) augmentations, each costing O(E) for the BFS. For a 100-node, 500-edge graph, worst case is about 25 million operations. Double the graph: roughly 8x slower, since V, E, and the product VE all grow.',
+        'Dinic with level graphs and blocking flows: O(V^2 * E). On unit-capacity graphs, this drops to O(E * sqrt(V)), making it the standard choice for bipartite matching via flow reduction. Push-relabel (Goldberg and Tarjan, 1988): O(V^3), or O(V^2 * sqrt(E)) with highest-label selection. Avoids augmenting paths entirely by pushing excess flow locally and relabeling node heights.',
+        'Min-cost max-flow with successive shortest paths: O(F * E * log V) using Dijkstra with potentials, where F is total flow. The cost-scaling algorithm (Goldberg and Tarjan, 1990) runs in O(VE * log(V) * log(VC)) where C is maximum cost, removing dependence on flow value. In practice, sparse graphs with small integer capacities favor Dinic for pure max-flow; dense graphs with large capacities favor push-relabel; cost-sensitive problems favor successive shortest paths or cost-scaling.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'It wins in assignment with penalties, transportation, crew scheduling, warehouse picking, ad allocation, balancing supply across regions, and network routing where each unit consumes capacity and adds a measurable cost.',
-        'It is also a good modeling language for contest and interview problems that combine matching with weights, quotas, lower bounds, or multiple resource layers. Once the graph is correct, the same residual machinery handles many cases that would otherwise need custom exchange arguments.',
+        'Bipartite matching reduces directly to max flow. Connect source to every node on the left, every node on the right to sink, all capacities 1. Each unit of flow is a matched pair. Hopcroft-Karp is faster for unweighted matching, but min-cost max-flow handles weighted matching (the assignment problem) with no extra machinery.',
+        'Image segmentation (graph cuts). Pixels are nodes. Similar adjacent pixels share high-capacity edges. Source represents foreground, sink represents background. The minimum cut separates the image into two regions, minimizing the cost of cutting across similar pixels. GrabCut and related interactive segmentation tools used this as their backbone.',
+        'Airline scheduling: maximize flights served by a fixed fleet, with connection-time and maintenance constraints modeled as capacities. Baseball elimination: can team X still win? Build a flow network where source-to-game edges have capacity equal to remaining games between other teams; the min-cut reveals whether enough wins can redistribute to keep X alive. Network routing, project selection (choose projects to maximize profit minus shared resource costs), courier dispatch, and ad allocation all reduce to flow problems.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It is not the right first tool for unweighted matching or plain reachability. Hopcroft-Karp, ordinary max flow, BFS, or Dijkstra may solve the real problem with less machinery.',
-        'It also fails when the desired constraints are not additive edge costs. Time windows, fairness, stability, precedence constraints, batching, and nonlinear penalties may require integer programming, specialized scheduling algorithms, or a richer optimizer. For online systems, a full re-solve after every event may be too slow, so min-cost flow may become a batch planner rather than the live control loop.',
+        'Ford-Fulkerson with DFS and irrational capacities may never terminate. The flow increases by smaller and smaller amounts, converging to a value below the true maximum. Floating-point capacities trigger the same behavior in practice. Edmonds-Karp and Dinic avoid this by forcing shortest or level-graph augmenting paths, guaranteeing termination regardless of capacity type.',
+        'Scale. On networks with millions of nodes, even polynomial algorithms need heuristics -- gap relabeling, global relabeling, and warm-starting -- to run in practical time. The theoretical bounds understate the constant factors. For dense complete bipartite graphs, the O(n^3) auction algorithm (Bertsekas, 1981) often beats successive shortest paths.',
+        'Expressiveness limits. Min-cost max-flow handles capacity and additive cost. It cannot express time windows, precedence constraints, fairness rules, nonlinear penalties, or stability requirements. Those need integer programming, constraint programming, or domain-specific schedulers. For online problems where jobs arrive continuously, re-solving the entire network after each event is expensive; flow becomes a batch planner, not a real-time controller.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study max flow first, then Dijkstra, Bellman-Ford, potentials, bipartite matching, and the transportation problem. The main habit to build is modeling: identify supplies, demands, capacities, costs, and the exact meaning of one unit of flow before choosing an implementation.',
+        'Network: 4 nodes S, A, B, T. Edges: S->A (cap 3), S->B (cap 2), A->B (cap 1), A->T (cap 2), B->T (cap 3). All reverse residual edges start at capacity 0.',
+        'Augmentation 1: BFS finds path S->A->T (2 edges). Bottleneck = min(3, 2) = 2. Push 2 units. Residual: S->A has 1 forward remaining, A->T has 0 forward remaining, reverse edges A->S(2) and T->A(2) appear. Flow = 2.',
+        'Augmentation 2: BFS finds path S->B->T (2 edges). Bottleneck = min(2, 3) = 2. Push 2 units. Residual: S->B has 0 remaining, B->T has 1 remaining, reverse edges B->S(2) and T->B(2) appear. Flow = 4.',
+        'Augmentation 3: BFS finds path S->A->B->T (3 edges). Bottleneck = min(1, 1, 1) = 1. Push 1 unit. Residual: S->A has 0 remaining, A->B has 0 remaining, B->T has 0 remaining. Flow = 5.',
+        'No more augmenting paths exist -- S has no outgoing edges with residual capacity. Maximum flow = 5.',
+        'Verify with min-cut: partition {S} vs {A, B, T}. Cut capacity = cap(S->A) + cap(S->B) = 3 + 2 = 5, which equals the max flow. The max-flow min-cut theorem holds. Alternative cut {S, A} vs {B, T}: capacity = cap(S->B) + cap(A->B) + cap(A->T) = 2 + 1 + 2 = 5. Both cuts have the same capacity, confirming 5 is the minimum cut.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Ford and Fulkerson, "Maximal Flow Through a Network" (1956) -- the augmenting-path method and the max-flow min-cut theorem. Edmonds and Karp, "Theoretical Improvements in Algorithmic Efficiency for Network Flow Problems" (1972) -- BFS augmenting paths for O(VE^2), removing dependence on capacity values. Dinic, "Algorithm for Solution of a Problem of Maximum Flow in a Network" (1970) -- level graphs and blocking flows for O(V^2E). Goldberg and Tarjan, "A New Approach to the Maximum-Flow Problem" (1988) -- push-relabel. Goldberg and Tarjan, "Finding Minimum-Cost Circulations by Successive Approximation" (1990) -- cost scaling for min-cost flow.',
+        'Prerequisites: BFS (Edmonds-Karp finds augmenting paths with BFS), Dijkstra\'s algorithm (successive shortest paths uses Dijkstra with potentials for each augmentation), graph representation (adjacency lists with forward/reverse edge pairs for efficient residual graph updates).',
+        'Extensions: bipartite matching reduces to unit-capacity max flow; Hopcroft-Karp is the specialized O(E sqrt(V)) version. Min-cut problems are the dual of max flow -- same value by the MFMC theorem. Linear programming: max flow and min-cost flow are LP special cases; the LP dual gives the min-cut and potential interpretations. For weighted assignments, study the Hungarian algorithm (O(n^3) for dense bipartite graphs) as an alternative to the flow reduction.',
       ],
     },
   ],

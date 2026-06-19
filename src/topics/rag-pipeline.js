@@ -89,6 +89,14 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "The scatter plot is an embedding space. Each dot is a document chunk whose position encodes its meaning — documents about similar topics land near each other. The clusters you see (pets, plants, ML) form because the embedding model maps semantically related text to nearby vectors.",
+        "When a question appears (active marker), watch where it lands. Its position is computed by the same embedding model, so it falls near documents that share its meaning. The found markers are the top-k nearest neighbors — the chunks the system judges most relevant. Visited markers are the remaining documents, passed over because they are too far in embedding space.",
+        "The view then switches to the prompt assembly: retrieved chunks stacked above the question. This is the context window the language model will read. The generation step treats these chunks as ground truth, producing an answer that cites them. If the wrong chunks were retrieved, the model would generate a confident answer from the wrong facts — that failure mode is the core design tension in every RAG system.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "A language model can write fluently without knowing the current, private, or exact facts a user needs. A company handbook, support queue, product catalog, codebase, or legal repository changes faster than model pretraining. Retrieval-augmented generation exists to keep those facts outside the model and bring the right ones into the prompt at answer time.",
@@ -117,14 +125,14 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         "The animation shows the basic loop: embed the question, retrieve nearby document chunks, place evidence in the prompt, and generate an answer. The important thing to watch is not just which dot is nearest. It is whether the retrieved evidence actually contains the answer the user asked for.",
         "When the question changes from cats to plants to transformers, the retrieval set should change. If the nearest chunks are off-topic, the model is being asked to write from the wrong facts. In RAG, retrieval quality is not a preprocessing detail; it is the product surface.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         "Offline, documents are cleaned, split into chunks, embedded, and stored with metadata. Chunk sizes often land between 200 and 800 tokens, but tables, code, legal sections, and API references need structure-aware splitting. The system should preserve source IDs, section headings, timestamps, permissions, and canonical URLs because those fields become retrieval filters and citations later.",
         "At query time, the question is normalized and embedded with a compatible model. A vector index such as HNSW, FAISS, ScaNN, Milvus, pgvector, Elasticsearch vector search, or another ANN backend returns candidates. Many systems combine vector retrieval with BM25 or keyword search because exact names, error codes, and policy numbers are often lexical.",
@@ -146,7 +154,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Cost and behavior',
       paragraphs: [
         "Index storage is roughly vectors plus text plus metadata plus ANN overhead. One million 1,536-dimensional float32 vectors require about 6.1 GB before graph or metadata overhead; float16 cuts the vector payload roughly in half. Product systems also pay for embeddings, indexing, reranking, prompt tokens, generation latency, and monitoring.",
         "Operational complexity lives in refresh. Documents move, permissions change, pages are duplicated, chunks become stale, and source links break. A serious RAG system needs ingestion jobs, deletion handling, alias swaps or incremental updates, versioned indexes, evaluation sets, and rollback for bad retrieval changes.",
@@ -160,7 +168,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         "RAG wins for private knowledge, fast-changing facts, large document collections, citation-heavy workflows, and systems where the answer should be traceable to a source. It is a natural fit for enterprise search, support assistants, policy assistants, legal document review, codebase Q&A, research notebooks, and product documentation.",
         "It is also useful as a teaching pattern because it joins data structures and model behavior. Embeddings map text to vectors, ANN indexes trade exactness for speed, rerankers refine candidate order, context packing is a constrained selection problem, and the language model becomes the final reader.",
@@ -174,11 +182,64 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         "Primary sources: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks at https://arxiv.org/abs/2005.11401, Dense Passage Retrieval at https://arxiv.org/abs/2004.04906, FAISS documentation at https://faiss.ai/index.html, and Azure AI Search RAG overview at https://learn.microsoft.com/en-us/azure/search/retrieval-augmented-generation-overview.",
         "Study Embeddings and Similarity, HNSW Vector Search at Scale, Tokenization BPE, Attention Mechanism, KV Cache, Multi-Index RAG, RAG Context Packing Token Budget, RAG Index Lifecycle and Alias Swap, RAG Citation Span Index, RAG Dedup MinHash and Chunk Canonicalization, Filtered Vector Search and Bitset Gates, and RAG Evaluation.",
       ],
     },
-  ],
+    {
+      heading: 'Lewis et al. 2020 and the RAG lineage',
+      paragraphs: [
+        "The RAG paper (Lewis et al., 2020, \"Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks\") introduced two variants: RAG-Sequence, which retrieves once and generates the full answer from one fixed set of documents, and RAG-Token, which can retrieve different documents for each output token. Both use a pretrained BART generator and a Dense Passage Retriever (DPR) whose index is a FAISS flat search over Wikipedia passages. The key result: RAG matched or beat pure parametric models on open-domain QA, fact verification, and knowledge-grounded dialogue without storing all facts in model weights.",
+        "The practical lineage runs from DrQA (2017, TF-IDF retrieval + neural reader) through DPR (2020, learned dense retrieval replacing sparse) to RAG (2020, end-to-end retrieval + generation). Each step replaced a hand-engineered component with a learned one. Modern production RAG rarely uses the exact Lewis et al. architecture, but the retrieve-then-generate contract — and the insight that retrieval quality bounds answer quality — remains the foundation.",
+      ],
+    },
+    {
+      heading: 'Dense retrieval vs. sparse (BM25)',
+      paragraphs: [
+        "BM25 ranks documents by weighted term frequency: if the query word appears often in a short document, that document scores high. It is fast, interpretable, and needs no training data. It fails on semantic gaps — \"automobile\" vs. \"car,\" paraphrases, or questions whose answer uses different vocabulary than the question.",
+        "Dense retrieval (DPR, Contriever, E5, BGE) encodes query and document into fixed-size vectors and retrieves by cosine or dot-product similarity. It handles paraphrases and meaning-level matches but can miss exact identifiers, error codes, policy numbers, and product SKUs that BM25 catches trivially. The embedding model must also be trained or fine-tuned on domain-relevant pairs to work well.",
+        "Production systems almost always use hybrid retrieval: BM25 for lexical precision, dense vectors for semantic recall, and a learned reranker (cross-encoder) to merge and rescore the combined candidate set. The reranker sees the full query-document pair and can model fine-grained relevance that bi-encoder dot products miss.",
+      ],
+    },
+    {
+      heading: 'Vector databases and ANN indexes',
+      paragraphs: [
+        "A vector database stores embeddings and supports approximate nearest neighbor (ANN) search. Exact brute-force search is O(n d) per query — fine for thousands of vectors, unusable at millions. ANN indexes trade a small recall loss for orders-of-magnitude speedup.",
+        "HNSW (Hierarchical Navigable Small World) builds a multi-layer proximity graph. Search starts at the top layer (few nodes, long jumps) and descends to the bottom (all nodes, short jumps), greedy-walking toward the query at each level. Typical recall at 95-99% with sub-millisecond latency on millions of vectors. IVF (Inverted File) partitions vectors into Voronoi cells with k-means, then searches only the nearest cells. Product Quantization (PQ) compresses vectors by splitting dimensions into subvectors and quantizing each, trading accuracy for 10-50x memory reduction.",
+        "Engines like FAISS, Milvus, Qdrant, Weaviate, Pinecone, and pgvector each combine these primitives differently. The choice depends on scale, update frequency, filtering needs, and whether you need the index to live inside an existing database (pgvector) or as a standalone service.",
+      ],
+    },
+    {
+      heading: 'Chunking strategies',
+      paragraphs: [
+        "Chunking decides what unit of text gets its own embedding and becomes a retrievable item. The chunk is the atom of RAG — too large and the embedding averages over unrelated ideas, too small and it lacks the context to answer a question.",
+        "Fixed-size chunking (e.g., 512 tokens with 50-token overlap) is simple and predictable but cuts through sentences, paragraphs, and logical sections. Recursive character splitting tries paragraph, then sentence, then word boundaries. Structure-aware chunking respects headings, code blocks, table rows, list items, or legal section numbers — critical for documents where structure carries meaning.",
+        "Parent-document retrieval is a common fix for the size tradeoff: embed small chunks for precise matching, but retrieve the larger parent section for generation context. Sentence-window retrieval embeds individual sentences but expands the context window around matched sentences at retrieval time. Both strategies let the retrieval target be narrow while the generation context is rich.",
+      ],
+    },
+    {
+      heading: 'RAG vs. fine-tuning',
+      paragraphs: [
+        "Fine-tuning changes the model weights. It is the right tool for teaching style, tone, format, domain vocabulary, or reasoning patterns that the base model lacks. It is a poor tool for memorizing facts: facts change, training is expensive, and the model cannot cite which training example produced an answer.",
+        "RAG keeps facts external and retrievable. It handles fast-changing knowledge, per-user or per-tenant data, access control, citation, and rollback (delete or update the document, and the system forgets it). But RAG cannot change how the model reasons or writes — it can only change what the model reads before generating.",
+        "In practice, the best systems combine both: fine-tune for domain style and instruction-following, then use RAG for factual grounding. The fine-tuned model is better at following retrieval instructions, extracting answers from long contexts, and refusing when evidence is absent. RAG without any fine-tuning works, but the generator may ignore or misuse retrieved evidence more often.",
+      ],
+    },
+    {
+      heading: 'Hallucination reduction',
+      paragraphs: [
+        "RAG reduces hallucination by shifting the model from recall (generating facts from weights) to reading comprehension (extracting facts from provided text). When the context contains the answer and the model is instructed to use it, factual accuracy rises substantially — Lewis et al. showed this on knowledge-intensive benchmarks, and production deployments confirm it.",
+        "But RAG does not eliminate hallucination. The model can still fabricate details not in any retrieved chunk, combine facts from incompatible chunks, answer from parametric memory when retrieved evidence is ambiguous, or hallucinate a citation span that sounds right but does not exist in the source. Mitigation requires prompt engineering (\"answer only from the provided documents, say 'I don\'t know' otherwise\"), citation verification (check that each claim maps to a retrieved span), and evaluation pipelines that measure faithfulness separately from relevance.",
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        "Run each of the three questions in the animation and watch where the query point lands relative to the document clusters. For \"what is a transformer?\", notice that the nearest neighbors are the ML cluster — but \"gpu guide\" is nearby too. Ask yourself: does the GPU training document help answer the question, or does it dilute the context with irrelevant information? That judgment is what rerankers automate.",
+        "Then imagine adding a new document: \"Transformer toys are popular collectibles.\" Where would it embed? Would it interfere with the ML query? This is the polysemy problem — same word, different meaning — and it is why metadata filters, domain-specific embeddings, and hybrid retrieval exist.",
+      ],
+    },
+],
 };

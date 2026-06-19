@@ -209,6 +209,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for S3 Object Storage Case Study. Object storage as a system design primitive: buckets hold immutable-ish objects by key, prefixes shape organization and throughput, and lifecycle rules manage data over time..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A local filesystem is built around directories, files, permissions, seeks, renames, and updates through an operating-system interface. That model is powerful on one machine or one mounted volume, but it is not the simplest abstraction for storing enormous amounts of durable data across a service boundary. Backups, logs, images, video, warehouse exports, training corpora, lakehouse tables, and static assets mostly need a different promise: put this blob under a name, keep it durably, let many clients fetch it, and let policy manage it over time.`,
@@ -217,7 +226,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive filesystem model and its wall',
+      heading: 'The wall',
       paragraphs: [
         `A common early mistake is to design S3 keys as if they were ordinary mutable files in directories. The application writes ` + "`/customers/42/profile.json`" + `, later renames a whole directory, appends small records to one daily log object, and expects cheap directory metadata operations. That design collides with the object model. A key is one object name inside a bucket; the slashes are naming convention. LIST by prefix is a service operation, not a directory inode scan. Rewriting or moving object-shaped data is usually a new PUT, copy, delete, or multipart workflow.`,
         `The second mistake is to put database responsibilities into object storage without a protocol. A table may consist of thousands of Parquet files plus metadata. If a job writes the data files and crashes before publishing the new snapshot pointer, readers need to know which files are committed and which are orphaned. Strong consistency for object operations helps, but it does not by itself define a table transaction. Iceberg, Delta, Hudi, catalogs, manifests, and commit protocols exist because object storage needs a metadata layer above it for table correctness.`,
@@ -225,15 +234,15 @@ export const article = {
       ],
     },
     {
-      heading: 'Core data model',
+      heading: 'The core insight',
       paragraphs: [
-        `The top-level namespace is the bucket. Buckets carry ownership, access policy, region, lifecycle configuration, replication configuration, encryption defaults, logging, and other operational settings. Inside a bucket, the key is the object's name. The key may contain slash characters, date partitions, tenant IDs, table paths, or content hashes, but S3 treats it as an object key, not as a chain of directory objects in the POSIX sense.`,
+        `The top-level namespace is the bucket. Buckets carry ownership, access policy, region, lifecycle configuration, replication configuration, encryption defaults, logging, and other operational settings. Inside a bucket, the key is the object\'s name. The key may contain slash characters, date partitions, tenant IDs, table paths, or content hashes, but S3 treats it as an object key, not as a chain of directory objects in the POSIX sense.`,
         `The object is the unit of storage. It has bytes, system metadata, optional user metadata, tags, storage class, integrity checks, and possibly a version ID if versioning is enabled. Applications can read the whole object or request byte ranges. Large writes can use multipart upload so parts are transferred independently and later completed into one object. Lifecycle policies can transition objects to other storage classes or expire them based on age, prefixes, tags, and other conditions.`,
         `Consistency is part of the data model because clients build protocols on top of what reads and lists can see. AWS documents strong read-after-write consistency for S3 object PUT and DELETE behavior and strong consistency for relevant read operations such as GET, HEAD, and LIST in the current model. That removed many old client-side workarounds, but it did not remove the need for application-level commit protocols when one logical change spans many objects.`,
       ],
     },
     {
-      heading: 'Mechanism in the visualizer',
+      heading: 'How it works',
       paragraphs: [
         `The object-namespace view shows the basic request path. A client sends PUT, GET, HEAD, DELETE, or LIST against a bucket and key or prefix. The bucket defines the namespace and policy. The key identifies one object. Service-side metadata lets S3 resolve the object and expose consistent reads after successful writes. The client does not know which storage nodes hold the bytes, how redundancy is implemented, or how metadata partitions are managed internally.`,
         `The prefix node is not a directory node; it is a design lever. Prefixes organize names for humans, lifecycle rules, access patterns, and parallel work. AWS performance guidance describes high request rates per partitioned prefix and encourages parallelization for higher throughput. That does not mean the application should randomly scatter names with no semantic structure. A good prefix layout balances query pruning, lifecycle management, tenant isolation, and request parallelism.`,
@@ -249,7 +258,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The first tradeoff is mutability. Object storage is strongest when objects are written, read many times, and eventually replaced or expired. Workloads that need frequent small in-place updates, row-level transactions, low-latency random writes, directory renames, or file locking should use a database, block store, filesystem, or table layer built for that behavior. S3 can be part of those systems, but it is not the whole abstraction.`,
         `The second tradeoff is listing and cardinality. A prefix with huge numbers of objects may be expensive for humans and slow for jobs that repeatedly enumerate it. A table with too many small files can spend more time planning, listing, and opening objects than scanning useful data. Compaction, manifests, partition pruning, and sensible object sizes are not optional housekeeping; they are the difference between a healthy lake and a pile of expensive fragments.`,
@@ -258,7 +267,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete lakehouse example',
+      heading: 'Worked example',
       paragraphs: [
         `Consider an orders table in a lakehouse. An ingest job writes raw event objects under ` + "`raw/orders/yyyy/mm/dd/`" + `. A transformation job writes Parquet files under ` + "`tables/orders/data/`" + `, using object sizes large enough for efficient scans. The table format writes metadata files and manifests that describe the snapshot. Only after the metadata commit succeeds do readers treat the new Parquet files as part of the table.`,
         `A query engine does not scan the whole bucket. It asks the catalog for the current table metadata, reads manifests, prunes partitions and files, and then issues parallel ranged GET requests for the needed Parquet row groups. Old data files may remain because a previous snapshot still references them. Later, retention and compaction jobs remove unreferenced files or transition old partitions to cheaper storage. S3 is the durable byte layer; the table format is the correctness layer; the engine is the execution layer.`,
@@ -271,5 +280,82 @@ export const article = {
         `Next, study S3 Multipart Upload Manifest for large-object write state, Reed-Solomon Erasure Coding and Ceph Erasure-Coded Pools for durability mechanisms, Ceph CRUSH Placement for placement thinking, Parquet Columnar Format for analytic object contents, Delta Lake and Apache Iceberg style table metadata for multi-object transactions, Content-Addressed Merkle DAG Object Store for immutable naming, and Transactional Outbox for publishing durable state changes without losing track of what has been committed.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for s3-object-storage-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

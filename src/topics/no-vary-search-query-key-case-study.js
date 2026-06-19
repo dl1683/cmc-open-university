@@ -1,4 +1,4 @@
-// No-Vary-Search: normalize URL query parameters for cache matching when
+﻿// No-Vary-Search: normalize URL query parameters for cache matching when
 // tracking or ordering parameters do not change the response representation.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -198,7 +198,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for No-Vary-Search Query Key. How No-Vary-Search tells caches which query parameters can be ignored or reordered when matching otherwise identical HTTP responses..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'HTTP caches normally treat the target URI as part of the cache key, including the query string. That is safe, but it can be wasteful. `/story?id=42&utm_source=newsletter` and `/story?id=42&utm_source=social` may return the same article while occupying two cache entries.',
         'The problem is query-key fragmentation. Tracking fields, referral tags, and harmless parameter ordering differences can turn one representation into many cache misses. Hit ratio falls, origin traffic rises, and users wait for duplicate work.',
@@ -213,14 +222,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The tempting bug',
+      heading: 'The obvious approach',
       paragraphs: [
         'The conservative bug is keying by every byte of query spelling even when the server ignores some fields. Marketing links then defeat the cache for no user-visible reason.',
         'The aggressive bug is worse: stripping parameters because they look like noise. A field named `variant`, `page`, `sort`, `color`, `currency`, `preview`, `account`, or `debug` may change the body, headers, permissions, or experiment assignment. If the cache ignores it, users can receive the wrong response.',
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The core insight',
       paragraphs: [
         'No-Vary-Search adds a canonicalization step before lookup. The browser or cache receives a request URL, applies the origin-declared search-parameter rule, and compares the canonical key against stored responses. The visible URL does not have to change.',
         'The rule vocabulary can ignore named parameters, keep only exceptions, or normalize key order. The cache still respects the rest of HTTP caching: method, status, freshness, `Cache-Control`, `Vary`, credentials rules, validators, and storage policy.',
@@ -243,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'In the query-params view, follow the request into `params`, then into the No-Vary-Search rule, then into the canonical key. The important point is that the user-facing URL can still contain tracking fields while the lookup key drops fields that the origin says are irrelevant.',
         'In the safety-rules view, read the table as an audit. UTM fields are candidates for ignoring. Variant, pagination, sorting, and product options are kept because they usually change content. The plot shows why the rule matters: raw query keys fragment as campaign URLs multiply, while a correct canonical key keeps reuse high.',
@@ -258,7 +267,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The upside is fewer duplicate cache entries, higher hit ratio, less origin load, and lower latency for public content reached through noisy links.',
         'The cost is policy risk and deployment reality. The header is still experimental, so unsupported caches fall back to ordinary full-URL matching. That fallback is safe but loses the optimization.',
@@ -267,7 +276,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The worst failure is serving the wrong representation: the wrong product color, stale pagination, a different search result page, an incorrect locale, a hidden preview, or a personalized response reused for the wrong request.',
         'Another failure is misunderstanding the header as cache busting. It does the opposite. It tells caches that selected query variation is less important, so it should never be used for parameters meant to force distinct cache entries.',
@@ -275,7 +284,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Practical rollout',
+      heading: 'Real-world uses',
       paragraphs: [
         'Start with one public route family, such as article pages or documentation pages. List every query parameter seen in logs. Mark which fields select content, which fields select presentation, which fields affect permissions, and which fields are analytics-only.',
         'Before rollout, diff responses for candidate ignored parameters across status, body, selected headers, cache-control, language, and personalization state. During rollout, watch hit ratio, origin traffic, `Cache-Status` where available, and error reports for wrong-content symptoms.',
@@ -289,5 +298,56 @@ export const article = {
         'Then study HTTP Vary Cache-Key Normalization, HTTP Cache ETag Revalidation, Cache-Status HTTP Observability, CDN Request Flow, Resource Hints: Preload & Preconnect, and Tail Latency & p99 Thinking. No-Vary-Search is small, but it sits inside the full cache correctness stack.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for no-vary-search-query-key-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

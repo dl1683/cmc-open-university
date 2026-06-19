@@ -222,7 +222,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Iceberg REST Catalog Protocol Case Study. Apache Iceberg REST Catalog as a lakehouse control-plane protocol: engines use one API for table metadata, commits, caching, credentials, and catalog services..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         `Apache Iceberg gives analytical tables a reliable metadata structure over files: snapshots, manifests, schemas, partition specs, delete files, and a current metadata pointer. That solves the table-format problem, but it does not by itself solve the catalog integration problem. Engines still need to find tables, authenticate, load the current metadata root, commit changes, handle conflicts, and access object storage safely.`,
         `Without a common catalog protocol, every engine carries custom integrations for every catalog backend. Spark knows one path. Trino knows another. A Python client knows a third. A cloud catalog, a self-hosted catalog, and a governance service each need their own client behavior. The table format is open, but the control plane becomes fragmented.`,
@@ -230,11 +239,11 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive wall',
+      heading: 'The wall',
       paragraphs: [
         `The naive catalog is a pointer store. Put table names in a database, store the path to the latest metadata JSON, and let engines read and write that pointer. This works in a small controlled environment, but the moment there are concurrent writers, cached readers, multiple engines, and real access control, the pointer store becomes a transaction system whether or not anyone designed it as one.`,
         `Another naive answer is to let each engine implement catalog semantics directly against the backend. That spreads subtle logic everywhere: how to retry a commit, how to detect a stale base, how to invalidate cached metadata, how to vend storage credentials, and how to map authorization failures into useful errors. Any mismatch can become lost updates, leaked credentials, or tables that appear different depending on the engine.`,
-        `The wall is not HTTP mechanics. The wall is consistency at the metadata root. Iceberg data files are usually immutable, but the table's current state advances through metadata commits. If two writers both read snapshot 10 and try to create snapshot 11, the catalog must decide which change is valid, which must retry, and what readers should see.`,
+        `The wall is not HTTP mechanics. The wall is consistency at the metadata root. Iceberg data files are usually immutable, but the table\'s current state advances through metadata commits. If two writers both read snapshot 10 and try to create snapshot 11, the catalog must decide which change is valid, which must retry, and what readers should see.`,
       ],
     },
     {
@@ -248,7 +257,7 @@ export const article = {
     {
       heading: 'Commit safety',
       paragraphs: [
-        `Iceberg commits are safe when the writer's assumptions are still true. A writer reads a base table state, plans changes, writes any new metadata and data files needed, and sends a commit request that says, in effect, "apply these updates if the table still satisfies these requirements." The catalog checks the requirements and either advances the table or rejects the commit.`,
+        `Iceberg commits are safe when the writer\'s assumptions are still true. A writer reads a base table state, plans changes, writes any new metadata and data files needed, and sends a commit request that says, in effect, "apply these updates if the table still satisfies these requirements." The catalog checks the requirements and either advances the table or rejects the commit.`,
         `This protects against lost updates. If writer A appends files and writer B changes the schema at the same time, both cannot blindly replace the metadata root. The catalog must validate whether each change is compatible with the current state. Some conflicts can be retried after reloading the table. Others must fail because the planned update is no longer valid.`,
         `Commit safety also includes cleanup discipline. Writers may create data files before the metadata commit succeeds. If the commit fails, those files can become orphaned unless a cleanup process removes them. The catalog protocol can make the commit decision precise, but storage hygiene still requires operational jobs and clear failure handling.`,
       ],
@@ -256,13 +265,13 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
-        `The design works because it preserves Iceberg's separation of data files, table metadata, and catalog state. Object storage serves bytes. Iceberg metadata describes the table. The catalog resolves names, authorization, and the current root pointer. Each layer has a narrower job, which makes multi-engine access possible without turning every engine into a bespoke catalog implementation.`,
+        `The design works because it preserves Iceberg\'s separation of data files, table metadata, and catalog state. Object storage serves bytes. Iceberg metadata describes the table. The catalog resolves names, authorization, and the current root pointer. Each layer has a narrower job, which makes multi-engine access possible without turning every engine into a bespoke catalog implementation.`,
         `It also works because HTTP is a practical compatibility boundary. Engines in different languages can share one OpenAPI-defined protocol. Catalog vendors can implement the service side without asking every engine to embed a private client. Platform teams can put authentication, rate limits, audit logging, and network controls around one service endpoint.`,
         `The protocol does not remove the need to understand Iceberg internals. A catalog can tell an engine where the current metadata lives, but the engine still plans scans from snapshots, manifests, partition specs, delete files, and schema evolution rules. The REST catalog standardizes access to table state; it is not a replacement for the table format.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `The REST catalog wins in multi-engine lakehouses. Spark, Trino, Flink, Python, and other clients can share a catalog integration instead of carrying one-off adapters for every backend. That lowers the cost of adding a new engine or moving between catalog implementations.`,
         `It also wins when the catalog service needs to centralize sensitive behavior. Credential vending, table-level authorization, metadata policy, audit logging, and backend-specific commit handling are easier to control in one service than in every client process. This is especially important when engines run in many clusters or under many user identities.`,
@@ -278,16 +287,16 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works',
       paragraphs: [
         `Measure table load latency, commit latency, commit conflict rate, retry success rate, cache hit rate, stale metadata incidents, credential-vending failures, authorization denials, orphan-file growth, and per-engine error patterns. High conflict rate may indicate too many writers touching the same table state. High retry storms may indicate poor backoff or long metadata refresh windows.`,
         `Test with concurrent writers, schema changes during appends, dropped tables with cached clients, expired credentials, network timeouts after file creation, and catalog restarts during commit. A REST catalog is healthy when engines see consistent table state and receive actionable failures under these conditions.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        `A platform team runs Iceberg tables in object storage. Spark writes hourly batch data. Trino serves dashboards. A Python service performs data quality checks. Before the REST catalog, each client has a different catalog integration and a different way to obtain storage credentials. Incidents are hard to debug because one engine's idea of the current table can lag another's.`,
+        `A platform team runs Iceberg tables in object storage. Spark writes hourly batch data. Trino serves dashboards. A Python service performs data quality checks. Before the REST catalog, each client has a different catalog integration and a different way to obtain storage credentials. Incidents are hard to debug because one engine\'s idea of the current table can lag another\'s.`,
         `The team deploys an Iceberg REST catalog service. Engines authenticate to the service, list namespaces, load table metadata roots, and request scoped credentials. Spark writers send commit requests against a base table state. The catalog validates requirements, advances the metadata root atomically, and returns conflict errors when a writer must reload and retry. Readers refresh cached metadata after commits according to the protocol and engine settings.`,
         `The improvement is not that HTTP made the data faster. The improvement is that metadata authority moved to a consistent boundary. Engines still read Parquet files from object storage and still understand Iceberg snapshots and manifests. The catalog coordinates names, access, credentials, and commits so the lakehouse can operate as a multi-engine system.`,
       ],
@@ -299,5 +308,73 @@ export const article = {
         `Study this with Iceberg Table Format Case Study for snapshots and manifests, S3 Object Storage Case Study for immutable file storage, Apache Gravitino Federated Metadata Lake Case Study for broader governance, Project Nessie Transactional Catalog Case Study for Git-like catalog semantics, and lakeFS Data Lake Version Graph Case Study for repository-style data versioning.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for iceberg-rest-catalog-protocol-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

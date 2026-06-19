@@ -1,0 +1,631 @@
+/* The one stylesheet. Tokens first, then layout, then the SVG visual
+   vocabulary shared by every renderer. No frameworks, no fonts, no deps. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --panel-2: #eef2f7;
+  --text: #18202e;
+  --muted: #5d6b7d;
+  --line: #d7dee8;
+  --accent: #1769e0;
+  --accent-soft: #e3edfb;
+  --good: #178044;
+  --good-soft: #ddf3e4;
+  --warn: #b45309;
+  --warn-soft: #fdedd7;
+  --bad: #b42318;
+  --bad-soft: #fbe1de;
+  --cell-bg: #ffffff;
+  --shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 1px 2px rgb(16 24 40 / 6%);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f141a;
+    --panel: #171e26;
+    --panel-2: #1d2630;
+    --text: #e8eef5;
+    --muted: #9fadbd;
+    --line: #2b3644;
+    --accent: #6ea8ff;
+    --accent-soft: #1c2c45;
+    --good: #4ade80;
+    --good-soft: #15301f;
+    --warn: #fbbf24;
+    --warn-soft: #382a10;
+    --bad: #f87171;
+    --bad-soft: #3a1715;
+    --cell-bg: #1d2630;
+    --shadow: none;
+  }
+}
+
+[data-theme="light"] {
+  --bg: #f6f8fb; --panel: #ffffff; --panel-2: #eef2f7; --text: #18202e;
+  --muted: #5d6b7d; --line: #d7dee8; --accent: #1769e0; --accent-soft: #e3edfb;
+  --good: #178044; --good-soft: #ddf3e4; --warn: #b45309; --warn-soft: #fdedd7;
+  --bad: #b42318; --bad-soft: #fbe1de; --cell-bg: #ffffff;
+  --shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 1px 2px rgb(16 24 40 / 6%);
+}
+
+[data-theme="dark"] {
+  --bg: #0f141a; --panel: #171e26; --panel-2: #1d2630; --text: #e8eef5;
+  --muted: #9fadbd; --line: #2b3644; --accent: #6ea8ff; --accent-soft: #1c2c45;
+  --good: #4ade80; --good-soft: #15301f; --warn: #fbbf24; --warn-soft: #382a10;
+  --bad: #f87171; --bad-soft: #3a1715; --cell-bg: #1d2630; --shadow: none;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.55;
+}
+
+a { color: var(--accent); }
+h1, h2, h3 { line-height: 1.2; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+.fine-print { color: var(--muted); font-size: 0.8rem; }
+
+/* ------------------------------------------------------------- buttons */
+
+.btn {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+[data-theme="dark"] .btn-primary, .btn-primary { color: #fff; }
+
+/* ---------------------------------------------------------------- home */
+
+.site-header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 36px 0 28px;
+  margin-bottom: 26px;
+}
+.header-row { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.site-header h1 { margin: 0 0 8px; font-size: 1.9rem; }
+.site-header em { color: var(--accent); font-style: normal; }
+.tagline { margin: 0; color: var(--muted); max-width: 56ch; }
+
+.search-box input {
+  width: 100%;
+  padding: 13px 18px;
+  font-size: 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.search-box input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+.category h2 {
+  font-size: 1.05rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 26px 0 12px;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+.card {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  text-decoration: none;
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.card h3 { margin: 0 0 6px; font-size: 1.05rem; color: var(--accent); }
+.card p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+.empty-results { color: var(--muted); padding: 24px 4px; }
+
+.about-card, .visitors-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin: 28px 0;
+}
+.about-card h2, .visitors-card h2 { margin-top: 0; font-size: 1.15rem; }
+.visitors-card img { max-width: 100%; border-radius: 6px; }
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  margin-top: 30px;
+  padding: 18px 20px 30px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* ---------------------------------------------------------- topic page */
+
+.topic-layout {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  min-height: 100vh;
+}
+.topic-nav {
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 18px 16px 30px;
+  font-size: 0.9rem;
+}
+.topic-nav .home-link { display: block; margin-bottom: 10px; text-decoration: none; }
+.topic-nav h2 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin: 16px 0 4px;
+}
+.topic-nav ul { list-style: none; margin: 0; padding: 0; }
+.topic-nav a { display: block; padding: 3px 8px; border-radius: 6px; text-decoration: none; color: var(--text); }
+.topic-nav a:hover { background: var(--panel-2); }
+.topic-nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.topic-main { padding: 22px 26px 50px; min-width: 0; }
+.topic-header h1 { margin: 0; font-size: 1.6rem; }
+.topic-summary { color: var(--muted); margin: 6px 0 12px; max-width: 70ch; }
+
+.link-chips { margin-bottom: 14px; }
+.chip-row { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-caption { font-size: 0.8rem; color: var(--muted); margin-right: 2px; }
+.chip {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+.chip:hover { outline: 1px solid var(--accent); }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.controls label { display: grid; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.controls input, .controls select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.95rem;
+  min-width: 130px;
+}
+.controls input:focus, .controls select:focus { outline: 2px solid var(--accent); }
+
+.error-box {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0 0 10px;
+}
+
+/* Explanation ABOVE the animation: read the sentence, watch it happen. */
+.learn-grid { display: flex; flex-direction: column; gap: 12px; }
+
+.vis-panel {
+  background:
+    radial-gradient(ellipse at 50% 0%, var(--accent-soft) 0%, transparent 55%),
+    var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vis-panel svg {
+  width: min(100%, 860px);
+  height: auto;
+  max-height: 50vh;
+}
+.vis-panel [data-id] {
+  animation: viz-reveal 260ms ease-out both;
+}
+
+.explain-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+}
+.explanation {
+  font-size: 1.12rem;
+  line-height: 1.6;
+  min-height: 3.3em; /* keeps the animation from jumping as text length changes */
+  margin: 0 0 8px;
+  max-width: 85ch;
+}
+.invariant {
+  font-size: 0.88rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 0 0 8px;
+  max-width: fit-content;
+}
+.player-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.player-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.speed-label { font-size: 0.82rem; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.progress-area { flex: 1 1 220px; max-width: 380px; }
+.export-area { display: flex; gap: 8px; align-items: center; }
+.progress-text { margin: 0 0 2px; font-size: 0.82rem; color: var(--muted); }
+.step-slider { width: 100%; accent-color: var(--accent); }
+
+/* study notes under the animation */
+.study {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 26px 18px;
+  margin-top: 16px;
+  max-width: 86ch;
+}
+.study-title { font-size: 1.25rem; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.study h3 { font-size: 1.02rem; margin: 20px 0 6px; color: var(--accent); }
+.study p { margin: 8px 0; line-height: 1.65; }
+
+@media (max-width: 880px) {
+  .topic-layout { grid-template-columns: 1fr; }
+  .topic-nav { display: none; }
+}
+
+@media (max-width: 600px) {
+  body { overflow-x: hidden; }
+  .topic-layout {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
+  }
+  .topic-header,
+  .learn-grid {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .topic-main {
+    width: 100%;
+    max-width: 100vw;
+    padding: 22px 14px 42px;
+    overflow-x: hidden;
+  }
+  .header-row {
+    display: block;
+  }
+  .header-row .btn {
+    margin-top: 10px;
+    padding: 7px 10px;
+  }
+  .topic-header h1 {
+    width: 362px;
+    max-width: 100%;
+    font-size: 1.34rem;
+    line-height: 1.22;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+  .topic-summary,
+  .explanation,
+  .invariant,
+  .study p,
+  .chip {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .topic-summary {
+    width: 362px;
+    max-width: 362px;
+  }
+  .explanation,
+  .invariant {
+    width: 322px;
+    max-width: 322px;
+    white-space: normal;
+    word-break: break-word;
+  }
+  .chip-row {
+    width: 362px;
+    max-width: 362px;
+  }
+  .chip-row,
+  .player-bar,
+  .player-controls,
+  .export-area,
+  .speed-label {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .invariant {
+    max-width: 100%;
+  }
+  .controls,
+  .explain-panel,
+  .vis-panel,
+  .study {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .study {
+    width: 362px;
+    max-width: 362px;
+    overflow-x: hidden;
+  }
+  .study p,
+  .study a {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .controls label {
+    min-width: 0;
+  }
+  .controls input,
+  .controls select {
+    width: 100%;
+    min-width: 0;
+  }
+  .controls .btn {
+    justify-self: start;
+  }
+  .player-bar { justify-content: flex-start; }
+  .player-controls,
+  .export-area {
+    width: 100%;
+  }
+  .progress-area {
+    flex-basis: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .step-slider {
+    width: calc(100% - 4px);
+    min-width: 0;
+  }
+  .vis-panel {
+    padding: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: flex-start;
+  }
+  .vis-panel svg {
+    width: 620px;
+    max-width: none;
+    max-height: none;
+    flex: 0 0 auto;
+    display: block;
+  }
+}
+
+/* -------------------------------------------- SVG visual vocabulary */
+
+svg text {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 16px;
+  fill: var(--text);
+}
+.svg-center { text-anchor: middle; dominant-baseline: central; }
+.svg-center-y { dominant-baseline: central; }
+.svg-right { text-anchor: end; }
+.svg-small { font-size: 12.5px; }
+.svg-muted { fill: var(--muted); }
+.svg-label { fill: var(--muted); font-size: 13px; }
+.svg-link { stroke: var(--muted); stroke-width: 2; }
+.svg-arrowhead { fill: var(--muted); }
+.svg-bracket { fill: none; stroke: var(--line); stroke-width: 3; }
+
+/* Depth pass: every cell floats with a soft shadow; the semantic highlight
+   states glow and pulse so the eye is pulled exactly where the algorithm is
+   working. Stunning, but never at the cost of follow-along clarity. */
+.cell rect, .cell circle {
+  fill: var(--cell-bg);
+  stroke: var(--line);
+  stroke-width: 2;
+  transition: fill 250ms, stroke 250ms, opacity 250ms, filter 250ms;
+  filter: drop-shadow(0 2.5px 2px rgb(10 20 40 / 22%));
+}
+
+@keyframes pulse-active {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--accent)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+  50% { filter: drop-shadow(0 0 9px var(--accent)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+}
+@keyframes pulse-good {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--good)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+  50% { filter: drop-shadow(0 0 10px var(--good)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+}
+@keyframes pulse-bad {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--bad)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+  50% { filter: drop-shadow(0 0 9px var(--bad)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+}
+@keyframes viz-reveal {
+  from { opacity: 0.32; }
+  to { opacity: 1; }
+}
+@keyframes edge-flow {
+  to { stroke-dashoffset: -32; }
+}
+.hl-active rect, .hl-active circle { animation: pulse-active 1.6s ease-in-out infinite; }
+.hl-found rect, .hl-found circle { animation: pulse-good 1.8s ease-in-out infinite; }
+.hl-swap rect, .hl-swap circle { animation: pulse-bad 1.2s ease-in-out infinite; }
+.mcell.hl-active rect, .plot-marker.hl-active circle, .pt.hl-compare circle,
+.centroid.hl-active circle, .edge.hl-found line {
+  animation: pulse-active 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell rect, .cell circle, .mcell rect, .plot-marker circle, .pt circle,
+  .centroid circle, .edge line, .vis-panel [data-id] { animation: none !important; }
+}
+.cell .bucket-empty { fill: var(--bg); stroke-dasharray: 4 4; }
+
+/* semantic highlight states (set per-step by the renderers) */
+.hl-active rect, .hl-active circle { stroke: var(--accent); stroke-width: 3.5; }
+.hl-compare rect, .hl-compare circle { fill: var(--warn-soft); stroke: var(--warn); }
+.hl-swap rect, .hl-swap circle { fill: var(--bad-soft); stroke: var(--bad); }
+.hl-sorted rect, .hl-sorted circle { fill: var(--good-soft); stroke: var(--good); }
+.hl-found rect, .hl-found circle { fill: var(--good-soft); stroke: var(--good); stroke-width: 3.5; }
+.hl-range rect, .hl-range circle { fill: var(--accent-soft); }
+.hl-visited rect, .hl-visited circle { opacity: 0.45; }
+.hl-removed rect, .hl-removed circle { opacity: 0.35; stroke-dasharray: 5 5; stroke: var(--bad); }
+.hl-pivot rect, .hl-pivot circle { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3; }
+.hl-collision rect { fill: var(--bad-soft); stroke: var(--bad); }
+.hl-returning rect { stroke: var(--good); stroke-width: 3.5; }
+
+/* call-tree frame status */
+.ct-active rect { stroke: var(--accent); stroke-width: 3; }
+.ct-waiting rect { opacity: 0.75; }
+.ct-returned rect { fill: var(--good-soft); stroke: var(--good); }
+.ct-returned text { fill: var(--text); }
+
+/* plot + scatter */
+:root, [data-theme="light"], [data-theme="dark"] {
+  --viz-0: #2f7de1;
+  --viz-1: #d97706;
+  --viz-2: #0a9b6c;
+  --viz-3: #d6409f;
+}
+.svg-axis { stroke: var(--muted); stroke-width: 1.5; }
+.series polyline { fill: none; stroke-width: 2.5; }
+.s-0 polyline, .s-0 text { stroke: var(--viz-0); }
+.s-1 polyline, .s-1 text { stroke: var(--viz-1); }
+.s-2 polyline, .s-2 text { stroke: var(--viz-2); }
+.s-3 polyline, .s-3 text { stroke: var(--viz-3); }
+.series text { stroke: none; fill: var(--text); }
+.series.hl-active polyline { stroke-width: 4.5; }
+.series.hl-visited polyline { opacity: 0.3; }
+.vector line { stroke: var(--bad); stroke-width: 2.5; }
+.vector-arrowhead { fill: var(--bad); }
+.plot-marker circle { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.plot-marker.hl-visited circle { opacity: 0.35; }
+.pt circle { stroke: var(--panel); stroke-width: 1.5; }
+.cluster-none circle { fill: var(--muted); }
+.cluster-0 circle { fill: var(--viz-0); }
+.cluster-1 circle { fill: var(--viz-1); }
+.cluster-2 circle { fill: var(--viz-2); }
+.cluster-3 circle { fill: var(--viz-3); }
+.pt.hl-compare circle { stroke: var(--warn); stroke-width: 3; }
+.centroid circle { fill: none; stroke-width: 3.5; }
+.centroid line { stroke-width: 2.5; }
+.centroid.cluster-0 :is(circle, line) { stroke: var(--viz-0); }
+.centroid.cluster-1 :is(circle, line) { stroke: var(--viz-1); }
+.centroid.cluster-2 :is(circle, line) { stroke: var(--viz-2); }
+.centroid.cluster-3 :is(circle, line) { stroke: var(--viz-3); }
+.centroid.hl-active circle { stroke-dasharray: 5 4; }
+
+/* graph */
+.edge line { stroke: var(--line); stroke-width: 2.5; }
+.edge-weight-bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+.edge.hl-active line {
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-dasharray: 10 7;
+  animation: edge-flow 950ms linear infinite;
+}
+.edge.hl-compare line { stroke: var(--warn); stroke-width: 4; }
+.edge.hl-found line {
+  stroke: var(--good);
+  stroke-width: 4.5;
+  stroke-dasharray: 12 6;
+  animation: edge-flow 1100ms linear infinite, pulse-good 1.8s ease-in-out infinite;
+}
+.edge.hl-visited line { opacity: 0.35; }
+
+/* matrix */
+.mcell rect {
+  fill: var(--accent);
+  stroke: var(--line);
+  stroke-width: 1;
+  transition: fill-opacity 200ms, stroke 220ms, filter 220ms;
+}
+.mcell text { fill: var(--text); }
+.mcell.hl-active rect {
+  stroke: var(--accent);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px var(--accent));
+}
+.mcell.hl-compare rect {
+  stroke: var(--warn);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 7px var(--warn));
+}
+.mlabel.hl-active text { fill: var(--accent); font-weight: 700; }
+.mlabel.hl-compare text { fill: var(--warn); font-weight: 700; }
+
+/* Inline topic cross-links inside explanations and study notes */
+.inline-topic-link {
+  color: var(--accent, #6ea8fe);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+.inline-topic-link:hover {
+  text-decoration-style: solid;
+}
+
+.external-source-link {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}

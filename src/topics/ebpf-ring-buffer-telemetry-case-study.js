@@ -1,4 +1,4 @@
-// eBPF ring buffer telemetry case study: reserve/submit records in a shared
+﻿// eBPF ring buffer telemetry case study: reserve/submit records in a shared
 // kernel map, poll them from user space, and keep observability loss explicit.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -322,6 +322,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for eBPF Ring Buffer Telemetry Case Study. A kernel-to-user telemetry queue: eBPF programs reserve records in a shared ring buffer, submit or discard them, and user space polls batches safely..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Production observability has a hard boundary: the interesting event often happens in the kernel, but the dashboard, alert, trace, or audit log lives in user space. System calls, network packets, scheduler decisions, file opens, and security hooks are too hot to copy through a slow path for every occurrence. The eBPF ring buffer exists to make that boundary cheap and explicit. A tiny verified program can run at a hook, write a compact record into a shared buffer, and let a user-space process drain the records later.`,
@@ -336,7 +345,7 @@ export const article = {
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `The core insight is reserve, fill, publish. A BPF program first asks the ring for enough contiguous space. If space exists, the helper returns a pointer into the record area. The program writes the event in place. Only after the payload is complete does it submit the record, making it visible to the consumer. If the program decides the event should not be emitted, it discards the reservation instead.`,
         `That lifecycle gives two useful properties at once. It avoids an extra copy for fixed-size records, because the program writes directly into the ring. It also prevents user space from seeing half-built data, because a record is not published until submit. The data structure is a circular queue, but the engineering value comes from the state transition around each slot: free, reserved, ready, consumed.`,
@@ -350,7 +359,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works`,
       paragraphs: [
         `The reserve-submit visual proves that correctness is not just a byte layout. It is a lifecycle. A record should be invisible while it is being filled, visible after submit, and impossible to leak because the verifier requires every reservation to close. The occupied slots in the matrix show that different CPUs can own different parts of the ring at the same time, but the consumer sees only records that crossed the publish boundary.`,
         `The pipeline visual proves a second point: telemetry has many places to lose or distort data. Kernel filters can skip events, the ring can fill, the poller can fall behind, user-space queues can drop, redaction can remove fields, and exporters can fail. The ring buffer is the first transport step, not the whole observability system. A trustworthy design counts drops at each boundary and keeps record schemas stable enough to decode during rolling upgrades.`,
@@ -371,21 +380,21 @@ export const article = {
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `The main cost is loss under sustained overload. Ring size, record size, producer rate, poll cadence, batch size, and downstream exporter health decide whether the buffer absorbs bursts or fills. Making the ring larger can absorb spikes but consumes memory and may hide a slow consumer. Making records smaller improves throughput but may remove context that analysts need. Sharding rings by event class can reduce contention but complicates ordering and joins.`,
         `The zero-copy reserve path is not always the simplest path. If the record size is hard to know before copying data, output may be easier. If the tool needs durable audit logs, the ring is only the ingress path; user space must persist selected events elsewhere. If privacy policy forbids raw arguments, redaction must happen before records leave trusted boundaries.`,
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `The pattern wins for high-rate, low-latency telemetry where each event can be summarized in a compact schema. System-call monitors, network flow samplers, scheduler profilers, security sensors, container observability agents, and latency probes all fit. The record should be small, quickly computed, and useful without blocking the thing being observed.`,
         `It also wins when global event order matters. A security investigation may need to know whether a process opened a file before it made a network connection, even if those hooks ran on different CPUs. A shared ring cannot solve every clock problem, but it makes the transport less likely to reorder published records across producers.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `The first failure mode is silent loss. If the program drops when the ring is full but nobody exports the drop counter, the dashboard lies. The second is schema drift. A poller compiled for one record layout may decode garbage after a rolling update unless records carry event ids and versions. The third is oversized payloads. One rare giant record can waste space and increase drop probability for many normal events.`,
         `Privacy is another failure mode. Paths, arguments, packet bytes, and process names can contain secrets. A good design has a record contract, redaction rules, sampling rules, and access controls before data enters the shared observability backend. Finally, do not treat the ring as durable storage. It is a transport. If the consumer crashes, unconsumed records may be gone.`,
@@ -398,5 +407,65 @@ export const article = {
         `Study Ring Buffer for the base circular-queue mechanics, eBPF Verifier Register State Case Study for load-time proof, io_uring Submission and Completion Rings for another kernel-user ring pair, NIC RX Ring and NAPI Poll Case Study for packet receive backpressure, Cilium eBPF Datapath Case Study for production BPF use, OpenTelemetry Collector Case Study for export, Metric Label Cardinality Control for downstream cost, and Backpressure and Flow Control for the overload model.`,
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for ebpf-ring-buffer-telemetry-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

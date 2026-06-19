@@ -211,103 +211,107 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Order maintenance exists because many systems need a mutable total order that is not just an array index. Task cards, playlists, document nodes, outline items, database rows, compiler sequences, and dynamic graph algorithms all need to insert between existing elements and later ask which element comes first.`,
-        `The structure separates logical order from physical storage. A linked list can represent the order, but comparing two far-apart nodes by walking the list is too slow. List labeling gives each node a comparable tag so precedence queries become label comparisons.`,
+        'In the label-comparisons view, each node displays its integer label as a note. A, B, X, and C sit in list order, but the order query never walks links. It compares two labels: 20 < 25 proves B precedes X in one operation. The insert path shows why gaps between labels matter -- X slips between B=20 and C=30 by taking label 25, with no other node touched.',
+        'In the relabel-windows view, the matrix shows old labels on the left and new labels on the right. The highlighted window is not being reordered; it is being renamed. Elements keep their relative sequence, but their labels spread apart so future inserts find room again. Watch the "before" column shrink to consecutive integers, then the "after" column restore wide gaps.',
       ],
     },
     {
-      heading: `The obvious approach and the wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive baseline is consecutive positions: A=1, B=2, C=3. It makes sorting and comparison simple. It also makes insertion expensive, because inserting between B and C forces either fractional positions or renumbering a suffix.`,
-        `Using large gaps, such as 10, 20, 30, delays the problem. It does not remove it. Repeated inserts into the same gap eventually exhaust available labels. The wall is avoiding global renumbering while keeping order queries cheap and labels comparable.`,
+        'Many systems maintain a sequence that changes -- task boards, playlists, document outlines, database rows, compiler IR nodes, dynamic graph algorithms. Two operations recur: insert an element between two neighbors, then later ask which of two elements comes first. The first operation is local; the second can involve elements far apart in the list.',
+        'A linked list handles insertion in O(1) if you have the pointer. But answering "does X come before Y?" requires walking from one node toward the other, which costs O(n) in the worst case. Arrays answer order queries by comparing indices, but inserting between two elements forces shifting a suffix. The order-maintenance problem asks for both operations to be cheap simultaneously.',
+        'Dietz and Sleator (1987) solved this by assigning each element a comparable integer label that respects list order. Comparing two labels is O(1). Insertion picks a label between the predecessor and successor labels. The hard part -- and the subject of this topic -- is what happens when labels run out of room.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Assign each element a label whose numeric or lexicographic order matches the list order. Then order(x, y) is answered by checking label(x) < label(y). Insertions choose a label between the predecessor and successor whenever there is room.`,
-        `The invariant is monotone labeling: if x appears before y in the list, label(x) is less than label(y). When a gap disappears, relabel a carefully chosen local window in the same relative order, restoring slack without changing the sequence.`,
-        `The insight is that order can be stored as sparse names. Physical neighbors still matter for insertion, but many reads only need to compare names. That is why list labeling shows up far outside textbooks, from UI ordering to distributed sequence identifiers.`,
+        'The natural first attempt is consecutive integer positions: A=1, B=2, C=3. Comparison is a single integer check. Sorting is free. Every programmer has written this.',
+        'Insertion breaks it. To place X between B=2 and C=3, there is no integer in the gap. You either renumber C and everything after it -- O(n) work -- or switch to fractional positions, which drift toward infinite precision under repeated inserts in the same spot.',
+        'A second attempt uses wide spacing: A=1000, B=2000, C=3000. This delays the problem. After enough inserts between B and C, the labels become 2000, 2001, 2002, ..., 2999, and the next insert has no room again. Spacing buys time; it does not change the asymptotic wall.',
       ],
     },
     {
-      heading: `Animation notes`,
+      heading: 'The wall',
       paragraphs: [
-        `In the label-comparisons view, the node notes are the labels. A, B, X, and C are linked in list order, but the order query does not traverse the links. It compares labels such as 20 and 25. The insert path shows why a gap between neighboring labels is valuable: X can be placed between B and C by choosing a label inside the gap.`,
-        `In the relabel-windows view, the old labels are crowded. The highlighted window is not being reordered; it is being renamed. The new labels spread the same elements apart so future inserts can again choose labels between neighbors.`,
+        'The core tension is between label density and label space. A fixed-width integer label has a finite universe of values U. If n elements live in that universe, the average gap is U/n. But adversarial inserts concentrate into one region, exhausting local gaps regardless of global slack.',
+        'Without a repair strategy, any static label assignment degrades to either O(n) renumbering or unbounded label growth. The wall is not "it is slow" -- it is that no single label assignment can absorb an arbitrary sequence of local inserts without eventually running out of room somewhere. The question becomes: how do you restore room cheaply?',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'How it works',
       paragraphs: [
-        `The simple version starts with spaced labels: A=10, B=20, C=30. To insert X after B and before C, assign X=25 and splice it into the linked order. To delete X, remove the node; the remaining labels still compare correctly.`,
-        `The full problem is what happens after many inserts target the same interval. Practical schemes use large integer spaces, variable-length strings, buckets, indirection, or packed windows. The algorithm chooses a region with enough capacity, relabels the elements in that region with fresh gaps, and charges that repair against the many cheap inserts that used up the slack.`,
+        'The Dietz-Sleator solution uses two levels of indirection. The list is split into small groups of O(log n) consecutive elements. Each group gets a tag from a top-level tag structure that labels groups in a universe of size O(n^2). Within each group, elements carry local labels in a universe of size O(log^2 n).',
+        'An order query compares group tags first. If two elements share a group, it compares local labels. Both comparisons are single integer checks -- O(1) total. Insertion places the new element in the predecessor\'s group and assigns a local label between the predecessor and successor. If the local label space is exhausted, the group splits into two groups, each getting a new top-level tag.',
+        {
+          type: 'diagram',
+          label: 'Two-level indirection',
+          text: 'Top-level tags:    [--- Group T1 ---]  [--- Group T2 ---]  [--- Group T3 ---]\n                    tag=1000            tag=5000            tag=9000\n\nWithin Group T2:   elem A (local=2)    elem B (local=5)    elem C (local=9)\n\nOrder query:       order(A, X)?\n                   Same group? -> compare local labels\n                   Different group? -> compare top-level tags',
+        },
+        'The top-level tag structure is itself an order-maintenance structure on groups, but because there are only O(n / log n) groups, the amortized cost of tag reassignment is absorbed. Relabeling happens in a scoped window: only the elements in the affected group or the groups near a tag collision get new labels. The rest of the list is untouched.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Insertion is safe when the new label lies strictly between the labels of its neighbors. Every element before the predecessor still has a smaller label, every element after the successor still has a larger label, and the new element fits into the total order.`,
-        `Relabeling is safe for the same reason. It changes labels, not list order. As long as the relabeled window receives increasing labels and the first and last labels still fit between the surrounding outside labels, all comparisons inside and across the window remain correct.`,
+        'The invariant is monotone labeling: for any two elements x, y in the list, x precedes y if and only if the pair (group_tag(x), local_label(x)) is lexicographically less than (group_tag(y), local_label(y)). Insertion preserves this because the new label is chosen strictly between its neighbors\' labels. Deletion preserves it because removing an element cannot invert any surviving pair.',
+        'Relabeling preserves it because the elements in the window keep their relative order and receive new labels that are strictly increasing. The boundary labels still fit between the labels of elements outside the window, so cross-window comparisons remain valid.',
+        'The amortized cost argument is a potential function on label density. Each cheap insert "uses up" some label slack. When a relabel fires, the cost is proportional to the window size, but the window was filled by that many prior cheap inserts. The work is charged backward against the inserts that consumed the slack, giving O(1) amortized per operation.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Start with A=10, B=20, C=30. Insert X between B and C by assigning 25. Now order(B, X) is true because 20 < 25, and order(X, C) is true because 25 < 30. No other label changes.`,
-        `Now imagine repeated inserts between B=20 and X=25 until the labels become 20, 21, 22, 23 with no room for another integer label. The repair chooses that local window and relabels it as 20, 30, 40, 50. The relative order is unchanged, but the restored gaps make future inserts local again.`,
+        {
+          type: 'table',
+          headers: ['Approach', 'Order query', 'Insert', 'Delete', 'Space'],
+          rows: [
+            ['Linked list + linear scan', 'O(n)', 'O(1) with pointer', 'O(1) with pointer', 'O(n)'],
+            ['Tag-based (single level)', 'O(1)', 'O(n) amortized relabel', 'O(1)', 'O(n) + tag bits'],
+            ['Two-level indirection (Dietz-Sleator)', 'O(1)', 'O(1) amortized', 'O(1) amortized', 'O(n) + O(n) tags'],
+          ],
+        },
+        'The Dietz-Sleator structure achieves O(1) amortized time for all three operations. The order query is a constant-time comparison of two integers (or two pairs of integers in the two-level scheme). Insertion is O(1) amortized: most inserts just pick a midpoint label, and the occasional relabel of a window of size k is paid for by k prior cheap inserts.',
+        'Space is O(n) for the list nodes, plus O(n) for group tags and local labels. The label universe at the top level is O(n^2), which fits in a 64-bit integer for any practical n. Bender et al. (2002) later simplified the scheme to a single level with O(1) amortized inserts using a different density-threshold relabeling strategy over a virtual tree of label intervals.',
+        'When n doubles, the structure may need a global relabel to expand the universe, but this costs O(n) spread across the n insertions that caused the growth -- still O(1) amortized per insert.',
       ],
     },
     {
-      heading: `Cost and tradeoffs`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Order queries can be constant-time label comparisons. Inserts are cheap when a gap exists. Deletes are usually cheap because removing an element does not break the labels of the remaining elements.`,
-        `The cost is relabeling. Simple midpoint schemes can degrade badly under repeated inserts into the same gap. More serious algorithms use indirection and density rules to keep relabel work amortized or worst-case bounded. Product systems also need to consider label length, database sort behavior, uniqueness, transaction conflicts, and migration when labels become crowded.`,
-        `The storage choice matters. Fixed-width integers make comparison cheap but can run out of room. Variable-length strings can keep creating labels between labels, but they may grow long under adversarial insert patterns. Database-backed systems must also handle concurrent inserts that choose the same gap.`,
+        'Order maintenance is the backbone of Euler tour trees, which maintain dynamic forests by storing tree edges as elements in an ordered list. Each link-cut or subtree-size query reduces to an order comparison between tour positions. Without O(1) order queries, Euler tour trees lose their advantage over heavier dynamic tree structures.',
+        'Incremental computation frameworks use order maintenance to track dependencies. When a cell changes, the system must determine which downstream cells need recomputation, and in what order. Labeling the dependency graph with order-maintenance tags lets the scheduler compare priorities in O(1) instead of searching the graph.',
+        'Product systems use the same idea under different names. LexoRank (Jira) and fractional indexing assign string labels between neighbors for drag-and-drop reordering. Database "sort_order" columns with periodic renumbering are ad hoc order maintenance. XML labeling schemes assign interval tags to nodes so ancestor queries are range checks.',
       ],
     },
     {
-      heading: `Where it wins and fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `It wins when order changes are local but reads need fast comparison: kanban boards, playlists, menu ordering, outlines, text buffers, dynamic trees, XML labeling, and algorithms that maintain a changing sequence. Fractional indexing and LexoRank are practical descendants of this idea.`,
-        `It fails when the system assumes one large numeric space is enough forever. Adversarial insert patterns can exhaust gaps. Concurrent writers can choose the same label. Distributed editors need replica-aware position identifiers, tie-breakers, or CRDT sequence designs rather than a single centralized integer tag.`,
+        'Fixed-width integer labels have a hard ceiling. A 64-bit universe supports roughly 4 billion elements before the two-level scheme runs out of top-level tag space. For most applications this is fine; for theoretical worst cases or adversarial inputs, it is a real constraint.',
+        'Concurrent writers break the single-writer assumption. Two threads choosing a midpoint label between the same neighbors can pick the same value. Production systems need uniqueness constraints, optimistic locking, or CAS-based insertion. Distributed systems face a harder version: two replicas creating positions without coordination. Sequence CRDTs solve this with replica IDs and causal metadata, but they are no longer pure order maintenance.',
+        'Variable-length string labels (fractional indexing) avoid the fixed-universe problem but introduce label growth. Under adversarial insert patterns -- always inserting at the same position -- labels grow by one character per insert. After 10,000 inserts, labels are 10,000 characters long, and comparison cost is no longer O(1). Periodic relabeling or switching to a two-level scheme is the standard mitigation.',
       ],
     },
     {
-      heading: `Implementation guidance`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Make relabeling explicit in the data model. A UI can hide it, but the backend should treat it as a normal maintenance operation with transaction boundaries, uniqueness constraints, and retry behavior.`,
-        `Test the worst case: repeatedly insert between the same two neighbors, then move items concurrently from two clients. If labels are persisted, test sorting under the exact database collation and type rules used in production.`,
-      ],
-    },
-    {
-      heading: `Complete case study`,
-      paragraphs: [
-        `A kanban board stores cards sorted by order_label. Moving a card between two neighbors normally writes one new label, not every card position on the board. Rendering is a database sort by label, and precedence checks are ordinary comparisons.`,
-        `The hard case is many users dragging cards into the same narrow gap. A robust implementation detects crowding, relabels a small window in one transaction, and retries conflicting moves. That keeps the user workflow simple while preserving the order-maintenance invariant.`,
-      ],
-    },
-    {
-      heading: `Limits and failure modes`,
-      paragraphs: [
-        `Labels can become long, crowded, or conflicting. Integer labels can run out of gaps. String labels can grow until indexes and comparisons become expensive. Concurrent inserts can pick the same midpoint unless the system uses uniqueness constraints and retry logic.`,
-        `Distributed collaboration adds another failure mode: two replicas can create positions without seeing each other. Centralized relabeling is not enough there; sequence CRDTs and fractional identifiers add replica ids, tie-breakers, or causality metadata.`,
-      ],
-    },
-    {
-      heading: `Operational guidance`,
-      paragraphs: [
-        `Monitor label density, not only list length. A board with 10,000 evenly spaced labels may be healthier than a board with 50 labels repeatedly squeezed between the same two neighbors. Density alerts tell you when to relabel before users see write conflicts.`,
-        `Keep relabeling invisible but auditable. The user action is "move card after B"; the storage repair may relabel B through K. Logging both facts helps debug ordering bugs without exposing internal label churn as product behavior.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Fractional Indexing and LexoRank next for product-facing label schemes. Then study Packed Memory Array, Linked List, Topological Sort, Sequence CRDTs for Collaborative Text, and Piece Table Text Buffer to see how logical ordering interacts with physical layout, graph constraints, and collaborative editing.`,
-        `For the theoretical foundation, read Dietz and Sleator on maintaining order, Demaine et al. on simplified order maintenance, and ordered-file maintenance notes. The recurring question is how much slack the representation keeps and how cheaply it restores that slack after local pressure.`,
+        {
+          type: 'note',
+          text: 'Primary source: Dietz and Sleator, "Two Algorithms for Maintaining Order in a List" (STOC 1987). Simplified treatment: Bender et al., "Two Simplified Algorithms for Maintaining Order in a List" (ESA 2002). Survey context: Demaine, "Order Maintenance" lecture notes (MIT 6.851 Advanced Data Structures).',
+        },
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Insert-between with tag comparison\nfunction insertAfter(pred, newNode) {\n  const succ = pred.next;\n  newNode.prev = pred;\n  newNode.next = succ;\n  pred.next = newNode;\n  if (succ) succ.prev = newNode;\n\n  if (succ && succ.tag - pred.tag > 1) {\n    // Gap exists: pick midpoint\n    newNode.tag = Math.floor((pred.tag + succ.tag) / 2);\n  } else {\n    // No gap: relabel a window, then assign\n    relabelWindow(pred);\n    newNode.tag = Math.floor((pred.tag + (succ ? succ.tag : pred.tag + GAP)) / 2);\n  }\n}\n\nfunction order(a, b) {\n  return a.tag < b.tag; // O(1)\n}',
+        },
+        {
+          type: 'diagram',
+          label: 'Label space exhaustion and relabeling',
+          text: 'Before (no gap):   A:20  B:21  C:22  D:23    <- cannot insert between any pair\n                     |     |     |     |\nRelabel window:     [--- relabel B,C,D ---]\n                     |     |     |     |\nAfter (gaps):       A:20  B:30  C:40  D:50    <- room restored for future inserts',
+        },
+        'Prerequisite: study Linked List and Balanced BST to understand why list traversal for order queries is O(n) and why balanced trees give O(log n) but not O(1). Extension: study Euler Tour Trees, which use order maintenance as their core primitive for dynamic forest connectivity. Production descendants: study Fractional Indexing and LexoRank for the string-label variants used in drag-and-drop UIs. Contrast: study Packed Memory Array for the related problem of maintaining sorted order in a cache-friendly physical layout.',
       ],
     },
   ],

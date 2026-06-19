@@ -193,6 +193,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for SwissTable Hash Map. A production hash-table design: split hashes into H1/H2, scan control-byte groups with SIMD-style masks, and keep values flat in memory..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Hash maps are supposed to be O(1), but real machines do not execute Big-O. They load cache lines, chase pointers, branch, compare keys, and move memory during rehash. A table that does fewer random loads can beat a table with the same asymptotic bound.',
@@ -202,8 +211,9 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'A classic chained hash table stores bucket heads that point to heap-allocated nodes. It is simple, familiar, and can keep element addresses stable. The cost is allocation overhead and pointer chasing when collisions occur.',
-        'A plain open-addressed table removes many pointers by storing entries in an array. That improves locality, but failed lookups can walk long probe clusters and compare many real keys. If keys are strings, structs, or cache-cold objects, equality becomes expensive.',
+        'Chaining (each bucket holds a linked list) handles collisions but scatters memory: every list node is a separate allocation, poison for CPU caches. Open addressing stores everything in one flat array: on collision, probe the next slot.',
+        'Linear probing checks slot h, h+1, h+2, ... -- simple, cache-friendly, but creates "clusters" where runs of occupied slots attract more collisions. The longer the cluster, the more likely the next insertion lands inside it and extends it further.',
+        'Robin Hood hashing fixes clustering variance by stealing from the rich: if the current element has a shorter probe distance than the one already sitting in the slot, swap them. This keeps all probe sequences short and narrows the gap between best-case and worst-case lookup. SwissTable takes a different path: instead of reordering entries, it adds a fast metadata layer that skips most equality checks entirely.',
       ],
     },
     {
@@ -229,7 +239,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works (2)',
       paragraphs: [
         'In the probe-groups view, follow the path from key to hash to H1/H2 split. The important visual move is not the arrow; it is the filter. The control-byte group is searched before the full entries are touched.',
         'In the 16-byte control group, the repeated H2 tag marks candidate slots. Empty cells matter because they prove absence. Deleted cells matter because they preserve the probe chain. The mask is the reason a dense table can skip most equality checks.',
@@ -261,32 +271,78 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'SwissTable-style maps win in hot in-memory indexes: compiler symbol tables, service metadata maps, routing tables, feature maps, dedup tables, and large C++ maps that do not need sorted iteration.',
         'The broader data-structure lesson is portable. If a small summary can reject most candidates, put that summary where the CPU can scan it cheaply before touching the heavy object.',
       ],
     },
     {
-      heading: 'Where it is the wrong tool',
+      heading: 'Where it fails',
       paragraphs: [
         'SwissTable is not an ordered map. It does not give predecessor queries, sorted scans, or deterministic ordering as a semantic contract. Use a tree or a sorted structure when order is the point.',
         '`flat_hash_map` is not a safe replacement for code that stores long-lived pointers or references into map elements. Rehash can move entries. If address stability matters, use a node-based variant or a different container.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Poor hash quality can still cluster probes. Adversarial keys can destroy the average-case story if the hash function is weak. Expensive destructors, huge values, and frequent rehashes can also dominate the metadata win.',
         'Migration bugs often come from accidental contracts in the old container: relying on iteration order, storing element addresses, expecting a particular erase return value, or assuming that a benchmark with integer keys predicts behavior for string-heavy production keys.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Learning map',
       paragraphs: [
-        'Primary sources: Abseil Swiss Tables Design Notes at https://abseil.io/about/design/swisstables and the Abseil Containers guide at https://abseil.io/docs/cpp/guides/container.',
-        'Study Hash Table for the base invariant, Cuckoo Hashing for a different collision strategy, Quotient Filter and Binary Fuse Filter for metadata-heavy membership ideas, B-Tree and Database Indexing for ordered access, and V8 Hidden Classes and Inline Caches for another example where layout dominates speed.',
+        'Prerequisites: Hash Table (open addressing and chaining fundamentals), basic understanding of CPU caches and memory locality, and familiarity with bit manipulation (masks, popcount). If linear probing is unfamiliar, study Hash Table first -- SwissTable optimizes a probe sequence you need to understand before seeing the optimization.',
+        'This topic unlocks several directions. Quotient Filter and Binary Fuse Filter use similar metadata-heavy designs for approximate membership. V8 Hidden Classes and Inline Caches show another case where data layout dominates speed over asymptotic complexity. B-Tree and Database Indexing cover the ordered-access path that hash tables cannot serve.',
       ],
     },
-  ],
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'SwissTable keeps a maximum load factor of 87.5%. Why not 100%? What happens to probe chain length as the table fills past 80%, and how does the H2 metadata filter change the practical cost curve compared to plain linear probing at the same load?',
+            'Deleted slots use a special control byte that means "skip me but keep probing." Why can a tombstone not simply be marked empty? Construct a three-key insertion sequence where clearing a deleted slot to empty would make a later lookup incorrectly report "not found."',
+            'Linear probing creates clusters: runs of occupied slots that grow because new keys landing anywhere inside the run extend it by one. SwissTable does not eliminate clustering -- it still uses open addressing. How does the H2 prefilter reduce the cost of walking through a cluster, even though the cluster is the same length?',
+            'If you replaced SwissTable\'s H2 tags with a Bloom-filter-style bit array per group, what would you gain and what would you lose? Think about false-positive rates, memory per slot, and the ability to delete entries.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why SwissTable Hash Map moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Knuth, The Art of Computer Programming, Volume 3, Section 6.4 gives the foundational analysis of linear probing -- expected probe lengths, clustering, and the sensitivity to load factor. Celis (1986) introduced Robin Hood hashing, which equalizes probe distances by displacing entries on insertion. The Abseil Swiss Tables Design Notes (https://abseil.io/about/design/swisstables) document the H1/H2 split, control-byte layout, and SIMD group scanning used in production C++ maps. The Abseil Containers guide (https://abseil.io/docs/cpp/guides/container) covers the flat_hash_map and node_hash_map API and migration considerations.',
+          'Study next by role. Prerequisite: Hash Table (chaining and basic open addressing) to ground the collision model SwissTable improves on. Related structure: Bloom Filter, another hash-based design that trades accuracy for extreme space savings. Alternative collision strategy: Cuckoo Hashing, which guarantees worst-case O(1) lookup by maintaining two tables and displacing entries on collision. Distributed extension: Consistent Hashing, which maps keys to a ring of servers so adding a node moves only a fraction of the data.',
+        ],
+      },
+],
 };

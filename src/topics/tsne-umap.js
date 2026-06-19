@@ -1,4 +1,4 @@
-// t-SNE & UMAP: your embeddings live in 768 dimensions; your screen has 2.
+﻿// t-SNE & UMAP: your embeddings live in 768 dimensions; your screen has 2.
 // Neighborhood-preserving projection makes the invisible geometry readable —
 // and then lies to you about everything except the neighborhoods.
 
@@ -79,7 +79,7 @@ function* squash() {
   yield {
     state: scatterState({ axes: AXES, points: lerp(1), centroids: CENTROIDS }),
     highlight: { found: ['cat', 'kitten', 'dog', 'puppy'] },
-    explanation: 'Converged: three clean islands — animals, food, languages — recovered from 768-D with no labels, no supervision, just neighborhood preservation. This picture is the standard first diagnostic for any embedding model: train embeddings, project, look. Clusters where meaning clusters = the model learned something; your "cat" floating among the pastas = something is broken upstream. UMAP earns its popularity doing the same neighborhoods-first job with a graph-based construction — typically 10–100× faster, slightly better at keeping the big-picture arrangement, the default at scale today.',
+    explanation: 'Converged: three clean islands — animals, food, languages — recovered from 768-D with no labels, no supervision, just neighborhood preservation. This picture is the standard first diagnostic for any embedding model: train embeddings, project, look. Clusters where meaning clusters = the model learned something; your "cat" floating among the pastas = something is broken upstream. UMAP earns its popularity doing the same neighborhoods-first job with a graph-based construction — typically 10–100Ã— faster, slightly better at keeping the big-picture arrangement, the default at scale today.',
   };
 
   yield {
@@ -88,7 +88,7 @@ function* squash() {
       rows: [{ id: 'tsne', label: 't-SNE' }, { id: 'umap', label: 'UMAP' }],
       columns: [{ id: 'speed', label: 'speed' }, { id: 'global', label: 'global structure' }, { id: 'knob', label: 'main knob' }],
       values: [[1, 2, 3], [4, 5, 6]],
-      format: (v) => ['', 'slow (O(n²)-ish; Barnes-Hut helps)', 'weak — trust islands, not oceans', 'perplexity (~5–50)', '10–100× faster', 'somewhat better', 'n_neighbors (~15)'][v],
+      format: (v) => ['', 'slow (O(n²)-ish; Barnes-Hut helps)', 'weak — trust islands, not oceans', 'perplexity (~5–50)', '10–100Ã— faster', 'somewhat better', 'n_neighbors (~15)'][v],
     }),
     highlight: { compare: ['tsne:speed', 'umap:speed'] },
     explanation: 'The practical comparison card. Both are NEIGHBORHOOD-FIRST by construction — that is the family trait and the contract: local relationships are what they promise to keep, and (as the other view demonstrates) very nearly the ONLY thing. Both have a knob that means "how many neighbors define a neighborhood," and both will draw a different — equally valid — map every run unless you fix the random seed. Which raises the question the second view answers: if the map changes per run and per knob, what in it can you actually trust?',
@@ -161,6 +161,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for t-SNE & UMAP: Seeing Embeddings. Squash 768 dimensions into 2 by preserving neighborhoods — then learn which parts of the picture are lies..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Embeddings often live in hundreds or thousands of dimensions, while humans inspect data on a two-dimensional screen. t-SNE and UMAP exist because we need a diagnostic view of high-dimensional neighborhoods: which points sit near one another, which labels look mixed, and which regions look suspicious enough to investigate.',
@@ -171,13 +180,15 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious move is to keep the first two embedding coordinates or use a simple linear projection. Sometimes PCA is a good preprocessing step, but a linear projection can flatten high-dimensional neighborhoods like a shadow. Points that are close in the source space can overlap with unrelated points if the important directions are not aligned with the chosen axes.',
-        'The second obvious move is to trust the picture because it looks clean. That is worse. A projection can draw islands from real clusters, but it can also draw islands from noise, random initialization, and parameter choices. The purpose of the projection is to generate questions, not to replace measurement in the original space.',
-        'A third tempting shortcut is to run a clustering algorithm on the two-dimensional result. That usually compounds the mistake. If the projection has already distorted density and gaps, clustering the projection can create labels for artifacts. Cluster in the original representation, or at least compare projection-based labels against source-space neighbors before treating them as data facts.',
+        'Visualize high-dimensional data. PCA projects onto the top-k principal components. It preserves global linear structure but cannot capture nonlinear manifolds: a curved surface in 100D squashed flat looks like a blob in 2D.',
+        'MDS (multidimensional scaling) preserves all pairwise distances. O(n^2) computation, and distant points dominate, distorting local neighborhoods.',
+        't-SNE (van der Maaten & Hinton, 2008) focuses on preserving LOCAL neighborhoods. Step 1: in high-D, compute pairwise similarities using Gaussian kernels -- nearby points have high similarity. Step 2: in low-D (2D or 3D), use Student\'s t-distribution (heavy tails) for similarities. Step 3: minimize KL divergence between high-D and low-D similarity distributions via gradient descent.',
+        'The t-distribution\'s heavy tails prevent crowding: in high-D, moderate-distance points can spread out more in low-D. Result: clusters and neighborhoods are faithfully preserved, but global distances between clusters are NOT meaningful.',
+        'The perplexity parameter (~5-50) controls the effective number of neighbors considered. Low perplexity produces tight clusters. High perplexity reveals more global structure.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is neighborhood preservation. Instead of asking the two-dimensional map to preserve every distance, t-SNE and UMAP ask it to preserve who is near whom. If cat, kitten, dog, and puppy are close in embedding space, the optimizer tries to place them close on the screen. If pizza and rust are far, it tries not to make them accidental neighbors.',
         'This local focus is the strength and the limitation. Local neighborhoods can reveal mislabeled samples, embedding collapse, duplicate data, or unexpected semantic mixing. Global geometry is much less trustworthy. The map can rotate, stretch, split, or move islands without changing the local relationships the algorithm cared about.',
@@ -190,51 +201,7 @@ export const article = {
         'UMAP starts by building a nearest-neighbor graph. It treats the high-dimensional data as a fuzzy topological structure, then optimizes a low-dimensional graph layout. Its n_neighbors parameter controls the local-versus-global tradeoff: smaller values focus on very local neighborhoods, while larger values preserve broader structure at the cost of local sharpness.',
         'Many workflows run PCA first to reduce noise and dimensionality before t-SNE or UMAP. At larger scale, approximate nearest-neighbor methods such as HNSW may supply the neighbor graph. That makes projection a pipeline: clean vectors, find neighborhoods, optimize a layout, then validate claims back in the source space.',
       ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The first view shows optimization, not discovery magic. The random layout is the starting state. As the algorithm runs, points that were neighbors in the original embedding space are pulled together and unrelated points are pushed apart. The final animal, food, and programming-language islands are useful because the known semantic neighbors were recovered without labels.',
-        'The second view is the warning label. A larger island does not mean a more diverse group. A shorter gap between islands does not mean the source clusters are closer. A clustered picture does not prove clusters exist. The visual is teaching the reading contract: trust local neighborhoods cautiously, then verify every stronger claim with original-space distances and labels.',
-        'The most important habit is to separate visual discovery from factual claim. A good projection can tell you, "these ten points deserve inspection." It cannot honestly tell you, "this product category is twice as diverse," "this patient group is biologically farther away," or "this language family sits between those two." Those claims require measurements that were not preserved by the layout.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works because many embedding problems are local. If an image model places similar images nearby, or a text model places related concepts nearby, a neighborhood-preserving projection can reveal whether those local relationships look coherent. The algorithm does not need to preserve every long-distance relationship to be useful as a diagnostic.',
-        'It also works because humans are good at spotting visual anomalies. A cluster with one mislabeled point, a bridge between two categories, or a collapsed cloud can be found quickly on a projection. The projection tells you where to look. The original vectors, metadata, and downstream validation tell you what is true.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'Naive t-SNE is expensive because pairwise distances grow quadratically. Barnes-Hut and FFT-based variants reduce the cost, but large interactive datasets still need care. UMAP is often faster in practice because nearest-neighbor graph construction and layout optimization scale better with approximate methods.',
-        'Both methods have randomness and knobs. Perplexity, n_neighbors, minimum distance, initialization, metric choice, preprocessing, and seed can change the picture. A responsible analysis reruns the projection with several settings, checks whether important neighborhoods persist, and avoids storytelling from one attractive layout.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Projection wins as an exploratory diagnostic for embeddings, image features, text corpora, single-cell data, recommender items, anomaly triage, and model comparison. It can quickly expose mislabeled examples, duplicated data, domain clusters, label leakage, or embedding collapse.',
-        'It is especially useful before formal evaluation. A projection can suggest that a model separated concepts it should not separate or merged concepts it should distinguish. That clue should feed a test, not become the conclusion.',
-        'It also helps teams communicate model behavior. A retrieval team can show why a search result is being pulled into the wrong semantic neighborhood. A data team can find that one source system forms its own island because of formatting artifacts. A safety team can inspect whether harmful examples cluster near harmless paraphrases. The value is not decoration; it is faster hypothesis generation.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The most common failure is overreading the map. Axes have no semantic meaning. Island gaps are not reliable distances. Cluster area is not density. Noise can form attractive islands. Repeated runs can move groups around. These failures are not minor footnotes; they are the reason projection plots are so often misused.',
-        'The fix is procedural. Keep the random seed when comparing runs. Vary the knobs when making a claim. Confirm clusters with source-space neighbors, labels, and downstream metrics. Use the map to decide what to inspect, not what to believe.',
-        'Another failure is using projection as a benchmark. A model with a beautiful UMAP may still fail retrieval, classification, or ranking. A model with a messier projection may preserve the distinctions that matter for the task. The benchmark belongs to the downstream use case; the projection is only a debugging instrument.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Embeddings & Similarity for the source-space distances, PCA for linear projection and preprocessing, Entropy & Information for KL divergence, Gradient Descent for layout optimization, HNSW for scalable neighbor search, K-Means for clustering, and Data Leakage & Contamination for the risk of tuning a story around one pretty picture.',
-        'A strong next exercise is to project the same data with several seeds and neighborhood sizes, then inspect which neighbor relationships survive. Stable local relationships deserve investigation. Layout features that move around should be treated as drawing artifacts. That exercise teaches the method better than memorizing the names of the algorithms.',
-      ],
-    },
+    }
   ],
 };
+

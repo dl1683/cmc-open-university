@@ -1,4 +1,4 @@
-// Loss landscapes: the terrain gradient descent actually walks — basins
+﻿// Loss landscapes: the terrain gradient descent actually walks — basins
 // that trap, saddles that stall, and the surprising rule that FLAT valleys,
 // not deep ones, are where generalization lives.
 
@@ -49,12 +49,12 @@ function* terrain() {
       axes: { x: { label: 'a weight w (1-D slice)' }, y: { label: 'loss' } },
       series: [
         { id: 'well', label: 'loss(w)', points: WS.map((v) => ({ x: v, y: well(v) })) },
-        { id: 'path', label: 'GD from w₀ = 3', points: path },
+        { id: 'path', label: 'GD from wâ‚€ = 3', points: path },
       ],
       markers: [{ id: 'stuck', x: path.at(-1).x, y: path.at(-1).y, label: `settled at ${path.at(-1).x.toFixed(2)}` }],
     }),
     highlight: { active: ['path'], removed: ['stuck'] },
-    explanation: `Watch actual gradient descent (computed live, lr = 0.4) released from w₀ = 3: it rolls downhill, brakes, and settles at w ≈ ${path.at(-1).x.toFixed(2)} — the SHALLOW basin, loss 1.48. The better valley sits a short walk away, but reaching it means going UPHILL over the ridge, and pure gradient descent never goes uphill. Where you START decides where you END: that is non-convexity\'s tax, and why initialization (the He/Xavier schemes from Vanishing Gradients) is not bookkeeping but destiny.`,
+    explanation: `Watch actual gradient descent (computed live, lr = 0.4) released from wâ‚€ = 3: it rolls downhill, brakes, and settles at w â‰ˆ ${path.at(-1).x.toFixed(2)} — the SHALLOW basin, loss 1.48. The better valley sits a short walk away, but reaching it means going UPHILL over the ridge, and pure gradient descent never goes uphill. Where you START decides where you END: that is non-convexity\'s tax, and why initialization (the He/Xavier schemes from Vanishing Gradients) is not bookkeeping but destiny.`,
     invariant: 'Plain gradient descent is strictly downhill: it converges to the basin of whatever slope it starts on.',
   };
 
@@ -68,8 +68,8 @@ function* terrain() {
       markers: [{ id: 'saddle', x: 0, y: 2, label: 'gradient = 0 here' }],
     }),
     highlight: { compare: ['axisUp', 'axisDown'], active: ['saddle'] },
-    explanation: 'Now the high-dimensional twist that makes the trap story misleading: the SADDLE POINT. At this spot the gradient is exactly zero — but it is a minimum along one axis and a MAXIMUM along the other: a mountain pass, not a valley floor. Count what randomness demands: a true local minimum needs the surface to curve upward along ALL d directions; if each direction\'s curvature were a coin flip, that is 2⁻ᵈ — and d is in the millions. Random zero-gradient points in high dimension are saddles, essentially always. The 1990s fear of "millions of bad local minima" had the wrong villain.',
-    invariant: 'A random critical point in d dimensions is a minimum with probability ~2⁻ᵈ: high-D is saddles all the way.',
+    explanation: 'Now the high-dimensional twist that makes the trap story misleading: the SADDLE POINT. At this spot the gradient is exactly zero — but it is a minimum along one axis and a MAXIMUM along the other: a mountain pass, not a valley floor. Count what randomness demands: a true local minimum needs the surface to curve upward along ALL d directions; if each direction\'s curvature were a coin flip, that is 2⁻áµˆ — and d is in the millions. Random zero-gradient points in high dimension are saddles, essentially always. The 1990s fear of "millions of bad local minima" had the wrong villain.',
+    invariant: 'A random critical point in d dimensions is a minimum with probability ~2⁻áµˆ: high-D is saddles all the way.',
   };
 
   yield {
@@ -83,7 +83,7 @@ function* terrain() {
       ],
       columns: [{ id: 'role', label: 'what it does' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'gradient ≈ 0 for long stretches — GD crawls', 'accumulated velocity coasts across flats', 'random kicks knock you off the pass', 'scales up steps along quiet directions'][v],
+      format: (v) => ['', 'gradient â‰ˆ 0 for long stretches — GD crawls', 'accumulated velocity coasts across flats', 'random kicks knock you off the pass', 'scales up steps along quiet directions'][v],
     }),
     highlight: { removed: ['saddleRow:role'], found: ['noise:role'] },
     explanation: 'Why saddles still matter: near the pass the gradient is nearly zero in every direction, so vanilla GD slows to a geological crawl — the plateau on your loss curve that LOOKS like convergence and is actually a saddle\'s waiting room. The escape kit is the modern optimizer\'s standard equipment: MOMENTUM carries speed across the flat; the NOISE in minibatch gradients — long treated as a defect — randomly perturbs the trajectory off the unstable direction (SGD\'s sloppiness is a feature); adaptive methods amplify steps where gradients run quiet. And the empirical surprise that buried the old pessimism: for big networks, nearly all the minima these methods reach are roughly equally good, and often connected by low-loss tunnels (mode connectivity). The landscape is not a minefield; it is a vast, navigable river delta.',
@@ -117,8 +117,8 @@ function* sharpFlat() {
       ],
     }),
     highlight: { removed: ['sharpPay'], found: ['flatPay'] },
-    explanation: `Test data is the same terrain nudged sideways — the distribution shifted a little, so the whole curve slides. Now read the bill at each minimum: the FLAT basin barely notices (0.50 → ${testLoss(-2).toFixed(2)}) because a wide floor forgives a sideways nudge; the SHARP canyon is catastrophic (0.50 → ${testLoss(2).toFixed(2)}) — one step left of a needle and you are climbing its wall. Same training performance, ${(testLoss(2) / testLoss(-2)).toFixed(1)}× different generalization. Flatness is robustness to being slightly wrong about the world — which is the entire job description of generalization (the variance story of Learning Curves, drawn as geometry).`,
-    invariant: 'A flat minimum tolerates train→test shift; a sharp one converts the same shift into large loss.',
+    explanation: `Test data is the same terrain nudged sideways — the distribution shifted a little, so the whole curve slides. Now read the bill at each minimum: the FLAT basin barely notices (0.50 â†’ ${testLoss(-2).toFixed(2)}) because a wide floor forgives a sideways nudge; the SHARP canyon is catastrophic (0.50 â†’ ${testLoss(2).toFixed(2)}) — one step left of a needle and you are climbing its wall. Same training performance, ${(testLoss(2) / testLoss(-2)).toFixed(1)}Ã— different generalization. Flatness is robustness to being slightly wrong about the world — which is the entire job description of generalization (the variance story of Learning Curves, drawn as geometry).`,
+    invariant: 'A flat minimum tolerates trainâ†’test shift; a sharp one converts the same shift into large loss.',
   };
 
   yield {
@@ -132,7 +132,7 @@ function* sharpFlat() {
       ],
       columns: [{ id: 'effect', label: 'effect on where you land' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'noise can\'t sit in a needle → lands flat', 'precise steps settle anywhere — often sharp', 'big steps overshoot narrow slots', 'explicitly seeks low-loss NEIGHBORHOODS'][v],
+      format: (v) => ['', 'noise can\'t sit in a needle â†’ lands flat', 'precise steps settle anywhere — often sharp', 'big steps overshoot narrow slots', 'explicitly seeks low-loss NEIGHBORHOODS'][v],
     }),
     highlight: { found: ['smallbatch:effect'], removed: ['bigbatch:effect'] },
     explanation: 'The herding forces. A noisy optimizer is a ball being jiggled while it rolls: it cannot REST in a needle-thin canyon — the jiggle bounces it out — but a wide basin holds it easily, so SGD\'s noise acts as a flatness filter (the famous observation that very large batches, with their precise quiet gradients, generalize WORSE — Keskar et al. 2016). Large learning rates do the same by overshooting slots narrower than the step size. And once the principle was understood, it became a design target: SAM (sharpness-aware minimization) optimizes the worst loss in a neighborhood rather than at a point, and stochastic weight averaging centers you in the basin you found. The dial-vs-terrain summary of all of deep learning practice: architecture shapes the landscape; the optimizer\'s noise chooses which valleys are inhabitable; regularization (Regularization, Dropout) flattens them further. None of it is convex; all of it is geometry.',
@@ -149,6 +149,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Loss Landscapes & Optimization Geometry. The terrain under gradient descent: trapping basins, stalling saddles, and why flat minima generalize..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A loss landscape is the geometry created by a model, a dataset, and a loss function. Each possible setting of the model weights is a point. The height at that point is the loss. Training is the path an optimizer takes through that surface. Gradient descent, momentum, Adam, minibatch noise, initialization, normalization, weight decay, and learning-rate schedules matter because they change the path.',
@@ -157,15 +166,15 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive convex story',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive story comes from convex optimization. In least squares or logistic regression under the right assumptions, the loss can look like one bowl. There is one global minimum. If the learning rate is reasonable, following the negative gradient moves toward it. Local information is enough because every downhill path leads to the same basin.',
-        'That story is useful for learning the gradient step, but it is misleading for neural networks. Neural-network losses are non-convex. Hidden units can be permuted without changing the represented function. Layers can rescale one another. Saturating activations can flatten regions. Interactions between layers can create ridges, curved valleys, plateaus, and saddle points.',
-        'The old fear was that a large network would be trapped by countless bad local minima. The modern view is more specific. Bad minima can exist, but in high dimensions saddles, ill-conditioned ravines, sharp regions, poor gradient flow, and optimization instability are often the practical enemies. Training failure is usually not just "the model found the wrong bottom." It can be "the optimizer could not move well through the geometry it created."',
+        'To understand how training works, plot loss as a function of parameters. With two parameters you get a 3D surface, and gradient descent rolls downhill. The naive story from convex optimization says there is one bowl, one global minimum, and every downhill path leads to it. That works for logistic regression and least squares.',
+        'But real networks have millions of parameters; the loss surface is astronomically high-dimensional. Neural-network losses are non-convex. Hidden units can be permuted without changing the represented function. Layers can rescale one another. Saturating activations flatten regions. Interactions between layers create ridges, curved valleys, plateaus, and saddle points.',
+        'Li et al. 2018 ("Visualizing the Loss Landscape of Neural Nets") showed you can project onto random 2D slices and still see meaningful structure: sharp minima (narrow valleys), flat minima (broad basins), saddle points. The projection loses detail but preserves the qualitative features that matter for understanding optimizer behavior and generalization. The old fear of countless bad local minima was the wrong villain; in high dimensions, saddles, ill-conditioned ravines, and sharp regions are the practical enemies.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that optimization and generalization are geometric. Optimization asks whether the training procedure can move through the landscape efficiently. Generalization asks whether the point it finds remains good when data, weights, or deployment conditions shift slightly. A low-loss point with steep walls may be fragile. A low-loss point in a broad basin is usually more tolerant.',
         'Flatness is not magic, and it is not the only source of generalization, but it captures an important kind of robustness. If moving a little in parameter space causes a large loss increase, the solution depends on very precise weights. If nearby points also have low loss, the solution is less sensitive to noise, quantization, data sampling, and small distribution changes.',
@@ -197,14 +206,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it works as a diagnosis',
+      heading: 'Why it works',
       paragraphs: [
         'Landscape language works because it ties visible training symptoms to mechanisms. A plateau can mean the optimizer is near a saddle or moving through poorly scaled curvature. A validation gap can mean the model found a sharp or over-specialized region. Seed variance can mean the useful basins are small or hard to enter. These are not just metaphors; they name testable hypotheses.',
         'The diagnosis stays honest when it predicts an intervention. If the issue is a saddle or flat region, momentum, noise, or learning-rate changes should help. If the issue is sharpness, weight decay, augmentation, lower step size late in training, SAM, or averaging may help. If the intervention does not change the failure, the landscape story was probably incomplete.',
       ],
     },
     {
-      heading: 'How to inspect a run',
+      heading: 'How it works',
       paragraphs: [
         'Use landscape thinking when a training run behaves strangely. A long plateau may suggest a saddle, poor gradient flow, too small a learning rate, bad initialization, or saturated activations. Loss spikes may suggest sharp curvature, too large a learning rate, unstable normalization, exploding gradients, or a bad batch. A model that trains well but fails validation may have found a brittle solution, overfit labels, or exploited leakage.',
         'Collect measurements before changing five knobs at once. Track training loss, validation loss, gradient norms, update norms, learning rate, batch statistics, activation ranges, weight norms, seed variation, and checkpoint perturbation behavior. If small weight noise ruins validation, sharpness is plausible. If gradient norms vanish in early layers, gradient flow may be the issue. If restarts land in very different places, initialization and optimizer noise matter.',
@@ -212,7 +221,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Studying a landscape is expensive because it usually requires extra model evaluations. A two-dimensional plot may evaluate a grid of points around a trained solution. Each point can require running the model over a dataset or sample. This is useful for research, debugging, and explanation, but ordinary training does not draw the surface. It samples local gradients along the path it takes.',
         'Optimizers trade memory and computation for better movement. Plain gradient descent stores little state but can crawl through ravines and saddles. Momentum stores velocity. Adam stores first and second moment estimates, using more memory but scaling steps by recent gradient behavior. SAM performs extra work to seek parameters whose neighborhoods have low loss, not just points with low loss.',
@@ -235,11 +244,32 @@ export const article = {
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study gradient descent for the local step rule, then momentum and Adam for the ways optimizer state changes the path. Study saddle points and the Hessian to connect small gradient with curvature. Study vanishing and exploding gradients to understand when the backward signal cannot describe the landscape well to early layers.',
-        'Then study regularization, dropout, data augmentation, sharpness-aware minimization, stochastic weight averaging, learning-rate schedules, initialization, normalization, and honest evaluation. A landscape story is useful only when the validation setup is clean enough to tell whether the model basin actually survives new data.',
+        'Li et al. 2018, "Visualizing the Loss Landscape of Neural Nets," introduced filter-normalized random-direction plots that made landscape comparison fair across architectures. Goodfellow et al. 2014 showed that linear interpolation between two solutions reveals whether they share a basin or are separated by a barrier. Keskar et al. 2017 connected sharp minima to poor generalization and showed that large-batch training tends to find sharper solutions than small-batch SGD.',
+        'Study next: Gradient Descent for the local step rule this entire topic depends on. Learning Rate Schedules for how the step size changes the reachable region of the landscape over time. Batch Normalization, which Santurkar et al. 2018 proved smooths the loss landscape (not the internal covariate shift story originally claimed). Weight Initialization (He/Xavier) for why the starting point on this surface is not arbitrary. Then study momentum and Adam for how optimizer state changes the path, vanishing and exploding gradients for when the backward signal cannot describe the landscape to early layers, and regularization techniques (dropout, data augmentation, SAM, weight averaging) for how they reshape the surface and the region where training settles.',
       ],
     },
-  ],
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Prerequisites: neural network basics (what parameters are, what a forward pass computes) and gradient descent intuition (the local step rule, learning rate, convergence on a convex bowl). Without these, the surface is a picture instead of a tool.',
+        'Unlocks: understanding why learning rate matters (step size relative to curvature determines whether you overshoot or crawl), why batch norm helps (it smooths the landscape, reducing the ratio between the largest and smallest curvatures), why skip connections help (ResNet loss landscapes are measurably smoother than VGG landscapes in Li et al.\'s plots), and why some architectures train better than others even at equal parameter count.',
+      ],
+    },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you explain why flat minima generalize better than sharp minima? (Hint: a small shift in the data distribution moves the loss surface sideways; a wide basin absorbs the shift, a narrow one does not.)',
+            'Can you explain what a saddle point is and why saddles are more common than local minima in high dimensions? (Hint: a true minimum needs upward curvature in all d directions; probability ~2^(-d).)',
+            'Can you explain Li et al.\'s filter normalization trick for fair landscape visualization? (Hint: without normalizing filter norms, a network with larger weights looks artificially sharper, so you scale each random direction to match the corresponding filter\'s norm.)',
+          ],
+        },
+      ],
+    },
+],
 };
+

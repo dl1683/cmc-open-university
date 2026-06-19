@@ -1,4 +1,4 @@
-// Tree of Thoughts: treat intermediate reasoning chunks as tree states, then
+﻿// Tree of Thoughts: treat intermediate reasoning chunks as tree states, then
 // generate, evaluate, select, and backtrack instead of decoding once.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -205,7 +205,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Tree of Thoughts Search Case Study. Turn reasoning into explicit search: generate thought states, evaluate them, keep the promising frontier, and backtrack when a branch dies..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Some problems are not hard because each step is mysterious. They are hard because an early choice controls what later choices are possible. A puzzle move, proof direction, plan decomposition, or program repair strategy can quietly turn a solvable problem into a dead end.',
         'A normal left-to-right language-model answer commits to one path. Even self-consistency, which samples multiple complete paths and votes at the end, usually does not manage a shared frontier of partial solutions. Tree of Thoughts exists to make the intermediate states explicit enough to search, score, prune, and revisit.',
@@ -263,7 +272,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it fits',
+      heading: 'Real-world uses',
       paragraphs: [
         'ToT fits puzzles, planning, search-heavy reasoning, decomposition, program repair candidates, and structured writing when intermediate states have enough shape to score. It is strongest when early choices matter and a cheap evaluator can reject dead ends before they consume the whole budget.',
         'It is weaker for factual lookup, summarization of known material, low-branch tasks, or cases where the evaluator is no better than the generator. In those settings, retrieval, tool use, direct verification, or a simpler self-consistency pass may give a better cost-quality tradeoff.',
@@ -277,7 +286,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'In Game of 24, the root state is the multiset 4, 5, 6, 10. Candidate thoughts are arithmetic moves that reduce the multiset: 10 - 4 = 6 leaves 5, 6, 6; 10 / 5 = 2 leaves 2, 4, 6; 6 - 4 = 2 leaves 2, 5, 10. The evaluator estimates which remaining sets are promising.',
         'The branch 10 - 4 = 6 can continue with 5 * 6 = 30 and then 30 - 6 = 24. A weaker branch can die without killing the run because the frontier still contains other states. The visualization makes that survival of alternatives visible.',
@@ -297,5 +306,74 @@ export const article = {
         'Study Self-Consistency Reasoning Vote first for the simpler full-path vote, then Beam Search for frontier pruning, A* Search for heuristic search, Tree Traversals for explicit tree mechanics, Process Reward Models & Verifier Search for stronger evaluators, and Monte Carlo Tree Search & UCT Primer for a classical search algorithm with exploration bonuses.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for tree-of-thoughts-search-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

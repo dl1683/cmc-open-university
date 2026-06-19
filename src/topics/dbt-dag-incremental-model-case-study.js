@@ -223,7 +223,7 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'Why this exists',
       paragraphs: [
         'Analytics SQL starts as a few useful queries and then becomes a dependency problem. A revenue mart depends on cleaned orders, cleaned orders depend on raw source tables, tests depend on the mart shape, and dashboards depend on the final relation. If those relationships live only in filenames and team memory, every change becomes a small migration risk.',
         'dbt exists to make those relationships explicit. A model is not just a SQL file; it is a node in a build graph. Calls to source and ref declare edges, tests attach contracts, docs attach meaning, and manifest.json turns the project into data that other tools can inspect.',
@@ -231,7 +231,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first reasonable approach is a folder of SQL scripts run in a fixed order. This is not foolish. For a small project, a runbook or scheduler can say: load staging, then dimensions, then marts, then dashboard extracts.',
         'The same simple approach often appears for updates: run every script from scratch. Full rebuilds are easy to reason about because they avoid stored state. If the SQL is correct and the source data is available, the table should be correct after the run.',
@@ -239,7 +239,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The wall',
       paragraphs: [
         'The graph wall is hidden dependency. A model may depend on a source through a macro, a comment, a copied table name, or a downstream dashboard nobody remembered. Without a machine-readable edge, the build system cannot order work, select impacted nodes, or explain lineage with confidence.',
         'The cost wall is stored history. A daily active users table might need only the last few days on most runs, but a late event from yesterday can still change yesterday. If the incremental filter only processes rows with today as the date, the model will be fast and wrong.',
@@ -247,7 +247,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to split the system into two contracts. The DAG contract says which resources depend on which other resources. The incremental contract says how one resource updates its own stored table without recomputing all history.',
         'For the DAG, explicit edges allow topological order. If mart_revenue depends on int_orders and dim_customers, those parents must exist before the mart is built. If dim_customers changes, downstream selection can find the marts and tests that should run.',
@@ -255,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation Walkthrough',
+      heading: 'How to read the animation',
       paragraphs: [
         'The model-DAG view shows source, staging, intermediate, dimension, mart, tests, docs, and consumers as one lineage graph. The edges are not decoration. A ref edge is a build-order promise and an impact-analysis path.',
         'The graph-artifact frame shows why manifest.json matters. The manifest stores nodes, sources, tests, docs, parent maps, and child maps. That turns the project from a pile of SQL text into an inspectable dependency graph.',
@@ -263,7 +263,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
         'During parsing, dbt resolves project resources into a manifest. The ref function returns a database relation and creates a dependency edge to the referenced model, seed, or snapshot. The source function does the same for declared source tables. The manifest records first-order parents and children so selection and documentation can use the same graph.',
         'A normal dbt run builds selected resources in dependency order. Selectors can choose one node, its ancestors, its descendants, or intersections with tags, paths, resource types, and state comparisons. This is graph traversal with resource filters.',
@@ -272,7 +272,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'The DAG works because explicit edges create a partial order. A directed acyclic graph can be topologically sorted, so every model can be built after its declared parents. If a cycle appears, there is no valid build order; dbt should reject the shape instead of guessing.',
         'Selection works because descendants are computed from recorded child edges, not from string matching table names in SQL. That is why hidden dependencies are dangerous. If a model depends on another relation without source or ref, the graph cannot protect the relationship.',
@@ -281,7 +281,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'Suppose a daily revenue mart depends on raw order events, stg_orders, int_order_lines, dim_customers, and dim_products. A change to dim_products should rebuild the revenue mart and its tests, but it should not rebuild unrelated marketing attribution models. The DAG gives the selector enough structure to choose the affected subgraph.',
         'For the mart itself, an incremental model might reprocess the last three days of order events, stage the resulting rows, and merge by order_id or by a surrogate key at the chosen grain. The three-day lookback is a deliberate cost. It catches late events and corrections that a strict today-only filter would miss.',
@@ -289,7 +289,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and Behavior',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Graph cost is mostly parse, compile, selection, scheduling, and artifact management. More nodes mean more relationships to inspect, more tests to plan, and more build-order decisions. The payoff is that a small change can run a small selected subgraph instead of the whole project.',
         'Incremental cost lives in the warehouse. Filtering early can reduce scans, joins, and writes. Merge can be more expensive than append because the warehouse must match staged rows against existing target rows. Partition replacement can be cheaper when the data is naturally partitioned by date or batch.',
@@ -305,7 +305,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'The dbt DAG is strong when analytics code has many dependencies and many consumers. It helps teams reason about staging layers, intermediate joins, marts, tests, docs, exposures, and ownership as one graph.',
         'Incremental models fit large event streams, fact tables, slowly refreshed marts, feature tables, and daily aggregates where most runs touch a small fraction of history. They are especially useful when a full rebuild is possible but too expensive for every run.',
@@ -313,7 +313,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'The DAG fails when dependencies stay hidden. Direct table names, undeclared sources, runtime-only refs, macros that obscure relationships, and stale artifacts make the graph less reliable than it looks.',
         'Incremental models fail quietly. Missed late rows, bad unique keys, null keys, schema drift, changed business logic, timezone errors, and source truncation can produce plausible but wrong metrics. Cheap runs are not a victory if they preserve bad state.',
@@ -321,11 +321,53 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: dbt ref documentation at https://docs.getdbt.com/reference/dbt-jinja-functions/ref, dbt source documentation at https://docs.getdbt.com/reference/dbt-jinja-functions/source, dbt manifest artifact documentation at https://docs.getdbt.com/reference/artifacts/manifest-json, and dbt incremental model documentation at https://docs.getdbt.com/docs/build/incremental-models.',
         'Study Topological Sort for build ordering, OpenLineage for production lineage events, Delta Lake and Hudi for table-update storage mechanics, Slowly Changing Dimension for history modeling, and Feature Store for downstream ML consumption of transformed tables.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for dbt-dag-incremental-model-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

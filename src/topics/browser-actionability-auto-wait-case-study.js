@@ -1,4 +1,4 @@
-// Browser actionability auto-wait: locate an element, prove it is ready for an
+﻿// Browser actionability auto-wait: locate an element, prove it is ready for an
 // action, execute, and retry safely when the page moves underneath the agent.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -213,6 +213,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Browser Actionability Auto-Wait Case Study. A browser automation case study: locator resolution, visibility, stability, event reception, enabled state, scroll, timeout, retry, and flaky-click repair..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A browser action is a state transition against a moving system. The page can re-render, animate, cover a button with a banner, disable a field during validation, or replace a DOM node between the model decision and the mouse event.',
@@ -221,7 +230,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Baseline approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The obvious approach is to click the selector or coordinate as soon as the agent chooses it. That works on static pages and small demos because the DOM, viewport, and overlay stack barely move.',
         'A slightly better version adds fixed sleeps: wait 500 ms after navigation, click, then wait again. Sleeps reduce some races, but they don\'t prove that the target is visible, stable, enabled, or topmost at the action point.',
@@ -235,7 +244,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core state model',
+      heading: 'The core insight',
       paragraphs: [
         'The useful state is not a click; it is an action request plus a gate vector. The request stores action type, locator or target evidence, intended state change, timeout budget, and observation id. The gate vector stores unique resolution, visibility, stability, event reception, enabled state, editability when needed, viewport position, and wait reason.',
         'The trace row should keep both the final action and the waits that made it safe. Without wait reasons, a timeout is only a symptom. With wait reasons, it becomes a bucket: ambiguous selector, hidden target, moving box, overlay, disabled control, detached node, or navigation race.',
@@ -243,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'Resolve the locator fresh. Check that it points to exactly one candidate. Check that the candidate has a non-empty visible box, has stopped moving, receives pointer events at the action point, and is enabled. For text entry, also check editability.',
         'When the checks pass, scroll the target into view, dispatch the action, observe the next page state, and compare it with the intended state change. When a check fails until timeout, record the failed gate instead of collapsing every cause into "click failed."',
@@ -265,7 +274,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Production uses',
+      heading: 'Real-world uses',
       paragraphs: [
         'End-to-end test runners use actionability to turn UI tests from timing games into state checks. Browser agents need the same layer because model decisions are already noisy; the runtime should remove mechanical flake before blaming the model.',
         'The same trace improves product quality. If many actions wait on the same overlay, disabled button, or animation, the UI has a measurable interaction problem. Actionability telemetry turns "the agent is flaky" into a concrete frontend bug report.',
@@ -287,7 +296,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Forced clicks are a diagnostic tool, not a reliability strategy. They can bypass the event-reception check and create false passes that no user could reproduce.',
         'Fixed sleeps are also weak. They wait whether the page is ready or not, and they fail when the slow case takes longer than expected. Predicate waits age better because they wait for the condition that makes the action safe.',
@@ -296,11 +305,62 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Playwright documents actionability checks for actions such as locator.click: unique resolution, visible, stable, receiving events, and enabled: https://playwright.dev/docs/actionability. Its trace viewer shows action snapshots, logs, locators, and timing after a run: https://playwright.dev/docs/trace-viewer. WebDriver BiDi defines asynchronous browser automation commands that can finish out of order, which is another reason trace ids and wait reasons matter: https://www.w3.org/TR/webdriver-bidi/.',
         'Study Accessibility Tree Action Target Case Study for semantic targets, DOM Event Propagation & Path for event delivery, Browser Rendering for layout and paint timing, requestAnimationFrame Frame Budget for stability checks, and Web Agent Evaluation Trace Ledger Case Study for benchmark-level replay.',
       ],
     },
+      {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for browser-actionability-auto-wait-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

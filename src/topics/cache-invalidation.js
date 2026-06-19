@@ -1,4 +1,4 @@
-// Cache invalidation: "one of the two hard things in computer science."
+﻿// Cache invalidation: "one of the two hard things in computer science."
 // Every cache is a copy that can go stale; every fix trades freshness,
 // origin load, or complexity, except the one trick that changes the name.
 
@@ -148,79 +148,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A cache is a copy kept closer to the reader than the source of truth. The copy is useful because it avoids repeated computation, database reads, network hops, rendering, or file transfers. It becomes dangerous the moment the source changes and the copy still looks valid.`,
-        `Cache invalidation exists because a system needs a rule for when a copy stops being trustworthy. Without that rule, a CDN can serve an old price, a browser can keep a broken script, an API gateway can return a stale permissions document, or a frontend cache can show a user data that was already changed elsewhere.`,
-        `The hard part is that freshness, latency, and origin load fight each other. A long-lived copy is fast and cheap but can be wrong for longer. A short-lived copy is fresher but asks the origin more often. A write-triggered purge can be nearly fresh but turns consistency into a distributed control-plane problem.`,
+        'The animation has two views. The stale-or-stampede dilemma shows a three-node graph: users, cache/CDN, and origin. Edges light up to show request flow. Active edges mark the current path a request takes. Compare markers highlight the disagreement between the cache copy and the origin copy -- this is the staleness gap. The matrix frame plots TTL values against worst-case staleness and origin hit rate so you can see the tradeoff as numbers, not just intuition.',
+        'The escape-routes view shows three invalidation strategies in sequence: purge (origin pushes a drop command), immutable versioned names (new content gets a new URL), and revalidation (cache asks origin whether its ETag is still current). Found markers show the path that resolves correctly. The final matrix maps data types to strategies, showing that production systems run several invalidation policies at once.',
+        'At each frame, ask: what changed, what is now stale, and what mechanism would fix it.',
       ],
     },
     {
-      heading: `The naive approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The first answer is to pick a TTL and move on. That is reasonable. Time-to-live caching gives each key an expiration time, keeps reads cheap, and bounds how long the cache may serve a known-old value after the origin changes.`,
-        `The wall is that a TTL is a trade, not a correctness proof. A five-second TTL can still be too stale for inventory during checkout and too expensive for a hot key at massive scale. A one-day TTL can be perfect for a content-hashed image and unacceptable for a user role. The right number depends on the cost of a wrong answer, not on an aesthetic preference for freshness.`,
-        `The second naive answer is to purge every cache on every write. That sounds exact because writes know when data changed. It fails when there are many cache layers, retries, in-flight refills, regional replicas, browser copies, negative caches, and application-side memoization. A missed or reordered purge can leave one stale copy alive with no obvious alarm.`,
+        'Phil Karlton said there are only two hard things in computer science: cache invalidation and naming things. The quip survives because it is precise. A cache trades consistency for speed -- it serves a copy instead of asking the source. Invalidation is the mechanism that keeps that trade honest.',
+        'Without invalidation rules, a CDN can serve yesterday\'s price, a browser can run a broken script long after a fix shipped, and an API gateway can return permissions that were revoked an hour ago. The copy is fast, but the moment the source changes, the copy becomes a lie with no expiration date.',
+        'The hard part is that freshness, latency, and origin load fight each other. A long-lived copy is cheap and fast but can be wrong for a long time. A short-lived copy is fresher but hammers the origin. A write-triggered purge can be nearly instant but turns consistency into a distributed messaging problem. Every invalidation strategy picks a position on this triangle.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Every cached key needs a freshness contract. TTL says a copy may be trusted until a time boundary. Purge says a write will tell copies to forget. Revalidation says the cache may keep a suspect copy but must ask the origin whether its version is still current. Versioned naming says this name refers to exactly this content, so new content receives a new name.`,
-        `Versioned naming is the cleanest case because it changes the identity problem. If app.8f3ab2.js is named by a content hash, that object never becomes false. A future bundle is not an update to the same key; it is a different key. The cache can keep the old object for a year because the old name still means the old bytes.`,
-        `Mutable names are the hard case. A key like price.json, user:42, feed:home, or permissions:team-a means latest value, not this exact byte sequence. The system must decide how readers learn that latest changed.`,
+        'The first answer is time-based expiration: set every cache entry to expire after N seconds. TTL caching is simple, stateless, and bounds how long a stale copy can survive. It works well enough for many use cases that most systems start here and never leave.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The wall',
       paragraphs: [
-        `TTL caching is the simplest mechanism. On a hit, the cache checks whether now is before the expiration time. If yes, it returns the copy. If no, it fetches from the origin, stores the new value, and sets a new expiration. The lookup is cheap, but the worst-case staleness is the TTL.`,
-        `Stampede control handles the moment a popular key expires. Request coalescing, often called single-flight, lets one request perform the refresh while other requests wait for the same result. Serve-stale returns the expired copy while a background refresh runs. TTL jitter adds randomness to expiration times so many keys do not expire in the same second.`,
-        `Purge changes direction. The write path tells cache layers to drop or mark a key stale. Revalidation keeps the copy but asks the origin a small question, often with an ETag or version token: is this still current? Immutable versioned names avoid invalidation for content that can be renamed on change.`,
+        'TTL is a guess. Too short and cache misses spike -- you are barely caching, and the origin bears almost the full load. Too long and users see stale data for minutes or hours. And TTL cannot handle the case where the source changed right now: a 300-second TTL means the system can legally serve a wrong answer for up to five minutes after a write, no matter how critical the data.',
+        'Worse, TTL creates a synchronized expiration problem. When a popular key expires, every concurrent request misses at the same instant and sends duplicate fetches to the origin. This is the thundering herd: the cache that was protecting the origin suddenly becomes the source of a traffic spike against it.',
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: 'How it works',
       paragraphs: [
-        `The stale-or-stampede view shows two different failures from the same knob. With a long TTL, the cache can serve a stale price after the origin changed. With synchronized expiration, many clients can miss at once and overload the origin. The matrix makes the trade visible: reducing staleness increases refresh pressure.`,
-        `The escape-routes view shows that invalidation strategies differ by authority. TTL lets time decide. Purge lets the writer decide. Revalidation asks the origin at read time. Versioning changes the key so the old copy remains true. The final table is the practical lesson: cache policy belongs to the data class.`,
+        'Three strategies cover the space, and production systems typically combine them.',
+        'TTL/expiration is the simplest: each cache entry carries a timer. On a hit, the cache checks whether the timer has expired. If not, it returns the copy. If yes, it fetches from the origin, stores the new value, and resets the timer. The worst-case staleness equals the TTL. Stampede control -- request coalescing (single-flight), serve-stale-while-revalidate, and TTL jitter -- keeps expiration events from overwhelming the origin.',
+        'Event-driven invalidation moves authority to the write path. When the source changes, the writer notifies caches to drop or refresh the affected key. Three common patterns: cache-aside (the application checks the cache, misses go to the database, the application populates the cache on read); write-through (every write goes to both cache and database together, so the cache is always current); write-behind (writes go to the cache first, then flush to the database asynchronously, trading durability risk for lower write latency).',
+        'Version/tag-based invalidation attaches an identity token to each cached copy. HTTP uses ETag and If-None-Match: the cache sends its token to the origin, and the origin responds 304 Not Modified (no body transfer) if the token is still current, or sends the new body with a new tag if it changed. Database caches use generation counters. Content-hashed filenames (app.8f3ab2.js) are the extreme case: the name is the version, so the old object never becomes stale -- new content simply gets a new name.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `TTL works because the system accepts bounded staleness. If the contract says a copy may be at most 60 seconds old, then serving a 40-second-old value is correct under that contract even if the origin changed 10 seconds ago. That is not universal correctness; it is correctness relative to an explicit freshness budget.`,
-        `Coalescing works because simultaneous misses for one key are duplicate work. The first request owns the refresh, and the rest depend on its result. The invariant is one in-flight origin fetch per key. Jitter works because it breaks synchronized clocks. Serve-stale works because many systems prefer a slightly old answer to an outage while refresh happens.`,
-        `Versioning works for immutable content because truth moves into the name. A content hash, build number, or monotonic version turns a mutable key into a stable identity. The cache no longer needs to discover that app.v42.js changed, because app.v42.js never changes. The HTML, manifest, or API response that points to the current version is the smaller mutable object that needs its own freshness rule.`,
+        'Event-driven invalidation gives O(1) staleness in the ideal case: the cache is invalidated on the write, so the next read always fetches fresh data. The cost is that correctness now depends on reliable message delivery, ordering, and every cache layer receiving the notification.',
+        'TTL gives bounded staleness without any coordination. Serving a 40-second-old value is correct under a 60-second freshness contract, even if the origin changed 10 seconds ago. That is not universal correctness; it is correctness relative to an explicit budget.',
+        'Cache-aside is simple and works well for read-heavy workloads, but it has thundering-herd risk on popular keys and a window of inconsistency between the database write and the next cache miss. Write-through eliminates stale reads at the cost of higher write latency, since every write must update two stores. Write-behind has the lowest write latency but risks data loss if the cache fails before the async flush completes.',
+        'Coalescing collapses N simultaneous misses for one key into exactly one origin fetch. The first request owns the refresh; the rest wait for the same result. Jitter breaks synchronized clocks so many keys do not expire in the same second. Serve-stale keeps the system available during refresh by returning the expired copy while a background fetch runs.',
       ],
     },
     {
-      heading: `Cost and tradeoffs`,
+      heading: 'Cost and behavior',
       paragraphs: [
-        `TTL caching is O(1) on ordinary hits and has little coordination overhead. Its tax is wrong-answer time. When the input request rate doubles, hit handling remains cheap, but expiration events can become more painful because more clients are waiting when the key turns cold.`,
-        `Purge reduces stale windows but adds distributed state. The write path must know which keys to invalidate, which cache layers hold them, and how to handle failure. It also has race conditions: a stale refill can arrive after a purge, or a purge can reach one region before another. Serious purge systems need idempotent messages, version checks, retries, observability, and sometimes tombstones.`,
-        `Revalidation saves bandwidth when bodies are large and changes are rare, but it keeps the round trip. A 304 Not Modified response is cheaper than a full download, not free. Versioning is excellent for static assets and immutable records, but it shifts the problem to the pointer that names the current version. Private data often should not be cached at all unless the isolation rules are precise.`,
+        'Cache memory is O(n) per entry stored. TTL hits are O(1) and have no coordination overhead. The tax is wrong-answer time: when request rate doubles, hit handling stays cheap, but expiration events become more painful because more clients are waiting when the key goes cold.',
+        'Event-driven invalidation adds message overhead per write. The write path must know which keys to invalidate, which cache layers hold them, and how to handle delivery failure. Race conditions are real: a stale refill can arrive after a purge, or a purge can reach one region before another. Serious purge systems need idempotent messages, version checks, retries, and sometimes tombstones.',
+        'Thundering herd on popular key expiration is the acute cost of TTL without coalescing. Cache stampede prevention -- lock/promise coalescing, probabilistic early expiration, and jitter -- adds implementation complexity but keeps origin load predictable.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Static assets are the clean win. JavaScript bundles, CSS, images, fonts, and WebAssembly files can use content hashes and long cache lifetimes because changed content gets a new URL. The browser and CDN become allies instead of consistency hazards.`,
-        `API and application data need more care. Feeds, recommendation blocks, feature flags, search results, and dashboards often tolerate seconds or minutes of staleness if the system uses coalescing, stale-while-revalidate, and clear freshness indicators. Prices, inventory, permissions, balances, and safety decisions need tighter contracts, purge-on-write, revalidation, or no cache.`,
+        'CDN edge caches (Cloudflare, Fastly) use surrogate keys for targeted purge: a single API call can invalidate every URL tagged with a specific surrogate key across all edge nodes, without flushing unrelated content. This is event-driven invalidation at global scale.',
+        'Database query caches (Redis, Memcached) use TTL and explicit invalidation together. Application code sets a TTL as a safety net, but writes actively delete or update the cache key so most reads never see stale data.',
+        'DNS uses TTL natively: every DNS record carries a TTL that tells resolvers how long to cache the answer. Short TTLs enable fast failover; long TTLs reduce DNS query load.',
+        'Browser HTTP caching combines Cache-Control headers (max-age for TTL, no-store for uncacheable), ETag/If-None-Match for revalidation, and immutable content-hashed URLs for static assets. A well-configured static site can serve most requests from the browser cache with zero network round trips.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `It fails when one global policy is applied to every key. A high cache-hit rate can hide wrong answers if nobody measures stale responses, purge lag, or user-visible inconsistency. The question is not whether the cache is effective; it is whether the copy is allowed to answer this request at this moment.`,
-        `It also fails when invalidation paths are invisible. Browser cache, CDN cache, reverse proxy, application memoization, database query cache, negative DNS cache, and client-side state libraries can all hold copies. If a write updates one layer and forgets another, the system can look correct in the origin database while users keep seeing yesterday's state.`,
+        'Distributed caches with multiple writers break simple invalidation because there is no single authority deciding who invalidates. Two writers can update the same key in different regions, and the last-write-wins race produces a cache that is consistent with neither writer\'s intent.',
+        'Complex dependency graphs defeat per-key invalidation. When a comment is added to a post, which cache keys are affected? The post cache, the comment-count cache, the feed caches of every follower, the notification caches, the search index cache. Missing one dependency means one stale view survives.',
+        'The delete-vs-update race condition is subtle: a cache delete followed by a concurrent read can refill the cache with stale data from a replica that has not yet received the write. Write-through avoids this but at higher write cost.',
+        'Cache coherence in multi-core CPUs is a hardware version of the same problem. Each core\'s L1 cache is a copy; the MESI protocol is an invalidation protocol. The problem is universal: copies diverge, and convergence has a cost.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Study HTTP caching headers, ETag revalidation, Cache-Control, Vary, CDN request flow, service-worker precache manifests, LRU eviction, query-cache stale time and garbage collection, optimistic UI invalidation, content addressing in Git, DNS negative caching, and distributed consistency. Then practice classifying real keys by contract: immutable, bounded stale, purge required, revalidate required, or never cache.`,
+        'A blog stores posts in PostgreSQL and caches them in Redis. Each cache key is post:<id> with a 300-second TTL as a safety net.',
+        'State: Redis has post:42 = {title: "Old Title", body: "..."}. TTL has 200 seconds remaining. The author edits the post in the CMS.',
+        'Step 1: The application writes the updated post to PostgreSQL. The row now reads {title: "New Title", body: "..."}.',
+        'Step 2: In the same transaction callback, the application deletes the Redis key post:42. This is cache-aside with write-triggered invalidation -- the write path explicitly drops the stale copy instead of waiting for TTL.',
+        'Step 3: The next reader requests post:42. Redis returns a miss. The application fetches from PostgreSQL, gets the updated row, and writes it back to Redis with a fresh 300-second TTL.',
+        'Step 4: All subsequent readers for the next 300 seconds get the fresh copy from Redis. The staleness window was the time between the PostgreSQL write and the Redis delete -- typically under a millisecond on the same server.',
+        'If the Redis delete in step 2 had failed silently, the old copy would survive for up to 200 more seconds. That is why the TTL exists as a backstop: it bounds the worst case even when the invalidation path breaks.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Karlton\'s law is the canonical framing. RFC 7234 (HTTP/1.1 Caching) defines Cache-Control, ETag, and conditional-request semantics -- it is the standard that browsers and CDNs implement. Nishtala et al., "Scaling Memcache at Facebook" (NSDI 2013), describes how Facebook handles cache invalidation across regions with lease-based protocols to prevent thundering herds and stale sets.',
+        'Study HTTP caching headers (Cache-Control, ETag, Vary, stale-while-revalidate) to understand browser and CDN behavior. Study LRU eviction to see how caches decide what to drop when memory is full -- eviction is the complement of invalidation. Study distributed consensus to understand why multi-region cache coherence is fundamentally hard: it is a weaker form of the same problem that Paxos and Raft solve for replicated state machines.',
       ],
     },
   ],
 };
+

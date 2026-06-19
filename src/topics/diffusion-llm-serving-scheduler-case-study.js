@@ -1,4 +1,4 @@
-// Serving diffusion LLMs means scheduling denoising steps, confidence gates,
+﻿// Serving diffusion LLMs means scheduling denoising steps, confidence gates,
 // approximate cache state, and mixed requests without assuming AR decode shape.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -240,7 +240,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core state model',
+      heading: 'The core insight',
       paragraphs: [
         "Each request carries a prompt, token buffer, mask bitset, block id, denoise step, remaining mask count, route id, deadline, confidence policy, cache version, fallback budget, and quality guard. Those fields are the scheduling key.",
         "The server keeps ready queues keyed by denoise step, block size, mask count bucket, cache compatibility, and route policy. It also keeps a cache and paging ledger for prompt state, approximate hidden state, page ownership, eviction reason, and version validity.",
@@ -249,7 +249,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation Meaning',
+      heading: 'How to read the animation',
       paragraphs: [
         "In the step batching view, the API node is not the scheduler. The scheduler starts after ingress, when the request has been shaped by length, mask state, block size, route, and cache version. The bucket node means requests are grouped by denoise compatibility rather than mere arrival time.",
         "The cache node shows why a diffusion server cannot blindly copy an autoregressive KV-cache policy. Hidden state can be reusable only under a matching block and mask version. The graph route through GPU and gate shows that compute is followed by a decision, not automatic streaming.",
@@ -257,7 +257,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         "Ingress first shapes the request. The router classifies the task, chooses a route, sets a confidence threshold, and places the request into a compatible denoise bucket. A predictable code completion may go to a wider parallel lane. Open chat may use a narrower lane. Risky requests may start conservative or fall back early.",
         "The GPU runs a batch of compatible denoise work. After the pass, the confidence gate decides position by position: commit the token, hold it for another pass, remask it, or send the request to a safer route. Committed tokens update the request buffer and can change later cache validity.",
@@ -266,7 +266,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Reliability argument',
+      heading: 'Why it works',
       paragraphs: [
         "The scheduler is reliable only if speed decisions are gated by quality decisions. The invariant is that the fast lane may propose several tokens, but only the confidence policy can commit them to the output stream.",
         "Cache safety comes from versioning. A cached hidden state is usable only for the block state, mask pattern, model version, and route policy it was recorded under. If those fields drift, the cache must be treated as approximate or invalid.",
@@ -275,7 +275,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs',
+      heading: 'Cost and behavior',
       paragraphs: [
         "Diffusion LLMs trade serial next-token latency for parallel denoising. The win depends on how many tokens can be safely committed per pass, how often requests share a shape, how much cache state is reusable, and how often the system falls back.",
         "Shape-aware scheduling has overhead. More buckets improve compatibility but fragment traffic. Fewer buckets fill the GPU faster but mix incompatible work. Higher confidence thresholds protect quality but reduce throughput. Lower thresholds commit more tokens and can create repair work later.",
@@ -292,7 +292,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Production uses',
+      heading: 'Real-world uses',
       paragraphs: [
         "Diffusion serving fits workloads where several positions can be predicted with high confidence. Coding completion, fill-in-the-middle, structured JSON, boilerplate transformations, and short constrained responses can benefit more than open-ended chat.",
         "A coding API can route predictable completions to a four-token parallel lane, schema-constrained JSON to a two-token lane with validation, open chat to a conservative lane, and risky requests to fallback. The route is chosen per request because the same model can behave differently across task shapes.",
@@ -300,7 +300,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         "Average throughput can hide the failure. Step skew, remask loops, memory fragmentation, route starvation, and fallback storms can make p99 worse even while the dashboard shows more generated tokens.",
         "A global confidence threshold is usually wrong. Code, JSON, chat, retrieval answers, and safety-sensitive requests have different costs for a bad commit. The threshold belongs to the route and should be calibrated against accepted-output quality.",
@@ -308,11 +308,71 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Fast-dLLM at https://arxiv.org/abs/2505.22618 and https://nvlabs.github.io/Fast-dLLM/, Mercury at https://arxiv.org/html/2506.17298v1, and Block Diffusion at https://arxiv.org/abs/2503.09573.',
         'Study Discrete Diffusion Language Model Primer for the generation model, Block Diffusion LLM Denoising for block structure, Consistency Distillation Few-Step Diffusion for fewer-step sampling, KV Cache for reuse basics, LLM Continuous Batching for serving queues, and Speculative Decoding Runtime Controller for confidence-gated acceleration.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for diffusion-llm-serving-scheduler-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

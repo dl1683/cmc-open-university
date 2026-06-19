@@ -210,97 +210,237 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. "Witness shape" traces the data flow from a block through its witness, vector commitment, and trusted root to a stateless client. "Tradeoff map" lays out the design levers, client responsibilities, tree comparisons, and common misreadings.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes mark the current proof mechanism under inspection -- the witness or commitment being verified.',
+            'Found (green) nodes mark outcomes the proof has established -- a verified client or a confirmed root.',
+            'Compare (orange) nodes mark alternatives being contrasted -- MPT proof size versus Verkle proof size, or one tree type against another.',
+            'Removed (red) cells in the tradeoff view mark wrong mental models the reader should discard.',
+          ],
+        },
+        'In the witness-shape view, follow left to right: the block defines which state was accessed, the witness carries proof material, the commitment binds those openings, and the client checks them against a root it already trusts. At each frame, ask what trust anchor is being used and what data the client does not need to store.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A blockchain client verifies state transitions against a state root. A full node can keep the whole state database locally, but that makes participation heavier as state grows. A stateless or near-stateless client wants to verify a block from the block data, a trusted root, and a witness for the touched state.',
-        'The blocker is witness size. If a block touches many accounts and storage slots, a Merkle-style proof can carry a lot of path material. Verkle trees exist to make those witnesses small enough that clients can verify without storing the full state locally.',
+        'A blockchain validator confirms that a block transitions state correctly. The direct way is to keep the entire state database locally -- every account balance, every contract storage slot. As state grows, that disk cost raises the bar for participation.',
+        {
+          type: 'quote',
+          text: 'A stateless client verifies blocks without storing the state they modify. It receives a witness -- a proof that the claimed state values are consistent with a trusted root.',
+          attribution: 'The design goal driving Verkle trees',
+        },
+        'The witness must be small enough to fit inside a block or propagate quickly across the network. If the witness is too large, the stateless idea fails at the network layer even if the cryptography is correct.',
+        {
+          type: 'note',
+          text: 'Ethereum state has grown past 100 GB of trie data. A single block can touch hundreds of accounts and storage slots. The witness for that block, under the current Merkle-Patricia Trie, can exceed 1 MB -- roughly the size of the block itself. Verkle trees target witnesses under 200 KB for the same workload.',
+        },
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to keep using Merkle proofs. For every accessed key, send the path from the leaf to the root, including the sibling hashes or encoded path nodes needed to recompute the root. This is simple, robust, and easy to reason about.',
-        'The wall appears at block scale. A single proof may be manageable, but a block can touch thousands of state locations. Repeated path data becomes network payload, verification work, and builder responsibility. Stateless clients need witnesses that aggregate better across many accesses.',
+        'Use Merkle proofs. For every key the block accesses, send the path from the leaf to the root, including the sibling hashes needed to recompute each parent. This is simple, battle-tested, and easy to audit.',
+        {
+          type: 'diagram',
+          label: 'Merkle proof for one key in a binary tree of depth d',
+          text: [
+            '  root',
+            '   |',
+            '  [H]  <-- sibling hash (must be sent)',
+            '   |',
+            '  [H]  <-- sibling hash (must be sent)',
+            '   |',
+            '  [H]  <-- sibling hash (must be sent)',
+            '   |',
+            '  leaf = value',
+            '',
+            '  Proof size per key: d sibling hashes = d * 32 bytes (SHA-256)',
+            '  For Ethereum MPT (hexary, ~6 levels): each node encodes',
+            '  up to 16 child hashes, so proof material is much larger.',
+          ].join('\n'),
+        },
+        'For a single lookup this works well. The proof is O(d) hashes, verification is O(d) hash computations, and the trust model is clear: if any sibling is wrong, the recomputed root will not match.',
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'The wall',
       paragraphs: [
-        'A Verkle node commits to a vector of child positions. Instead of sending all sibling commitments at a wide node, the witness opens only the selected positions and proves that those positions match the parent commitment.',
-        'Wide fanout shortens paths. Vector-commitment multiproofs aggregate many openings. The bottleneck moves from sending many hashes to producing and verifying commitment openings.',
+        'The wall appears at block scale. A block does not access one key -- it accesses hundreds or thousands. Each access carries its own path of sibling hashes. Paths overlap (shared prefixes), but the sibling material at each divergence point is still sent separately.',
+        {
+          type: 'table',
+          headers: ['Scenario', 'State accesses', 'Approx. MPT witness size', 'Problem'],
+          rows: [
+            ['Single read', '1', '~3-5 KB', 'Manageable'],
+            ['Simple transfer', '~10', '~30-50 KB', 'Acceptable'],
+            ['DeFi transaction', '~50-100', '~200-500 KB', 'Growing fast'],
+            ['Full block', '~1000+', '~800 KB - 1.5 MB', 'Exceeds block payload'],
+          ],
+        },
+        'The growth is roughly linear in the number of accesses because sibling hashes do not compress well across unrelated paths. For the hexary Merkle-Patricia Trie, each proof node is an RLP-encoded list of 17 items (16 children plus value), making the per-access cost worse than a clean binary tree.',
+        {
+          type: 'note',
+          text: 'The Ethereum Foundation measured average block witnesses at 800 KB to 1.2 MB under MPT. The EIP-4762 analysis showed that witness overhead would dominate block propagation time, defeating the purpose of stateless validation.',
+        },
       ],
     },
     {
-      heading: 'How a Verkle witness works',
+      heading: 'How it works',
       paragraphs: [
-        'The tree stores commitments, not just pointers. A key is routed through child positions at each level. For an accessed key, the witness includes the claimed value or child commitment at each selected position, plus proof material that those openings are consistent with the commitments on the path.',
-        'A block witness aggregates this across the state touched by the block. The verifier starts from a trusted root, checks the openings along the accessed paths, and confirms that the claimed account or storage values are the ones committed by that root.',
+        'A Verkle tree replaces hash-based parent-child links with vector commitments. Each internal node commits to a vector of 256 child entries using a polynomial or inner-product commitment scheme. The key idea: proving that specific positions in a committed vector hold specific values costs far less than revealing all siblings.',
+        {
+          type: 'diagram',
+          label: 'Verkle tree structure (width 256, depth ~3 for 2^24 keys)',
+          text: [
+            '                     C_root',
+            '                    /  |   \\',
+            '                 /     |     \\',
+            '              C_17   C_99   C_200     <-- 256-wide committed nodes',
+            '             / | \\   / | \\   / | \\',
+            '           ...........   ...........  <-- next level',
+            '           /     \\       /     \\',
+            '        leaf_a  leaf_b  leaf_c  leaf_d',
+            '',
+            '  Each C_i is a commitment to [child_0, child_1, ..., child_255].',
+            '  Opening position 17 proves child_17 without revealing children 0-16, 18-255.',
+            '  A multiproof opens positions across multiple nodes in one batch.',
+          ].join('\n'),
+        },
+        'The tree is wide -- 256 children per node. This makes it shallow: 2^24 keys need only 3 levels, 2^32 keys need 4. Short paths mean fewer commitment openings per access.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Simplified witness construction for a Verkle tree access',
+            '//',
+            '// key:   0x11_63_A4  (3 bytes = 3 levels in a width-256 tree)',
+            '// path:  [0x11, 0x63, 0xA4]',
+            '//',
+            '// At each level, the witness needs:',
+            '//   1. The claimed child value at the accessed position',
+            '//   2. A commitment opening proof for that position',
+            '//',
+            '// Merkle equivalent would need: 255 sibling hashes per level',
+            '// Verkle opening:  one group element per level (48 bytes for BLS)',
+            '//',
+            '// For a block touching N keys with shared prefixes:',
+            '//   Merkle witness:  O(N * depth * branching_factor) hashes',
+            '//   Verkle witness:  O(distinct_nodes) openings + one batched proof',
+            '//',
+            '// The batched proof is the key savings:',
+            '//   multiple openings across multiple commitments collapse into',
+            '//   one verification equation via random linear combination.',
+          ].join('\n'),
+        },
+        'The witness for a block collects all accessed paths, identifies every distinct committed node touched, and produces a single batched multiproof covering all the required openings. The verifier receives the claimed values, the multiproof, and checks everything against the state root in one pass.',
       ],
     },
     {
-      heading: 'Why verification works',
+      heading: 'Why it works',
       paragraphs: [
-        'A vector commitment binds the parent node to every child position. If the prover lies about an opened child, the proof fails against the parent commitment. If the parent commitment is wrong, its own opening fails against the next commitment up the path. The chain ends at the trusted root.',
-        'This is the same root-anchoring idea as a Merkle proof, but the local proof object is different. A Merkle proof reveals sibling hashes. A Verkle proof opens entries in committed vectors. The root still supplies the trust anchor.',
+        'Correctness rests on the binding property of the vector commitment. A commitment C to vector [v_0, ..., v_255] binds the committer: no efficient adversary can produce an opening proof that position i holds some value w != v_i. If a prover lies about a child, the opening proof will fail verification against C.',
+        {
+          type: 'quote',
+          text: 'The chain of trust in a Verkle tree is identical to a Merkle tree -- each node is bound to its children, and the root anchors the entire structure. The difference is not what is proven but how: vector-commitment openings replace sibling-hash revelation.',
+          attribution: 'Kuszmaul, "Verkle Trees" (2018)',
+        },
+        'The invariant at each level: if the parent commitment C is correct (matches the trusted root chain), then any valid opening at position i proves the true child value at that position. Induction from the root downward establishes the leaf value.',
+        {
+          type: 'note',
+          text: 'The batched multiproof works because vector commitment schemes (Pedersen with inner-product arguments, or KZG-style polynomial commitments) support random linear combination. The verifier picks a random challenge, combines all opening claims into one equation, and checks once. Soundness: a cheating prover would need to satisfy a random polynomial identity, which happens with negligible probability.',
+        },
+        'Corner case: if two keys share a prefix and diverge at the same node, their openings at that node are at different positions of the same commitment. The multiproof handles this naturally -- it opens multiple positions in one commitment vector, not just one position per commitment.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the witness-shape view, follow the block to the witness, then to the commitment and trusted root. The client at the end is not trusting the witness provider. It is checking whether the witness opens the right positions under the root it already accepts.',
-        'In the tradeoff-map view, read the benefit and cost columns together. Smaller witnesses come from wide fanout, vector commitments, and batched openings. The costs are wider node management, cryptographic proving work, migration complexity, and new responsibilities for builders and clients.',
-      ],
-    },
-    {
-      heading: 'Worked example: two storage reads',
-      paragraphs: [
-        'Suppose a block reads two storage slots from the same contract and one balance from a nearby account path. In a Merkle-style witness, each access carries path material that may overlap but still includes many hashes or encoded nodes.',
-        'In a Verkle-style witness, the prover opens the relevant child positions at the shared nodes and batches those openings. The shared prefix matters because several accessed keys can reuse the same committed nodes. The verifier checks the batched proof and then verifies each claimed value along its path.',
-        'The example also shows the limit. If accesses are scattered across unrelated paths, there is less shared structure. The witness can still be smaller than a Merkle-Patricia witness, but the savings depend on proof aggregation, state layout, and access pattern.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The main trade is witness bytes versus cryptographic machinery. Merkle proofs are simple and hash based. Verkle proofs need vector-commitment libraries, proof aggregation, careful verification code, and a state layout that makes the commitment scheme practical.',
-        'There are also protocol costs. A migration must define how old state maps into the new tree, how witnesses are charged, who serves witnesses, how clients recover from missing witnesses, and how builders handle the extra proving burden.',
-      ],
-    },
-    {
-      heading: 'Implementation consequences',
-      paragraphs: [
-        'A Verkle roadmap is not only a tree swap. Execution clients need storage formats for wide committed nodes, update rules for modified leaves, witness builders, witness verifiers, cache layers for hot commitments, and tooling for diagnosing failed openings. The data structure reaches into the database, networking, block production, and gas accounting.',
-        'The prover side is especially important. If block builders must assemble witnesses for every state access, the system needs predictable proving latency and clear failure behavior when a witness cannot be produced. Small proof bytes are useful only if the witness can be built in time for the block pipeline.',
-        'The client side needs a different debugging habit. A bad block witness may mean the value is wrong, the path is wrong, the commitment opening is wrong, the root is not the expected root, or the local verifier has a bug. Those are separate failure classes, and operational tooling should keep them separate.',
-      ],
-    },
-    {
-      heading: 'What changes for stateless clients',
-      paragraphs: [
-        'A stateless client still needs the block, the header chain or trusted root source, and the execution rules. What it does not need is a complete local copy of the state database for every account and storage slot. The witness supplies just the state facts touched by the block.',
-        'That shift changes network economics. Instead of every verifier paying long-term disk cost, block producers or witness providers pay short-term witness construction and distribution cost. The design is attractive only if that trade makes validation easier overall rather than merely moving the burden to a more fragile place.',
-        'This is why witness availability belongs in the design conversation. A compact proof that arrives too late, arrives from too few peers, or cannot be diagnosed when it fails does not deliver the participation benefit that stateless clients are supposed to create.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Merkle (binary)', 'MPT (hexary)', 'Verkle (width 256)'],
+          rows: [
+            ['Tree depth for 2^30 keys', '30', '~8', '~4'],
+            ['Proof size per key', '30 * 32 B = 960 B', '~3-5 KB (RLP nodes)', '~130-150 B (opening)'],
+            ['Block witness (1000 keys)', '~500-800 KB', '~800 KB - 1.5 MB', '~150-200 KB (batched)'],
+            ['Verification cost', 'Hashing (fast)', 'Hashing + RLP decode', 'Elliptic curve ops (slower per op)'],
+            ['Update cost (one leaf)', 'Rehash path', 'Re-encode path nodes', 'Recompute commitments on path'],
+            ['Commitment update', 'N/A', 'N/A', '~4 group multiplications per level'],
+          ],
+        },
+        'The savings come from batching. A single Verkle opening is not dramatically smaller than a Merkle path in a binary tree. The win is that a multiproof covering 1000 openings across shared tree structure compresses into a proof roughly the size of a few dozen openings, while 1000 Merkle proofs remain 1000 separate paths.',
+        {
+          type: 'note',
+          text: 'Verification is computationally heavier per operation. Each opening check involves elliptic curve pairings or multi-scalar multiplications instead of hash evaluations. The tradeoff is explicit: smaller bandwidth cost, higher CPU cost per verification. For stateless clients on modern hardware, the CPU cost is acceptable; the bandwidth savings is what makes participation feasible.',
+        },
+        'Update cost matters for block producers. When a leaf changes, the commitments on the path from leaf to root must be recomputed. With 256-wide nodes and Pedersen commitments, updating one child position in a commitment is a single group scalar-multiplication plus an addition -- O(1) per level, O(depth) total. This is more expensive than rehashing but still practical.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Verkle trees win when witness size is the binding constraint. They are strongest for stateless-client roadmaps, light verification, and block validation flows where the client can receive a compact proof instead of storing the entire state database.',
-        'They also win when many accesses can share proof material. Block-level witnesses are the natural target because many state reads and writes can be aggregated into one verification object.',
+        {
+          type: 'bullets',
+          items: [
+            'Stateless block validation: the primary use case. A light client receives a block, a state root from the consensus layer, and a Verkle witness. It verifies the block without any local state database. Disk requirement drops from 100+ GB to effectively zero for verification.',
+            'Weak subjectivity sync: a new node syncing the chain can verify recent blocks immediately using witnesses, then backfill state in the background. The node is useful before it finishes syncing.',
+            'Block propagation: smaller witnesses reduce the network bandwidth required to propagate blocks with state proofs. Faster propagation means lower orphan rates and better decentralization.',
+            'Cross-shard or rollup state proofs: any system that needs to prove state facts to an external verifier benefits from compact proofs. Verkle witnesses can serve as state proofs in bridge protocols.',
+            'Access-pattern-friendly workloads: blocks with many accesses to keys sharing long prefixes (same contract, adjacent storage slots) benefit most, because shared internal nodes reduce the number of distinct commitments in the multiproof.',
+          ],
+        },
+        {
+          type: 'quote',
+          text: 'The goal is not to make proofs faster. It is to make proofs small enough that clients who cannot afford 100 GB of state can still verify blocks independently.',
+          attribution: 'Dankrad Feist, Ethereum Foundation researcher',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'They fail as a mental model if you treat them as magic state compression. The state still exists. Someone must hold it, update it, serve witnesses, and recover from missing data. The proof only lets another client verify selected facts against a trusted root.',
-        'They also fail if root trust is skipped. A valid witness proves membership or value relative to a root. It does not prove that the root is canonical. Consensus, header verification, or another trust mechanism still matters.',
-        'They are also the wrong answer when simplicity and implementation maturity matter more than witness size. Hash-based Merkle structures remain attractive because they are easy to audit, easy to implement across languages, and built on conservative cryptographic assumptions.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Explanation'],
+          rows: [
+            ['Not magic compression', 'The state still exists and must be stored somewhere. Verkle trees reduce witness size, not state size. Full nodes still hold the entire database.'],
+            ['Root trust is still required', 'A valid witness proves values relative to a root. It says nothing about whether the root is canonical. Consensus and header verification are still mandatory.'],
+            ['Prover cost is real', 'Block builders must compute witnesses for every state access. If proving latency exceeds the block time budget, the system fails at the builder, not the verifier.'],
+            ['Cryptographic complexity', 'Verkle proofs require elliptic curve libraries, trusted setup or transparent setup depending on the scheme, and careful constant-time implementations. The attack surface is larger than hash-based proofs.'],
+            ['Migration burden', 'Converting a live chain from MPT to Verkle requires a state migration -- either a hard cutover (risky) or an overlay period (complex). Both require extensive testing.'],
+            ['Scattered access patterns', 'When a block touches keys with no shared prefixes, each access hits a distinct subtree. The multiproof still helps, but the compression ratio drops toward the single-proof case.'],
+          ],
+        },
+        'Verkle trees are also the wrong tool when implementation maturity and auditability matter more than witness size. Hash-based Merkle proofs are understood by every engineer, implemented in every language, and built on conservative cryptographic assumptions (collision-resistant hashing). Verkle proofs depend on newer, more complex algebraic primitives.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Merkle Tree for the base authenticated proof idea, Ethereum Merkle-Patricia Trie Case Study for the current authenticated-map shape, PATRICIA Trie for path compression, Sparse Merkle Tree Non-Membership for absence proofs, KZG Polynomial Commitment Opening Case Study for commitment intuition, and Byzantine Generals for the consensus layer that makes a root trustworthy.',
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: John Kuszmaul, "Verkle Trees," 2018. Introduced the concept of vector-commitment-based authenticated dictionaries and analyzed witness size complexity.',
+            'Ethereum specification: Vitalik Buterin, Dankrad Feist, et al., EIP-6800 and the Verkle trie specification. Defines the concrete tree layout (width 256, Pedersen commitments over Bandersnatch), stem-extension structure, and multiproof format for Ethereum state.',
+            'Commitment scheme: Ipa (Inner Product Argument) multiproof over Bandersnatch curve -- the scheme chosen for Ethereum Verkle. See also KZG polynomial commitments as an alternative vector commitment with different trusted-setup tradeoffs.',
+            'Implementation: go-verkle (Go), verkle-crypto (Rust), and the Kaustinen testnet as the live Ethereum testbed for Verkle state.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Merkle Tree', 'The base authenticated-proof idea that Verkle trees generalize'],
+            ['Prerequisite', 'KZG Polynomial Commitment Opening', 'Vector commitment intuition -- how a commitment binds to a vector and supports efficient openings'],
+            ['Context', 'Ethereum Merkle-Patricia Trie', 'The current authenticated state structure that Verkle trees would replace'],
+            ['Context', 'PATRICIA Trie', 'Path compression technique used in both MPT and Verkle stem-extension nodes'],
+            ['Extension', 'Sparse Merkle Tree Non-Membership', 'Absence proofs in authenticated trees -- a complementary proof type'],
+            ['Foundation', 'Byzantine Generals', 'The consensus layer that makes the state root trustworthy in the first place'],
+          ],
+        },
       ],
     },
   ],

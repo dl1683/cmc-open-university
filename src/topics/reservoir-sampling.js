@@ -37,7 +37,7 @@ export function* run(input) {
   yield {
     state: arrayState(['·', '·', '·']),
     highlight: {},
-    explanation: `The problem: a stream of items flows past — clicks, log lines, tweets — and you must keep a FAIR random sample of ${k}, where fair means every item ever seen has an EQUAL chance of being in your sample. The catch: you don't know how long the stream is, it may never end, and you can store only ${k} items. You cannot "wait for all the data and then pick" — there is no all.`,
+    explanation: `The problem: a stream of items flows past — clicks, log lines, tweets — and you must keep a FAIR random sample of ${k}, where fair means every item ever seen has an EQUAL chance of being in your sample. The catch: you don\'t know how long the stream is, it may never end, and you can store only ${k} items. You cannot "wait for all the data and then pick" — there is no all.`,
   };
 
   for (let i = 1; i <= STREAM.length; i += 1) {
@@ -47,7 +47,7 @@ export function* run(input) {
       yield {
         state: arrayState([...reservoir, ...new Array(k - reservoir.length).fill('·')]),
         highlight: { active: [`i${reservoir.length - 1}`] },
-        explanation: `Item ${i} ('${item}'): the reservoir isn't full yet — take it unconditionally. The first ${k} items fill the ${k} slots.`,
+        explanation: `Item ${i} ('${item}'): the reservoir isn\'t full yet — take it unconditionally. The first ${k} items fill the ${k} slots.`,
       };
       continue;
     }
@@ -75,7 +75,7 @@ export function* run(input) {
   yield {
     state: arrayState([...reservoir]),
     highlight: { found: [0, 1, 2].map((s) => `i${s}`) },
-    explanation: `Stream over (this time): the sample is [${reservoir.join(', ')}], and every one of the ${STREAM.length} items had exactly ${k}/${STREAM.length} = 30% chance of being here — the early 'A' and the late 'J' alike. The proof is a tidy induction: item i enters with k/i; each earlier item survives round i with probability (1 − k/i · 1/k) = (i−1)/i, which telescopes every item's chance down to exactly k/n. Memory used: ${k} slots, forever.`,
+    explanation: `Stream over (this time): the sample is [${reservoir.join(', ')}], and every one of the ${STREAM.length} items had exactly ${k}/${STREAM.length} = 30% chance of being here — the early 'A' and the late 'J' alike. The proof is a tidy induction: item i enters with k/i; each earlier item survives round i with probability (1 − k/i · 1/k) = (i−1)/i, which telescopes every item\'s chance down to exactly k/n. Memory used: ${k} slots, forever.`,
   };
 
   yield {
@@ -88,89 +88,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why Streams Need Sampling',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Reservoir sampling solves a simple problem under a harsh constraint: keep a fair sample of k items from a stream whose final length is unknown. The stream might be click events, traces, packets, log lines, sensor readings, or records from a file too large to hold in memory.`,
-        `If the stream ends after n items, fairness means every item had probability k/n of appearing in the final sample. The first event and the last event deserve the same chance. The algorithm must deliver that guarantee while storing only k items and seeing each stream item once.`,
+        'The animation shows a reservoir array of k = 3 slots and a stream of 10 items flowing past one at a time. Empty slots display a dot. An active highlight marks the item currently being decided on. A swap highlight means the item was accepted and replaced an existing slot. A range highlight across all slots means the item was rejected and the reservoir stayed unchanged. A found highlight at the end marks the final sample.',
+        'The invariant line below each step is the real proof target: after processing item i, every item seen so far sits in the reservoir with probability exactly k/i. Watch how that fraction shrinks as i grows, but shrinks for every item equally. The specific letters that end up in the reservoir depend on the frozen random draws. The probability structure does not.',
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The most obvious method is to store everything, shuffle at the end, and take k items. That is exactly fair, and it is the right mental baseline. It fails when there is no end yet, when storage is too expensive, or when the sample must be available while the stream is still moving.`,
-        `Other simple shortcuts are biased. Keeping the first k items ignores the future. Keeping the latest k items is a sliding window, not a sample of all history. Taking every kth item can line up with periodic structure in the data. Those choices are useful for other jobs, but they do not produce a uniform sample over the full stream.`,
+        'You have a stream of items: log lines, click events, sensor readings, database rows from a scan. You need a fair random sample of k items. Fair means every item that ever appeared has the same probability of being in the final sample. The stream may be enormous or unbounded. You cannot store it all and pick afterward.',
+        'Jeffrey Vitter formalized the solution in 1985 as Algorithm R. The idea existed in folklore before that (Knuth discusses it in TAOCP Vol. 2, 1969 edition), but Vitter gave the first rigorous analysis and the faster skip-based variants. The algorithm sees each item once, stores exactly k items, and guarantees uniform probability k/n after n items have passed.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The wall is symmetry over time. Early items are easy to store because the reservoir is empty. Later items are harder because the reservoir is full. If early items get a permanent advantage, the sample is biased toward the beginning. If later items always replace earlier items, the sample is biased toward recency.`,
-        `A correct stream sampler must balance those two forces without knowing n. The probability for item i must depend only on how many items have been seen so far. It cannot depend on the final stream length, because the algorithm does not know that length yet.`,
+        'If you know the stream length n in advance, the problem is easy. Generate k distinct random indices in the range [1, n], then collect the items at those positions. This costs O(n) time to scan and O(k) space for the sample. It works perfectly when you can compute the indices before scanning.',
+        'Alternatively, store everything, then call a standard sampling routine on the finished collection. This also gives a perfect uniform sample. Both approaches assume you can either predict the total count or afford to buffer the entire stream.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        `Fill the first k slots. For item i after that, keep it with probability k/i. If the item is accepted, choose one of the k reservoir slots uniformly at random and replace the item in that slot. If the item is rejected, discard it immediately.`,
-        `The accepted item must replace a random slot. Replacing the oldest item would create a recency sample. Replacing the newest item would protect early items too much. Random replacement keeps the stored items symmetric, so every item already in the reservoir faces the same eviction risk.`,
+        'A stream does not announce its length. Items arrive one by one and may never stop. Buffering everything costs O(n) memory, which defeats the purpose of sampling. You cannot go back to re-read earlier items, so you cannot defer the sampling decision until the end.',
+        'The deeper problem is fairness over time. Early items enter easily because the reservoir has room. Later items face a full reservoir. If early items get a permanent advantage, the sample is biased toward the beginning. If later items always push out earlier ones, the sample is biased toward the end. A correct algorithm must balance these two forces using only local information: how many items have been seen so far.',
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'The core insight',
       paragraphs: [
-        `The algorithm has two phases. While fewer than k items have arrived, copy each item into the next empty reservoir slot. After the reservoir is full, process item i by drawing a random integer or equivalent probability test. With probability k/i, admit the item.`,
-        `If admitted, draw a random slot from 1 through k and overwrite it. The overwritten item is not special. It is just the one selected by the eviction draw. This is why the reservoir has no meaningful order unless a later step shuffles it for presentation.`,
+        'Accept item i with probability k/i, and if accepted, replace a uniformly random slot. This single rule makes every item\'s inclusion probability self-correcting. The acceptance rate falls as the stream grows, which compensates for the fact that earlier items have survived more eviction rounds. The two effects cancel exactly, leaving every item with probability k/n after n items.',
+        'Random slot replacement is essential. Replacing the oldest slot would create a recency-biased sample. Replacing the newest slot would over-protect early items. Uniform random replacement ensures that every item currently in the reservoir faces the same eviction risk on every round.',
       ],
     },
     {
-      heading: 'What The Visual Proves',
+      heading: 'How it works',
       paragraphs: [
-        `The visual freezes the random choices so the run is reproducible. The final letters are not the lesson. The lesson is the probability shown at each step: after the reservoir is full, item i enters with chance k/i, and an accepted item replaces a uniformly random slot.`,
-        `The invariant is the real proof target. After processing item i, every item seen so far has probability k/i of sitting in the reservoir. The animation shows that the probability falls as the stream grows, but it falls for all items together, not only for late arrivals.`,
+        'Algorithm R has two phases.',
+        'Phase 1 (filling): for items 1 through k, place each item in the next empty reservoir slot. No randomness is needed. After k items, the reservoir is full and every item is present with probability 1 = k/k.',
+        'Phase 2 (streaming): for each item at position i (where i > k), generate a random integer j uniformly in the range [0, i). If j < k, replace reservoir[j] with the new item. If j >= k, discard the item. The test j < k succeeds with probability k/i, so each new item enters with exactly the right chance. If it enters, it lands in slot j, which is uniform over the k slots.',
+        'The algorithm never backtracks, never buffers rejected items, and never needs to know how many items remain. It processes each item in O(1) time.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        `Use induction. After the first k items, each stored item has probability 1, which equals k/k. Now suppose that after item i - 1, every earlier item has probability k/(i - 1) of being in the reservoir.`,
-        `When item i arrives, it enters with probability k/i. For any older item currently in the reservoir, eviction happens only if item i is accepted and then chooses that item's slot. That probability is (k/i) * (1/k), or 1/i. So each old item survives the round with probability 1 - 1/i, which is (i - 1)/i. Multiplying k/(i - 1) by (i - 1)/i gives k/i.`,
+        'The proof is by induction on the number of items seen.',
+        'Base case: after k items, each sits in the reservoir with probability k/k = 1.',
+        'Inductive step: suppose that after processing item i - 1, every one of the first i - 1 items has probability k/(i - 1) of being in the reservoir. Item i arrives.',
+        'Item i enters with probability k/i. That handles the new item.',
+        'For any older item already in the reservoir, it is evicted only if two things happen: item i is accepted (probability k/i) and the random slot chosen is that specific item\'s slot (probability 1/k). The combined eviction probability is (k/i) * (1/k) = 1/i. So the older item survives round i with probability 1 - 1/i = (i - 1)/i.',
+        'The older item\'s probability of being in the reservoir was k/(i - 1) before this round. After surviving, it becomes k/(i - 1) * (i - 1)/i = k/i. The (i - 1) terms cancel, giving exactly k/i.',
+        'After n total items, every item has probability k/n. The first item and the last item have the same chance. The proof works because the admission probability k/i and the survival probability (i - 1)/i are designed to telescope.',
       ],
     },
     {
-      heading: 'Cost And Behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Processing n items costs O(n) time because every stream item is inspected once. Memory is O(k) because the reservoir stores only k items, plus a counter and random-number state. The algorithm does not grow with the stream length.`,
-        `When n doubles, memory does not change. The later admission probabilities get smaller, but the reservoir stays the same size. If k is 1,000 and each stored ID is 8 bytes, raw item storage is about 8 KB. Storing a billion IDs would be about 8 GB before object overhead, indexes, or metadata.`,
+        'Time: O(n). Each of the n stream items requires one random number generation and at most one array write. No sorting, no multiple passes, no backtracking.',
+        'Space: O(k). The reservoir holds k items, plus a counter for the current position and whatever state the random number generator needs. Memory does not grow with the stream length.',
+        'When n doubles, runtime doubles but memory stays fixed. When k doubles, memory doubles but the per-item work stays O(1). For k = 1,000 items each holding an 8-byte ID, the reservoir is about 8 KB regardless of whether the stream has a million or a billion items.',
+        'Vitter\'s Algorithm L improves the expected number of random number generations from O(n) to O(k(1 + log(n/k))) by computing how many items to skip before the next acceptance rather than flipping a coin for every item. The output distribution is identical; only the speed of rejecting items changes.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Reservoir sampling wins when the user needs examples from the whole stream, not summaries only. Observability systems can keep representative traces when retaining every request is too expensive. Data tools can show previews from huge files without loading the full file. Pipelines can audit records while scanning once.`,
-        `It is also useful before heavier analysis. A clustering job can inspect a fair sample before loading all points. A data-quality job can keep raw examples of events that passed a filter. A statistics workflow can produce an unbiased sample when the population arrives online rather than as a finished table.`,
+        'Log sampling: production systems generate millions of requests per second. Keeping a fair sample of k requests for distributed tracing is a direct application. Every request has the same chance of appearing in the sample, so rare endpoints are not systematically excluded.',
+        'A/B test traffic sampling: when assigning users to experiment groups from a live stream of sign-ups, reservoir sampling ensures early users and late users have the same inclusion probability. This prevents temporal bias in treatment assignment.',
+        'Database approximate queries: SQL\'s TABLESAMPLE and BigQuery\'s reservoir-based sampling scan a table once and return a uniform random subset without loading the entire table into memory. PostgreSQL\'s BERNOULLI sampling is similar in spirit.',
+        'Random line selection from large files: the classic Unix interview question "select a random line from a file of unknown length" is reservoir sampling with k = 1. GNU shuf -n k implements exactly this algorithm.',
       ],
     },
     {
-      heading: 'Failure Modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `Reservoir sampling is wrong when recency matters. A dashboard that asks "what is happening now" needs a sliding window or decay-weighted sample. It is also wrong when the task needs exact counts, heavy hitters, quantiles, or membership answers. Those are different stream problems.`,
-        `Bad randomness breaks the guarantee. Filtering before sampling changes the population being sampled. Merging independent reservoirs also needs care because reservoirs from streams of different lengths should not contribute equally unless the streams had equal sizes. The sample is uniform over items only if the algorithm sees the population you intend to sample.`,
-        `Sampling after retries, deduplication, or enrichment can also change the meaning of the sample. A request stream, a user stream, and an error stream are different populations. Before trusting the reservoir, name the unit being sampled and make sure each unit appears once with the intended probability.`,
+        'Weighted sampling: if items have non-uniform importance weights, Algorithm R gives each item equal probability regardless of weight. Efraimidis and Spirakis (2006) solved this with Algorithm A-Res, which assigns each item a key (random^(1/weight)) and keeps the k largest keys. The interface is similar but the math is different.',
+        'Recency-biased workloads: reservoir sampling treats the first item and the last item identically. If you need "what happened recently," use a sliding window or exponential decay. Reservoir sampling answers "what does the whole stream look like," not "what does the stream look like now."',
+        'Parallel and distributed streams: merging two independent reservoirs is not as simple as concatenating and re-sampling. If one worker saw a million items and another saw a thousand, their reservoirs carry different representational weight. Correct merging requires tracking stream sizes or using priority-key methods where keys are globally comparable.',
+        'Structured streams: if items arrive in sorted, clustered, or periodic order and the random number generator has correlated output, the uniformity guarantee can break. The proof assumes each random draw is independent.',
       ],
     },
     {
-      heading: 'Variants',
+      heading: 'Worked example',
       paragraphs: [
-        `The version shown here is the classic fixed-size reservoir. Weighted reservoir sampling changes the admission rule so heavier items are more likely to appear. Priority-based methods assign random keys and keep the best k keys, which can make merging and weighting easier in distributed systems.`,
-        `There is also a useful k = 1 version. Keep the first item, then replace the current item with probability 1/i at step i. After n items, every item has probability 1/n of being held. The full algorithm is just the k-slot generalization of that same balancing idea.`,
-        `Distributed reservoirs need extra care. If one worker sees a million records and another sees a thousand, their local samples should not be merged by taking half from each. Merge logic must account for stream sizes or use priority keys whose ordering remains valid across partitions.`,
+        'k = 3, stream = [A, B, C, D, E, F, G]. We trace every decision with specific random numbers.',
+        'Items 1-3 (filling phase): A goes to slot 0, B to slot 1, C to slot 2. Reservoir: [A, B, C]. No randomness needed.',
+        'Item 4 (D): generate j uniform in [0, 4). Say j = 1. Since 1 < 3, accept D into slot 1. Reservoir: [A, D, C]. Probability of acceptance was 3/4.',
+        'Item 5 (E): generate j uniform in [0, 5). Say j = 4. Since 4 >= 3, reject E. Reservoir stays [A, D, C]. Probability of acceptance was 3/5.',
+        'Item 6 (F): generate j uniform in [0, 6). Say j = 0. Since 0 < 3, accept F into slot 0. Reservoir: [F, D, C]. Probability of acceptance was 3/6 = 1/2.',
+        'Item 7 (G): generate j uniform in [0, 7). Say j = 5. Since 5 >= 3, reject G. Reservoir stays [F, D, C]. Probability of acceptance was 3/7.',
+        'Final reservoir: [F, D, C]. Every one of the 7 items had probability 3/7 of being in the final sample. Verify for item A: it entered with probability 1, survived round 4 with probability (1 - 1/4) = 3/4, survived round 5 with (1 - 1/5) = 4/5, was evicted in round 6 (j = 0 hit its slot). In this particular run, A did not survive. But across many runs, its survival probability is 1 * 3/4 * 4/5 * 5/6 * 6/7 = 3/7. The intermediate fractions telescope: each numerator cancels the next denominator.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Compare Reservoir Sampling with Sliding Window first. Sliding Window answers recent-history questions; reservoir sampling answers all-history uniform-sample questions. Then study Big-O Growth, Randomized Algorithms, and Probability basics if the induction proof still feels slippery.`,
-        `For adjacent streaming tools, study Bloom Filters for bounded-memory membership, Count-Min Sketch for approximate frequencies, KLL or Greenwald-Khanna sketches for quantiles, and HyperLogLog for approximate distinct counts. Those structures keep summaries, while reservoir sampling keeps raw examples.`,
+        'Vitter, "Random Sampling with a Reservoir," ACM Transactions on Mathematical Software, 1985. The original algorithm (Algorithm R) and faster variants (Algorithm X, Algorithm Z) that skip rejected items. Knuth, The Art of Computer Programming Vol. 2, Section 3.4.2. Efraimidis and Spirakis, "Weighted Random Sampling with a Reservoir," Information Processing Letters, 2006. Li, "Reservoir-Sampling Algorithms of Time Complexity O(n(1 + log(N/n)))," ACM Transactions on Mathematical Software, 2013.',
+        'Study next: streaming algorithms (reservoir sampling belongs to the family of single-pass, bounded-memory algorithms over data streams). Count-Min Sketch (frequency estimation in bounded memory from a stream). HyperLogLog (cardinality estimation: how many distinct items, not which ones). Fisher-Yates shuffle (random permutation when the collection fits in memory; reservoir sampling is its streaming cousin). Sliding window algorithms (when you need the recent k items rather than a fair sample of all items).',
       ],
     },
   ],

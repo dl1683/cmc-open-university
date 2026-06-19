@@ -219,6 +219,15 @@ export const article = {
   ],
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Runbook Automation Approval Ledger Case Study. A guarded incident automation pattern: runbook candidates, approval queues, idempotency keys, canary checks, SLO gates, rollback plans, and audit logs..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why It Exists',
       paragraphs: [
         'Incident automation exists because responders lose time during the minutes when time is most expensive. They copy commands, find service owners, check prerequisites, ask for approval, start jobs, watch dashboards, and later try to prove what happened. When the same incident class repeats, that manual path becomes slow and error-prone.',
@@ -227,7 +236,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive Baseline and Wall',
+      heading: 'The wall',
       paragraphs: [
         'The baseline is a wiki runbook plus a chat approval. A responder reads the page, pastes a command, someone replies "approved", and the team hopes the action ran once, in the right scope, against the current incident state. This can work for rare manual actions with clear ownership and low pressure.',
         'The wall is control-plane ambiguity. Production mutations need more than intent. The system must know which incident the action belongs to, which runbook version was used, who approved it, which policy allowed it, whether prerequisites still hold, whether the command already ran, and what metrics decide success or rollback.',
@@ -235,7 +244,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core Insight and Invariant',
+      heading: 'The core insight',
       paragraphs: [
         'Treat runbook automation as a guarded state machine, not a shortcut from alert to shell command. Suggest, prepare, approve, execute, verify, and rollback are separate states. Each transition has a guard. Each guard leaves evidence.',
         'The invariant is that every production mutation advances only after its guard is satisfied, and every mutation has an idempotency key, a bounded blast radius, a verification gate, and a rollback record. If the ledger cannot prove those facts, the automation is not safe enough for broad use.',
@@ -243,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the Visual Model Teaches It',
+      heading: 'How it works',
       paragraphs: [
         'The approval-state view shows the action before it becomes a mutation. Incident context feeds both a suggested action and a prepared dry run. Approval is not decoration. It is the gate that allows the workflow to create an idempotency key and start an execution job.',
         'The ledger node is the durable memory of every transition. It should record why an action was suggested, what the dry run produced, who approved it, what job ran, what scope it touched, which checks passed, and why the workflow continued, stopped, or rolled back.',
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works (2)',
       paragraphs: [
         'The main structures are an incident-context packet, a runbook catalog, an approval queue, an append-only action ledger, an idempotency-key table, a job-state machine, a canary scope descriptor, an SLO verification gate, and a rollback plan pointer. The incident graph and service catalog produce candidate actions; the preparation step turns one candidate into a concrete job plan.',
         'A candidate action should include a service, symptom, proposed mutation, expected effect, required permissions, scope, risk class, prerequisites, dry-run result, verification metric set, rollback action, and expiration time. The preparation step should be side-effect free or explicitly marked as a safe read.',
@@ -267,7 +276,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
         'Correctness means the workflow mutates the intended system at most once, in the intended scope, under the intended policy. Idempotency keys protect retries. Dry runs protect prerequisites. Canary scopes protect blast radius. SLO gates protect expansion. The append-only ledger protects auditability.',
         'The approval row must bind the approver, role, incident, proposed diff, risk class, expiration time, and runbook version. If approval is stale, the workflow should recheck context or ask again. If execution partially succeeds, the job-state machine must record which steps completed before rollback or retry.',
@@ -283,7 +292,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'Checkout version 42 is the leading candidate in a live incident. The system proposes rolling traffic back to version 41. It prepares the feature flag or deployment command, shows the diff, checks that no migration blocks rollback, scopes the first execution to one region, and asks checkout incident command for approval.',
         'The approver sees the incident id, runbook version, target service, proposed scope, dry-run result, expected effect, rollback plan, SLO gate, and expiration time. Approval creates an idempotency key tied to that exact action contract. If the runner retries, it uses the same key and does not create a second rollback job.',
@@ -291,7 +300,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Automation trades responder toil for control-plane responsibility. The system must handle stale context, permission boundaries, secret access, runner failures, partial execution, human delay, action drift, and noisy metrics. A weak implementation can add approval ceremony without increasing safety.',
         'The payoff is repeatability under pressure. Low-risk diagnostic actions can become one-click or automatic. Reversible changes can run behind approval, canary, and SLO gates. Dangerous or irreversible mutations should remain manual, or require stronger policy, narrower scope, and named ownership.',
@@ -299,14 +308,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern wins for common operational actions with known prerequisites and measurable outcomes: restarting a stuck worker group, draining a bad node pool, rolling back a flag, scaling a queue consumer, collecting diagnostics, pausing a risky rollout, or shifting a small slice of traffic.',
         'It is strongest when the action is reversible, starts in a small scope, has clear metrics, and is repeated often enough that humans already follow a stable procedure. It also helps regulated or high-accountability environments because the audit trail is produced as the workflow runs, not assembled afterward.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'It fails for ambiguous incidents that need human diagnosis, actions with hidden side effects, irreversible data changes, and runbooks that have not been decomposed into safe steps. "Has a runbook" does not mean "safe to automate." The runbook must first be split into diagnostics, reversible mutations, and dangerous mutations.',
         'It also fails when approval is treated as a rubber stamp. If responders approve every suggestion because the UI asks them to, the ledger records process but not judgment. Approval screens need enough context for a real decision, and policy should keep high-risk actions out of routine one-click paths.',
@@ -321,11 +330,83 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: PagerDuty Automation Actions at https://support.pagerduty.com/main/docs/automation-actions, Rundeck and PagerDuty Runbook Automation at https://docs.rundeck.com/docs/learning/howto/actions-with-rba.html, Temporal Human-in-the-Loop AI Agent at https://docs.temporal.io/ai-cookbook/human-in-the-loop-python, and OpenFeature Evaluation API at https://openfeature.dev/specification/sections/flag-evaluation.',
         'Study AIOps Incident Response, Incident Causal Candidate Graph, Human Approval Interrupt Queue, Temporal Workflow Case Study, Idempotency Keys, Feature Flag Control Plane, Circuit Breakers, SLO Error Budget Burn Rate Alert, and Distributed Tracing next.',
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Runbook Automation Approval Ledger Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

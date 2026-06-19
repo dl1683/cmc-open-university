@@ -1,4 +1,4 @@
-// BWA-style short-read alignment: build an FM-index over the reference, run
+﻿// BWA-style short-read alignment: build an FM-index over the reference, run
 // backward search for seeds, then handle mismatches and gaps.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -195,6 +195,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for BWA FM-index Read Alignment Case Study. A short-read alignment case study: reference BWT, FM-index occurrence counts, backward search intervals, seed extension, mismatches, mapping quality, and SAM output..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Short-read alignment asks where millions or billions of sequenced fragments came from in a known reference genome. Each read is small, but the reference is large and the batch is enormous.',
@@ -203,7 +212,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'The obvious approach',
       paragraphs: [
         'The simplest mapper tries each read at each reference position and scores the alignment. That is easy to trust but unusable at genome scale.',
         'A better baseline is a suffix array. Sort every suffix of the reference, binary-search read seeds, and locate candidate positions. That makes exact matching fast, but a full suffix array over a large genome uses a lot of memory.',
@@ -219,7 +228,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core data model',
+      heading: 'The core insight',
       paragraphs: [
         'The index starts from the Burrows-Wheeler Transform of the reference plus a sentinel character. The BWT stores the character that precedes each suffix in suffix-array order.',
         'The C table stores where each character block begins in the sorted first column. The Occ table answers rank queries: how many times a character appears in the BWT before a given row.',
@@ -227,7 +236,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'Backward search consumes the seed from right to left. After reading a suffix of the seed, the algorithm maintains a suffix-array interval containing exactly the reference suffixes that start with that consumed suffix.',
         'To add the next character c, the mapper uses C and Occ to keep only rows whose preceding character is c. The interval shrinks without scanning the reference text.',
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Correctness and reliability',
+      heading: 'Why it works',
       paragraphs: [
         'The backward-search invariant gives the correctness argument. After each character is added, the interval contains exactly the suffix-array rows whose suffixes start with the consumed pattern suffix.',
         'C and Occ preserve that invariant because the BWT records preceding characters in suffix-array order. LF-mapping moves from a range of matched suffixes to the range that also has the next required character before it.',
@@ -284,7 +293,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'FM-index alignment fits high-volume short-read mapping against a known reference. The reference is static, the read set is huge, and exact seeds are a cheap way to find candidate loci.',
         'It is also a clean example of compressed indexing. BWT, rank queries, suffix-array intervals, and sampled locate data cooperate to make a large text searchable without keeping the plain suffix array in memory.',
@@ -299,11 +308,62 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: BWA paper at https://pubmed.ncbi.nlm.nih.gov/19451168/, BWA docs at https://bio-bwa.sourceforge.net/bwa.shtml, and BWA source at https://github.com/lh3/bwa.',
         'Study FM-index BWT for the index mechanics, Suffix Array for the sorted-suffix view, Wavelet Tree for rank support, Edit Distance for approximate alignment, Genome k-mer Minimizer Index for long-read seeding, De Bruijn Graph Genome Assembly for assembly, and Pangenome Variation Graph for reference-bias reduction.',
       ],
     },
+      {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for bwa-fm-index-read-alignment-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

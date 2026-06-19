@@ -1,4 +1,4 @@
-// Raft leader election: five servers, one crown, zero split-brain.
+﻿// Raft leader election: five servers, one crown, zero split-brain.
 // Randomized timeouts nominate a candidate; a majority of votes makes it
 // safe — because two majorities of five cannot exist.
 
@@ -47,7 +47,7 @@ export function* run(input) {
     nodes: POS.filter((p) => alive.has(p.id)).map((p) => ({
       ...p,
       label: p.id,
-      note: `${roles.get(p.id)} · t${term === 3 || roles.get(p.id) !== 'follower' ? term : term}`,
+      note: `${roles.get(p.id)} Â· t${term === 3 || roles.get(p.id) !== 'follower' ? term : term}`,
     })),
     edges: EDGES.filter((e) => alive.has(e.from) && alive.has(e.to)),
   });
@@ -62,7 +62,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: '⚡ S1 dies. The heartbeats stop — but nobody is told; followers just notice SILENCE. Each follower\'s election timer keeps counting down, and here is Raft\'s sly trick: every timer was set to a RANDOM duration (say 150–300ms), so they will not all expire at once.',
+    explanation: 'âš¡ S1 dies. The heartbeats stop — but nobody is told; followers just notice SILENCE. Each follower\'s election timer keeps counting down, and here is Raft\'s sly trick: every timer was set to a RANDOM duration (say 150–300ms), so they will not all expire at once.',
     invariant: 'Randomized timeouts are the tie-breaker built into the protocol itself.',
   };
 
@@ -116,102 +116,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A replicated state machine needs every healthy replica to apply the same commands in the same order. That usually means one node must assign the next log index. If two nodes both believe they are allowed to order writes, clients can observe two histories and replicas can diverge.',
-        'Raft leader election exists to recover from a failed or unreachable leader without creating split-brain. It chooses one leader for a numbered term, then Raft log replication uses that leader as the source of order until another term supersedes it.',
+        'Five servers sit on a pentagon. Each carries a role label (leader, follower, or candidate) and a term number. Highlighted (found) nodes are the current leader. Active nodes are candidates requesting votes. Lit edges show vote traffic or heartbeat paths.',
+        'Watch the term counter: it increments on every election attempt. When a node turns candidate, it votes for itself and lights edges to request votes from peers. When enough edges light up (a majority responds), the candidate turns leader. In the split-vote scenario, two candidates light up simultaneously but neither collects enough edges, so the term ends leaderless and a fresh term begins.',
+        'The key inference: if a node is highlighted as leader for term T, no other node can be highlighted as leader for the same term T, because the majority that elected it overlaps with any other possible majority.',
       ],
     },
     {
-      heading: 'Context',
+      heading: 'Why this exists',
       paragraphs: [
-        'Raft is a consensus protocol built around understandability. Instead of letting every node propose values equally at every moment, Raft makes normal operation leader-centered. Followers accept append requests from the current leader, candidates run elections, and terms act like logical eras.',
-        'The election problem is a balance between safety and liveness. Safety says there must not be two valid leaders for the same term and committed history must not be lost. Liveness says that when a leader really disappears and a majority can still communicate, the cluster should eventually pick a replacement.',
+        'A replicated state machine runs the same commands in the same order on every server, so any server can answer reads and any surviving majority can continue after failures. The hard part is agreeing on that order. If two servers both accept writes independently, replicas diverge and clients see conflicting histories.',
+        'Paxos (Lamport, 1998) solved this problem, but its specification is notoriously difficult to implement correctly. Entire engineering teams have shipped subtly broken Paxos implementations because the protocol separates proposers, acceptors, and learners in ways that are hard to map onto practical systems.',
+        'Raft (Ongaro and Ousterhout, 2014) was designed from the start to be understandable. It provides the same safety guarantees as Paxos but decomposes consensus into three clear subproblems -- leader election, log replication, and safety -- and makes leader-based operation the normal case. The paper\'s user study showed that students learned Raft faster and answered exam questions more accurately than those who learned Paxos.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core idea is small: time is divided into monotonically increasing terms, each server can cast at most one durable vote per term, and a candidate becomes leader only after winning a majority of the current voting configuration.',
-        'Majorities are the safety structure. In a five-node cluster, a majority is three. Any two sets of three share at least one node. Since that shared node can only vote once in a term, two different candidates cannot both collect a majority in the same term. Randomized election timeouts are the liveness trick that makes repeated ties unlikely.',
+        'Pick one server as the leader. The leader accepts all writes, appends them to a log, and replicates entries to followers. Followers apply whatever the leader sends. This is fast, simple, and correct as long as the leader stays alive.',
+        'The problem is that "as long as the leader stays alive" is a fantasy. Servers crash, networks partition, disks stall. Without an automated way to choose a new leader, the system is down until a human intervenes -- minutes to hours of lost availability for every failure.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'Followers expect periodic heartbeats from the leader. If a follower receives no valid heartbeat before its randomized election timeout, it increments its current term, becomes a candidate, votes for itself, persists that vote, and sends RequestVote RPCs to the other servers.',
-        "A receiver grants the vote only if it has not already voted in that term and the candidate's log is at least as up to date as its own. If the candidate receives a majority, it becomes leader and immediately sends heartbeats. If the vote splits, nobody becomes leader; candidates time out again, increment the term, and retry with new randomized timeouts.",
+        'Leader crash means lost writes unless followers have already replicated them. Worse, if two servers both believe they are leader -- split-brain -- they accept conflicting writes and replicas permanently diverge. Manual failover is too slow. Letting any server self-promote is too dangerous.',
+        'The system needs an agreement protocol: a way for a majority of servers to pick exactly one leader, reject stale leaders, and ensure that the new leader carries all committed history. That protocol must work without human intervention, without synchronized clocks, and without knowing in advance which server will fail.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'The core insight',
       paragraphs: [
-        'The animation starts with five servers, S1 through S5. S1 is leader in term 3 and sends heartbeats. Then S1 dies. The followers do not receive a special crash message; they only notice silence. Because their election timers are randomized, one follower, S3, is likely to time out first.',
-        'S3 starts term 4, votes for itself, and asks the others for votes. If S2, S4, and S5 grant votes, S3 has four votes and only three were needed. S3 becomes leader for term 4 and begins heartbeating. If S5 times out at nearly the same moment and the votes split 2-2, nobody reaches three; the failed term is safe, and a later term retries.',
+        'Divide time into numbered terms. Each term has at most one leader. A server becomes leader only by winning a majority vote in a given term, and each server casts at most one durable vote per term.',
+        'Safety follows from arithmetic: in a cluster of n servers, a majority requires more than n/2 votes. Any two majorities overlap by at least one server. That shared server voted once, so it cannot have voted for two different candidates in the same term. Two leaders in the same term is not just unlikely -- it is impossible.',
+        'Liveness comes from randomized election timeouts. Each follower picks a random timeout (typically 150-300ms). When a leader dies, followers notice silence at different times, so one server almost always times out first and runs unopposed. Repeated split votes are possible but exponentially unlikely because each retry re-randomizes.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Every server is in one of three states: follower, candidate, or leader. Followers passively receive heartbeats and log entries. Candidates are running an election. The leader handles all client writes and replicates entries to followers.',
+        'Leader election: when a follower\'s randomized election timer expires without hearing a heartbeat, it increments its term, transitions to candidate, votes for itself (persisting the vote to disk), and sends RequestVote RPCs to all other servers. A receiver grants its vote if (a) it has not already voted in this term and (b) the candidate\'s log is at least as up-to-date as the receiver\'s log. If the candidate collects votes from a majority, it becomes leader and immediately sends heartbeats to suppress further elections.',
+        'Log replication: the leader appends each client command to its log, sends AppendEntries RPCs to followers, and waits for a majority to acknowledge. Once a majority has stored the entry, the leader commits it (advances the commit index) and applies it to its state machine. Followers learn the commit point through subsequent heartbeats and apply committed entries in order.',
+        'Safety -- the election restriction: a candidate\'s RequestVote includes the index and term of its last log entry. A voter rejects the candidate if the voter\'s own log is more up-to-date (compared first by last entry\'s term, then by log length). This prevents a server with a stale log from winning an election and overwriting entries that a majority already committed. The restriction links election to replication: only a server that already has all committed entries can become leader.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Election safety comes from majority intersection plus durable single voting. Two leaders in the same term would require two winning majorities. Those majorities must overlap, and the overlapping server would have had to vote for both candidates in the same term, which the protocol forbids and persists across crashes.',
-        "Leader completeness comes from the log freshness check. A voter rejects a candidate whose log is less up to date than the voter's log. That connects election to replication: a candidate should not gain authority to append new entries if it is missing committed history that future leaders must preserve.",
+        'Election safety: at most one leader per term. Proof: two leaders in term T would need two disjoint majorities of votes in term T. Any two majorities of n servers share at least one server. That server voted once and persisted its vote, so it cannot have supported both candidates. Contradiction.',
+        'Leader completeness: every committed entry appears in every future leader\'s log. Proof sketch: an entry is committed when a majority stores it. A future candidate must win a majority of votes. Those two majorities overlap. The overlapping server has the committed entry. The election restriction guarantees the candidate\'s log is at least as up-to-date as that server\'s, so the candidate has the entry too. By induction, the entry survives every future leadership change.',
+        'These two properties together mean the committed log is append-only and consistent across leadership transitions. A new leader never overwrites committed entries; it only appends new ones.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the clean-election path, watch the term number and the role label on each server. S1 starts as leader, disappears, S3 changes to candidate, votes flow to S3, and S3 becomes the only highlighted leader. The important transition is not the timer firing. It is the majority vote that turns a timed-out follower into an authorized leader.',
-        'In the split-vote path, the absence of a leader is the teaching point. S3 and S5 can both become candidates, but neither can cross the majority threshold. The retry frame shows randomized timeouts doing liveness work: they do not make leadership safe by themselves, but they reduce the chance that every term repeats the same tie.',
+        'Each committed write costs two network round trips: the leader sends AppendEntries to followers, waits for a majority to acknowledge, then notifies followers of the new commit point on the next heartbeat. For an n-node cluster, each commit requires O(n) messages.',
+        'A majority quorum of a 2f+1 cluster tolerates f failures. A 3-node cluster tolerates 1 failure; a 5-node cluster tolerates 2. Larger clusters increase fault tolerance but also increase per-commit message cost and make majorities harder to collect across slow networks.',
+        'Election cost is typically modest: one RequestVote per peer, one round trip. Split votes add one wasted term per retry, but randomized timeouts keep the expected number of retries near zero. In practice, failover completes within a few hundred milliseconds.',
+        'The real performance cost is leader bottleneck: all writes flow through one server. Throughput is bounded by the leader\'s network bandwidth and disk fsync speed. Multi-Raft (one Raft group per data shard) is the standard workaround.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Election traffic is modest for normal Raft groups but can be O(n^2) in a noisy split election because multiple candidates ask multiple peers. Raft groups are usually kept small, often 3, 5, or 7 voters, because larger groups increase coordination cost and make majorities harder to reach.',
-        'Timeout tuning is the practical tradeoff. Short election timeouts reduce failover latency, but they can trigger unnecessary elections during garbage-collection pauses, network jitter, overloaded disks, or scheduler stalls. Long timeouts are calmer but extend the outage after a real leader failure.',
+        'Raft is the dominant consensus protocol in production infrastructure. etcd uses Raft for Kubernetes cluster state -- every pod scheduling decision, every config change flows through a Raft-replicated log. CockroachDB and TiKV run a separate Raft group per data range (Multi-Raft), so each shard has its own leader and the write bottleneck is distributed. Consul uses Raft for service discovery and configuration. HashiCorp Vault uses Raft for secrets storage replication.',
+        'The pattern fits anywhere a small group of servers needs a single ordered log: metadata stores, lock services, control planes, leader-election primitives, and coordination kernels embedded inside larger systems.',
       ],
     },
     {
-      heading: 'Limits',
+      heading: 'Where it fails',
       paragraphs: [
-        'Election alone does not make data safe. The leader still has to replicate entries and commit them with a majority. A server can be leader and still be unable to serve writes if it cannot contact enough peers to commit.',
-        'Raft also does not use wall-clock timestamps to order authority. Clocks only affect when local timeouts fire. Terms, votes, and RPC comparisons define leadership. Bad timing can hurt availability, but it should not violate election safety if terms and votes are persisted correctly.',
+        'Leader bottleneck: every write must go through one server. A single Raft group tops out at whatever one machine\'s disk and network can handle. Multi-Raft helps but adds complexity for cross-shard transactions.',
+        'Cross-datacenter latency: each commit needs a majority round trip. If replicas span continents, commit latency is at least the speed-of-light RTT to the nearest majority. Paxos variants like EPaxos or Flexible Paxos can commit with fewer cross-region messages in some cases.',
+        'Reconfiguration edge cases: adding or removing servers changes what constitutes a majority. Raft\'s joint-consensus protocol handles this safely but is tricky to implement. Bugs in membership changes have caused real outages.',
+        'Not Byzantine fault tolerant: Raft assumes servers follow the protocol and only fail by crashing or going silent. A compromised server that sends fabricated messages can violate safety. Byzantine fault tolerance requires protocols like PBFT, which are far more expensive.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'A split vote is a safe failure mode: no majority, no leader. A minority partition is also safe but unavailable for writes, because it cannot elect or sustain a leader that can commit. A disruptive candidate with a high term can force an old leader to step down, so production systems often add pre-vote or careful timeout tuning to reduce unnecessary disruption.',
-        'Implementation bugs are more dangerous than protocol-level ties. Losing the persisted vote can allow double-voting after reboot. Forgetting the log freshness rule can elect a stale leader. Applying membership changes without the proper joint-consensus rules can break the majority-intersection argument that the proof relies on.',
-      ],
-    },
-    {
-      heading: 'Practical use',
-      paragraphs: [
-        'Raft election fits small replicated state machines that need a single ordered log: metadata stores, control planes, lock services, configuration stores, and database shards. etcd, Consul, TiKV, CockroachDB-style ranges, and many embedded Raft libraries use this shape because it is easier to reason about than many alternatives.',
-        'Operationally, watch election rate, leader changes, heartbeat latency, disk fsync latency, and quorum health. A healthy cluster should not campaign constantly. Repeated elections usually point to pauses, overload, slow disks, network instability, or timeout values that do not match the deployment.',
-      ],
-    },
-    {
-      heading: 'Operational checklist',
-      paragraphs: [
-        'Tune election timeout against the deployment, not against a diagram. It should be comfortably larger than normal heartbeat delay, disk stalls, scheduler pauses, and network jitter, while still short enough that a real leader failure does not create a long outage.',
-        'Every implementation should persist current term and vote before replying to RequestVote. It should reject stale terms, step down on higher terms, apply the log freshness rule, and expose metrics for term changes, vote grants, election timeouts, and leader transfers.',
-      ],
-    },
-    {
-      heading: 'Testing it',
-      paragraphs: [
-        'Test clean elections, split votes, leader crash and recovery, minority partitions, delayed RequestVote messages, reboot after voting, and candidates with stale logs. The important assertions are that at most one leader exists per term and that a stale candidate cannot win over a more up-to-date voter.',
-        'Chaos tests should add disk pauses and network delay, not just process crashes. Many real election incidents come from slow persistence or scheduling stalls that make a healthy leader look dead long enough to trigger unnecessary campaigns.',
+        'Five servers: S1 is leader for term 3, replicating entries to S2-S5. S1 crashes. The followers receive no heartbeat. Each has a randomized election timer; S3\'s fires first.',
+        'S3 increments its term to 4, votes for itself (persists vote to disk), and sends RequestVote(term=4, lastLogIndex=7, lastLogTerm=3) to S2, S4, S5. Each receiver checks: have I voted in term 4? No. Is S3\'s log at least as current as mine? S3 has index 7, term 3 -- same as theirs. They grant the vote.',
+        'S3 collects 4 votes (itself + S2, S4, S5). Only 3 were needed. S3 becomes leader of term 4 and immediately heartbeats. When S1 reboots, it receives a heartbeat stamped term 4, sees that 4 > 3, and steps down to follower.',
+        'Suppose S1 had appended an uncommitted entry at index 8 before crashing -- an entry it had not yet replicated to a majority. S3\'s log does not have index 8. When S3 becomes leader, it replicates its own log to all followers. S1\'s uncommitted index 8 is overwritten. Only majority-acknowledged entries survive leadership changes. This is not data loss; it is the protocol working correctly. The client whose write was at index 8 never received a success response, so it knows to retry.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Ongaro and Ousterhout, "In Search of an Understandable Consensus Algorithm" at https://raft.github.io/raft.pdf. The Raft site also collects the extended paper and teaching material at https://raft.github.io/.',
-        'Read Raft Log Replication next: election chooses who may lead, but replication decides which commands survive. Write-Ahead Log explains how terms, votes, and entries persist through crashes. CAP Theorem explains why minority partitions refuse service. Consistent Hashing shows a different distributed pattern where ownership is partitioned instead of ordered by one leader, and Distributed Tracing helps diagnose failover in production.',
+        'Ongaro and Ousterhout, "In Search of an Understandable Consensus Algorithm," 2014 (the Raft paper): https://raft.github.io/raft.pdf. The Raft website collects the extended dissertation, teaching materials, and an interactive visualization: https://raft.github.io/. Lamport, "The Part-Time Parliament," 1998 (Paxos, the theoretical foundation Raft was designed to replace in practice).',
+        'Study next: Raft Log Replication (how the leader commits entries with majority acknowledgment), Write-Ahead Log (how terms, votes, and entries survive crashes on disk), Paxos (the older consensus protocol Raft simplifies), distributed locks (a common application of consensus), Two-Phase Commit (a different agreement protocol for distributed transactions), and CAP Theorem (why a minority partition must refuse writes to preserve consistency).',
       ],
     },
   ],
 };
+

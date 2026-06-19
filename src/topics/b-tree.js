@@ -44,7 +44,7 @@ export function* run(input) {
         const xs = node.children.map((child) => place(child, depth + 1));
         x = (xs[0] + xs[xs.length - 1]) / 2;
       }
-      nodes.push({ id: idOf(node), label: node.keys.join('·'), x: x * 1.6 + 1, y: depth * 2.4 + 1 });
+      nodes.push({ id: idOf(node), label: node.keys.join('Â·'), x: x * 1.6 + 1, y: depth * 2.4 + 1 });
       for (const child of node.children) {
         edges.push({ id: `${idOf(node)}-${idOf(child)}`, from: idOf(node), to: idOf(child) });
       }
@@ -99,7 +99,7 @@ export function* run(input) {
     yield {
       state: before,
       highlight: { active: [leafId] },
-      explanation: `insert(${key}): compare downward — at each node the key slots between the stored keys, picking one child. It lands in ${walk.keys.length ? `the leaf [${walk.keys.join('·')}]` : 'the empty root'}. Inserts ALWAYS happen at a leaf.`,
+      explanation: `insert(${key}): compare downward — at each node the key slots between the stored keys, picking one child. It lands in ${walk.keys.length ? `the leaf [${walk.keys.join('Â·')}]` : 'the empty root'}. Inserts ALWAYS happen at a leaf.`,
     };
 
     splitEvents.length = 0;
@@ -127,7 +127,7 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { active: [idOf(node)], visited: path.slice(0, -1) },
-      explanation: `search(${target}): scan the keys inside [${node.keys.join('·')}] (real databases binary-search within the node). ${node.keys.includes(target) ? `${target} is HERE.` : node.children.length === 0 ? `Not here, and this is a leaf — ${target} is not in the tree.` : `Not here — but the keys tell us exactly which child range can contain ${target}.`}`,
+      explanation: `search(${target}): scan the keys inside [${node.keys.join('Â·')}] (real databases binary-search within the node). ${node.keys.includes(target) ? `${target} is HERE.` : node.children.length === 0 ? `Not here, and this is a leaf — ${target} is not in the tree.` : `Not here — but the keys tell us exactly which child range can contain ${target}.`}`,
     };
     if (node.keys.includes(target) || node.children.length === 0) break;
     let slot = node.keys.findIndex((k) => target < k);
@@ -145,90 +145,106 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A database index has to find one row among millions without reading millions of rows. The hard part is that storage moves in pages, not individual keys. If every comparison sends the engine to a different page, the index wastes the slowest operation in the system.`,
-        `A B-tree makes each page do more work. One node stores many sorted keys and many child pointers, so one page read removes a large range of possible rows. The tree becomes wide and shallow instead of narrow and tall.`,
+        'Each box is a B-tree node holding sorted keys separated by dots. Edges are child pointers. A node with keys [20, 40] has three children: left holds everything below 20, middle holds 20-40, right holds everything above 40. The keys are separators that route searches.',
+        'Highlighted nodes show where the algorithm is currently deciding which child to descend into. Visited nodes mark levels already checked. Found marks the node where the target was located or proved absent. Watch for splits: when a node overflows, it breaks in two and pushes its median key up into the parent.',
+        'This demo uses an order-3 B-tree (each node holds at most 2 keys). Real databases use order 500+, but the mechanics -- multi-way branching, upward splits, uniform leaf depth -- are identical.',
       ],
     },
     {
-      heading: `The Baseline and the Wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `A binary search tree is the natural first attempt. It keeps keys ordered, supports insertion, and gives logarithmic height when balanced. That is good in memory, where a pointer hop is cheap.`,
-        `The wall is page I/O. A one-key-per-node tree can touch a new page at every level. A sorted array has the opposite problem: lookup is excellent, but insertion in the middle moves too much data. A hash table is fast for exact lookup, but it loses sorted range scans.`,
-        `The B-tree is the storage-engine compromise: keep sorted order, keep updates local, and choose a fanout large enough that height stays small.`,
+        'In 1970, Rudolf Bayer and Edward McCreight at Boeing Research Labs needed a way to index large datasets stored on disk. The core constraint: disk hardware delivers data in fixed-size pages (typically 4 KB), and reading one page takes about 10 ms on spinning disk -- roughly 100,000 times slower than a RAM access (~100 ns). A data structure that touches 30 pages per lookup wastes 300 ms. One that touches 3 pages wastes 30 ms. The number of page reads per query dominates everything else.',
+        'Binary trees are too tall for this world. Each node holds one key, so the tree is narrow and deep. Bayer and McCreight made nodes wide: pack many sorted keys into a single disk-page-sized node so that one read eliminates hundreds of possibilities instead of one. The result is a tree that is shallow and fat -- the B-tree, published in 1972.',
       ],
     },
     {
-      heading: `Core Data Layout`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `A B-tree node is a sorted page. It contains separator keys and child pointers. For keys [20, 40], the left child contains keys below 20, the middle child contains keys between 20 and 40, and the right child contains keys above 40.`,
-        `Production database indexes usually use a B+ tree layout. Internal pages guide the search. Leaf pages hold row pointers or primary-key references, and neighboring leaves are linked so range scans can walk forward without climbing back to the root.`,
-        `The animation uses the smallest useful version, an order-3 tree with at most two keys per node. Real pages may hold hundreds of keys, but the same rules apply: sorted keys, ordered child ranges, and every leaf at the same depth.`,
+        'A balanced binary search tree (BST) is the natural first attempt. Each node holds one key, two children. Balanced, it has height log2(n). In RAM, where each pointer hop costs nanoseconds, this works well.',
+        'On disk, each node lives on its own page. Finding a key means reading one page per level. For one million keys, a balanced BST has height ~20. That is 20 page reads. At 10 ms per seek on a hard drive, a single lookup takes 200 ms. For one billion keys, height ~30 means 300 ms per query.',
       ],
     },
     {
-      heading: `Search and Insertion`,
+      heading: 'The wall',
       paragraphs: [
-        `Search starts at the root. Inside the page, the engine finds the first separator greater than the target, often with binary search or a cache-conscious linear scan. The chosen separator proves which child range can still contain the key. Repeating that decision ends at a leaf that either contains the key or proves it absent.`,
-        `Insertion uses the same descent. The new key belongs in one leaf. If the leaf has room, the engine inserts it in sorted order. If the leaf is full, the page splits into two pages and a separator is inserted into the parent. A parent can split too. A root split is the only operation that increases the tree height.`,
-        `Deletion is the mirror problem. If a page becomes too empty, neighboring pages may redistribute keys or merge. Many storage engines delay some cleanup because immediate page repair can create more write work than it saves.`,
+        'The problem is not the algorithm -- binary search is correct. The problem is the branching factor. A BST eliminates half the search space per level, but each level costs one disk seek. The math: height = log2(n), and each level = ~10 ms. Cutting the search space by 2 per page read is a terrible ratio when the page can hold hundreds of keys.',
+        'AVL trees and red-black trees do not help. They keep the tree balanced, but they still branch by 2. Rotations rearrange one or two nodes at a time. The fundamental shape -- one key per node, two children -- is the bottleneck. To collapse 30 levels into 3, the branching factor must jump from 2 to hundreds.',
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: 'The core insight',
       paragraphs: [
-        `The correctness guarantee is the separator invariant. Each key in an internal page divides the key space into child ranges, and every key in a child stays inside its assigned range. A search can discard all other children because their ranges can't contain the target.`,
-        `Splitting preserves that invariant. When a full page is split, lower keys remain on the left, higher keys move right, and the promoted separator describes the boundary between them. The tree doesn't rotate like an AVL tree. It grows upward while keeping all leaves at the same depth.`,
-        `Equal leaf depth is the balance guarantee. No key can hide in a longer branch, and no search path becomes a long chain. Absence is proven when the only possible leaf has been checked.`,
+        'Size each node to fill one disk page. A 4 KB page holding 8-byte keys and 8-byte child pointers fits roughly 250 keys and 251 children. One page read now eliminates 250 out of 251 subtrees instead of 1 out of 2. Height drops from log2(n) to log251(n). For one billion keys: log2(10^9) = 30 levels, but log251(10^9) = 3.7 levels. Four page reads at 10 ms each = 40 ms total, instead of 30 reads at 300 ms. That is the entire trick.',
+        'The minimum-fill rule keeps this guarantee stable under inserts and deletes. Every non-root node must stay at least half full, so the branching factor never drops below ~125 even in the worst case. Height stays bounded at log_{ceil(m/2)}(n).',
       ],
     },
     {
-      heading: `Cost Behavior`,
+      heading: 'How it works',
       paragraphs: [
-        `Lookup, insert, and delete are O(log_f n), where f is fanout. The base of the logarithm matters. If one page can guide the search across 200 child ranges, a billion rows need only a few levels.`,
-        `The dominant cost is usually page access, not comparison count. A balanced binary tree might need about 30 pointer hops for a billion keys. A B-tree with high fanout might need four or five page reads, and hot upper levels often stay in the buffer pool.`,
-        `Splits are local but not free. A split rewrites pages, updates the parent, and must be protected by the Write-Ahead Log so recovery can repair a crash. Fill factor leaves space in pages to reduce split frequency, trading a little storage for smoother writes.`,
+        'An order-m B-tree obeys these rules: each node holds at most m-1 keys and m children. The root has at least 1 key. Every other internal node has at least ceil(m/2) children. All leaves sit at exactly the same depth.',
+        'Search: start at the root. Scan or binary-search the sorted keys to find which child range contains the target. Follow that one child pointer. Repeat until the key is found or a leaf proves it absent. Total disk reads: the height of the tree.',
+        'Insert: search down to the correct leaf. Add the key in sorted position. If the leaf now holds m keys (one too many), split it: the median key pushes up into the parent, and the remaining keys divide into two nodes. If the parent overflows, it splits too, cascading upward. A root split creates a new root and increases tree height by one. The tree grows upward, never downward.',
+        'Delete: remove the key. If the node drops below ceil(m/2)-1 keys, either borrow a key from a sibling (rotating through the parent) or merge with a sibling (pulling the separator down from the parent). Merges can cascade up to the root. If the root is left empty, the tree loses one level.',
+        'Two invariants survive every mutation: all leaves stay at the same depth, and every non-root node stays at least half full.',
       ],
     },
     {
-      heading: `Production Uses`,
+      heading: 'Why it works',
       paragraphs: [
-        `B-tree and B+ tree indexes are the default ordered indexes in PostgreSQL, MySQL InnoDB, SQLite, Oracle, and SQL Server. They handle equality predicates, ordered retrieval, prefix matches under compatible collations, and range predicates such as created_at BETWEEN two timestamps.`,
-        `Filesystems use related trees for directories, extents, and metadata because the same access pattern appears there: find a range quickly, update locally, and keep ordered neighbors reachable.`,
-        `A concrete database example is an index on (account_id, created_at). A point lookup for one account descends to the account range. A time-window query then walks linked leaves in order until the timestamp leaves the requested interval.`,
+        'The separator invariant guarantees correctness. Each key in an internal node is a boundary: everything in the left subtree is smaller, everything in the right subtree is larger. A search that follows the correct range must reach the only leaf that could contain the target. One comparison per key eliminates an entire subtree.',
+        'Splitting preserves this invariant. When a full node splits, the median becomes the new boundary in the parent. Keys below the median stay left; keys above go right. No rotations needed. Balance is maintained because splits only add nodes at the current depth or grow a new root on top.',
+        'The minimum-fill rule (ceil(m/2) children) guarantees that height never exceeds log_{ceil(m/2)}(n). With m = 500 and n = 1 billion, that bound is about 4. Every search, insert, and delete touches at most 4 pages.',
       ],
     },
     {
-      heading: `A Concrete Page Walk`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Suppose an index page contains separators [1000, 2000, 4000]. A lookup for key 2710 does not compare against every indexed row. It proves the key cannot be in the child below 1000, cannot be in the child between 1000 and 2000, and cannot be in the child above 4000. Only the child range [2000, 4000) remains possible.`,
-        `The same argument repeats at the next level. Each page read is not just a step along a path; it is a range proof that removes hundreds of child ranges. That is the reason B-trees are page structures rather than pointer structures with one key per allocation.`,
+        'Search, insert, and delete all cost O(log_m n) page reads. The base of the logarithm is what makes B-trees fast. Here is the concrete comparison for n = 1 billion keys:',
+        'BST (m = 2): height = log2(10^9) = 30. At 10 ms/seek: 300 ms per lookup. B-tree (m = 1000): height = log1000(10^9) = 3. At 10 ms/seek: 30 ms per lookup. In practice the top 2-3 levels live in the buffer pool (RAM cache), so a billion-row lookup typically hits 1-2 actual disk reads. Doubling the table size adds at most one more level.',
+        'Insert and delete are also O(log_m n) amortized. Splits rewrite two pages (the halves) plus the parent. The write-ahead log (WAL) protects against crashes mid-split. Setting the fill factor to 70-90% instead of 100% reduces split frequency at the cost of slightly more disk space.',
+        'Within a node, key comparison is O(log(m)) via binary search, but this is CPU work on data already in memory. The dominant cost is always page I/O.',
       ],
     },
     {
-      heading: `Implementation Guidance`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Pick node size from the storage unit. On disk, a node usually maps to a page or page fragment. In memory, the right size depends on cache lines, branch prediction, and whether child pointers or payload references dominate the node. A B-tree that ignores the hardware block size loses the property that made it useful.`,
-        `Keep search inside a node simple before optimizing it. Small nodes often do well with linear scan because the keys are contiguous and branch behavior is predictable. Larger nodes may use binary search, interpolation, SIMD comparisons, prefix compression, or fence keys. The correct choice comes from measuring real keys and real workloads.`,
-        `Treat splits as durability events. A split changes at least two child pages and one parent boundary. Database engines protect that sequence with latches, page identifiers, and write-ahead logging so a crash does not leave two pages whose separator no longer matches the parent.`,
-        `Tune fill factor for the write pattern. Random inserts into nearly full pages create frequent splits. Reserving free space reduces split pressure, while dense packing saves memory and improves read locality for mostly immutable indexes. There is no universal setting; it is a workload choice.`,
+        'Every major relational database uses B+ tree indexes by default: PostgreSQL, MySQL InnoDB, SQLite, Oracle, SQL Server. They handle equality lookups, range scans (WHERE created_at BETWEEN two dates), prefix matches, and ORDER BY without a sort step.',
+        'Every major filesystem uses B-tree variants for metadata. NTFS uses B+ trees for its Master File Table. ext4 uses extent trees (a B-tree variant). Btrfs is named after the B-tree. HFS+ (macOS, pre-APFS) used B-trees for its catalog file. The pattern is the same: find a record fast, keep neighbors reachable for sequential access.',
+        'SSDs changed the constant (microseconds instead of milliseconds per read) but not the structure. Random reads are still far slower than sequential, and B-trees still minimize the number of reads. The B+ tree variant -- where all data lives in leaves linked into a list -- dominates in practice because range scans just walk the leaf chain.',
       ],
     },
     {
-      heading: `Limits and failure modes`,
+      heading: 'Where it fails',
       paragraphs: [
-        `A B-tree isn't always better than an LSM tree. A read-heavy SQL workload often wants stable ordered pages. A write-heavy event stream may prefer appending to immutable sorted files and compacting later.`,
-        `An index isn't free. Every secondary B-tree adds write work, log volume, cache pressure, and possible latch contention. MVCC systems can also leave dead index entries behind until vacuum or cleanup removes them.`,
-        `A B-tree also isn't a hash table. Hashing can be better for pure equality lookup when order, predecessor queries, and range scans don't matter. The common failure mode is choosing the index because it is familiar instead of because the workload needs ordered pages.`,
+        'B+ trees beat plain B-trees in nearly every production use. In a B+ tree, internal nodes hold only keys (no row data), so they pack more separators per page and the tree is shorter. Leaves form a linked list, so range scans walk forward without climbing back to the root. Almost every system you encounter uses B+ trees, not plain B-trees.',
+        'Write-heavy workloads expose B-tree weakness. Inserting one row may rewrite an entire 16 KB page. Random inserts cause frequent splits and scattered I/O. LSM trees (LevelDB, RocksDB, Cassandra) buffer writes in memory and flush sorted runs sequentially, achieving 10-100x better write throughput at the cost of read amplification during compaction.',
+        'In-memory workloads do not benefit from disk-page-sized nodes. A red-black tree or skip list has less per-operation overhead when pointer hops are cache-line fetches, not disk seeks. Adaptive radix trees can beat both for string keys in memory.',
+        'For pure equality lookups with no range or ordering need, a hash index is faster: O(1) expected time, no tree traversal, no page hierarchy.',
       ],
     },
     {
-      heading: `Sources and Study Next`,
+      heading: 'Worked example',
       paragraphs: [
-        `PostgreSQL documents B-tree indexes as ordered multi-way indexes for equality, range comparisons, and ordered scans: https://www.postgresql.org/docs/current/btree.html and https://www.postgresql.org/docs/current/indexes-types.html. SQLite exposes the page-oriented B-tree view in its file format and B-tree module notes: https://www.sqlite.org/fileformat.html and https://sqlite.org/btreemodule.html. MySQL documents InnoDB index pages and fill factor in its physical-structure notes: https://dev.mysql.com/doc/refman/8.0/en/innodb-physical-structure.html.`,
-        `Study Binary Search for in-page lookup, Binary Search Tree for the pointer-heavy ancestor, and B+ Tree Leaf Sibling Scan Case Study for range scans. Then read Database Indexing, Transaction Isolation Levels, MVCC Internals & VACUUM, LSM Trees (How Cassandra Writes), Bw-Tree Delta Chain & Mapping Table, Filesystem Extent Tree & Delayed Allocation, and Tree Traversals.`,
+        'Order-3 B-tree (max 2 keys per node, max 3 children). Insert 10, 20, 30, 40, 50.',
+        'Insert 10: root = [10]. One key, one node, no children.',
+        'Insert 20: root = [10, 20]. Two keys fit (max is 2). Still one node.',
+        'Insert 30: root would become [10, 20, 30] -- three keys in an order-3 node is an overflow. Split: the median 20 becomes the new root. Left child [10], right child [30]. Height grows from 0 to 1. This is the first split.',
+        'Insert 40: search from root [20]. 40 > 20, descend right to [30]. It becomes [30, 40]. Room in the node, no split needed.',
+        'Insert 50: search from root [20]. 50 > 20, descend right to [30, 40]. Adding 50 gives [30, 40, 50] -- overflow. Split: median 40 promotes into root. Root becomes [20, 40]. Left child [10], middle child [30], right child [50]. This is the second split. Height stays at 1.',
+        'After five inserts, the tree has height 1 and three leaves. Any key can be found in at most 2 node visits. Scale to m = 1000: one billion keys fit in 3 levels. Three page reads to find anything.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Bayer and McCreight, "Organization and Maintenance of Large Ordered Indexes" (1972) -- the original B-tree paper, from Boeing Research Labs. Comer, "The Ubiquitous B-Tree" (1979) -- the survey that made B-trees accessible to a wide audience. Cormen, Leiserson, Rivest, and Stein, "Introduction to Algorithms" (CLRS), Chapter 18 -- the standard textbook treatment with pseudocode for search, insert, and delete.',
+        'Prerequisites: Binary Search Tree (the one-key, two-child tree that B-trees generalize), disk I/O model (why page reads dominate comparisons).',
+        'Related: Red-Black Tree (a 2-3-4 tree in disguise -- there is an exact isomorphism between red-black trees and order-4 B-trees, where red nodes are "absorbed" into their black parent to form multi-key nodes). B+ Tree (the production variant with data only in leaves and a leaf-level linked list for range scans).',
+        'Study next: LSM Tree (the write-optimized alternative -- buffer, flush, compact), Adaptive Radix Tree (in-memory alternative for string keys), Hash Table (O(1) lookups when sorted order is unnecessary).',
       ],
     },
   ],
 };
+

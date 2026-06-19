@@ -9,12 +9,13 @@ export const learningTracks = [
     shortTitle: 'Beginner CS',
     level: 'Beginner',
     pace: '18 topics',
+    estimatedHours: '16-22',
     audience: 'New programmers, self-taught learners, and students who want the mental models before the jargon.',
     summary: 'Build the basic vocabulary of computing: storage, order, search, recursion, trees, graphs, cost, and one modern AI bridge.',
     outcome: 'You can explain why a program uses a stack, queue, hash table, tree, graph, cache, or vector operation instead of treating them as names to memorize.',
     useWhen: 'Start here if the site feels too large or if terms like heap, traversal, Big-O, and attention are not automatic yet.',
     capstone: 'Trace one real feature, such as autocomplete or route finding, from simple containers through search strategy and cost.',
-    nextTrackIds: ['interview-dsa', 'production-data-structures', 'ai-ml-foundations'],
+    nextTrackIds: ['interview-dsa', 'production-data-structures', 'systems-design-foundations', 'ai-ml-foundations'],
     modules: [
       {
         title: 'Containers You Can See',
@@ -29,7 +30,7 @@ export const learningTracks = [
       {
         title: 'Trees, Graphs, and Paths',
         goal: 'Move from lists to branching structures and learn why shape controls speed.',
-        topicIds: ['binary-search-tree', 'tree-traversals', 'binary-heap', 'graph-bfs', 'dijkstra'],
+        topicIds: ['binary-search-tree', 'tree-traversals', 'binary-heap', 'graph-bfs', 'graph-dfs', 'dijkstra'],
       },
       {
         title: 'The Bridge to Modern Systems',
@@ -44,12 +45,14 @@ export const learningTracks = [
     shortTitle: 'Interview DSA',
     level: 'Beginner to Intermediate',
     pace: '24 topics',
+    estimatedHours: '22-28',
     audience: 'Learners preparing for interviews or trying to turn scattered algorithm practice into a coherent toolkit.',
     summary: 'A practical sequence for arrays, pointers, stacks, queues, binary search, sorting, trees, graphs, range queries, and strings.',
     outcome: 'You can look at a problem and recognize the likely tool: two pointers, sliding window, heap, graph traversal, union-find, trie, or range structure.',
     useWhen: 'Use this when you need transfer: not just knowing a structure, but spotting when it applies.',
     capstone: 'Solve a mixed problem set where each prompt hides the intended pattern instead of naming it.',
-    nextTrackIds: ['production-data-structures', 'databases-storage-systems', 'distributed-systems-reliability'],
+    prerequisiteTrackIds: ['beginner-cs-foundations'],
+    nextTrackIds: ['production-data-structures', 'systems-design-foundations', 'databases-storage-systems', 'distributed-systems-reliability'],
     modules: [
       {
         title: 'Linear Patterns',
@@ -64,7 +67,7 @@ export const learningTracks = [
       {
         title: 'Trees and Graphs',
         goal: 'Recognize when relationships, not arrays, are the real problem.',
-        topicIds: ['tree-traversals', 'binary-search-tree', 'union-find', 'graph-bfs', 'dijkstra', 'topological-sort'],
+        topicIds: ['tree-traversals', 'binary-search-tree', 'union-find', 'graph-bfs', 'graph-dfs', 'dijkstra', 'topological-sort'],
       },
       {
         title: 'Range and String Tooling',
@@ -79,12 +82,14 @@ export const learningTracks = [
     shortTitle: 'Production DS',
     level: 'Intermediate',
     pace: '25 topics',
+    estimatedHours: '26-32',
     audience: 'Engineers who know textbook structures and want to understand the versions that survive real workloads.',
     summary: 'Move from classroom containers to allocators, cache-aware maps, probabilistic filters, text buffers, indexes, and concurrent structures.',
     outcome: 'You can explain why production systems care about locality, fragmentation, false positives, compaction, and memory reclamation.',
     useWhen: 'Use this after basic DSA, or whenever a system topic mentions free lists, bloom filters, indexes, RCU, or lock-free structures.',
     capstone: 'Design the in-memory layer for a search or game-engine workload and justify each structure by access pattern.',
-    nextTrackIds: ['databases-storage-systems', 'distributed-systems-reliability', 'browser-web-platform'],
+    prerequisiteTrackIds: ['interview-dsa'],
+    nextTrackIds: ['systems-design-foundations', 'databases-storage-systems', 'distributed-systems-reliability', 'browser-web-platform'],
     modules: [
       {
         title: 'Memory Layout and Locality',
@@ -114,11 +119,13 @@ export const learningTracks = [
     shortTitle: 'Databases',
     level: 'Intermediate to Advanced',
     pace: '23 topics',
+    estimatedHours: '24-30',
     audience: 'Backend, data, and infra engineers who want to understand why databases behave the way they do.',
     summary: 'Follow data from indexes and pages through logs, transactions, compaction, replication, and analytical execution.',
     outcome: 'You can reason about read/write amplification, transaction anomalies, compaction debt, recovery, sharding, and analytical query shape.',
     useWhen: 'Use this when database performance, correctness, or architecture feels like a black box.',
     capstone: 'Explain one user-visible database incident in terms of index choice, log/recovery behavior, isolation, and replication.',
+    prerequisiteTrackIds: ['production-data-structures'],
     nextTrackIds: ['distributed-systems-reliability', 'production-data-structures'],
     modules: [
       {
@@ -149,11 +156,13 @@ export const learningTracks = [
     shortTitle: 'Distributed Systems',
     level: 'Intermediate to Advanced',
     pace: '27 topics',
+    estimatedHours: '24-30',
     audience: 'Engineers building services, queues, workflows, observability, and incident response systems.',
     summary: 'A reliability path through load, latency, retries, clocks, consensus, queues, tracing, rollouts, and failure analysis.',
     outcome: 'You can separate local correctness from distributed correctness, and explain how retries, clocks, queues, and traces change system behavior.',
     useWhen: 'Use this when a system has multiple services and the hard bugs are timing, ownership, visibility, or recovery.',
     capstone: 'Design a fault-tolerant payment or job-processing workflow with backpressure, idempotency, tracing, and rollback.',
+    prerequisiteTrackIds: ['production-data-structures', 'systems-design-foundations'],
     nextTrackIds: ['databases-storage-systems', 'security-trust-verification', 'transformers-llm-systems'],
     modules: [
       {
@@ -179,16 +188,62 @@ export const learningTracks = [
     ],
   },
   {
+    id: 'systems-design-foundations',
+    title: 'Systems Design Foundations',
+    shortTitle: 'Systems Design',
+    level: 'Beginner to Advanced',
+    pace: '24 topics',
+    format: 'guided + project checkpoints',
+    estimatedHours: '18-25',
+    audience: 'Engineers designing end-to-end services, APIs, and data flow with explicit production tradeoffs.',
+    summary: 'A practical systems-design path from a single process to a full distributed workflow. You move from boundaries and contracts, into consistency and failure behavior, then to reliability control planes and runtime observability.',
+    outcome: 'You can design, review, and improve real service architectures with explicit assumptions about load, state ownership, correctness, and cost.',
+    useWhen: 'Use this when you want topic knowledge to connect to architecture decisions and release governance, not just isolated algorithms.',
+    capstone: 'Design a production order-processing flow with ingestion, queueing, persistence, retries, idempotency, tracing, rollback, and release guardrails.',
+    prerequisiteTrackIds: ['beginner-cs-foundations'],
+    nextTrackIds: ['databases-storage-systems', 'distributed-systems-reliability', 'security-trust-verification'],
+    courseGuide: {
+      prerequisiteTracks: ['beginner-cs-foundations'],
+      recommendedOrder: ['Service Boundaries', 'Consistency and Shared State', 'Reliability and Control', 'Observability and Runtime'],
+      checkpointEvery: 6,
+      portfolioPrompt: 'Create a mini architecture packet: contract, failure map, consistency assumptions, and SLO budget for one end-to-end flow.',
+    },
+    modules: [
+      {
+        title: 'Service Boundaries',
+        goal: 'Define what each service owns, what each API contract says, and where failures must be handled.',
+        topicIds: ['load-balancer', 'rate-limiter', 'backpressure', 'circuit-breakers', 'retries-jitter', 'tail-latency'],
+      },
+      {
+        title: 'Consistency and Shared State',
+        goal: 'Choose the right consistency model for cross-service state movement.',
+        topicIds: ['cap-theorem', 'sharding', 'consistent-hashing', 'raft-log-replication', 'two-phase-commit', 'saga-pattern'],
+      },
+      {
+        title: 'Reliability and Control',
+        goal: 'Keep distributed workflows safe under duplicates, partial failures, and changing traffic.',
+        topicIds: ['idempotency', 'transactional-outbox', 'feature-flag-control-plane', 'incident-causal-candidate-graph-case-study', 'runbook-automation-approval-ledger-case-study', 'slo-error-budget-burn-rate-alert-case-study'],
+      },
+      {
+        title: 'Observability and Runtime',
+        goal: 'Measure what actually happens when users press the button.',
+        topicIds: ['message-queue', 'distributed-tracing', 'opentelemetry-tail-sampling-policy-case-study', 'kafka-log-case-study', 'kv-cache', 'lru-cache'],
+      },
+    ],
+  },
+  {
     id: 'ai-ml-foundations',
     title: 'AI and ML Foundations',
     shortTitle: 'AI/ML Foundations',
     level: 'Beginner to Intermediate',
     pace: '23 topics',
+    estimatedHours: '20-26',
     audience: 'Software engineers and students who want practical ML concepts before jumping into large models.',
     summary: 'Build from vectors and optimization into models, evaluation, leakage, calibration, and causal decision-making.',
     outcome: 'You can tell whether a model is learning, overfitting, leaking data, miscalibrated, or being evaluated with the wrong metric.',
     useWhen: 'Use this before advanced LLM topics or whenever ML terms feel disconnected from engineering decisions.',
     capstone: 'Evaluate a model change with a train/test split, calibration view, threshold policy, and leakage audit.',
+    prerequisiteTrackIds: ['beginner-cs-foundations'],
     nextTrackIds: ['transformers-llm-systems', 'security-trust-verification'],
     modules: [
       {
@@ -219,11 +274,13 @@ export const learningTracks = [
     shortTitle: 'LLM Systems',
     level: 'Intermediate to Advanced',
     pace: '27 topics',
+    estimatedHours: '24-32',
     audience: 'AI engineers, infra engineers, and product engineers building with retrieval, agents, serving, and safety layers.',
     summary: 'Connect transformer math to serving systems, retrieval, structured generation, tracing, cost, and guardrails.',
     outcome: 'You can reason across the full stack: tokens, attention, KV cache, batching, retrieval, constrained decoding, routing, cost, and safety.',
     useWhen: 'Use this after AI/ML foundations, or when LLM behavior and LLM serving costs need to be understood together.',
     capstone: 'Design an LLM feature with RAG, constrained outputs, cost controls, telemetry, fallback, and a risk gate.',
+    prerequisiteTrackIds: ['ai-ml-foundations', 'systems-design-foundations'],
     nextTrackIds: ['distributed-systems-reliability', 'security-trust-verification'],
     modules: [
       {
@@ -254,6 +311,7 @@ export const learningTracks = [
     shortTitle: 'Web Platform',
     level: 'Intermediate',
     pace: '25 topics',
+    estimatedHours: '20-26',
     audience: 'Frontend, full-stack, and performance engineers who want to understand the browser as a runtime and distributed cache.',
     summary: 'Study the event loop, workers, rendering, storage, cache, security boundaries, WebAssembly, WebGPU, and accessibility.',
     outcome: 'You can reason about jank, lifecycle, cache correctness, cross-origin boundaries, client storage, and browser execution limits.',
@@ -289,11 +347,13 @@ export const learningTracks = [
     shortTitle: 'Security and Trust',
     level: 'Intermediate to Advanced',
     pace: '25 topics',
+    estimatedHours: '22-28',
     audience: 'Engineers responsible for web security, supply chain, authorization, agent safety, or auditability.',
     summary: 'A path through browser defenses, integrity systems, identity, capability security, policy engines, and AI safety.',
     outcome: 'You can place a risk in the right layer: origin policy, crypto proof, authorization graph, supply chain provenance, model behavior, or audit trail.',
     useWhen: 'Use this when correctness is not enough and the question becomes who can do what, with what evidence, under what policy.',
     capstone: 'Build a threat model for an AI-powered web workflow with browser boundaries, permissions, provenance, and model-safety controls.',
+    prerequisiteTrackIds: ['distributed-systems-reliability'],
     nextTrackIds: ['distributed-systems-reliability', 'transformers-llm-systems'],
     modules: [
       {
@@ -316,6 +376,105 @@ export const learningTracks = [
         goal: 'Treat model misuse and model failure as systems risks with tests, ledgers, and controls.',
         topicIds: ['adversarial-examples', 'prompt-injection-threat-model', 'llm-guardrail-policy-engine', 'ai-audit-evidence-packet-case-study', 'llm-red-team-attack-taxonomy-queue-case-study', 'ai-safety-eval-slice-risk-register-case-study'],
       },
+    ],
+  },
+];
+
+export const learningProfiles = [
+  {
+    id: 'foundations-path',
+    title: 'Foundations path',
+    shortTitle: 'Foundations',
+    description: 'Build the first half of DSA fluency: data layout, search, traversal, graphs, and systems-level intuition.',
+    level: 'Beginner',
+    estimatedHours: '14-18',
+    trackIds: ['beginner-cs-foundations'],
+    outcomes: [
+      'You can explain what each structure buys and why the same mechanism appears in different domains.',
+      'You can follow an animation and recover the invariant, cost, and failure mode from the frame trace.',
+    ],
+  },
+  {
+    id: 'interview-track',
+    title: 'Interview and problem-solving track',
+    shortTitle: 'Interview',
+    description: 'A practical sequence for interview-ready recognition and pattern transfer across arrays, graphs, trees, and ranges.',
+    level: 'Beginner to Intermediate',
+    estimatedHours: '20-26',
+    trackIds: ['beginner-cs-foundations', 'interview-dsa'],
+    outcomes: [
+      'You can identify the right structure before opening a random interview prompt.',
+      'You can describe why the chosen approach is correct and when it should be rejected.',
+    ],
+  },
+  {
+    id: 'production-systems-track',
+    title: 'Production systems track',
+    shortTitle: 'Production',
+    description: 'Move from textbook structures into real production behavior: locality, retries, concurrency, caching, and incident safety.',
+    level: 'Intermediate',
+    estimatedHours: '24-30',
+    trackIds: [
+      'beginner-cs-foundations',
+      'interview-dsa',
+      'production-data-structures',
+      'distributed-systems-reliability',
+    ],
+    outcomes: [
+      'You can defend data model choices with explicit cost, correctness, and failure assumptions.',
+      'You can explain tradeoffs in a team review without relying on memorized templates.',
+    ],
+  },
+  {
+    id: 'databases-storage-track',
+    title: 'Databases and storage systems',
+    shortTitle: 'Databases',
+    description: 'A full path for logs, trees, transactions, compaction, sharding, and analytical memory behavior.',
+    level: 'Intermediate to Advanced',
+    estimatedHours: '24-30',
+    trackIds: ['production-data-structures', 'databases-storage-systems'],
+    outcomes: [
+      'You can predict what storage behavior changes after each design decision.',
+      'You can trace one user-visible incident back to one violated assumption.',
+    ],
+  },
+  {
+    id: 'ai-inference-track',
+    title: 'AI inference and model systems',
+    shortTitle: 'AI/Inference',
+    description: 'From math to service stack: attention, quantization, retrieval, caching, routing, and serving economics.',
+    level: 'Intermediate to Advanced',
+    estimatedHours: '26-34',
+    trackIds: ['ai-ml-foundations', 'transformers-llm-systems', 'systems-design-foundations'],
+    outcomes: [
+      'You can explain where inference cost comes from and where quality breaks first.',
+      'You can connect optimization levers to latency, memory footprint, and correctness guarantees.',
+    ],
+  },
+  {
+    id: 'systems-design-track',
+    title: 'System design and reliability',
+    shortTitle: 'Systems Design',
+    description: 'An end-to-end design track from service boundaries to recovery, consistency, and observability.',
+    level: 'Intermediate to Advanced',
+    estimatedHours: '18-24',
+    trackIds: ['beginner-cs-foundations', 'systems-design-foundations', 'distributed-systems-reliability'],
+    outcomes: [
+      'You can design and stress a full flow with explicit failure and control assumptions.',
+      'You can use course topics as checkpoints instead of isolated one-off fixes.',
+    ],
+  },
+  {
+    id: 'web-platform-security-track',
+    title: 'Web platform and security trust',
+    shortTitle: 'Web & Security',
+    description: 'Browser runtime, web security, and trust boundaries: performance, policy, and verification together.',
+    level: 'Intermediate',
+    estimatedHours: '16-22',
+    trackIds: ['browser-web-platform', 'security-trust-verification'],
+    outcomes: [
+      'You can diagnose browser and runtime problems with a state-machine mental model.',
+      'You can separate availability problems from integrity or trust problems and choose the correct controls.',
     ],
   },
 ];
@@ -368,6 +527,26 @@ export const domainGuides = {
   },
 };
 
+export function getLearningProfileById(profileId) {
+  if (!profileId) return null;
+  return learningProfiles.find((profile) => profile.id === profileId) ?? null;
+}
+
+export function getLearningProfileTrackIds(profileId) {
+  const profile = getLearningProfileById(profileId);
+  return profile ? [...profile.trackIds] : [];
+}
+
+export function getLearningProfilesForTrack(trackId) {
+  return learningProfiles.filter((profile) => profile.trackIds.includes(trackId));
+}
+
+export function getTracksByProfile(profileOrId) {
+  const profile = typeof profileOrId === 'string' ? getLearningProfileById(profileOrId) : profileOrId;
+  if (!profile) return [];
+  return getTracksByIds(profile.trackIds);
+}
+
 export function trackTopicIds(track) {
   return track.modules.flatMap((module) => module.topicIds);
 }
@@ -378,6 +557,19 @@ export function uniqueTrackTopicIds(track) {
 
 export function getTrackById(id) {
   return learningTracks.find((track) => track.id === id) ?? null;
+}
+
+export function getTrackPrerequisiteIds(trackOrId) {
+  const track = typeof trackOrId === 'string' ? getTrackById(trackOrId) : trackOrId;
+  if (!track) return [];
+  return [...new Set(track.prerequisiteTrackIds ?? [])];
+}
+
+export function getTracksByIds(trackIds = []) {
+  if (!Array.isArray(trackIds)) return [];
+  return trackIds
+    .map((id) => getTrackById(id))
+    .filter(Boolean);
 }
 
 export function getTopicTrackPlacements(topicId) {

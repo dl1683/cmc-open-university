@@ -1,4 +1,4 @@
-// Liquid time-constant networks and Liquid Foundation Model design:
+﻿// Liquid time-constant networks and Liquid Foundation Model design:
 // adaptive dynamics, compact state, and edge-first architecture search.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -337,21 +337,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The naive recurrent design uses one learned transition for all conditions. If the model needs longer memory, it must learn to keep the hidden state stable through gates or weights. If it needs quick reaction, it must learn to push the state hard. LSTMs and GRUs improve the situation with learned gates, but the update is still a discrete step wrapped around a sequence index. The model knows token order, not continuous time.',
         'Another naive answer is to make the model bigger or use full attention. That often helps quality, but it is not the same as solving temporal adaptation. Full attention lets a model search over many past positions, but every context extension increases serving cost. For edge devices, the wall appears quickly: memory bandwidth, battery use, thermal throttling, and time-to-first-token become product constraints, not minor implementation details.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The liquid-network insight is to make the effective time constant part of the learned computation. In a physical first-order system, the time constant controls how quickly the system approaches a new value. A small time constant produces a fast response. A large time constant produces inertia. Liquid time-constant networks borrow that idea for neural state. The hidden state follows a continuous-time differential equation whose parameters depend on the current input and hidden state.',
         'That gives each neuron a local speed control. If the input looks important, the model can shrink the time constant and move rapidly. If the input looks like noise, it can enlarge the time constant and preserve memory. The same unit can therefore act differently in different regimes. This is why the word "liquid" is useful: the dynamics are not frozen after training as a single fixed recurrence speed. They flow around the current signal.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'A liquid neuron keeps a hidden value h(t). It receives an input x(t), uses a small neural network or parameterized expression to compute conductance-like terms, and updates h through an ordinary differential equation. You can think of the update as a tug between the current state, the new input, and a learned target value, scaled by a learned time constant. The solver advances the state by a small time increment. The output is produced from the new hidden state.',
         'The animation separates that path into signal, gate network, tau, ODE step, next state, and output. The important object is tau, the time-scale control. A fixed RNN step says "apply this transition now." An LTC step says "given this input and current state, decide how quickly the internal state should move, then integrate." That extra degree of freedom is powerful, but it also makes numerical stability and solver choice part of the architecture.',
@@ -366,7 +366,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation lesson',
+      heading: 'How to read the animation',
       paragraphs: [
         'The liquid-neuron view highlights the gate, tau, and ODE step because those are the moving parts that make the state adaptive. The response plot compares a small time constant with a large one. The fast curve reaches the new value quickly; the slow curve keeps memory longer. That picture is the simplest mental model for LTCs: tau is the learned speed dial.',
         'The LFM hybrid and edge-ledger views shift from a single neuron to a deployed model. The highlighted operators are not decorative boxes. They are competing ways to spend compute. Gated convolutions buy cheap local mixing. Grouped-query attention buys selective global recall. Hardware search, distillation, and quantization try to preserve quality inside a strict latency, memory, and energy envelope. The final ledger frame is the operational interpretation: an efficient edge model must be measured by time-to-first-token, tokens per second, peak memory, energy, thermal behavior, and privacy boundaries.',
@@ -380,14 +380,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Continuous-time neural dynamics are expressive, but they introduce solver cost, step-size policy, stability constraints, and implementation complexity. A model that looks elegant on a benchmark can be awkward if its numerical integration is expensive or hard to batch. Training can also become sensitive to parameterization because time constants that become too small or too large can create unstable or frozen behavior.',
         'Hybrid edge backbones move the tradeoff to operator selection. Gated convolutions are cheap and cache-friendly, but they see mostly local context. Attention is flexible, but it is memory hungry. Distillation can make a small model better, but it inherits the limits and biases of the teacher. Quantization reduces memory and bandwidth, but it can damage accuracy or require careful calibration. Architecture search can find good Pareto points, but only if the measurement loop uses the real target hardware and realistic prompts.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Liquid dynamics are attractive for irregular time series, control systems, robotics, embedded sensing, and other workloads where the relevant memory horizon changes over time. They are also useful as a teaching case because they make the hidden cost of temporal modeling visible. A sequence model is always deciding what to remember and how quickly to overwrite it; LTCs make that decision explicit.',
         'The edge-model lineage wins when the product constraint is stronger than the leaderboard constraint. Offline assistants, private local summarizers, keyboard models, field devices, and low-power agents need useful behavior without assuming a server-class GPU. In those settings, compact adaptive state and hardware-aware operator mixes can matter more than raw parameter count.',
@@ -407,5 +407,65 @@ export const article = {
         'After this, study Selective State Space Models: Mamba for scan-friendly long-context state, RWKV Recurrent Transformer for recurrence inside language modeling, xLSTM Matrix Memory Case Study for learned memory matrices, Kimi Linear Attention for hybrid efficient attention, Quantization for model compression, Transformer Inference Roofline for serving bottlenecks, and Hybrid Attention State Budget Case Study for deciding where exact attention is worth its cost.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for liquid-time-constant-network-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

@@ -189,6 +189,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Contraction Hierarchy Route Planner Case Study. A route-planning case study: road-graph preprocessing, node importance, witness search, shortcut edges, upward/downward queries, traffic customization, and update tradeoffs..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A road router answers the same shortest-path question all day: start here, end there, use this travel profile. The road graph may have millions of vertices and edges, but most of the topology changes slowly. A navigation service can answer many thousands of queries before a new map version arrives.',
@@ -213,7 +222,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to encode road hierarchy as vertex ranks and preserve distances while removing low-ranked vertices. Contract unimportant vertices first. If a shortest path between two remaining neighbors would have gone through the contracted vertex, add a shortcut edge with the same cost.',
         'A shortcut is not a new road. It is a compressed certificate that a lower-level path exists and has a known weight. The shortcut must store enough unpacking metadata to recover the original sequence of road edges for turn-by-turn output, geometry, and audit.',
@@ -246,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         'In a chain S-A-B-C-D-T, suppose B and C are low-ranked local intersections. Contracting B checks whether A can reach C without B at equal or lower cost. If not, preprocessing adds shortcut A-C. Later, contracting C may add shortcut A-D. A query from S to T can use S-A, shortcut A-D, and D-T instead of scanning B and C at query time.',
         'That shortcut is safe only because witness search failed to find a cheaper or equal A-to-D path that avoids the contracted vertices. If another road already gave A-to-D at the same or lower cost, adding the shortcut would waste memory. If the witness search missed a real cheaper path, the hierarchy could preserve a non-shortest route and the query answer would be wrong for that metric.',
@@ -271,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Production uses',
+      heading: 'Real-world uses',
       paragraphs: [
         'Contraction hierarchies fit route services with stable topology and many repeated shortest-path queries: car navigation, fleet routing, map previews, distance matrices, isochrone seeds, and map-matching transition scoring. The common access pattern is many online queries over a graph whose structure is reused.',
         'They are especially useful when the route profile can be precomputed or customized in batches. A car profile with stable legal access and a daily traffic snapshot is friendlier than a request that changes constraints on every call.',
@@ -279,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The technique is weaker when costs change per request. Live traffic, truck restrictions, avoid-toll preferences, weather closures, time-dependent turn costs, and per-user policies can all break the assumption that one preprocessed metric serves many queries.',
         'Shortcut explosion is another failure mode. Poor contraction order can add so many shortcuts that memory rises and query speed falls. Complex turn restrictions can also force a larger state space than plain vertex-to-vertex shortest path, because the state may need to encode the incoming edge or maneuver context.',
@@ -295,5 +304,55 @@ export const article = {
         'Primary sources and references include "Contraction Hierarchies: Faster and Simpler Hierarchical Routing in Road Networks" at https://algo2.iti.kit.edu/schultes/hwy/contract.pdf and customizable route planning work such as https://arxiv.org/abs/1402.0402.',
       ],
     },
+      {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for contraction-hierarchy-route-planner-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

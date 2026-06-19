@@ -1,4 +1,4 @@
-// Service workers: a programmable proxy that moves in between your page
+﻿// Service workers: a programmable proxy that moves in between your page
 // and the network. Once installed, every request passes through code YOU
 // wrote — which is how a web page survives airplane mode.
 
@@ -68,9 +68,9 @@ function* movesIn() {
   yield {
     state: proxy({
       sw: 'caches.match(request)',
-      cache: 'shell (4 files) → HIT',
-      net: '✈ UNREACHABLE',
-      page: 'app loads anyway ✓',
+      cache: 'shell (4 files) â†’ HIT',
+      net: 'âœˆ UNREACHABLE',
+      page: 'app loads anyway âœ“',
       edges: [
         { id: 'toSw', from: 'page', to: 'sw' },
         { id: 'toCache', from: 'sw', to: 'cache' },
@@ -85,7 +85,7 @@ function* strategies() {
   yield {
     state: proxy({
       sw: 'cache-first',
-      cache: 'logo.svg → HIT (2ms)',
+      cache: 'logo.svg â†’ HIT (2ms)',
       net: 'never asked',
       page: 'fetch("logo.svg")',
       edges: [
@@ -116,7 +116,7 @@ function* strategies() {
   yield {
     state: proxy({
       sw: 'stale-while-revalidate',
-      cache: 'avatar.jpg → served instantly',
+      cache: 'avatar.jpg â†’ served instantly',
       net: 'fetching fresh copy in background',
       page: 'painted in 2ms',
       edges: [
@@ -158,6 +158,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Service Workers & Offline-First. A programmable proxy between page and network: intercept every request, answer from cache, survive airplane mode..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         'A normal web page is dependent on the network path. A navigation, script fetch, image load, API request, and font request all travel through browser networking, DNS, TCP or QUIC, TLS, caches, CDNs, and origins. When the connection is slow or absent, the page often has no local decision point. It waits, errors, or shows a fallback built into the browser rather than the application.',
@@ -166,7 +175,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive web app',
+      heading: 'The obvious approach',
       paragraphs: [
         'The naive app lets every request go directly to the network and trusts the browser HTTP cache to help when it can. This is enough for many sites. Versioned assets can be cached by normal HTTP headers, and dynamic data can be fetched fresh.',
         'The wall appears when the product is supposed to behave like an application. The user opens it on a train, on hotel Wi-Fi, or after the origin has a transient outage. The shell should still start. Previously viewed content should still be readable. A write should not disappear just because the connection failed. Ordinary network fetches do not provide that application-level policy.',
@@ -174,7 +183,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to move request policy into a programmable proxy near the user. Instead of treating the network as the only source of truth, the application defines a route table. Some requests should be cache-first because they are immutable assets. Some should be network-first because freshness matters. Some should be stale-while-revalidate because instant display is worth being one version behind. Some should be network-only because stale truth would be dangerous.',
         'Cache Storage is the main data structure. It is a browser-managed store of Request-to-Response entries that service workers can open by name. A precache cache can hold a versioned application shell. Runtime caches can hold images or API responses under size and freshness policies. IndexedDB can hold structured offline state and write queues. The worker coordinates these stores when fetch, sync, push, and message events arrive.',
@@ -223,7 +232,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Install cost is proportional to the number and size of precached assets. A large shell makes first install slow and increases quota pressure. Runtime caches need expiration rules because image and API caches can grow without bound.',
         'Network-first can add latency when the network is slow but not fully down. A timeout fallback can improve user experience, but it creates a freshness choice that the product must own. Stale-while-revalidate spends background bandwidth and can show old content by design.',
@@ -231,7 +240,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Service workers win for app shells, documentation, education tools, dashboards, news readers, maps, media-heavy sites, and any product where repeat visits should start quickly or survive flaky connectivity. They are especially strong when the static shell is known at build time and dynamic data can be routed through explicit freshness policies.',
         'They also win for background capabilities. A worker can receive push events, coordinate messages across controlled clients, and help drain an offline outbox when connectivity returns. Combined with IndexedDB, a service worker can make a browser app behave more like a resilient local application.',
@@ -252,5 +261,87 @@ export const article = {
         'Study Web Workers for thread isolation, The Event Loop for worker events, Cache Storage Versioned Precache for manifest sets and activate cleanup, Service Worker Navigation Preload Race for faster network-first HTML, Background Sync Outbox Queue for offline writes, Web Push Subscription Delivery for server wakeups, Browser Message Channels for cross-tab coordination, URL Origin Parser for scope and same-origin boundaries, HTTP Cache ETag Revalidation for validators, HTTP Vary Cache-Key Normalization for cache keys, CORS Preflight Cache for cross-origin permission caching, Browser Storage Quota and Eviction Manager for pressure behavior, CDN Request Flow for the larger caching analogy, and Local-First Sync Engine Case Study for conflict-aware offline collaboration.',
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Service Workers & Offline-First moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -244,66 +244,6 @@ export function* run(input) {
   else throw new InputError('Pick a CUDA portability view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A CUDA ecosystem portability lock-in matrix exists because accelerator dependence is bigger than one API. It includes libraries, fused kernels, collectives, compilers, graph capture, profilers, debugging workflows, numeric tolerances, tuning assumptions, and team habits.',
-        'The point is to turn lock-in into an inspectable backlog. A platform cannot decide whether to move work to ROCm, XLA, ONNX Runtime, SYCL, or another stack until it knows which production traces are legal, fast enough, observable, and reversible.',
-      ],
-    },
-    {
-      heading: 'The tempting shortcut',
-      paragraphs: [
-        'The easy answer is to translate code, import the framework on a second backend, and run a benchmark. That is a useful smoke test.',
-        'It fails as a migration plan because the hard rows often live in the tail: one custom kernel, one collective pattern, one profiler workflow, one unstable dtype, or one p99 regression that only appears under real traffic.',
-      ],
-    },
-    {
-      heading: 'Core mechanism',
-      paragraphs: [
-        'Start from production traces. Extract operator families, dtypes, shape buckets, custom kernels, collectives, memory pressure, topology assumptions, graph-capture assumptions, debugging needs, and incident history.',
-        'The invariant is trace-weighted closure. A row closes only when it is legal, numerically acceptable, fast enough, memory-safe, observable, reversible, and owned. Coverage alone is not done.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'In the lock-in-matrix view, read the dependency graph as more than code calls. Framework defaults, libraries, fused kernels, collectives, profilers, and debugging tools all create migration work.',
-        'In the migration-backlog view, rank rows by production weight, not architectural neatness. A small number of hot kernels or collectives can dominate the migration risk.',
-      ],
-    },
-    {
-      heading: 'Where it fits',
-      paragraphs: [
-        'This extends Accelerator Kernel Compatibility Matrix. That module asks whether an op, dtype, and shape can run. This module asks whether the ecosystem around the workload can move without silently losing performance, debuggability, or reliability.',
-        'NVIDIA CUDA documentation frames CUDA as the programming platform for GPU-accelerated applications and includes the programming guide plus library ecosystem: https://docs.nvidia.com/cuda/. NVIDIA NCCL documents multi-GPU and multi-node collectives used by deep learning frameworks: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/. PyTorch documents CUDA semantics and ROCm/HIP compatibility notes: https://docs.pytorch.org/docs/stable/notes/cuda.html and https://docs.pytorch.org/docs/2.12/notes/hip.html.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Do not equate framework import success with production portability. Do not trust average throughput without p99 and failure debugging. Do not move only the easy models and claim the fleet migrated.',
-        'Do not ignore collectives or retuning. Training and MoE inference often fail at the communication layer before the scalar operator layer. Kernel tile sizes, memory hierarchy, collective algorithms, precision choices, graph capture, and batching policy can all change the fair comparison.',
-      ],
-    },
-    {
-      heading: 'Migration gates',
-      paragraphs: [
-        'A good migration plan is trace-first. Port the hot operators, collectives, and fused kernels first. Keep CPU or CUDA fallback where parity is not proven. Promote only after numeric tolerance, throughput, memory pressure, p99, observability, and rollback gates pass.',
-        'ONNX Runtime execution providers are one practical example of ordered backend selection and fallback at runtime: https://onnxruntime.ai/docs/execution-providers/. AMD documents ROCm support for PyTorch separately: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/3rd-party/pytorch-install.html.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: NVIDIA CUDA documentation at https://docs.nvidia.com/cuda/, NVIDIA NCCL user guide at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/, PyTorch CUDA notes at https://docs.pytorch.org/docs/stable/notes/cuda.html, PyTorch HIP notes at https://docs.pytorch.org/docs/2.12/notes/hip.html, AMD ROCm PyTorch guide at https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/3rd-party/pytorch-install.html, and ONNX Runtime execution providers at https://onnxruntime.ai/docs/execution-providers/. Study Accelerator Kernel Compatibility Matrix, Heterogeneous AI Compute Workload Router, Inference Kernel Fusion and CUDA Graphs, CUDA Graph Shape Cache, GPU All-Reduce, and NVLink/NVSwitch GPU Fabric next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

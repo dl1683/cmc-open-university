@@ -1,4 +1,4 @@
-// JSON parsing: a tokenizer plus a nesting stack for objects, arrays, keys,
+﻿// JSON parsing: a tokenizer plus a nesting stack for objects, arrays, keys,
 // values, separators, and structural errors.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -210,6 +210,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for JSON Parser Stack Case Study. JSON parsing combines a lexical scanner with a stack: objects and arrays push frames, commas and colons check expected positions, and closing delimiters pop..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A JSON parser turns a byte sequence into exactly one typed value: object, array, string, number, boolean, or null. That sounds small, but it is the boundary between text and data. HTTP APIs, configuration files, package metadata, logs, caches, browser storage, model tool calls, and message queues all use JSON because it carries nested structure in a format that many languages can read.',
@@ -217,7 +226,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The tempting shortcut',
+      heading: 'The obvious approach',
       paragraphs: [
         'The tempting shortcut is to scan for punctuation: count braces, split on commas, look for colons, and trim quotes. This works on the smallest examples and fails as soon as the input becomes realistic. A comma inside a string is not a separator. An escaped quote is not the end of a string. A colon is legal after an object key and meaningless in an array. A closing bracket is legal only when the most recent open container is an array.',
         'Regular expressions and simple split calls also fail because JSON is recursively nested. An object can contain an array, the array can contain objects, and those objects can contain more arrays. The parser must remember the chain of open containers. That memory is not a convenience; it is the data structure required by the grammar.',
@@ -232,7 +241,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The stack invariant',
+      heading: 'Why it works',
       paragraphs: [
         'The core invariant is simple: the top stack frame describes the only container that may receive the next token. Opening { pushes an object frame. Opening [ pushes an array frame. A primitive token becomes the next value in the current frame. A closing delimiter must match the top frame and pop it.',
         'A frame is not just an opening delimiter. It also stores an expectation. An object frame may be waiting for a key, a colon, a value, a comma, or a closing brace. An array frame may be waiting for a value, a comma, or a closing bracket. The expectation is what turns punctuation into grammar.',
@@ -272,7 +281,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and limits',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The parsing pass is O(n) in the input length. A streaming parser needs O(depth) stack memory plus whatever the consumer stores. A DOM-style parser needs O(document size) memory because it materializes the full value tree.',
         'Production parsers also need defensive limits: maximum bytes, maximum nesting depth, maximum string length, number range policy, Unicode validation, and timeout or cancellation behavior in hostile environments. A tiny document with thousands of nested arrays can break a recursive parser even though the byte count is small.',
@@ -288,24 +297,102 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
         'The same stack idea appears beyond JSON. XML, HTML, programming-language blocks, markdown containers, expression parentheses, template syntax, and protocol envelopes all need a memory of open structure. Once a format has recursive nesting, a stack is usually close by.',
         'In AI systems, JSON parsing also sits behind tool calling and structured output. A model may produce text that looks like JSON, but the runtime still needs a strict parser before it executes a tool. The parser proves shape, not truth; schema validation and authorization checks come next.',
       ],
     },
     {
-      heading: 'Common failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The first failure is confusing JSON with JavaScript object literal syntax. JSON has double-quoted strings, no comments, no trailing commas, no undefined, and one root value. The second failure is treating syntactic validity as business validity. {"amount":-1} can be valid JSON and still invalid for a payment API.',
         'The third failure is ignoring resource limits. Attackers can send deep nesting, huge strings, absurd numbers, or duplicate keys that different components interpret differently. A parser should reject invalid structure, then a validator should enforce the application contract.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary source: RFC 8259, The JavaScript Object Notation Data Interchange Format, at https://www.rfc-editor.org/rfc/rfc8259. Study Stack, Finite State Machines, CSV Parser State Machine, UTF-8 Decoder DFA, Pratt Parser Expression AST, Parser Design Patterns Primer, JSON-RPC Protocol Case Study, JSON Schema Constrained Decoding Token Mask, Constrained Decoding, and Schema Registry Case Study next.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for json-parser-stack-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

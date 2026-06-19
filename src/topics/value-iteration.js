@@ -1,4 +1,4 @@
-// Reinforcement learning's foundation, watchable: a grid world where value
+﻿// Reinforcement learning's foundation, watchable: a grid world where value
 // leaks backward from the reward, one sweep at a time, until a policy —
 // a way to act — crystallizes out of nothing but numbers.
 
@@ -25,7 +25,7 @@ const GAMMA = 0.9;
 const WALL_SENTINEL = -99;
 
 const isAt = (cell, [r, c]) => cell[0] === r && cell[1] === c;
-const fmt = (v) => (v === WALL_SENTINEL ? '█' : v === 10 ? 'G +10' : v === -10 ? 'P −10' : v.toFixed(1));
+const fmt = (v) => (v === WALL_SENTINEL ? 'â–ˆ' : v === 10 ? 'G +10' : v === -10 ? 'P âˆ’10' : v.toFixed(1));
 
 export function* run(input) {
   const living = String(input.living).startsWith('-0.4') ? -0.4 : String(input.living).startsWith('-0.04') ? -0.04 : null;
@@ -41,9 +41,9 @@ export function* run(input) {
   const cellId = (r, c) => `r${r}:c${c}`;
 
   yield {
-    state: snapshot('The grid world: goal +10, pit −10, wall █, agent starts bottom-left'),
+    state: snapshot('The grid world: goal +10, pit âˆ’10, wall â–ˆ, agent starts bottom-left'),
     highlight: { found: [cellId(...GOAL)], swap: [cellId(...PIT)], active: [cellId(...START)] },
-    explanation: `Reinforcement learning's setup, in miniature: an agent in a world, a REWARD signal (+10 at the goal, −10 in the pit), and NO instructions — nobody labels the right move (contrast every supervised topic on this site). Each step also costs ${living} (time is money). The question RL answers: how good is it to STAND in each square? That number is the square's VALUE.`,
+    explanation: `Reinforcement learning\'s setup, in miniature: an agent in a world, a REWARD signal (+10 at the goal, âˆ’10 in the pit), and NO instructions — nobody labels the right move (contrast every supervised topic on this site). Each step also costs ${living} (time is money). The question RL answers: how good is it to STAND in each square? That number is the square\'s VALUE.`,
   };
 
   const neighbors = (r, c) => [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]
@@ -63,10 +63,10 @@ export function* run(input) {
     }
     for (let r = 0; r < ROWS; r += 1) for (let c = 0; c < COLS; c += 1) V[r][c] = next[r][c];
     yield {
-      state: snapshot(`Sweep ${sweep}: V(s) ← max over moves of [${living} + ${GAMMA}·V(next)]`),
+      state: snapshot(`Sweep ${sweep}: V(s) â† max over moves of [${living} + ${GAMMA}Â·V(next)]`),
       highlight: changed.length ? { active: changed } : { found: [cellId(...GOAL)] },
       explanation: sweep === 1
-        ? `Sweep 1 — the Bellman update: each square's value becomes the best it can reach: step cost plus ${GAMMA}× the neighbor's value. Only the squares TOUCHING the goal and pit learn anything yet — value can only flow one step per sweep.`
+        ? `Sweep 1 — the Bellman update: each square\'s value becomes the best it can reach: step cost plus ${GAMMA}Ã— the neighbor\'s value. Only the squares TOUCHING the goal and pit learn anything yet — value can only flow one step per sweep.`
         : changed.length
           ? `Sweep ${sweep}: the value gradient creeps ${sweep === 2 ? 'two steps' : 'further'} from the terminals. ${sweep === 3 ? 'Notice the pit\'s NEGATIVE value repelling its neighbors while the goal\'s positive value attracts — the landscape is forming hills and valleys.' : 'Each square now summarizes the long-term consequences of standing there.'}`
           : `Sweep ${sweep}: nothing moved more than 0.01 — CONVERGED. The Bellman equation is satisfied everywhere: every value equals the best one-step lookahead. This fixed-point-by-iteration is the same trick as PageRank.`,
@@ -88,7 +88,7 @@ export function* run(input) {
   yield {
     state: snapshot('The policy: from anywhere, step toward the highest-valued neighbor'),
     highlight: { found: path, swap: [cellId(...PIT)] },
-    explanation: `Now the magic: a POLICY falls out for free. From any square, just step to the highest-valued neighbor — greedy on V. The agent's route from start is highlighted: it climbs the value gradient${living === -0.4 ? ', taking the efficient path because every step hurts' : ' at leisure, since steps are nearly free — try the urgent setting and compare'}, and it gives the pit a wide berth without ever being told to. The numbers ARE the strategy.`,
+    explanation: `Now the magic: a POLICY falls out for free. From any square, just step to the highest-valued neighbor — greedy on V. The agent\'s route from start is highlighted: it climbs the value gradient${living === -0.4 ? ', taking the efficient path because every step hurts' : ' at leisure, since steps are nearly free — try the urgent setting and compare'}, and it gives the pit a wide berth without ever being told to. The numbers ARE the strategy.`,
   };
 
   yield {
@@ -101,88 +101,108 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Value iteration exists for decisions where an action matters because of the future state it creates. A shortest path algorithm can choose a route when every edge cost is known. Supervised learning can copy labeled examples. Reinforcement learning problems are different: an agent acts, the world changes, rewards arrive later, and a good choice may look bad for a few steps before it pays off.`,
-        `The grid in the demo is a small Markov decision process. Each square is a state, each move is an action, the goal and pit are terminal rewards, and each step has a living cost. The question is not where the agent has walked. The question is how good it is to stand in each square if the agent will act optimally from there.`,
+        'The grid is a Markov decision process. Each cell is a state. The green cell marked G is the goal (+10 reward). The red cell marked P is the pit (-10 reward). The dark cell is a wall the agent cannot enter. Every other cell starts at value zero.',
+        'Each number in a cell is V(s): how much total reward the agent expects to collect from that state onward, assuming it plays optimally. Active (highlighted) cells are the ones whose values changed during the current sweep. The final highlighted path is the greedy policy: from any state, step toward the highest-valued neighbor.',
+        'Watch value propagate backward from the terminals. In sweep 1, only cells adjacent to the goal or pit update. Each subsequent sweep carries information one step farther. When no cell changes by more than 0.01, the Bellman equation is satisfied everywhere and the value table has converged.',
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to be greedy over immediate rewards. Move toward the goal, avoid the pit, and treat every other square as neutral. That works in a tiny open grid when the goal is visible and nothing surprising happens. It fails as soon as a short route passes near danger, a long route earns more reward, or actions are stochastic.`,
-        `Another reasonable attempt is breadth-first search. BFS is correct when each step has the same cost and there are no delayed rewards beyond reaching a target. Value iteration handles a richer problem. A state can be good because it leads to future reward, bad because it leads to future loss, or ambiguous because the best action depends on transition probabilities and the discount factor.`,
+        'Some decisions cannot be judged by their immediate outcome. A chess move that loses a pawn may win the game. A robot step toward a wall may be the start of a detour around an obstacle. Reinforcement learning exists for exactly this class of problem: an agent takes actions, the world changes, rewards arrive later, and the right choice now depends on consequences that unfold over many future steps.',
+        'The mathematical framework is the Markov decision process, or MDP (Bellman 1957). An MDP has a set of states S, a set of actions A, a reward function R, transition probabilities P, and a discount factor gamma. The agent\'s job is to find a policy -- a mapping from states to actions -- that maximizes the expected sum of discounted future rewards. Sutton and Barto\'s 1998 textbook (second edition 2018) consolidated the field around this framework and remains the standard reference.',
+        'Value iteration solves the MDP when the model (transitions and rewards) is known. Q-learning (Watkins 1989) solves it when the model is unknown, learning from experience instead of a blueprint. Both rest on the same foundation: the Bellman equation.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The wall is delayed consequence. A square beside the goal is valuable even before the agent receives the reward. A square beside the pit is dangerous even if the immediate step has not failed yet. A table of immediate rewards cannot represent that. The reward must flow backward from the future into earlier states.`,
-        `The second wall is repeated choice. The value of a state assumes the agent will keep choosing well afterward. That makes the definition recursive: the best move from here depends on the values of the next states, and those values depend on their next states. Value iteration solves that recursion by repeated approximation until the table stops changing.`,
+        'The first reasonable attempt is to hardcode rules. Move toward the goal, avoid the pit, prefer short paths. A human can write these rules for a 3x4 grid in a few minutes. For a known, small, static environment, hand-crafted rules work.',
+        'A second reasonable attempt is exhaustive enumeration. List every possible policy (every assignment of an action to each state), simulate each one, and pick the policy with the highest total reward. For our 3x4 grid with 4 actions, that is 4^10 = about one million policies for the 10 non-terminal, non-wall cells. Brute-forceable, if slow.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is the Bellman optimality equation. The value of a state is the best expected return from one action plus the discounted value of whatever state comes next. Written plainly: a state is worth the reward you can get now, plus the future you can buy by choosing the best action.`,
-        `Value iteration turns that equation into an algorithm. Start with rough values, often zero for nonterminal states. Sweep over the state space. Replace each value with the best one-step lookahead using the previous values. Repeat. Each sweep pushes reward information one layer farther through the world until every state agrees with its own best future.`,
+        'State spaces are too large for enumeration. Chess has roughly 10^47 legal positions. Go has roughly 10^170. A self-driving car\'s state includes position, velocity, road geometry, and every nearby vehicle -- continuous and high-dimensional. Enumerating all policies is impossible, and hardcoding rules is brittle because the programmer must anticipate every situation.',
+        'The second wall is that the environment\'s dynamics may be unknown. A robot does not ship with a physics simulator of every surface it will walk on. A game-playing agent does not start with the rules. Even when a model exists, it may be wrong. Value iteration requires a complete, correct model. Q-learning drops that requirement and learns from raw experience, but it needs a different mechanism to avoid getting stuck on the first decent-looking policy.',
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'The core insight',
       paragraphs: [
-        `For each nonterminal state s, consider every action a. For each possible next state s2, multiply the transition probability by the quantity reward(s, a, s2) + gamma * V(s2). Sum those terms to get the expected return for that action. The new value V(s) is the maximum expected return over actions.`,
-        `In the deterministic grid, each action has one next square, so the update is easy: step cost plus gamma times the neighbor value. In a stochastic grid, moving up might go up with probability 0.8 and slip sideways with probability 0.1 each. The same update works, but it averages all possible outcomes before choosing the best action.`,
+        'The Bellman optimality equation: the value of a state equals the best action\'s immediate reward plus the discounted value of the resulting next state. In symbols: V*(s) = max_a [R(s,a) + gamma * sum over s\' of P(s\'|s,a) * V*(s\')]. A state is worth what you earn now plus the best future you can reach.',
+        'This is recursive -- V* on the left depends on V* on the right. Value iteration resolves the recursion by starting with a guess (all zeros) and sweeping repeatedly: replace each state\'s value with the best one-step lookahead using the previous values. Each sweep pushes reward information one layer farther through the state space. The contraction mapping theorem guarantees convergence when gamma < 1.',
+        'Q-learning reformulates the same idea for the model-free case. Instead of V(s), learn Q(s,a): the value of taking action a in state s and then acting optimally. The update is Q(s,a) <- Q(s,a) + alpha * [r + gamma * max_a\' Q(s\',a\') - Q(s,a)]. The term in brackets is the temporal-difference (TD) error: the difference between what actually happened (r + gamma * max Q at the next state) and what we predicted (the old Q value). Positive surprise raises Q; negative surprise lowers it.',
       ],
     },
     {
-      heading: 'What the Visual Proves',
+      heading: 'How it works',
       paragraphs: [
-        `The grid is a value table. The highlighted cells are not visited cells; they are cells whose estimated future changed during that sweep. In the first sweep, only states next to the goal or pit learn anything. Later sweeps carry reward and danger farther away. This shows why planning is a propagation problem, not a path-drawing problem.`,
-        `The final highlighted route is the greedy policy after convergence. The agent can simply step to the neighbor with the highest value because those values already include future consequences. The pit is avoided without a hand-written rule because nearby states inherited negative future value from the terminal loss.`,
+        'The agent-environment loop: at time t, the agent observes state s_t, chooses action a_t, receives reward r_t, and transitions to state s_{t+1}. The goal is a policy pi(s) that maximizes the expected return G_t = r_t + gamma*r_{t+1} + gamma^2*r_{t+2} + ... where gamma (typically 0.9 to 0.99) discounts future rewards so nearby rewards matter more.',
+        'Value iteration (model-based): initialize V(s) = 0 for all non-terminal states. Repeat: for each state s, for each action a, compute the expected return using the known transition model. Set V(s) = max over actions. Stop when the largest change across all states falls below a threshold. Extract the policy: pi(s) = argmax_a [R(s,a) + gamma * V(next state)].',
+        'Q-learning (model-free): initialize Q(s,a) = 0 for all state-action pairs. The agent interacts with the environment. After each transition (s, a, r, s\'), update: Q(s,a) <- Q(s,a) + alpha * [r + gamma * max_a\' Q(s\',a\') - Q(s,a)]. The learning rate alpha (typically 0.1 to 0.001) controls how fast new experience overwrites old estimates.',
+        'Exploration vs. exploitation: epsilon-greedy is the standard starting point. With probability epsilon, pick a random action (explore); otherwise pick argmax_a Q(s,a) (exploit). Start epsilon high (1.0: pure exploration) and decay it toward a small value (0.01) as the Q-table matures. Without exploration, the agent may lock onto the first decent path and never discover a better one.',
+        'Deep Q-Networks (Mnih et al. 2015): when the state space is too large for a table (Atari screens are 210x160x3 pixels), replace the Q-table with a neural network that takes a state as input and outputs Q-values for all actions. Two key tricks make this stable: a replay buffer that stores past transitions and samples mini-batches to break correlation, and a target network that is updated slowly to prevent the moving target problem.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        `The proof idea is a fixed point. The Bellman update defines an operator on the value table. With a discount factor gamma below 1, applying that operator pulls value estimates closer together instead of letting errors grow. Repeated sweeps converge to the unique value table that satisfies the Bellman optimality equation.`,
-        `Once the value table is correct, the greedy policy is optimal. If a state value equals the best expected one-step return plus discounted future value, then choosing the action that achieved that maximum cannot be improved by another first action. The rest of the plan is already included in the next state's value.`,
+        'Value iteration converges because the Bellman operator is a contraction mapping under the infinity norm when gamma < 1. Each sweep reduces the maximum error between the current value table and the true optimal values by a factor of gamma. After k sweeps, the error is at most gamma^k times the initial error. With gamma = 0.9, ten sweeps reduce the worst-case error by a factor of about 3.5; twenty sweeps by about 8.1.',
+        'Q-learning converges to the optimal Q* under two conditions proved by Watkins and Dayan (1992): every state-action pair must be visited infinitely often, and the learning rate must decay appropriately (sum of alpha_t = infinity, sum of alpha_t^2 < infinity). The intuition: the TD update is a stochastic approximation to the Bellman backup. Each sample is noisy, but with enough samples the noise averages out and Q converges to the fixed point of the Bellman optimality equation.',
+        'The greedy policy extracted from a converged value table or Q-table is optimal. If V*(s) or Q*(s,a) satisfies the Bellman equation, then choosing the action that achieves the maximum cannot be improved -- any deviation would lower expected return because the values already encode all future consequences.',
       ],
     },
     {
-      heading: 'Cost and Behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `One sweep costs the work needed to evaluate every action in every state. For a sparse MDP this is often O(S * A * K), where S is states, A is actions, and K is possible next states per action. A dense transition table can cost O(S * S * A) per sweep. Space is O(S) for the value table, or O(S * A) if action values are stored too.`,
-        `The number of sweeps depends on the discount factor and accuracy target. Gamma close to 1 makes far future reward matter, which is often desirable, but it also slows convergence. Doubling the number of states roughly doubles each sweep. Increasing branching or stochastic outcomes multiplies the cost of each action evaluation.`,
+        'Tabular value iteration: each sweep is O(|S| * |A| * |S\'|) where |S\'| is the branching factor per action. Space is O(|S|) for the value table. The number of sweeps to reach error epsilon is O(log(1/epsilon) / log(1/gamma)). For the demo grid: 12 states, 4 actions, converges in about 6 sweeps.',
+        'Tabular Q-learning: space is O(|S| * |A|) for the Q-table. Time complexity is harder to state because it depends on how the agent explores. Sample efficiency is the real bottleneck -- Q-learning may need millions of episodes to converge in environments with sparse rewards or long horizons. Each update is O(|A|) to compute the max.',
+        'DQN: space is the network size (millions of parameters for Atari). Each update is a forward pass plus a backward pass through the network. The replay buffer adds O(buffer_size) memory. Training is orders of magnitude slower than tabular methods per state-action pair, but DQN handles state spaces where a table would require more entries than atoms in the universe.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Exact value iteration wins when the model is known and the state space is small enough to enumerate. It is useful for grid worlds, simple robot planning, inventory control, queueing models, maintenance policies, small games, and teaching because every assumption is visible in the table.`,
-        `It also wins as a conceptual foundation. Q-learning keeps the Bellman backup but learns from sampled experience instead of a complete transition model. Dynamic programming planners, approximate value methods, and many deep reinforcement learning systems still rely on the idea that future reward can be backed up into earlier states.`,
+        'Atari games (DQN, Mnih et al. 2015): a single architecture learned to play 49 different Atari games from raw pixels, reaching human-level performance on most. The Q-network generalized across visually similar states without any game-specific engineering.',
+        'Go (AlphaGo, Silver et al. 2016): combined Monte Carlo tree search with value and policy networks trained via self-play reinforcement learning. AlphaGo defeated the world champion. AlphaZero (2017) dropped human game data entirely and learned from scratch.',
+        'Robotics: RL trains locomotion controllers, grasping policies, and manipulation skills in simulation, then transfers to physical robots (sim-to-real). The value function encodes which configurations lead to task completion.',
+        'Recommendation systems: each user session is a sequence of states (browsing history), actions (items to recommend), and rewards (clicks, purchases). Q-learning variants optimize long-term engagement rather than greedy click-through.',
+        'RLHF for large language models: reinforcement learning from human feedback uses a reward model trained on human preferences, then optimizes the language model\'s policy via PPO (a policy gradient method, not Q-learning, but built on the same MDP framework). This is how ChatGPT and Claude are fine-tuned for helpfulness.',
       ],
     },
     {
-      heading: 'Failure Modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `Value iteration converges to the wrong answer if the MDP is wrong. Bad rewards, missing state variables, inaccurate transition probabilities, or hidden constraints all produce a policy that is optimal for the model and bad for the world. Reward design mistakes are especially dangerous because the algorithm will exploit whatever objective it is given.`,
-        `The table also explodes. Raw images, continuous robot joints, user histories, and open-ended software tasks cannot be enumerated directly. Function approximation helps, but then the clean convergence guarantee changes. Greedy action selection is another trap: greed is justified after values have converged, not while the table is still mostly guesses.`,
+        'Sparse rewards: if the agent only receives a reward at the very end of a long episode, Q-learning updates propagate information backward one step per episode. The agent may wander randomly for millions of steps before a useful signal reaches early states. Reward shaping and curiosity-driven exploration are partial fixes.',
+        'High-dimensional continuous action spaces: Q-learning requires computing max_a Q(s,a). With discrete actions (Atari has 18 buttons), this is a simple argmax. With continuous actions (robot joint torques, steering angles), maximizing over an infinite action space is intractable. Policy gradient and actor-critic methods (A3C, SAC, PPO) handle continuous actions by parameterizing the policy directly.',
+        'Sim-to-real gap: policies trained in simulation often fail on physical hardware because the simulator\'s physics, friction, lighting, and sensor noise do not match reality. Domain randomization (varying simulation parameters) helps but does not eliminate the problem.',
+        'Reward hacking: the agent optimizes whatever objective it is given. A cleaning robot rewarded for not seeing dirt may learn to close its eyes. A game agent may find exploits the designer did not anticipate. Reward specification is an unsolved alignment problem.',
+        'Sample inefficiency: model-free RL typically needs millions of environment interactions. Each interaction may be expensive (physical robots, expensive simulations). Model-based methods (learning a world model, then planning inside it) improve sample efficiency but introduce model error.',
       ],
     },
     {
-      heading: 'Implementation Notes',
+      heading: 'Worked example',
       paragraphs: [
-        `Use two value arrays when teaching or debugging: read from the old table and write into the new table. In-place updates can converge faster in some cases, but they make the sweep order part of the behavior. Keep terminal states fixed, and keep walls or invalid states out of the action set.`,
-        `Track the largest value change in a sweep. Stop when that delta is below a threshold tied to the reward scale. For stochastic transitions, make sure probabilities for each action sum to 1. For episodic tasks, be explicit about whether terminal rewards are stored as state values or delivered on entering the terminal state.`,
+        'Four-state gridworld. States: S (start, top-left), A (top-right), B (bottom-left), G (goal, bottom-right). Two actions from each non-terminal state: right and down. Transitions: S-right->A (reward 0), S-down->B (reward 0), A-down->G (reward +10), B-right->G (reward +1). G is terminal. Discount gamma = 0.9. Learning rate alpha = 0.1. All Q-values start at zero.',
+        'Episode 1: the agent follows the path S -> A -> G. First it takes action "right" in S, arrives at A, receives reward 0. Then it takes action "down" in A, arrives at G, receives reward 10. We update backward.',
+        'Update Q(A, down): TD target = r + gamma * max_a\' Q(G, a\') = 10 + 0.9 * 0 = 10. TD error = 10 - Q(A, down) = 10 - 0 = 10. New Q(A, down) = 0 + 0.1 * 10 = 1.0.',
+        'Update Q(S, right): TD target = 0 + 0.9 * max(Q(A, down), Q(A, right)) = 0 + 0.9 * max(1.0, 0) = 0.9. TD error = 0.9 - 0 = 0.9. New Q(S, right) = 0 + 0.1 * 0.9 = 0.09.',
+        'Episode 2: the agent follows S -> B -> G. Reward at B-right->G is only +1. Update Q(B, right) = 0 + 0.1 * [1 + 0.9*0 - 0] = 0.1. Update Q(S, down) = 0 + 0.1 * [0 + 0.9*0.1 - 0] = 0.009.',
+        'After two episodes: Q(S, right) = 0.09, Q(S, down) = 0.009. The agent already prefers going right (toward the +10 reward through A) over going down (toward the +1 reward through B). Over hundreds of episodes with epsilon-greedy exploration, these values converge to their true optima and the gap widens. The Q-table encodes the optimal policy: always go right from S.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Dynamic Programming and Memoization for the reuse pattern behind repeated backups. Study Markov Chains for transition dynamics, PageRank for another fixed-point iteration, and A* Search for a graph-planning contrast where a heuristic guides search instead of sweeping every state.`,
-        `Then study Multi-Armed Bandits to isolate exploration without state transitions, Q-Learning for model-free Bellman backups, Neural Network Forward Pass for value-function approximation, and RL Experiment Reproducibility Ledger for the records needed once rewards, seeds, environments, and policies become experimental artifacts.`,
+        'Bellman, R. (1957). Dynamic Programming. The mathematical foundation: optimal substructure and the Bellman equation. Watkins, C. (1989). Learning from Delayed Rewards. PhD thesis introducing Q-learning. Watkins and Dayan (1992). Q-Learning. Convergence proof for tabular Q-learning. Mnih et al. (2015). Human-Level Control through Deep Reinforcement Learning. The DQN paper that launched deep RL. Sutton and Barto (2018). Reinforcement Learning: An Introduction, 2nd edition. The standard textbook, freely available online.',
+        'Prerequisites: study Dynamic Programming and Memoization for the reuse pattern behind Bellman backups. Study Markov Chains for transition dynamics without actions. Study Neural Network Forward Pass for the function approximation that makes DQN possible.',
+        'Extensions: study Policy Gradients for the alternative that optimizes the policy directly instead of learning Q-values -- necessary for continuous action spaces. Study Actor-Critic methods (A2C, A3C, SAC) for combining value estimation with policy optimization. Study PPO for the algorithm used in RLHF. Study Multi-Armed Bandits to isolate the exploration-exploitation tradeoff without state transitions. Study Monte Carlo Tree Search for planning with simulated rollouts, the approach combined with RL in AlphaGo.',
       ],
     },
   ],
 };
+

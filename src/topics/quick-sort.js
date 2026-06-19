@@ -93,92 +93,90 @@ function* quickSort(values, lo, hi, done) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Quick sort exists because simple in-place sorts make too little progress per pass. Insertion Sort repairs one value. Selection Sort fixes one final position. On large random arrays, both spend quadratic time.`,
-        `Quick sort tries to get divide-and-conquer speed while keeping the array mostly in place. One scan around a pivot splits the problem by value, not by position. After that scan, the two sides no longer need to trade elements.`,
+        'The animation uses Lomuto partitioning with the last element as pivot. The highlighted range marks the current recursive call. The pivot is marked separately at the right end of the range. Two cursors move through the range: the compare marker is the element being classified, and the active marker is the boundary between the low zone (values <= pivot) and the high zone (values > pivot).',
+        'A swap fires when a value that belongs in the low zone sits past the boundary. The value moves into the boundary slot, the boundary advances, and the invariant holds: everything left of the boundary is <= pivot, everything between the boundary and the scan cursor is > pivot. When the scan finishes, the pivot swaps into the boundary slot and turns green. Green means final -- that index will never move again. Watch the green set grow: each partition locks exactly one position.',
       ],
     },
     {
-      heading: `Baseline and wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The first baseline is a quadratic in-place sort. It is easy to trust because a sorted prefix grows one slot at a time, but n rounds of long scans or shifts do not scale.`,
-        `The second baseline is Merge Sort: split by index, sort both halves, then merge. That gives predictable O(n log n) time, but array merging usually needs an auxiliary buffer. Quick sort asks a different question: can one scan arrange the values so the split itself is already valid?`,
-        `The wall is independence. If you split an unsorted array by index, the left half may contain values that belong on the right and the right half may contain values that belong on the left. Recursion is safe only after a partition proves that no crossing is needed.`,
+        'Tony Hoare invented quicksort in 1960 while working on a machine-translation project at Moscow State University. He needed to sort words so they could be looked up in a sorted Russian-English dictionary. His first idea was a recursive partition scheme, and it turned out to be the fastest general-purpose sort in practice.',
+        'Simple in-place sorts make too little progress per pass. Insertion sort fixes one element per round. Selection sort finalizes one position per round. Both take O(n^2) time because each pass does O(n) work and there are O(n) passes. Quicksort tries to split the problem in half with each pass, getting divide-and-conquer speed while keeping the data in place.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Partitioning turns one pivot into a boundary proof. Values on one side are less than or equal to the pivot. Values on the other side are greater than the pivot. The pivot belongs exactly between those zones.`,
-        `The pivot position is final after partitioning. The sides aren't sorted, but they are independent. Sorting the left side can't require a value from the right side, and sorting the right side can't require a value from the left side.`,
+        'Merge sort splits the array by index, sorts both halves recursively, and merges the results. It guarantees O(n log n) time regardless of input. The merge step walks both halves in order and writes the smaller element into an output buffer, producing a sorted result in one linear pass.',
+        'Merge sort is predictable and stable, but the merge step needs O(n) auxiliary space. For an array of a million integers, that is an extra four megabytes. On embedded systems, in tight inner loops, or when memory pressure matters, that auxiliary buffer is a real cost.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The wall',
       paragraphs: [
-        `This visualization uses Lomuto partitioning. Pick the last value as the pivot. Keep a boundary at the first slot of the greater-than-pivot zone. Scan the range from left to right, excluding the pivot.`,
-        `When the scanned value is less than or equal to the pivot, swap it into the low zone and advance the boundary. When the scanned value is greater than the pivot, leave it where it is; it becomes part of the high zone. After the scan, swap the pivot into the boundary slot.`,
-        `On 15, 5, 1, 10, 5, 7, 12, the pivot is 12. The scan leaves 15 in the high zone and moves 5, 1, 10, 5, and 7 into the low zone. When 12 moves to the boundary, every value to its left is less than or equal to 12 and every value to its right is greater.`,
+        'Merge sort splits by position, not by value. The left half might contain the largest element and the right half might contain the smallest. The merge step exists precisely because the split does not guarantee anything about value placement. That merge step is what forces the extra memory.',
+        'The question quicksort asks: can one scan rearrange the values so the split itself is valid? If the scan can prove that every value on the left belongs on the left and every value on the right belongs on the right, there is nothing to merge. Recursion on independent ranges replaces merging, and the auxiliary buffer disappears.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'How it works',
       paragraphs: [
-        `The partition invariant carries the proof. Before the boundary, every scanned value is less than or equal to the pivot. Between the boundary and the scan cursor, every scanned value is greater than the pivot. After the cursor, values are unknown.`,
-        `Each comparison expands one known zone. A low value is swapped into the boundary slot, so the low zone grows. A high value stays where it is, so the high zone grows. The invariant survives either decision.`,
-        `When the scan ends, every non-pivot value has been classified. Swapping the pivot into the boundary puts it after all low values and before all high values. By induction, if the recursive calls sort those smaller independent ranges, the whole range is sorted.`,
+        'Choose a pivot. Partition the array so every element smaller than the pivot ends up to its left and every element larger ends up to its right. The pivot lands in its final sorted position. Recurse on the left range and the right range.',
+        'Lomuto partition (the variant shown here) is the simpler scheme. Pick the last element as pivot. Maintain a boundary starting at the left end. Scan left to right. When the scanned value is <= pivot, swap it into the boundary slot and advance the boundary. When the scanned value is > pivot, leave it in place. After the scan, swap the pivot into the boundary slot. The boundary now separates low and high zones, and the pivot sits between them.',
+        'Hoare partition (the original 1960 scheme) uses two cursors that walk inward from opposite ends. The left cursor advances until it finds a value >= pivot; the right cursor retreats until it finds a value <= pivot; then the two values swap. The cursors meet in the middle. Hoare partition does fewer swaps on average because each swap moves two elements toward their correct side. The tradeoff: it returns a split point, not a final pivot position, so the recursive ranges need slightly more care.',
+        'Pivot selection matters. Picking the first or last element is simple but degrades to O(n^2) on sorted or reverse-sorted input. Random pivot selection gives expected O(n log n) regardless of input order. Median-of-three picks the median of the first, middle, and last elements -- a cheap check that turns sorted arrays from worst case to near-best case.',
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: 'Why it works',
       paragraphs: [
-        `A partition scans its range once. If pivots split ranges evenly, the array is scanned across about log2(n) recursive levels, so the total work is O(n log n). Average quick sort is O(n log n) with reasonable pivot selection.`,
-        `Bad pivots change the shape of the recursion tree. If the pivot is always the smallest or largest value, one recursive side is empty and the other has n - 1 values. The scans then add up to O(n^2), and recursion depth grows to O(n).`,
-        `Extra memory is small because partitioning happens inside the array. The call stack is O(log n) on balanced splits and O(n) in the worst case. The swaps also mean the usual implementation isn't stable.`,
+        'After partition, the pivot is in its final position. Every element to its left is <= pivot, so none of them need to cross the pivot to reach their sorted position. Every element to its right is > pivot, so none of them need to cross either. The two sides are independent subproblems.',
+        'The correctness argument is induction on subarray size. Base case: a subarray of size 0 or 1 is already sorted. Inductive step: partition places the pivot correctly and produces two smaller subarrays. If recursion sorts those smaller subarrays correctly (inductive hypothesis), the whole array is sorted because no element needs to cross the pivot boundary.',
+        'The partition invariant makes each step safe. At any point during the scan, three zones exist: values before the boundary are <= pivot, values between the boundary and the scan cursor are > pivot, and values past the cursor are unclassified. Each comparison shrinks the unclassified zone by one and grows either the low zone or the high zone. When no unclassified values remain, the pivot swap completes the proof.',
       ],
     },
     {
-      heading: `Implementation checklist`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Choose the partition scheme deliberately. Lomuto is easy to teach because one boundary separates low and high zones, but it can do more swaps than Hoare partitioning. Hoare partitioning is fast but returns a split point rather than a final pivot position, so the recursive ranges are easier to get wrong.`,
-        `Choose the pivot rule with adversarial input in mind. Last-element pivot is fine for a small lesson and poor as a production default. Median-of-three, randomized pivots, three-way partitioning for duplicates, and introsort fallback are common ways to keep quick sort from becoming fragile.`,
-        `Keep recursion bounded. Recurse on the smaller side first and loop on the larger side, or use an introsort depth limit. That turns a nice average-case algorithm into code that behaves predictably under bad input.`,
+        'Each partition scans its range once: O(k) work for a range of size k. If every pivot splits its range roughly in half, the recursion tree has about log2(n) levels. Each level scans every element once across all the ranges at that level, so total work is O(n log n).',
+        'The average case is more precisely about 1.39 n log2(n) comparisons. The factor 1.39 comes from an entropy argument: a random pivot does not split exactly in half but into two pieces whose expected sizes are n/4 and 3n/4. The resulting recurrence solves to 2n ln(n), which is 2n * 0.693 * log2(n) = 1.39 n log2(n). This is about 39% more comparisons than merge sort, but quicksort wins in practice because its inner loop is simpler and more cache-friendly.',
+        'Worst case is O(n^2). If every pivot is the smallest or largest element, one side is empty and the other has n-1 elements. The scans add up to n + (n-1) + (n-2) + ... + 1 = n(n+1)/2. Already-sorted input with last-element pivot hits this case. Recursion depth also grows to O(n), risking stack overflow.',
+        'Space is O(log n) on average for the call stack. The array is sorted in place -- no auxiliary buffer. Quicksort is not stable: the swap can reorder equal elements. Two records with the same key may not preserve their original relative order.',
       ],
     },
     {
-      heading: `Testing it`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Test empty arrays, one-element arrays, already sorted arrays, reverse-sorted arrays, all-equal arrays, duplicate-heavy arrays, negative values, and random arrays. Compare against a trusted language sort and assert that the output is nondecreasing and contains exactly the same multiset of values.`,
-        `Partition itself deserves direct tests. After one partition, every value on the left side must be less than or equal to the pivot and every value on the right side must be greater for the Lomuto variant shown here. If that local proof fails, recursion only hides the bug.`,
+        'Quicksort is the default choice for in-memory array sorting in most standard libraries. C qsort, C++ std::sort (as the inner loop of introsort), and Java Arrays.sort for primitives (dual-pivot quicksort) all use it.',
+        'The reason is cache behavior. Partitioning walks through contiguous memory from left to right. On modern hardware, sequential access patterns hit the L1/L2 cache almost every time, while merge sort bounces between the input array and the auxiliary buffer. For large arrays that fit in RAM but not in cache, this difference matters more than the comparison count.',
+        'Quicksort also needs no extra allocation. Merge sort must allocate and free an O(n) buffer (or reuse one), which adds memory-management overhead. In latency-sensitive code -- game engines, real-time systems, embedded firmware -- avoiding allocation is a hard constraint, not a preference.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Quick sort wins on in-memory arrays when low extra memory and cache-friendly scans matter. Partitioning walks through contiguous memory, and most work is simple comparison and swapping.`,
-        `Production-grade versions rarely use the naive last-item pivot alone. They choose pivots more carefully, switch to Insertion Sort for tiny ranges, and may fall back to Heap Sort if recursion becomes suspicious. The durable idea is partition first, then recurse on independent value ranges.`,
+        'The O(n^2) worst case is the primary weakness. An adversary who knows the pivot rule can construct a killer sequence that forces every partition to be maximally unbalanced. Introsort (Musser, 1997) fixes this: run quicksort, but if recursion depth exceeds 2 log2(n), switch to heapsort for the remaining range. The result is O(n log n) worst case with quicksort speed for the common case. C++ std::sort and .NET Array.Sort use introsort.',
+        'Quicksort is not stable. Equal keys may be reordered by swaps. When stability matters -- sorting database rows by one column while preserving the order from a previous sort on another column -- merge sort or timsort is the right tool.',
+        'For small subarrays (roughly n < 16), the overhead of recursion and partitioning exceeds the cost of insertion sort. Production implementations switch to insertion sort for small ranges. This hybrid approach gives quicksort its best constants.',
+        'Duplicate-heavy input is a problem for two-way partitioning. If most values equal the pivot, every partition puts almost everything on one side. Three-way partitioning (Dutch national flag, Dijkstra 1976) fixes this by separating less-than, equal-to, and greater-than zones. All copies of the pivot land in their final positions at once, and recursion skips them.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Worked example',
       paragraphs: [
-        `Quick sort fails when worst-case time must be guaranteed and the implementation has no safeguard. A bad pivot rule can be attacked by sorted, reverse-sorted, duplicate-heavy, or deliberately arranged input.`,
-        `It also fails when stability is required. Swapping equal keys can change their original order. For duplicate-heavy data, two-way partitioning is wasteful because equal values can keep moving through recursive calls. Three-way partitioning fixes that by separating less-than, equal-to, and greater-than zones.`,
-        `Linked lists are usually a poor fit because quick sort's strengths come from indexed ranges and contiguous scans. Merge Sort is often better there because splitting and merging lists can be done by pointer changes.`,
+        'Array: [3, 6, 8, 10, 1, 2, 1]. Pivot = 1 (last element). Boundary starts at index 0.',
+        'Scan index 0: value 3 > 1, leave it. Scan index 1: value 6 > 1, leave it. Scan index 2: value 8 > 1, leave it. Scan index 3: value 10 > 1, leave it. Scan index 4: value 1 <= 1, swap with index 0 (boundary). Array becomes [1, 6, 8, 10, 3, 2, 1]. Boundary advances to 1. Scan index 5: value 2 > 1, leave it.',
+        'Scan complete. Swap pivot (index 6, value 1) with boundary (index 1, value 6). Array becomes [1, 1, 8, 10, 3, 2, 6]. Pivot 1 is final at index 1. Left range [1] is size 1, already final. Right range [8, 10, 3, 2, 6] needs sorting.',
+        'Right range, pivot = 6 (last element). Boundary at index 2. Scan: 8 > 6 (leave), 10 > 6 (leave), 3 <= 6 (swap with index 2, array becomes [..., 3, 10, 8, 2, 6], boundary to 3), 2 <= 6 (swap with index 3, array becomes [..., 3, 2, 8, 10, 6], boundary to 4). Swap pivot 6 into index 4: [..., 3, 2, 6, 10, 8]. Pivot 6 is final. Recurse on [3, 2] and [10, 8]. Each two-element range needs one more partition to finish. Final sorted array: [1, 1, 2, 3, 6, 8, 10].',
       ],
     },
     {
-      heading: `Concrete example`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Take 8, 3, 6, 2, 7 with pivot 7. Partitioning moves 3, 6, and 2 into the low zone and leaves 8 in the high zone. After the pivot swap, the array has a left range containing values no greater than 7, the pivot 7 in its final position, and a right range containing 8.`,
-        `The left range still needs sorting. The right range is already size one. The important point is that no future step needs to compare 8 with 3, 6, or 2 to decide which side they belong on. The pivot comparison already proved that boundary.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Merge Sort for stable, predictable O(n log n) sorting with extra memory. Study Heap Sort for an in-place O(n log n) worst-case guarantee. Study Insertion Sort because hybrids use it on tiny partitions. Two Pointers explains alternative partition schemes, Recursion explains the call tree, and Big-O Growth Rates explains why balanced splits matter.`,
+        "C.A.R. Hoare, 'Quicksort,' Computer Journal 5(1), 1962 -- the original partition-and-recurse algorithm. Robert Sedgewick, 'The Analysis of Quicksort Programs,' Acta Informatica 7, 1977, and his 1975 Stanford dissertation -- the definitive practical analysis covering pivot strategies, cutoff to insertion sort, and the constants that shaped real implementations. David Musser, 'Introspective Sorting and Selection Algorithms,' Software: Practice and Experience 27(8), 1997 -- introsort, guaranteeing O(n log n) worst case by switching to heapsort when recursion grows too deep.",
+        'Study next: Merge Sort for the guaranteed O(n log n) stable baseline that quicksort trades stability to beat on space. Heap Sort for the O(n log n) worst-case in-place sort that introsort falls back to. Introsort to see how production libraries combine quicksort, heapsort, and insertion sort into one algorithm. Dual-pivot quicksort (Yaroslavskiy, 2009) for the variant Java uses -- two pivots create three partitions per pass, reducing comparisons on random data. Quickselect for finding the k-th smallest element in O(n) average time by partitioning without sorting both sides.',
       ],
     },
   ],

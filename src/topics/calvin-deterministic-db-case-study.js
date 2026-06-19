@@ -196,6 +196,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Calvin Deterministic Database Case Study. Calvin as the transaction-ordering lesson: sequence first, replicate the log, then execute deterministically across shards..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why it exists',
       paragraphs: [
         `Calvin exists because distributed transactions often spend their hardest coordination at the worst possible time: after work has already started. If a transaction touches records on shard A and shard B, both shards must agree on what came before it, what conflicts with it, and when its result is visible. If they discover that order late, they can hold locks, wait on remote participants, abort useful work, or expose inconsistent behavior.`,
@@ -203,7 +212,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious approach is to execute transactions as they arrive and coordinate when a conflict appears. A classic distributed transaction can use Two-Phase Commit. An optimistic system can run first, validate at commit, and retry if the read-write conflict check fails. A timestamp system can assign times and use replication protocols to make those timestamps durable.`,
         `The wall is that runtime coordination lands on the latency path. Cross-shard transactions wait for remote participants. Hot records create deadlock or retry churn. Replicas may need extra agreement to decide which transaction won. The system can waste CPU and locks on work that later aborts.`,
@@ -211,28 +220,28 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `Core insight: serialize intent first, then parallelize deterministic work. Clients submit transactions to a sequencing layer. The sequencer places them in a total order. That ordered batch is replicated. Every shard scheduler sees the same batch and executes the pieces that touch its local records in a way that is equivalent to the global serial order.`,
         `This does not mean every shard runs every transaction. A shard only executes the operations that read or write its records. The key point is that all shards agree on each transaction's position before they begin. That agreement turns many runtime conflicts into a scheduling problem over a shared log.`,
       ],
     },
     {
-      heading: 'The invariant',
+      heading: 'Why it works',
       paragraphs: [
         `The invariant is that conflicting transactions are executed in the order chosen by the replicated log. If T1 is before T3 in the log and both touch account 7, every relevant scheduler must preserve that order. If two transactions do not conflict, workers can run them in parallel as long as the result is equivalent to the log order.`,
         `A second invariant is deterministic replay. Replicas that start from the same state, receive the same ordered input, and run deterministic transaction code should produce the same ending state. If the code reads the clock, calls an outside service, or depends on unordered iteration, the replay guarantee can break.`,
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         `The deterministic-ordering view shows clients, the sequencer, the replicated log, schedulers, and storage as separate roles. The teaching point is the log in the middle. Calvin makes the ordered batch the concurrency-control decision, not a passive record written after execution.`,
         `The cross-shard view shows the same log position reaching scheduler A and scheduler B. Cross-shard work still exists, but both shards coordinate from the same plan. The question changes from which order the shards discovered to whether the declared plan can be executed deterministically and safely.`,
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works (2)',
       paragraphs: [
         `A clean Calvin transaction has a known read set and write set, often because it is submitted as a stored procedure with declared keys. The sequencing layer batches transactions and assigns serial slots. The replicated log carries those slots to replicas before execution.`,
         `Partition schedulers use the log plus declared keys to acquire locks and run transaction pieces. For a cross-shard transaction, each shard sees the same serial slot and knows which local records are involved. The storage layer applies updates in a way that preserves the log order for conflicts.`,
@@ -240,7 +249,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it works',
+      heading: 'Why it works (2)',
       paragraphs: [
         `Calvin works when ordered input plus deterministic execution is enough to reproduce the same serial outcome everywhere. The sequencer provides the order. Replication makes that order durable and shared. The schedulers preserve the order for conflicting records. The transaction code produces the same result from the same inputs.`,
         `The safety argument depends on those conditions together. If every replica receives the same log and all conflicting operations respect that log, the final state is equivalent to executing transactions serially in log order. If any replica runs nondeterministic code or touches undeclared records, the argument no longer holds cleanly.`,
@@ -255,7 +264,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Calvin wins under high contention because it avoids a lot of wasted optimistic work. If many transactions fight over the same hot records, deciding the order before execution can reduce deadlocks, late aborts, and lock-order surprises.`,
         `It can also fit geo-replicated systems. Replicating a deterministic order before execution can be cleaner than letting each region execute and then reconciling conflicts. Once the order is agreed, local workers can make progress from the same input log.`,
@@ -271,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'How it works (3)',
       paragraphs: [
         `Design the transaction interface so read sets and write sets are declared or cheaply discovered before scheduling. Stored procedures can help because they give the database a known shape to analyze. Ad-hoc SQL or application-driven transactions need stricter rules or extra planning stages.`,
         `Make nondeterminism visible. Random numbers, timestamps, generated ids, and external reads should either be assigned by the log, supplied as deterministic inputs, or prohibited inside deterministic transaction code. Replica divergence is often caused by a small value that was not treated as part of the ordered input.`,
@@ -279,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Common failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         `A hidden nondeterministic read can make two replicas apply the same log differently. A clock read may choose different branches. A random value may generate different ids. An iteration over an unordered map may apply writes in different orders. These bugs are hard because the log looks correct while state drifts.`,
         `A bad key declaration can break conflict scheduling. If a transaction declares account 7 but later touches account 8, the scheduler's plan is incomplete. The system must detect this, abort and retry on a safe path, or use a transaction language that prevents it.`,
@@ -287,11 +296,92 @@ export const article = {
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Study next',
       paragraphs: [
         `Read Calvin: Fast Distributed Transactions for Partitioned Database Systems at https://www.cs.yale.edu/homes/dna/papers/calvin-sigmod12.pdf and the ACM DOI page at https://dl.acm.org/doi/10.1145/2213836.2213838. Then compare the design with Two-Phase Commit, deterministic state machine replication, and optimistic concurrency control.`,
         `Inside this curriculum, study Two-Phase Commit, Write-Ahead Log, Spanner Case Study, FoundationDB Case Study, Paxos, Raft Log Replication, Transactional Outbox, Isolation Levels, Hot Rows, and Replicated State Machine topics.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Calvin Deterministic Database Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

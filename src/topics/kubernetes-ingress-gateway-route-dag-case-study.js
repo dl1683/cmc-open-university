@@ -208,7 +208,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The baseline approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The simple approach is to let each team edit the edge proxy or create its own load balancer. That works for one service. It breaks when many teams share hostnames, certificates, listeners, and route precedence.',
         'Kubernetes also loses observability when the edge lives outside the API. A manifest can say the app exists, but the cluster cannot tell whether the public route was accepted, rejected, shadowed, or still waiting for a controller.',
@@ -222,7 +222,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The structure is a route DAG. A request enters through DNS and a load balancer, reaches a listener, matches host and path rules, selects a backend Service, then follows that Service to EndpointSlices and ready Pods.',
         'Ingress compresses much of that graph into IngressClass, Ingress rules, TLS secrets, backend references, and status. Gateway API expands it into GatewayClass, Gateway, listener, HTTPRoute, parent reference, backend reference, and conditions.',
@@ -238,7 +238,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         'A retail cluster serves shop.example.com. The platform team owns the Gateway, the public address, and the certificate. The cart team owns an HTTPRoute for /cart. The orders team owns an HTTPRoute for /orders.',
         'The route graph lets the platform team keep listener and TLS control while application teams ship route changes. Status conditions tell the cart team whether its route attached, whether the backend Service exists, and whether the controller accepted the configuration.',
@@ -246,7 +246,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it is reliable',
+      heading: 'Why it works',
       paragraphs: [
         'The reliability argument is reconciliation plus status. The Kubernetes object is desired state, not the data plane. A controller repeatedly observes the route graph, resolves references, programs the proxy, and writes back what happened.',
         'A route should not be considered live just because the object exists. It is live when the responsible controller has accepted it and the data plane has been programmed. Gateway conditions make that state easier to inspect than a pile of proxy config.',
@@ -262,7 +262,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'Ingress is still useful for simple HTTP routing where one team owns the route and the controller behavior is already understood. Gateway API is a better fit when teams share edge infrastructure, when listener ownership matters, or when route status needs to explain why attachment failed.',
         'Neither API fixes a broken backend. If traffic fails, walk the graph backward: client DNS, public load balancer, listener, TLS secret, route match, Service, EndpointSlice, ready Pod, and controller status.',
@@ -270,7 +270,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The common failures are wrong class, missing controller, missing TLS secret, host or path shadowing, Service without ready endpoints, and status that never updates.',
         'Gateway API adds attachment failures. A Route can point at a Gateway listener that does not allow it. A backend in another namespace may need explicit permission. A route can exist but remain rejected because the graph edge is not allowed.',
@@ -278,7 +278,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'How to read the animation',
       paragraphs: [
         'The Ingress view shows how a route is assembled from references: class, host, path, backend Service, EndpointSlice, and status. A manifest exists before the public route is actually usable; the controller closes that loop.',
         'The Gateway view separates infrastructure ownership from application route ownership. The important edge is attachment: a Route must be allowed to attach to a listener before backend routing matters. Status conditions are the inspection surface for that decision.',
@@ -298,5 +298,47 @@ export const article = {
         'Study Envoy xDS Service Mesh because many controllers program Envoy-like resources, Kubernetes Service and EndpointSlice Traffic for the backend half of the graph, Trie and Patricia Trie for host/path matching, Feature Flag Control Plane for controlled route changes, and Flagger Progressive Delivery Canary for safe edge rollout.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for kubernetes-ingress-gateway-route-dag-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

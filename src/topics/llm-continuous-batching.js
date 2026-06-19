@@ -1,4 +1,4 @@
-// LLM continuous batching: schedule at decode-iteration granularity so the GPU
+﻿// LLM continuous batching: schedule at decode-iteration granularity so the GPU
 // stays packed while variable-length requests arrive and finish.
 
 import { matrixState, InputError } from '../core/state.js';
@@ -230,6 +230,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Continuous Batching. Iteration-level scheduling for LLM serving: admit and remove requests every token step instead of freezing a whole batch..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why it exists',
       paragraphs: [
         `Autoregressive LLM serving has a shape ordinary request batching does not handle well. Every active user needs one model step for each generated token, but users arrive at different times, send prompts of different lengths, and stop after different output lengths. A chat reply might finish in 80 tokens while an agent trace keeps going for 1,500. If the server freezes a batch until every request finishes, the short request leaves an idle lane while other users wait outside.`,
@@ -237,7 +246,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The naive approach is static batching. Collect several requests, run them together, and keep the batch membership fixed until all of them finish. This works for many offline workloads because every item in the batch has roughly the same shape. It can also work for prompt prefill, where a set of prompts can be padded or packed and processed in a large parallel pass.`,
         `The wall appears during interactive decode. Output length variance turns static batching into head-of-line blocking. A large frozen batch waits for its slowest sequence. A short sequence that finished early cannot free its lane for a waiting request. Average tokens per second may look fine while time to first token and p99 streaming latency degrade. FIFO fairness has a different wall: it respects arrival order but ignores the fact that a 200-token chat, a 16k-token prefill, and a tool-constrained agent trace do not impose the same compute, memory, or tail-latency risk.`,
@@ -259,7 +268,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works (2)',
       paragraphs: [
         `The static-vs-continuous view makes the wasted lane visible. In the static schedule, request A finishes early, but its lane stays idle while C, D, and E wait outside the frozen batch. In the continuous schedule, those waiting requests can enter on later iterations. The important move is not that the matrix has more colored cells. It is that admission happens after each token step rather than only after the original batch drains.`,
         `The selective-batching view proves a second point: continuous batching is not blind mixing. Attention and MLP work can be grouped because their kernel shapes are compatible after padding or packing. Sampling, stopping rules, cache metadata, and prefill chunks remain policy-controlled. The mixed schedule shows chunked prefill interleaved with decode so prompt work uses the GPU while streaming users still advance.`,
@@ -273,14 +282,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The gain is throughput under latency constraints, not free capacity. More live sequences consume more KV cache, more scheduler bookkeeping, more sampling work, and sometimes longer per-request waits. If the scheduler admits too aggressively, it can increase total tokens per second while making p99 worse. If it admits too conservatively, the GPU sits underfilled and cost per token rises.`,
         `Memory management is the hard systems partner. KV cache grows and shrinks dynamically as requests arrive, generate, and finish. PagedAttention attacks this by allocating cache in blocks, reducing fragmentation and enabling better sharing for common prefixes: https://arxiv.org/abs/2309.06180. Without a block allocator or equivalent memory plan, continuous admission can run into cache fragmentation, preemption churn, or outright memory deadlock.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Continuous batching fits online LLM serving with many concurrent users: chat, coding assistants, agent backends, RAG systems, customer-support bots, and API platforms where requests arrive continuously rather than as a clean offline dataset. It sits inside a model replica, below the request router and above the model kernels. The router chooses a replica; the local scheduler chooses when a request gets prefill, when it joins decode, and when it must wait for memory.`,
         `It is most useful when paired with length-aware routing, chunked prefill, PagedAttention, admission control, speculative decoding, and phase-specific metrics. The production contract is not maximum occupancy. It is the best tokens per dollar that still respects time to first token, time per output token, queue age, memory safety, cancellation behavior, and p99 by request class.`,
@@ -299,5 +308,87 @@ export const article = {
         `Study Orca for iteration-level scheduling and selective batching, then PagedAttention for the memory allocator that makes high-churn KV cache practical. After that, study length-aware batching, chunked prefill token budgets, SLO-aware request routing, KV cache capacity models, prefill/decode disaggregation, transformer inference rooflines, backpressure, load balancers, and tail-latency thinking. The durable lesson is that LLM serving is a queueing system wrapped around model kernels; throughput numbers mean little without the scheduler state that produced them.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why LLM Continuous Batching moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

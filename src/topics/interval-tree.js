@@ -176,101 +176,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Each node is one interval drawn as a labeled bar with a start and end value. The tree arranges these intervals into a BST ordered by the low endpoint. Every node carries a "max" annotation: the largest high endpoint anywhere in its subtree. During a query, active (highlighted) nodes are being examined. Found nodes overlap the query range. Removed or dimmed nodes belong to subtrees that were pruned -- their max endpoint proved no interval inside could possibly reach the query.',
+        'Switch between the two views to see both halves of the design. The overlap-query view traces a search through the tree, showing where the max annotation lets the algorithm skip entire branches. The maintain-max-endpoint view shows the cost side: how insertions propagate max updates back toward the root, and why rotations must recompute max before queries stay correct.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Interval overlap questions show up in calendars, genome features, compiler live ranges, trace spans, text annotations, and one-dimensional collision windows.',
-        'An interval tree exists because ordered point keys are not enough. The query is about ranges that can overlap even when their start points are far away.',
-        'The data model is simple but easy to underestimate. An event has a start and an end. A query may ask whether a proposed meeting conflicts, which genes cover a coordinate, which spans were active at a timestamp, or which live ranges interfere in a compiler. In each case, the answer depends on both endpoints, not just on where the interval begins.',
+        'Many real problems boil down to the same question: given a collection of intervals, which ones overlap a query point or range? A calendar must find scheduling conflicts. A genome browser must locate every gene that spans a coordinate. A database with temporal columns must retrieve all records valid during a time window. A game engine must detect which axis-aligned bounding boxes collide.',
+        'Each of these needs fast access to intervals based on both their endpoints, not just where they start. A plain BST ordered by start point can find intervals that begin near a query, but it cannot tell you whether some far-left interval extends all the way past the query. The interval tree solves this by adding one extra number to each node.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to scan every interval and test overlap. That is simple, correct, and too slow when the set is large or overlap checks are frequent.',
-        'A normal binary search tree ordered by start point helps find nearby starts, but it cannot safely ignore intervals with earlier starts that extend far to the right.',
+        'Scan all n stored intervals and check each one. Two closed intervals [a,b] and [c,d] overlap when a <= d and c <= b. This is correct and costs O(n) per query. For a calendar with 50,000 bookings and 200 proposed meetings per day, that is 10 million comparisons daily just for conflict detection.',
+        'Sorting intervals by start helps with point lookups -- binary search can find where a query point falls among the starts -- but it does not help with overlap. An interval [2, 999] starts near the beginning and overlaps almost everything. Sorting by start alone cannot tell you how far each interval extends, so it cannot skip intervals that start early and end late.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is pruning. To skip a subtree, you need proof that no interval inside it can reach the query. Start order alone does not provide that proof.',
-        'The second wall is mutation. If the tree rotates or deletes nodes, the pruning metadata must remain correct or the structure can silently miss overlaps.',
-        'This is why interval trees are more than a convenience wrapper around binary search. They encode a certificate for absence. When the search skips a branch, it is not guessing that the branch looks unlikely. It is using a stored maximum endpoint to prove that the branch cannot contain an overlapping interval.',
+        'The fundamental barrier is pruning. To beat O(n), the search must skip groups of intervals without inspecting them individually. That requires a proof that nothing in the skipped group can overlap the query. Start order alone does not supply that proof because an interval\'s end is independent of its start.',
+        'A secondary barrier is dynamism. If intervals are inserted and deleted, and the tree rebalances, any pruning metadata must be repaired. A stale annotation does not cause a crash -- it causes a silent false negative, which is worse because the system reports "no conflict" when one exists.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'Order intervals by low endpoint, but augment every node with the maximum high endpoint in its subtree. That one scalar says whether a subtree can possibly overlap a query starting at qLow.',
-        'The invariant is local: node.max = max(node.high, left.max, right.max). Because it is local, balanced-tree rotations can preserve it with a few recomputations.',
-        'That is the whole trick. The tree order answers "which intervals start before or after this point?" The max endpoint answers "can anything in this branch reach far enough to matter?" Together they turn overlap search from a scan into a directed walk.',
-      ],
-    },
-    {
-      heading: 'Animation notes',
-      paragraphs: [
-        `In the overlap-query view, each max endpoint is a pruning certificate. If the left subtree's max endpoint is less than the query start, no interval in that subtree can reach the query, so it is safe to skip. If the max endpoint reaches the query start, the subtree remains possible even when the current node does not overlap.`,
-        `In the maintain-max-endpoint view, insertion follows ordinary BST ordering by low endpoint, but the path back to the root recomputes max endpoints. Rotations are allowed only if they also repair the augmented values; stale max data can turn a correct tree shape into wrong search answers.`,
+        'Augment a balanced BST with one extra field per node: the maximum high endpoint in that node\'s entire subtree. This single number is a pruning certificate. If a subtree\'s max is less than the query\'s low value, every interval in that subtree ends before the query begins, so none can overlap. The entire branch is safe to skip.',
+        'The invariant is local: node.max = max(node.high, left.max, right.max). It depends only on the node and its two children, so rotations can repair it in O(1) per affected node.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'To find one overlap, compare the current interval with the query. If it overlaps, return it. Otherwise, go left only if left.max is at least qLow; if the left subtree cannot reach the query, go right.',
-        'To find all overlaps, continue exploring every subtree that could contain a match. Insert and delete follow the underlying balanced tree, then recompute max endpoints on the affected path and rotated nodes.',
-        'The overlap predicate depends on endpoint convention. For closed intervals, [a,b] overlaps [c,d] when a <= d and c <= b. For half-open intervals, [a,b) overlaps [c,d) when a < d and c < b. Production systems should make that convention explicit because meeting schedulers, genomic ranges, and compiler live ranges often choose different boundary rules.',
+        'Build a balanced BST (typically red-black or AVL) keyed on each interval\'s low endpoint. At every node, store the interval itself plus the max high endpoint in the subtree rooted there.',
+        'To query "find all intervals overlapping [lo, hi]": start at the root. If the current node\'s interval overlaps [lo, hi], report it. If the left child exists and left.max >= lo, recurse into the left subtree -- something there might reach the query. If the current node\'s start <= hi, recurse into the right subtree -- intervals starting after hi cannot overlap, so this check prunes rightward. The search visits O(log n + k) nodes, where k is the number of matches.',
+        'To insert an interval, follow BST insertion by low endpoint. On the walk back up to the root, update the max field at each ancestor. Deletion works the same way: remove the node by BST rules, then fix max fields along the path. Rotations during rebalancing require recomputing max for the two rotated nodes, bottom-up, before the tree is query-ready again.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because max endpoint converts a negative search decision into proof. If every interval in a subtree ends before qLow, no interval in that subtree can overlap [qLow, qHigh].',
-        'It also works because the augmentation is cheap to maintain. The tree order stays about low endpoints; the max field adds just enough range knowledge for overlap pruning.',
-        'The overlap predicate itself is simple: intervals [a,b] and [c,d] overlap when a <= d and c <= b, assuming closed intervals. The tree is useful because it avoids applying that predicate to every stored interval.',
+        'The max-endpoint annotation lets the search convert "I do not know" into "provably nothing here." Consider a left subtree with max = 14 and a query [lo, hi] where lo = 18. Every interval [a, b] in that subtree satisfies b <= 14 < 18 = lo, so the overlap condition a <= hi and lo <= b fails on the second clause. The subtree is empty of results, proven without opening a single node inside it.',
+        'The BST ordering by start handles the other direction: if a node\'s start is greater than hi, then every node in its right subtree starts even later, so none can overlap. Between the two pruning rules -- max on the left, start order on the right -- each level of the tree eliminates at least one branch, giving O(log n) for a single-result query and O(log n + k) when reporting all k matches.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Search for an interval overlapping [22,25]. The root [16,21] does not overlap. Its left child has max 23, so the left subtree could still contain an interval that reaches 22. Descending left eventually finds [15,23], which overlaps.',
-        'If a subtree had max 21, the search could skip it entirely because every interval inside ends before 22. That is the exact proof the augmentation provides.',
+        'Insert: O(log n). Delete: O(log n). Query for one overlap: O(log n). Query for all k overlaps: O(log n + k). Space: O(n) -- one node per interval, each carrying low, high, max, color bit, and child pointers.',
+        'When n doubles, the tree grows one level deeper, adding one comparison per query. The per-node overhead is small: one extra integer (the max field) on top of a normal BST node. The practical bottleneck is the balancing machinery. Every rotation touches two nodes\' max fields, and red-black trees perform at most three rotations per insert or delete, so the augmentation cost is bounded.',
+        'A subtle correctness risk: if a bug in deletion or rotation leaves a stale max value, the tree will silently skip valid overlaps. The failure mode is a false negative, not an exception. Testing should include a brute-force oracle that scans all intervals and compares results against the tree\'s query output.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Finding one overlap is O(log n) on a balanced tree. Reporting all overlaps costs O(log n + k), where k is the number of intervals reported, when pruning is implemented correctly. Space is O(n).',
-        'The constant factor is small, but correctness is fragile under updates. A stale max endpoint can cause false negatives, which are worse than slow queries because they look like valid "no overlap" answers.',
-        'The structure also inherits the quality of its balancing scheme. A plain unbalanced BST can degrade to a chain. Most real implementations use a red-black tree, AVL tree, treap, or another balanced map and attach the max endpoint as augmentation data.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It wins for dynamic one-dimensional overlap search: calendars, scheduling, genome annotation, compiler live ranges, trace spans, text annotations, subtitles, and timestamp windows.',
-        'It is also a clean example of augmentation: keep a familiar balanced tree and add one summary field that unlocks a new query.',
-        'It is especially useful when the set changes over time. If all intervals are known offline, a sweep-line algorithm or sorted endpoint arrays may be faster and simpler. If intervals arrive and leave while queries continue, the interval tree gives a strong online default.',
+        'Calendar and scheduling systems query "does this proposed meeting conflict with any existing booking?" Each booking is an interval on the time axis. The interval tree answers in O(log n) instead of scanning every event.',
+        'Database temporal queries retrieve all records whose valid-time range includes a query timestamp or overlaps a query window. PostgreSQL\'s GiST index on range types uses an interval-tree-like structure internally.',
+        'Computational geometry sweep-line algorithms maintain an interval tree of active segments. As the sweep line advances, segments are inserted and deleted, and vertical queries find all segments crossing a given x-coordinate.',
+        'Genomic annotation browsers find which genes, exons, or regulatory regions cover a base-pair coordinate. Genomic intervals are sparse across billions of positions, which is where the tree\'s logarithmic pruning matters most.',
+        'Collision detection in games and simulations projects 3D bounding boxes onto each axis and queries an interval tree per axis to find candidate overlapping pairs before running expensive geometry tests.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the task is aggregate range queries over coordinates. That is Segment Tree territory. It also fails for multidimensional rectangles, where R-trees, range trees, k-d trees, sweep-line algorithms, or BVHs may fit better.',
-        'Terminology can also confuse readers. This page teaches the CLRS-style dynamic max-endpoint tree, not every computational-geometry structure that has been called an interval tree.',
-        'It is also not automatically the best structure for dense integer coordinates. If the universe is small and fixed, bitsets, Fenwick trees, segment trees, or prefix counts can answer related questions with simpler memory access. The interval tree earns its place when intervals are sparse, dynamic, and endpoint values are drawn from a large ordered domain.',
+        'High-dimensional intervals -- rectangles, boxes, hyperrectangles -- need k-d trees, R-trees, or range trees. The interval tree handles one-dimensional ranges only. For 2D rectangles, you can use two interval trees (one per axis) and intersect results, but R-trees are usually more practical.',
+        'If all intervals are known in advance and never change, a static structure or a sorted-endpoint sweep can be simpler. The centered interval tree (Edelsbrunner\'s original) is a static alternative that partitions intervals around midpoints. The augmented-BST version earns its complexity when intervals are inserted and deleted online.',
+        'Aggregate range queries -- "what is the sum of values in positions 5 through 20?" -- belong to segment trees or Fenwick trees. The interval tree answers "which stored intervals overlap this range?" not "what is the aggregate over a coordinate range?" These are different questions with different structures.',
+        'For small n (a few hundred intervals), a flat array with linear scan is faster in practice because it avoids pointer-chasing and fits in cache. The tree\'s logarithmic advantage only pays off when n is large enough that cache misses from the scan dominate.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Store low, high, and max separately, and update max in one helper used by insert, delete, and rotation code. Bugs often appear when rotation logic changes child pointers but forgets to recompute the rotated nodes in bottom-up order.',
-        'Test with adversarial layouts: nested intervals, touching endpoints, duplicates, empty intervals if your domain permits them, deletions of nodes with two children, and queries that should return no overlap. A slow scan oracle is excellent for tests because the interval predicate is easy to implement directly.',
+        'Intervals: [5,12], [10,30], [15,20], [17,19], [25,35]. Insert them into a balanced BST ordered by low endpoint. One valid arrangement: [15,20] at the root, [10,30] as left child with [5,12] as its left child, and [25,35] as right child with [17,19] as its left child.',
+        'Compute max endpoints bottom-up. Leaf [5,12]: max = 12. Node [10,30]: max = max(30, 12) = 30. Leaf [17,19]: max = 19. Node [25,35]: max = max(35, 19) = 35. Root [15,20]: max = max(20, 30, 35) = 35.',
+        'Query: "what overlaps point 18?" This is equivalent to querying for overlap with [18,18]. Start at root [15,20]: 15 <= 18 and 18 <= 20 -- overlap. Report [15,20]. Left child [10,30] has max 30 >= 18, so search left. Node [10,30]: 10 <= 18 and 18 <= 30 -- overlap. Report [10,30]. Its left child [5,12] has max 12 < 18 -- prune the entire left-left subtree. Back at the root, check right. Node [25,35]: 25 <= 18 is false -- no overlap, and since 25 > 18, nothing to the right can overlap either.',
+        'Final result: [15,20] and [10,30]. The search examined 4 nodes out of 5 and pruned 1 (the [5,12] subtree) using the max-endpoint certificate. With a larger tree, the savings compound: each pruned branch eliminates an exponentially growing number of unchecked intervals.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study sources: MIT OpenCourseWare lecture on augmenting data structures and interval trees at https://ocw.mit.edu/courses/6-046j-introduction-to-algorithms-sma-5503-fall-2005/resources/lecture-11-augmenting-data-structures-dynamic-order-statistics-interval-trees/, MIT augmentation lecture notes at https://ocw.mit.edu/courses/6-046j-design-and-analysis-of-algorithms-spring-2015/fc870caae0e6812787bb5d50ea4d5e24_MIT6_046JS15_lec09.pdf, and USFCA interval-tree lecture notes at https://www.cs.usfca.edu/galles/cs673/lecture/lecture8.pdf. Study Red-Black Tree, AVL Tree Rotations, Order-Statistics Tree, Segment Tree & Lazy Propagation, Priority Search Tree Range Reporting, R-Tree Spatial Index, Distributed Tracing, and Peritext Rich-Text CRDT Case Study next.',
+        'Cormen, Leiserson, Rivest, and Stein, Introduction to Algorithms (CLRS), Chapter 14: Augmenting Data Structures. The interval tree is the chapter\'s primary example of BST augmentation. Edelsbrunner (1980) introduced the centered interval tree for computational geometry; the augmented-BST variant taught in CLRS is the version most commonly implemented.',
+        'Prerequisites: Binary Search Tree for the base ordering structure; Red-Black Tree or AVL Tree for the balancing guarantees that keep all operations O(log n).',
+        'Related structures: Segment Tree answers aggregate queries over coordinate ranges (sums, minimums) rather than overlap queries over stored intervals. Sweep Line is the algorithmic technique paired with interval trees in computational geometry. R-Tree Spatial Index extends overlap queries to multidimensional rectangles. Order-Statistics Tree is another BST augmentation -- it stores subtree sizes instead of max endpoints, answering rank and selection queries.',
       ],
     },
   ],

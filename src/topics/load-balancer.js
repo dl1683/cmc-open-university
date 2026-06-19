@@ -78,99 +78,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Each bar is one server. The bar height is the number of active connections on that server right now. When a request arrives, the balancer picks a server -- the chosen bar highlights. Compare highlights show which servers were evaluated.',
+        'The key experiment: run the same request durations under round-robin, then switch to least-connections. Round-robin ignores the bars and picks by position in a cycle. Least-connections reads the bars and picks the shortest one. The gap in peak load between the two runs is the cost of ignoring state.',
+        'Watch for the moment a long request is still running on a server when round-robin sends it another long request. That pileup is the failure mode the animation surfaces.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A service usually outgrows one machine before it outgrows one address. Users should keep calling the same endpoint while the system adds replicas, removes broken replicas, drains old versions, and survives traffic spikes. A load balancer is the boundary that hides backend membership from clients and turns a pool of machines into one service.`,
-        `The basic need is simple: choose a healthy backend for each request. The hard part is that requests are not equal. One request may be a cache hit that finishes in a few milliseconds. Another may run a report, stream a file, call a model, or wait on a database. A policy that distributes request counts evenly can still distribute work badly.`,
-        `Load balancing exists because distributed systems need a cheap routing decision at the front door. It is not a proof of optimal scheduling. It is a practical control loop: observe enough state, filter out bad choices, pick a backend, and update the next decision when reality changes.`,
+        'A service outgrows one machine long before it outgrows one address. Users keep calling the same endpoint while the system adds replicas, removes broken ones, drains old versions, and absorbs traffic spikes. A load balancer hides backend membership from clients and turns a pool of machines into one service.',
+        'The routing decision looks trivial -- just pick a server -- but requests are not equal. A cache hit finishes in microseconds. A report query holds a database connection for seconds. A policy that distributes request counts evenly can still distribute work badly.',
       ],
     },
     {
-      heading: 'The simple approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The simple approach is round-robin. Send request 1 to server 1, request 2 to server 2, request 3 to server 3, then wrap around. It is fast, easy to reason about, and nearly stateless. When servers are identical and request durations are similar, round-robin can be exactly the boring policy you want.`,
-        `The wall appears when fair turns are not fair work. If three long requests land on the same server because of timing, that server can become slow while another server is idle. Round-robin does not ask who is busy. It only asks whose turn is next.`,
-        `The second wall is failure. A dead backend is still a backend unless health checks remove it from the eligible set. A deploying backend may need to finish old requests but receive no new ones. A backend in another zone may be healthy but too expensive for latency-sensitive traffic. A real balancer is a policy engine, not just a counter.`,
+        'Random assignment: hash the request ID (or just flip a coin) and send it to whichever server the hash picks. No state, no coordination, and over enough requests the counts converge. For identical servers handling identical work, random is hard to beat.',
+        'Round-robin is the structured version: server 1, server 2, server 3, repeat. It guarantees perfectly equal counts over each full cycle. Still no per-server state. Still O(1). Most tutorials start here because it is the simplest correct policy for the simplest case.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is that load balancing has two jobs. First, form the eligible set: healthy, compatible backends that are allowed to receive this request. Second, choose among that set using a signal that matches the workload: turn order, weight, active connections, queue depth, latency, locality, hash key, or cost.`,
-        `Least-connections makes one useful invariant visible. A new request should not land on a backend that is known to be busier than another eligible backend. That does not make the decision globally optimal, because active connection count is only a proxy for real work. But it often avoids the obvious bad choice that round-robin cannot see.`,
-        `The best policy is usually the cheapest policy that prevents the service's common failure mode. A static website can use round-robin. A pool serving long mixed-duration requests may need least-connections or queue-aware routing. A cache cluster may need consistent hashing. An LLM-serving fleet may need KV-cache locality and token-streaming SLOs.`,
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        `The animation uses the same request durations for both strategies. That is the point. Round-robin and least-connections see the same traffic but make different choices because they use different information. Round-robin follows position in the cycle. Least-connections looks at active work before choosing.`,
-        `The bars show active connections, not total historical requests. A server that handled many short requests may be free again, while a server that accepted fewer long requests may still be busy. Least-connections reacts to that difference. Round-robin ignores it unless the timing happens to line up well.`,
-        `The final peak count is a small version of tail-latency thinking. A fleet can look balanced by total request count and still create one overloaded server. In real systems that overloaded server becomes the source of p95 and p99 latency, retries, timeouts, and cascading pressure on dependencies.`,
+        'Neither random nor round-robin knows what the servers are doing. If request 1 takes 4 ticks and request 2 takes 1 tick, round-robin will send request 4 back to server 1 while request 1 is still running -- even though server 2 finished its short request ages ago.',
+        'The deeper problem: servers are not always identical. One machine may have twice the CPU. One may be warming up after a deploy. One may be degraded. Equal turns produce unequal load whenever request cost or server capacity varies. The balancer needs at least one signal about current state to avoid obvious bad choices.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A balancer starts with membership. It needs to know which backends exist, which are healthy, which are draining, which have capacity weight, and which can serve this request's protocol or tenant. Health checks remove dead or degraded backends. Draining lets deploys stop new work while old connections finish.`,
-        `A Layer 4 balancer works at the TCP or UDP level. It can forward connections using IPs and ports with little application awareness. A Layer 7 proxy understands HTTP or another application protocol. It can route by path, host, header, method, cookie, tenant, or request class, but it pays CPU and complexity for parsing, TLS termination, and richer policy.`,
-        `The selection rule then runs per connection or per request. Round-robin advances a counter modulo the healthy backend count. Weighted round-robin gives larger machines more turns. Least-connections tracks active work and decrements counters when requests finish. Sticky sessions and consistent hashing preserve affinity when local cache, session state, or key ownership matters more than perfect spreading.`,
+        'Five policies cover the practical space. Each adds one more piece of information to the routing decision.',
+        'Round-robin advances a counter modulo the server count. O(1), stateless, blind to load. It works when servers are identical and request durations are similar.',
+        'Weighted round-robin gives each server a weight proportional to its capacity. A server with weight 3 gets three turns for every one turn a weight-1 server gets. Still stateless per-request, but requires knowing relative capacity up front.',
+        'Least connections tracks the number of active connections on each server. A new request goes to the server with the fewest. The balancer increments the count on assignment and decrements it when the request finishes. This is the first policy that reacts to actual load.',
+        'Consistent hashing maps each request key to a position on a hash ring and routes to the nearest server on the ring. When a server joins or leaves, only the keys near it remap -- the rest stay put. This preserves cache locality and session affinity at the cost of potentially uneven load.',
+        'Power of two choices (Mitzenmacher, 2001): pick two servers at random, then send the request to whichever has fewer active connections. This reads far less state than a full least-connections scan but avoids most bad placements. The maximum load drops from O(log n / log log n) under random to O(log log n) -- an exponential improvement from one extra probe.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The safety property is modest but important: the balancer chooses only among backends it currently believes can serve the request. Health checks keep dead replicas out of the choice set. Draining keeps deploys from dropping active users. Capacity weights prevent a small instance and a large instance from receiving identical load when they cannot process identical work.`,
-        `Least-connections works because active work is often a better signal than turn order. It does not know the future duration of the request that just arrived, but it can avoid sending new work to a server already holding more active connections than its peers. That cheap correction is enough to improve many mixed-duration workloads.`,
-        `Power of Two Choices explains why you often do not need a perfect scan. Pick two random eligible backends and choose the less loaded one. This reads far less state than a full least-connections scan while avoiding many terrible placements. Production systems often use approximations like this because centralized perfect knowledge becomes its own bottleneck.`,
+        'Round-robin distributes counts perfectly over each full cycle. Over many requests, no server receives more than one extra request compared to any other. The guarantee is about count, not about work.',
+        'Least-connections maintains a stronger invariant: at the moment of assignment, no eligible server has fewer active connections than the chosen server. It cannot predict the future duration of the incoming request, but it avoids piling new work onto the busiest server. That single correction is enough to handle mixed-duration workloads far better than blind rotation.',
+        'Power of two choices works because of a phase transition in balls-into-bins probability. Under pure random placement, the most loaded bin holds O(log n / log log n) balls. Adding one comparison -- just two random samples instead of one -- collapses the maximum to O(log log n). With 1,000 servers, that is roughly the difference between a max load of 4 and a max load of 2. The proof (Azar et al., 1994; Mitzenmacher, 2001) shows the improvement is exponential in the number of choices, but almost all the gain comes from going from one choice to two.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Suppose three servers receive eight requests with durations 4, 1, 4, 1, 4, 1, 2, and 1 ticks. Round-robin sends them by position: server 1, server 2, server 3, then server 1 again. It does not care that a long request may still be running when the next turn arrives.`,
-        `Least-connections checks the active counts before each arrival. If server 1 is still running a long request and server 2 is free, server 2 wins. The decision is local and simple, but it follows reality more closely than a fixed cycle. The result is usually a lower peak number of concurrent requests on any one server.`,
-        `This example is intentionally small. In a real fleet, the same logic applies to thousands of replicas and many request classes. A video upload, a search query, a login request, and a report export should not all be treated as equal work if the system has enough information to do better.`,
+        'Round-robin: O(1) time, zero per-server state. Doubling the fleet changes nothing in the routing logic. The weakness is blindness -- it cannot adapt to varying load, capacity, or request cost.',
+        'Least connections: O(n) if you scan all servers, O(log n) if you maintain a min-heap keyed by active count. Each request requires an increment on arrival and a decrement on completion, so the balancer must track connection lifecycle. The state is small (one integer per server) but must be updated atomically under concurrent traffic.',
+        'Power of two choices: O(1) time -- two random probes and one comparison. The state cost is the same as least-connections (one counter per server) but the coordination cost is lower because each decision reads only two counters instead of all of them. In large distributed systems where a single global view is expensive, this is a major practical advantage.',
+        'Consistent hashing: O(log n) lookup via binary search on the ring. Adding or removing a server remaps O(k/n) keys where k is the total key space. Virtual nodes improve balance but increase ring size and lookup cost.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Round-robin is O(1) and needs almost no per-backend load state. That makes it robust and cheap. Its weakness is blindness. It does not see active work, request cost, cache locality, or latency. It is a good default only when those missing signals do not matter much.`,
-        `A naive least-connections policy scans all n backends, so selection is O(n). Production systems avoid a hot global scan by sampling, sharding counters, using worker-local state, or maintaining priority structures. Those optimizations reduce overhead but introduce stale or approximate information. The policy becomes a trade between accuracy and coordination cost.`,
-        `Layer 7 balancing adds expressive power and more failure modes. TLS termination consumes CPU. Header parsing can become a bottleneck. Retries can amplify overload if they are not budgeted. Sticky sessions improve affinity but reduce freedom. Cross-zone routing can save capacity while adding network latency and cloud cost.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Load balancers are strongest for stateless or mostly stateless services where any healthy replica can serve a request. That includes many HTTP services, API gateways, service meshes, Kubernetes Services, edge proxies, CDN origins, read pools, and background-worker fleets.`,
-        `They also work when the backend pool changes often. New replicas can be added to the membership list. Old replicas can drain. Bad replicas can be removed. Clients keep using one stable endpoint while the serving set changes underneath them.`,
-        `The idea extends beyond ordinary web requests. A cache fleet may balance by key hash to preserve locality. An LLM-serving router may balance by queue depth, KV-cache residency, and deadline. A database read pool may balance by replica lag and query class. The common pattern is the same: filter eligible targets, then choose using the cheapest useful signal.`,
+        'NGINX uses round-robin as its default upstream policy and supports least_conn and ip_hash as alternatives. HAProxy adds queue-aware routing and server weights. AWS ALB uses round-robin at Layer 7 with slow-start for new targets. AWS NLB operates at Layer 4 with flow-hash-based routing.',
+        'Kubernetes Services use iptables or IPVS to distribute traffic across pods. IPVS mode supports round-robin, least-connections, and weighted variants. Envoy (used in Istio and other service meshes) adds zone-aware routing, outlier detection, and retry budgets on top of the core selection policies.',
+        'CDN edge networks use anycast (one IP, many servers, BGP picks the nearest) combined with consistent hashing to preserve cache hits. DNS-based global load balancing routes users to the nearest datacenter before the CDN edge takes over.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `A balancer cannot manufacture capacity. If the fleet can process 50,000 requests per second and users send 80,000, routing only decides where overload appears. Rate limiting, autoscaling, queues, backpressure, and load shedding decide whether the system fails slowly, fairly, or catastrophically.`,
-        `It is also the wrong abstraction for write ordering, consensus, and key ownership. A Raft leader orders commands. A consistent-hash ring owns keys. A load balancer chooses a place to run work. Mixing those jobs can create subtle outages, such as sending writes to replicas that cannot safely accept them.`,
-        `Load balancing can also hide dependency overload. The front door may distribute requests evenly across web servers, while every web server pounds the same database, cache shard, or payment API. End-to-end health needs downstream signals, not only front-end backend counts.`,
+        'Session affinity complicates stateless balancing. If user A must always reach server 1 (because of login state, a shopping cart, or a WebSocket), the balancer loses freedom to spread load. The fix is to externalize session state (Redis, a shared database) so any server can handle any user -- but that adds a dependency and latency.',
+        'Health checks add overhead and introduce a detection delay. A server can fail between checks, causing requests to land on a dead backend until the next check runs. Aggressive check intervals reduce the window but increase probe traffic. Passive health checking (marking a server unhealthy after N consecutive failures from real traffic) reacts faster but can false-positive under transient errors.',
+        'A load balancer cannot create capacity. If the fleet handles 50,000 requests per second and users send 80,000, routing only decides where overload appears. Rate limiting, autoscaling, backpressure, and load shedding decide whether the system degrades gracefully or cascades.',
+        'Connection draining during deploys requires coordination: stop sending new requests to the old server, wait for active connections to finish (with a timeout), then remove it. Without draining, deploys drop in-flight requests. With draining, deploys are slower and the fleet temporarily runs at reduced capacity.',
+        'Front-door balance can hide downstream hotspots. The balancer may spread requests evenly across web servers, but every web server hammers the same database or payment API. End-to-end load management needs downstream signals, not just front-end counts.',
       ],
     },
     {
-      heading: 'Misconceptions and pitfalls',
+      heading: 'Worked example',
       paragraphs: [
-        `A common misconception is that equal request counts mean equal load. They do not. Request duration, CPU cost, memory pressure, downstream calls, response size, and cache hit rate can all dominate raw count. The animation's mixed durations are a small demonstration of that gap.`,
-        `Another mistake is retrying blindly. If a request times out because the fleet is overloaded, retrying immediately can multiply the traffic. Production balancers often need retry budgets, circuit breakers, outlier detection, and load shedding so "helpful" recovery behavior does not worsen the incident.`,
-        `A third pitfall is ignoring observability. You need per-backend request rate, active connections, queue time, response latency, error rate, health-check state, retry count, and drain state. Without those signals, a bad balancing policy looks like random slowness rather than a fixable routing problem.`,
+        'Three servers, 10 requests. Request durations in ticks: 4, 1, 4, 1, 4, 1, 2, 1, 3, 1. One tick elapses between each arrival. Each server processes one tick of each active request before the next request arrives.',
+        'Round-robin assigns by position: S1 gets requests 1, 4, 7, 10. S2 gets 2, 5, 8. S3 gets 3, 6, 9. Request 1 (duration 4) is still active on S1 when request 4 (duration 1) arrives. S1 now has 2 active connections. Request 7 (duration 2) arrives at S1 while request 1 may still be finishing. Peak on S1: 2 concurrent connections.',
+        'Least-connections checks active counts before each assignment. Request 1 goes to S1 (all at 0, tie-break picks S1). Request 2: S1 has 1 active, S2 and S3 have 0 -- S2 wins. Request 3: S1 still has 1 (duration 4), S2 finished (duration 1), S3 at 0 -- tie between S2 and S3, S3 wins. Request 4: S1 has 1, S2 has 0, S3 has 1 -- S2 wins. The long requests spread across servers instead of piling onto one.',
+        'Result: under round-robin, S1 peaks at 2 concurrent connections while S2 sometimes sits idle. Under least-connections, the peak across all servers stays at 1 for most of the run. The same traffic, the same servers, different peak load -- because one policy uses information and the other does not.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Production references: NGINX HTTP load-balancing docs at https://docs.nginx.com/nginx/admin-guide/load-balancer/http-load-balancer/, Envoy load-balancer docs at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancers, and HAProxy load-balancing algorithm notes at https://www.haproxy.com/glossary/what-are-load-balancing-algorithms.`,
-        `Study Queue to understand why request buffers smooth short spikes but cannot fix sustained overload. Power of Two Choices Load Balancing is the next algorithmic step after round-robin and least-connections. Use Hash Table for the key-to-backend mapping beneath routing tables and session stores. Consistent Hashing explains why cache clusters avoid remapping every key during membership changes.`,
-        `Then study Rate Limiter (Token Bucket), Tail Latency and p99 Thinking, CDN Request Flow, Circuit Breaker, and Backpressure. For AI infrastructure, study SLO-Aware LLM Request Router, because LLM serving turns ordinary balancing into a stateful decision over live KV cache, prefill queues, decode slots, and token deadlines.`,
+        'Mitzenmacher, "The Power of Two Choices in Randomized Load Balancing" (IEEE TPDS, 2001) proves the exponential improvement from two random probes. Azar, Broder, Karlin, and Upfal, "Balanced Allocations" (STOC 1994) established the foundational balls-into-bins result.',
+        'Prerequisites: understand what a server is, what a request is, and why one machine has finite throughput. Hash Table covers the key-to-slot mapping that consistent hashing and session stores rely on.',
+        'Next topics by role: Consistent Hashing (route by key without reshuffling on membership change), Rate Limiter (protect the servers behind the balancer), Circuit Breaker (remove failed backends automatically and restore them gradually), Queue (buffer during short spikes), and Power of Two Choices Load Balancing (the full algorithmic treatment). For production reference: NGINX load-balancing docs, Envoy upstream load-balancing architecture, and HAProxy algorithm notes.',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-// HTTP/3 priority scheduling: RFC 9218 urgency buckets, incremental delivery,
+﻿// HTTP/3 priority scheduling: RFC 9218 urgency buckets, incremental delivery,
 // PRIORITY_UPDATE frames, QUIC congestion/flow-control budgets, and page-load gates.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -358,6 +358,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for HTTP/3 Priority Urgency Scheduler. Schedule HTTP/3 response bytes with RFC 9218 urgency buckets, incremental fairness, PRIORITY_UPDATE, QUIC credit, QPACK readiness, and page-load release gates..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A modern page is not one file. It is a dependency graph of HTML, CSS, JavaScript, fonts, images, API responses, video chunks, analytics, ads, and background refreshes. HTTP/3 can put many of those responses on independent QUIC streams, avoiding the TCP-level head-of-line blocking that hurt older multiplexing designs. But independence does not mean unlimited capacity. The connection still has congestion control, flow control, packet loss, round trips, and server-side readiness.`,
@@ -366,16 +375,16 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive design and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The simplest scheduler is first-in, first-out: send bytes in the order responses become available. That fails because availability is not importance. A large image may be ready before a stylesheet, but the stylesheet may block layout. An analytics request may be easy to send, but it should not consume early congestion window space ahead of user-visible work.`,
-        `The next simple scheduler is equal sharing across streams. Equal sharing sounds fair, yet it spends scarce early bytes on work that has unequal value. During page load, a kilobyte of CSS can be worth more than a kilobyte of below-the-fold image data. During interaction, an API response that unblocks input feedback can be worth more than a decorative asset. Equal sharing ignores the browser's knowledge of the render graph.`,
+        `The next simple scheduler is equal sharing across streams. Equal sharing sounds fair, yet it spends scarce early bytes on work that has unequal value. During page load, a kilobyte of CSS can be worth more than a kilobyte of below-the-fold image data. During interaction, an API response that unblocks input feedback can be worth more than a decorative asset. Equal sharing ignores the browser\'s knowledge of the render graph.`,
         `The opposite mistake is strict priority with no guardrails. If urgency 0 always drains completely before urgency 1, and urgency 1 always drains before urgency 2, lower classes can stall for too long. That harms progressive images, streaming responses, and background tasks that still need some progress. A useful scheduler is biased, not blind. It protects critical bytes while making measured progress on incremental or lower-urgency work when capacity allows.`,
         `The final naive error is sorting by priority without asking whether a stream can actually send. A high-urgency stream may be blocked because its QPACK header dependencies are not ready, its stream flow-control window is exhausted, the application has not produced more body bytes, or QUIC congestion control says the connection cannot put more data in flight. Priority ranks eligible bytes; it does not make ineligible bytes sendable.`,
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The core insight',
       paragraphs: [
         `RFC 9218 replaces the complicated dependency tree model associated with HTTP/2 priority with extensible priority parameters. The main parameter is urgency, an integer from 0 through 7, where 0 is most urgent and 7 is least urgent. The other central parameter is incremental, a boolean signal that partial delivery is useful. A stylesheet is usually not incremental: the browser needs enough of it to parse and apply rules. A progressive image, media chunk stream, or long response may benefit from partial progress.`,
         `A practical implementation keeps one or more queues per urgency class, plus stream metadata: request id, response id, urgency, incremental flag, bytes queued, bytes sent, flow-control state, QPACK readiness, last update time, and starvation accounting. The scheduler checks the most urgent eligible work first, then uses round robin, deficit round robin, or a related fair policy within a class. Incremental streams can receive smaller slices so several visible resources advance together instead of one object monopolizing the connection.`,
@@ -383,7 +392,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the mechanism works',
+      heading: 'How it works',
       paragraphs: [
         `Suppose a product page opens with HTML, CSS, a JavaScript bundle, a hero image, six thumbnails, a recommendations API call, and analytics. The browser or intermediary assigns urgency values. CSS might be urgency 0 because it blocks rendering. The hero image might be urgency 1 or 2 because it affects largest contentful paint. Thumbnails might be urgency 5 with incremental delivery if visible progress is useful. Analytics might be urgency 7 because it should wait for spare capacity.`,
         `When QUIC allows the server to send, the scheduler builds an eligible set. A stream is eligible only if headers can be emitted or decoded safely, application bytes are available, connection and stream flow-control credit exist, and congestion control allows more bytes in flight. The scheduler then chooses from the lowest urgency number first, applies per-class fairness, emits HTTP/3 DATA frames, and updates its accounting.`,
@@ -395,12 +404,12 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         `The design works because it separates three decisions that are often confused. Priority answers value: which byte would help the user most if it could be sent now. Eligibility answers feasibility: which streams are actually allowed to send now. Congestion and flow control answer capacity: how many bytes can leave now. Keeping these decisions separate prevents the scheduler from treating a blocked high-priority stream as a reason to waste the connection.`,
-        `Urgency buckets also match the browser's imperfect but useful knowledge. The browser knows which resources block rendering, which responses are tied to input, which images are likely visible, and which requests are background work. The server or CDN may know cache state, object size, and origin readiness. Priority fields are the meeting point between those views. They are hints to scheduling, not a guarantee that the network will ignore physics.`,
+        `Urgency buckets also match the browser\'s imperfect but useful knowledge. The browser knows which resources block rendering, which responses are tied to input, which images are likely visible, and which requests are background work. The server or CDN may know cache state, object size, and origin readiness. Priority fields are the meeting point between those views. They are hints to scheduling, not a guarantee that the network will ignore physics.`,
         `Incremental delivery solves a different problem from urgency. Some resources produce value only near completion. Others produce value as chunks arrive. If the scheduler understands that distinction, it can finish non-incremental critical objects quickly while still giving progressive media enough slices to look smooth once the critical path is safe.`,
       ],
     },
     {
-      heading: 'Where it is used',
+      heading: 'Real-world uses',
       paragraphs: [
         `The obvious setting is browser page load, especially through CDNs and edge proxies that terminate HTTP/3. The scheduler can protect CSS, fonts, render-critical scripts, interaction responses, and likely LCP images while delaying thumbnails, prefetches, ads, and analytics. The same ideas apply to web applications that keep many streams active over one connection.`,
         `It also matters for media and document workloads. A news page with many images wants visible images before below-the-fold images. A map application wants tiles near the viewport before tiles outside it. A large download running beside an API response should not make the interface feel stuck. In each case the scheduler is enforcing a product policy using transport-level constraints.`,
@@ -408,7 +417,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `Priority bugs rarely announce themselves as priority bugs. They show up as worse LCP, slow interaction feedback, uneven progressive image loading, or mysterious gaps in packet captures. Common causes include inverted urgency mapping, stale updates applied after completion, starvation of low urgency streams, overlarge DATA slices that make reprioritization sluggish, QPACK stalls mislabeled as scheduler choices, and missing telemetry about why a stream was selected.`,
         `The tradeoff is policy complexity. A simple scheduler is easier to reason about but wastes important early bytes. A heavily tuned scheduler can improve page metrics but become hard to debug, especially when browser hints, CDN policy, cache state, and origin behavior interact. Fairness also has several meanings: fairness to streams, fairness to resources, fairness to user-visible milestones, and fairness to tenants. The right policy depends on which outcome is being protected.`,
@@ -416,10 +425,79 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Primary sources: RFC 9218 at https://datatracker.ietf.org/doc/rfc9218/, HTTP/3 RFC 9114 at https://www.rfc-editor.org/info/rfc9114/, QUIC RFC 9000 at https://datatracker.ietf.org/doc/rfc9000/, QPACK RFC 9204 at https://www.rfc-editor.org/info/rfc9204/, and Cloudflare HTTP/3 prioritization notes at https://blog.cloudflare.com/better-http-3-prioritization-for-a-faster-web/. Study HTTP/3 over QUIC, QUIC Transport Streams & Loss Recovery, QPACK Dynamic Table HTTP/3, Resource Hints, Binary Heap, Backpressure, TCP Congestion Control, Tail Latency, and Browser Rendering next.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for http3-priority-urgency-scheduler-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

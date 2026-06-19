@@ -1,4 +1,4 @@
-// Kubernetes informers: list/watch feeds a DeltaFIFO, shared indexer cache,
+﻿// Kubernetes informers: list/watch feeds a DeltaFIFO, shared indexer cache,
 // event handlers, and a rate-limited workqueue of reconcile keys.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -328,15 +328,24 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Kubernetes Informer DeltaFIFO & Workqueue Case Study. A controller-internals case study: list/watch, resourceVersion, Reflector, DeltaFIFO, shared indexer cache, deduped keys, and rate-limited retries..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why Informers Exist',
       paragraphs: [
         "Kubernetes controllers are built around reconciliation: observe desired state, compare it with actual or external state, and take steps to move the world closer to the desired state. The controller pattern sounds simple until thousands of objects are changing, many controllers need the same objects, watches disconnect, and external APIs fail. Informers are the data-structure layer that makes controllers efficient enough to run inside a busy cluster.",
         "The naive controller polls the API server. Every few seconds it lists all Pods, Deployments, or custom resources, scans for work, and writes fixes. That approach is easy to understand and terrible at scale. It creates redundant reads, burns API-server capacity, reacts slowly between polls, and still has to solve retries. If ten controllers each poll the same resource, the cluster pays ten times for almost the same information.",
-        "An informer turns the API server's list/watch model into a local read model. It lists once to seed state, watches for changes, buffers deltas, updates a shared cache, calls lightweight event handlers, and lets controllers enqueue reconcile keys. The main separation is events versus state. Events wake the controller. The cache holds the latest observed object state. The workqueue stores stable addresses for work."
+        "An informer turns the API server\'s list/watch model into a local read model. It lists once to seed state, watches for changes, buffers deltas, updates a shared cache, calls lightweight event handlers, and lets controllers enqueue reconcile keys. The main separation is events versus state. Events wake the controller. The cache holds the latest observed object state. The workqueue stores stable addresses for work."
       ],
     },
     {
-      heading: 'Core insight: List, Watch, And ResourceVersion',
+      heading: 'The core insight',
       paragraphs: [
         "The pipeline starts with a LIST request. The API server returns the current objects and a resourceVersion, which acts as a cursor into the stream of changes for that resource. The client then opens a WATCH from that cursor. Watch events report added, modified, deleted, bookmark, or error conditions. Bookmark events can advance the cursor even when no object changed, which helps clients know they are still making progress.",
         "This design avoids the polling wall, but it is not magic. Watch history is finite. If a controller falls too far behind and asks to resume from an old resourceVersion, the API server can return a gone error. The controller must relist, rebuild its local view, and resume watching from a fresh cursor. Correct informer code treats relist as a normal recovery path, not an exceptional disaster.",
@@ -368,15 +377,15 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete Operator Case Study',
+      heading: 'Worked example',
       paragraphs: [
         "Consider a certificate operator. It watches Certificate custom resources and Secrets. The Certificate informer tells the controller when desired certificate state changes. The Secret informer tells it when issued key material appears, changes, or disappears. Both informers maintain local caches. Event handlers map Certificate events directly to certificate keys. Secret events may use an owner index or label index to find which Certificate keys are affected.",
         "A worker pops a certificate key and reads the latest Certificate and referenced Secret from the cache. If the Certificate was deleted, it cleans up external orders if finalizers require it. If the Secret is valid and not near expiry, it records healthy status. If renewal is needed, it calls the certificate authority. If the authority is unavailable, it records a condition and requeues with backoff. If the authority succeeds, it writes the Secret and updates status.",
-        "This is not just event handling. Duplicate events, missed events, restarts, relists, and external failures should still converge because the worker decides from current state. The queue dedupes and retries. The cache supplies a local view. Status tells users why progress is stuck. The controller's correctness comes from idempotent reconciliation, not from receiving a perfect event sequence."
+        "This is not just event handling. Duplicate events, missed events, restarts, relists, and external failures should still converge because the worker decides from current state. The queue dedupes and retries. The cache supplies a local view. Status tells users why progress is stuck. The controller\'s correctness comes from idempotent reconciliation, not from receiving a perfect event sequence."
       ],
     },
     {
-      heading: 'Failure Modes And Signals',
+      heading: 'Where it fails',
       paragraphs: [
         "The predictable informer failures are falling behind watch history, blocking handlers, unbounded caches, retry storms, stale reads, and bad ownership mapping. A gone error from an old resourceVersion requires relist. A slow handler should be moved to workers. A broad cluster-wide watch may need namespaces, field selectors, label selectors, or narrower controllers. A retry storm needs rate limiting and a clear permanent-error path. A stale cache read needs idempotency and sometimes direct API reads for critical confirmation.",
         "Useful metrics include list duration, watch restarts, resourceVersion gone errors, queue depth, add rate, worker duration, retry count by key, rate-limiter delay, cache object count, index sizes, handler latency, reconcile result, and external dependency latency. Logs should include the key, observed generation, resourceVersion when relevant, decision, and requeue reason. Status conditions should expose progress to users instead of hiding failures in controller logs.",
@@ -384,10 +393,115 @@ export const article = {
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Study next',
       paragraphs: [
         "Primary sources are Kubernetes API concepts for watches and resourceVersion, client-go cache package documentation, client-go workqueue documentation, and the client-go workqueue examples. Next study Kubernetes reconciliation, etcd Raft, queues, message queues, backpressure, rate limiters, cache invalidation, idempotency, owner references, finalizers, and distributed tracing. Those topics explain why informer-based controllers treat events as hints, keys as durable work addresses, and current state as the source for action."
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for kubernetes-informer-deltafifo-workqueue-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

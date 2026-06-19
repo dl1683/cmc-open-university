@@ -1,4 +1,4 @@
-// RLHF and preference optimization: turn human comparisons into a reward model
+﻿// RLHF and preference optimization: turn human comparisons into a reward model
 // or directly into a policy update.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -198,82 +198,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The RLHF pipeline view shows the full training path left to right. Each node is a stage: pretrained model, SFT model, sample outputs, human rankings, reward model, PPO update, KL penalty, and aligned model. Active (highlighted) nodes mark the current training stage. Compare nodes show stages that inform or constrain the active step.',
+        'The DPO shortcut view shows the simplified path: chosen and rejected responses feed a single loss that updates the policy directly, anchored by a frozen reference model. Found markers indicate components whose values are fixed.',
+        'Preference pairs are the raw material. A pair is one prompt with two completions and a human label saying which is better. Reward scores are the numbers the reward model assigns to each completion. Policy updates are the gradient steps that make the language model more likely to produce preferred-style outputs.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Pretrained language models learn to predict text. That gives them broad knowledge and fluent continuation, but it does not by itself make them useful assistants. The model may answer the wrong question, follow the style of bad training text, ignore safety boundaries, or optimize for plausible continuation rather than helpful completion.',
-        'Supervised fine-tuning helps by showing demonstrations of desired behavior. It teaches format, tone, task shape, and refusal patterns. But demonstrations are expensive, and they do not capture many tradeoffs: which of two answers is clearer, whether a refusal is too broad, whether a coding answer is useful, or whether a summary preserves what matters.',
-        'RLHF and preference optimization exist to turn comparative human judgment into a training signal. Instead of asking humans to write every ideal answer, the system asks which candidate is better and then trains the model to prefer that kind of response.',
+        'Pretrained language models learn to predict the next token. That gives them broad knowledge and fluent continuation, but next-token prediction does not distinguish helpful from harmful, truthful from false, or clear from confusing. The model matches the distribution of all training text, good and bad.',
+        'The alignment problem: you want the model to follow instructions, refuse dangerous requests, give accurate answers, and be genuinely useful. None of these goals can be written as a simple loss function over tokens. You cannot specify "be helpful" the way you specify "predict the next word."',
+        'Christiano et al. (2017) introduced deep RL from human preferences for Atari and robotics. Stiennon et al. (2020) applied it to text summarization. Ouyang et al. (2022) scaled it to InstructGPT, showing that a 1.3B parameter model aligned with RLHF was preferred by humans over the unaligned 175B parameter GPT-3. The method turned comparative human judgment into a training signal that steers model behavior without requiring a hand-written objective.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to fine-tune only on demonstrations. That can work for narrow tasks, but it asks labelers to produce perfect answers rather than judge relative quality. It also wastes information: a rejected answer teaches what not to do, but plain imitation usually discards it.',
-        'A second shortcut is to train a reward model and maximize it as hard as possible. That creates a new proxy gap. The policy can learn to exploit the reward model, become verbose because verbosity was rewarded, hide uncertainty because confidence was rewarded, or drift away from the base model\'s language competence.',
-        'A third shortcut is to treat preference tuning as a moral guarantee. It is not. It aligns the model to observed preference data under a particular rubric, labeler population, prompt distribution, and optimization method. If those are narrow or biased, the trained behavior will be narrow or biased too.',
+        'Supervised fine-tuning (SFT) on curated examples. Collect demonstrations of ideal responses, pair each prompt with its gold-standard answer, and train the model with standard cross-entropy loss. This teaches the model the format, tone, and task shape of good responses.',
+        'SFT works well as a starting point. It turns a text completer into something that looks like an assistant. Ask a question, get an answer shaped like an answer rather than a continuation of the question.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is direction plus restraint. Preference data says which way to move: make chosen responses more likely than rejected responses for the same prompt. The reference model says how far to move: do not destroy the language model while chasing the preference signal.',
-        'Classic RLHF creates an explicit reward model from comparisons, then uses policy optimization to increase reward while a KL penalty keeps the policy near a reference model. DPO folds the comparison and reference constraint into a direct loss, raising the chosen response relative to the rejected one without a separate reward-model and PPO loop.',
-        'Both methods are ways of converting human comparisons into gradients. The hard part is not only the math. The hard part is deciding what the comparisons mean, collecting them across the real task distribution, measuring disagreement, and keeping the proxy from becoming the target.',
+        'SFT teaches format but not judgment. It can show the model what a good answer looks like, but it cannot encode the full space of what makes one answer better than another. You would need demonstrations covering every possible prompt, every possible failure mode, every tradeoff between brevity and thoroughness, every edge case in safety.',
+        'Demonstrations are expensive. Expert annotators cost $15-50/hour, and you need thousands of examples per task type. Worse, even perfect demonstrations throw away information: they show the model one right answer but say nothing about why other answers are wrong or how to choose between two plausible alternatives.',
+        'Humans can compare outputs far more easily than they can write ideal outputs. Picking the better of two summaries is 3-10x faster than writing a perfect summary from scratch. RLHF exists to exploit this asymmetry: use comparisons as the training signal instead of demonstrations.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A typical RLHF pipeline starts with a pretrained model, then supervised-fine-tunes it on demonstrations. The SFT model samples several responses for the same prompt. Humans rank or compare those responses. A reward model learns to score responses so chosen outputs receive higher reward than rejected outputs.',
-        'Policy optimization then updates the model to produce higher-reward responses. PPO-style RLHF treats the language model as a policy: tokens are actions, the prompt is context, and the reward model scores the completed response. The KL penalty discourages the tuned policy from moving too far from the reference SFT model.',
-        'DPO starts from the same chosen/rejected pairs but uses a direct objective. For each prompt, it increases the relative likelihood of the chosen answer and decreases the relative likelihood of the rejected answer, measured against a frozen reference model. The result is simpler operationally, but the preference data still defines the behavior.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The RLHF pipeline view proves that human judgment is not used directly at inference time. It is converted into training artifacts: demonstrations, preference pairs, a reward model, policy updates, and evaluation gates. The reward model is a proxy for preference, not preference itself.',
-        'The KL node in the visual is not decorative. It is the restraint term that prevents the optimizer from chasing the reward model so hard that language quality, calibration, or safety behavior collapses. Preference tuning without restraint can become reward hacking with better branding.',
-        'The DPO view proves the simplification. Chosen and rejected responses feed one loss, and the frozen reference model anchors the comparison. DPO removes a large operational loop, but it does not remove the need for good prompts, clean labels, disagreement tracking, safety slices, or held-out evaluation.',
+        'Phase 1: Supervised fine-tuning. Train the pretrained model on demonstration data to produce a model that can follow instructions. This SFT model becomes both the starting policy and the reference for later KL constraints.',
+        'Phase 2: Reward model training. The SFT model generates multiple responses to the same prompt. Human labelers compare pairs and mark which response is better. A separate model (the reward model) learns to assign scalar scores to responses so that chosen outputs score higher than rejected ones. The comparison follows the Bradley-Terry model: the probability that response A is preferred over B is sigmoid(r(A) - r(B)), where r is the reward model\'s score.',
+        'Phase 3: Policy optimization with PPO. The language model is treated as a policy over tokens. For each prompt, it generates a response, the reward model scores it, and the policy gradient pushes the model toward higher-reward outputs. A KL divergence penalty is added to the reward: total_reward = reward_model_score - beta * KL(policy || reference). The beta coefficient controls how far the policy can drift from the SFT reference. Without it, the optimizer exploits reward model weaknesses instead of genuinely improving.',
+        'DPO (Rafailov et al. 2023) is a simpler alternative that skips the reward model entirely. Given preference pairs, it directly optimizes: increase the log-probability ratio of chosen over rejected responses, measured against a frozen reference model. The loss is L = -log sigmoid(beta * (log pi(chosen)/pi_ref(chosen) - log pi(rejected)/pi_ref(rejected))). Same theoretical objective as RLHF, no RL loop, no separate reward model, no PPO instability. Used by Llama 2, Llama 3, and many open-weight models.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Preference learning works because comparisons are often easier and more reliable than absolute scores. A labeler may struggle to assign a helpfulness number, but can often tell which of two answers is clearer, safer, more complete, or less misleading.',
-        'The reward model or DPO loss turns that comparison into a gradient. Over many prompts and pairs, the model learns patterns of preferred behavior: answer the actual question, preserve constraints, explain enough but not too much, avoid unsupported claims, refuse dangerous requests when appropriate, and stay useful when refusing.',
-        'The reference constraint works because the base or SFT model already contains broad language competence. Preference optimization should steer that competence, not replace it. The anchor makes the update local enough that the model keeps grammar, world knowledge, coding syntax, and general task ability while shifting behavior.',
+        'Humans are better at comparing than generating. A labeler may struggle to write the perfect answer to a medical question, but can reliably tell which of two candidate answers is more accurate, more complete, or safer. RLHF converts this comparative ability into a continuous training signal.',
+        'The reward model generalizes preferences beyond the specific pairs it was trained on. After seeing 50,000 comparisons, it learns patterns: answer the actual question, stay concise, cite evidence when relevant, refuse dangerous requests precisely rather than broadly. These patterns transfer to new prompts the reward model has never seen.',
+        'The KL constraint prevents collapse. The SFT model already has broad language competence: grammar, world knowledge, coding syntax, reasoning ability. Preference optimization should steer that competence, not destroy it. The KL penalty keeps each update local enough that the model improves on the preference axis without losing everything else.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The expensive part is not only GPU time. Preference optimization needs prompt coverage, labeler guidelines, disagreement measurement, safety slices, red-team examples, reward-model validation, and held-out human evaluations. A cheap preference dataset can be worse than no preference dataset if it teaches the model the wrong proxy.',
-        'RLHF with PPO is operationally heavy: sampling, reward-model serving, policy rollouts, KL tuning, instability controls, and evaluation loops. DPO is simpler and often more stable for fine-tuning, but it can still overfit narrow data, amplify labeler habits, and trade factuality for preferred style.',
-        'There is also a data flywheel risk. If preference data mostly comes from model-written outputs, the model learns the style and blind spots of its own previous generations. If labelers reward smoothness over correctness, the model becomes smoother. If refusals dominate safety labels, the model may learn broad refusal instead of precise risk handling.',
+        'Preference data collection is the bottleneck. InstructGPT used roughly 50,000 comparison labels. At GPT-4 scale, estimates range from $10,000-50,000 for preference data alone, plus substantial costs for prompt design, labeler guidelines, disagreement measurement, and safety-specific annotation.',
+        'Reward model training is standard supervised learning: a classification-style loss on preference pairs. Comparable in cost to fine-tuning the base model.',
+        'PPO is the expensive phase. It requires four models in GPU memory simultaneously: the policy being trained, the reference policy (frozen), the reward model, and the value function (critic). For a 7B parameter model, this means roughly 4x the memory of inference. The training loop is also unstable: reward can spike, KL can oscillate, and hyperparameters (beta, learning rate, batch size, number of PPO epochs) require careful tuning.',
+        'DPO cuts the operational cost substantially. It needs only two models (policy and frozen reference), uses a standard supervised training loop, and is generally more stable. The tradeoff: DPO cannot do online sampling during training, which limits its ability to explore and improve beyond the initial preference data distribution.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'RLHF and DPO win when the task is hard to specify as a single target but easy to compare. Chat helpfulness, summarization quality, coding assistance, tool-use discipline, refusal precision, style transfer, domain tone, and support workflows all benefit from comparative feedback.',
-        'They are especially useful after supervised fine-tuning has already taught the basic task format. Preference optimization is a steering phase: it shifts the model from merely imitating demonstrations toward making better choices among plausible responses.',
-        'Production systems usually combine several stages: supervised fine-tuning for format and task behavior, preference optimization for helpfulness, targeted safety data for policy boundaries, adversarial data for failure modes, and evaluation suites that measure factuality, refusal precision, coding ability, latency, cost, and regressions.',
+        'ChatGPT and InstructGPT: RLHF turned GPT-3 from a text completer into a conversational assistant. The aligned 1.3B model was preferred over the unaligned 175B model, demonstrating that alignment quality matters more than raw scale.',
+        'Claude uses RLHF and constitutional AI (Bai et al. 2022) for helpfulness and safety alignment. Llama 2 (Touvron et al. 2023) used RLHF with over 1 million preference annotations. Gemini applies preference optimization across its model family.',
+        'The method wins whenever the task is hard to specify but easy to compare: chat helpfulness, summarization quality, code generation style, refusal precision, and domain-specific tone. It is especially effective as a steering phase after SFT has already taught the basic task format.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Preference optimization is not a truth machine. It aligns the model to the observed preference signal. If labelers prefer confident nonsense, the model can learn confident nonsense. If the reward model misses edge cases, the policy can exploit those blind spots.',
-        'Labeler bias is a structural risk. Different users value brevity, caution, detail, creativity, speed, and safety differently. A single rubric may erase important disagreement. Good pipelines measure disagreement rather than pretending every preference pair is equally obvious.',
-        'Evaluation leakage is another failure. If the same prompt styles, rubrics, or judge models drive training and evaluation, the release score can rise while real behavior stagnates. Held-out human review, task-specific evals, red-team prompts, and slice-level regression checks are part of the method, not paperwork after the method.',
+        'Reward hacking. The policy finds outputs that score high on the reward model but are not genuinely good. Common exploits: excessive hedging, sycophantic agreement, verbose padding that correlates with labeler preference for thoroughness. The model optimizes the proxy, not the real objective.',
+        'Preference inconsistency. Different labelers value different things: brevity versus detail, caution versus directness, creativity versus accuracy. A single rubric may erase important disagreement. If the preference data is noisy, the reward model learns noise.',
+        'Annotator disagreement is structural, not noise. On safety-sensitive prompts, reasonable people disagree about whether a response should be a refusal, a careful answer, or a direct answer. Treating majority vote as ground truth hides real uncertainty.',
+        'KL penalty sensitivity. Too low: reward hacking, mode collapse, language quality degrades. Too high: the model barely moves from SFT, wasting the preference data. The right beta is task-dependent and often found by expensive sweeps.',
+        'Evaluation leakage. If the same prompt styles, rubrics, or LLM judges drive both training and evaluation, scores rise while real behavior stagnates. Held-out human evaluation, red-team prompts, and slice-level regression checks are essential safeguards.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: InstructGPT / training language models with human feedback at https://arxiv.org/abs/2203.02155, Deep Reinforcement Learning from Human Preferences at https://arxiv.org/abs/1706.03741, and Direct Preference Optimization at https://arxiv.org/abs/2305.18290. Study Human Evaluation Labeling Queue Case Study, Policy Gradients, PPO, RL Experiment Reproducibility Ledger, Knowledge Distillation, Calibration Curves, Fairness Metrics, and Data Leakage next.',
+        'Prompt: "Explain gravity to a child." Completion A: "Gravity is the force that pulls things down. Drop a ball and it falls because Earth is pulling it toward the ground. The bigger something is, the harder it pulls." Completion B: "Gravitational force is described by Newton\'s law of universal gravitation, which states that F = G * m1 * m2 / r^2, where G is the gravitational constant, m1 and m2 are the masses, and r is the distance between them."',
+        'A human labeler picks A: it matches the audience, explains the mechanism simply, and gives a concrete example. The reward model trains on this pair and learns r(prompt, A) = 0.85, r(prompt, B) = 0.3. The Bradley-Terry probability of preferring A is sigmoid(0.85 - 0.3) = sigmoid(0.55) = 0.63, consistent with a clear but not overwhelming preference.',
+        'During PPO, the policy generates a new response to a similar prompt. The reward model scores it 0.72. The policy gradient increases the probability of token sequences that led to this score. The KL penalty checks drift: if the policy\'s token distribution has moved more than beta allows from the SFT reference, the penalty reduces the effective reward, pulling the model back toward broad competence. Over thousands of such updates, the model learns to produce child-appropriate explanations without losing its ability to give technical answers when asked.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Christiano et al. 2017, "Deep Reinforcement Learning from Human Preferences" (https://arxiv.org/abs/1706.03741) -- RLHF foundations for Atari and MuJoCo. Stiennon et al. 2020, "Learning to Summarize from Human Feedback" (https://arxiv.org/abs/2009.01325) -- RLHF applied to text summarization. Ouyang et al. 2022, "Training Language Models to Follow Instructions with Human Feedback" (https://arxiv.org/abs/2203.02155) -- InstructGPT. Rafailov et al. 2023, "Direct Preference Optimization: Your Language Model Is Secretly a Reward Model" (https://arxiv.org/abs/2305.18290) -- DPO. Bai et al. 2022, "Constitutional AI: Harmlessness from AI Feedback" (https://arxiv.org/abs/2212.08073) -- Constitutional AI.',
+        'Prerequisites: PPO and policy gradient methods (the RL algorithm), cross-entropy loss (the SFT objective), transformer architecture (the model being aligned). Extensions: constitutional AI (replacing human labelers with AI self-critique), DPO and its variants (IPO, KTO, ORPO), reward model ensembles for reducing hacking. Related ideas: value iteration, transfer learning, LoRA for efficient fine-tuning of the SFT step.',
       ],
     },
   ],
 };
+

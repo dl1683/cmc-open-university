@@ -1,4 +1,4 @@
-// Particle filter localization: represent uncertainty as weighted hypotheses,
+﻿// Particle filter localization: represent uncertainty as weighted hypotheses,
 // move them, reweight by sensor likelihood, and resample when ESS collapses.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -301,6 +301,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Particle Filter Resampling Localization Case Study. Sequential Monte Carlo for robot localization: weighted particles, sensor likelihoods, effective sample size, systematic resampling, and particle impoverishment..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why particle filters exist',
       paragraphs: [
         `Localization is a state-estimation problem under uncertainty. A robot wants to know its pose, but it never receives the pose directly. It receives wheel ticks, inertial readings, camera features, lidar scans, map constraints, and sensor noise. Each observation is partial. Odometry drifts. Walls repeat. Doorways look alike. A single confident coordinate can be worse than ignorance if the evidence still supports several places at once.`,
@@ -309,7 +318,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         `The naive approach is to keep one best state estimate. Move it with odometry, correct it with sensors, and report that coordinate. This is attractive because it is cheap and easy to reason about. The problem is that the best single estimate can be an average of incompatible possibilities. If the robot could be in aisle A or aisle B, the average might lie inside a shelf between them. The number is precise, but the belief is false.`,
         `A stronger classical approach is the Kalman filter family. A Kalman filter keeps a mean and covariance, propagates them through a motion model, and updates them with measurement information. That is excellent when the posterior is roughly Gaussian, dynamics are close to linear, and measurement noise is well behaved.`,
@@ -325,7 +334,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'How it works',
       paragraphs: [
         `The core data structure is an array of particle records. A minimal row stores state and weight. A production row often stores log weight, likelihood components, timestamp, map version, proposal id, random seed, and lineage information. That extra metadata is not decorative. Localization failures are hard to debug if you cannot replay which observation reweighted which hypotheses and which resampling step deleted an alternative.`,
         `Weights are usually handled in log space because likelihoods multiply across time and can underflow quickly. The implementation computes log likelihoods, subtracts the log-sum-exp normalization constant, and converts to normalized weights only when needed. The weighted mean can estimate a unimodal pose, but for a multimodal belief the better output may be the highest-weight particle, a cluster summary, or a set of candidate modes with probabilities.`,
@@ -336,7 +345,7 @@ export const article = {
       heading: 'How resampling works',
       paragraphs: [
         `Resampling converts a weighted population into an equally weighted one by copying high-weight particles and deleting low-weight particles. Imagine laying every particle on a cumulative weight line from 0 to 1. A particle with weight 0.40 owns 40 percent of the line; a particle with weight 0.01 owns only 1 percent. Sampling N positions on that line produces the next population. High-weight particles receive multiple descendants. Low-weight particles may disappear.`,
-        `Systematic resampling uses one random offset and then N evenly spaced pointers. Stratified resampling uses one random pointer inside each of N equal bins. Residual resampling deterministically keeps the integer part of each particle's expected copy count and samples the remainder. Multinomial resampling is simplest but has higher variance. These methods all approximate the same goal, but their variance differs, which affects how quickly minority hypotheses vanish.`,
+        `Systematic resampling uses one random offset and then N evenly spaced pointers. Stratified resampling uses one random pointer inside each of N equal bins. Residual resampling deterministically keeps the integer part of each particle\'s expected copy count and samples the remainder. Multinomial resampling is simplest but has higher variance. These methods all approximate the same goal, but their variance differs, which affects how quickly minority hypotheses vanish.`,
         `Resampling is useful because it spends future computation where the posterior mass is. Without it, most particles may carry nearly zero weight and waste later updates. Resampling is dangerous because copying is not exploration. If the filter resamples after every observation, it can turn a rich posterior into many identical descendants of a few lucky samples. Serious implementations usually resample only when ESS falls below a threshold.`,
       ],
     },
@@ -349,7 +358,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is used',
+      heading: 'Real-world uses',
       paragraphs: [
         `Robot localization is the standard example. A mobile robot samples pose hypotheses, moves them with odometry, scores them against a map using lidar or vision, and resamples when evidence concentrates. The same structure appears in target tracking, where a radar or camera observes partial information about an object that moves under uncertain dynamics. It also appears in fault diagnosis, where particles represent possible hidden machine states, and in probabilistic simulation, where the system must maintain a belief over latent variables over time.`,
         `Particle filters are especially helpful in global localization and recovery. If a robot starts with no idea where it is, particles can be spread across the map. As observations arrive, inconsistent regions lose weight and plausible regions survive. If the robot is kidnapped and moved, some systems inject random particles or use adaptive resampling so the filter can recover instead of staying confidently wrong.`,
@@ -357,10 +366,10 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes and tradeoffs',
+      heading: 'Where it fails',
       paragraphs: [
         `The biggest failure is sample impoverishment in a high-dimensional or poorly proposed state space. Particles are finite. If the true state lies in a region the proposal rarely visits, the filter may never recover. This is the curse of dimensionality in practical form: as state dimension grows, a fixed number of samples covers less of the relevant volume. Particle filters are natural for low-to-moderate dimensional states such as robot pose; they become harder for large latent states unless the model has strong structure.`,
-        `The second failure is a bad likelihood model. If the map is stale, the sensor calibration is wrong, or the likelihood function is too sharp, the filter may delete correct hypotheses. If the likelihood is too flat, the filter may never concentrate. Sensor timing errors can produce the same symptoms. A lidar scan matched to the wrong pose timestamp punishes particles for the system's synchronization bug rather than for their state.`,
+        `The second failure is a bad likelihood model. If the map is stale, the sensor calibration is wrong, or the likelihood function is too sharp, the filter may delete correct hypotheses. If the likelihood is too flat, the filter may never concentrate. Sensor timing errors can produce the same symptoms. A lidar scan matched to the wrong pose timestamp punishes particles for the system\'s synchronization bug rather than for their state.`,
         `The main tradeoff is particle count versus latency. More particles improve coverage and reduce Monte Carlo variance, but every particle must be propagated and scored. A rich scan-matching likelihood can dominate CPU time. A cheap landmark model allows many particles but may not distinguish enough states. Production tuning measures localization error, ESS, distinct particle count, update latency, recovery time, and the rate of confident wrong estimates.`,
       ],
     },
@@ -376,8 +385,86 @@ export const article = {
       heading: 'Study next',
       paragraphs: [
         `Study importance sampling first, because particle weights are importance weights reused over time. Then study Kalman filtering to understand the Gaussian alternative and why it is so efficient when its assumptions fit. Markov chains and hidden Markov models provide the sequential-probability background. The bootstrap helps build intuition for finite sample approximations and resampling variance.`,
-        `Primary sources worth reading are Gordon, Salmond, and Smith on nonlinear and non-Gaussian Bayesian state estimation; Doucet's sequential Monte Carlo resources; Doucet, de Freitas, and Gordon's particle filtering introduction; Arulampalam et al.'s tutorial on particle filters for online tracking; and the Stone Soup particle-filter tutorial. After that, compare practical robotics implementations: look for how they initialize global particles, compute scan likelihoods, gate resampling, inject recovery particles, and log replay data for failure analysis.`,
+        `Primary sources worth reading are Gordon, Salmond, and Smith on nonlinear and non-Gaussian Bayesian state estimation; Doucet\'s sequential Monte Carlo resources; Doucet, de Freitas, and Gordon\'s particle filtering introduction; Arulampalam et al.'s tutorial on particle filters for online tracking; and the Stone Soup particle-filter tutorial. After that, compare practical robotics implementations: look for how they initialize global particles, compute scan likelihoods, gate resampling, inject recovery particles, and log replay data for failure analysis.`,
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for particle-filter-resampling-localization-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

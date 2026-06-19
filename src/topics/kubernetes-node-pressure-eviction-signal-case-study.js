@@ -251,7 +251,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation focus',
+      heading: 'How to read the animation',
       paragraphs: [
         'The signal-ladder view shows the kubelet as a local controller. The useful thing to notice is the order of responsibility: observe memory, disk, and inode signals; compare those signals with policy; try reclaim; then rank victims only if the signal still threatens the node.',
         'The eviction-choice view shows that victim selection is not a moral judgment about an application. It is a constrained local decision. A Pod becomes a good victim when removing it is likely to relieve the breached resource while preserving higher-priority or better-reserved work.',
@@ -259,7 +259,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The steady-state monitoring cost is small: each kubelet samples local signals and updates node conditions. The incident cost is much larger. Eviction can terminate useful work, lose warm caches, drop in-flight requests, trigger retries, start image pulls, and create a burst of scheduling and controller activity.',
         'Soft thresholds trade responsiveness for stability. They avoid killing Pods for short-lived spikes, but they can wait too long if pressure rises quickly. Hard thresholds trade stability for survival. They can protect the node quickly, but they can also shorten application grace and surprise operators who expected a gentler failure path.',
@@ -268,7 +268,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Node-pressure eviction is the right tool when local scarcity is real and immediate. Memory pressure, imagefs exhaustion, nodefs exhaustion, containerfs exhaustion, inode starvation, and PID starvation are not abstract cluster states. They are local conditions that can break the node before a central scheduler loop can repair anything.',
         'It is especially useful in mixed clusters that run services, batch jobs, controllers, and DaemonSets together. Priority and requests let operators express which work should survive first. Batch work can be retried; critical node services and user-facing replicas often deserve stronger protection.',
@@ -291,5 +291,47 @@ export const article = {
         'For the broader pattern, compare node-pressure eviction with load shedding, circuit breakers, backpressure, and admission control. All of them choose controlled loss before uncontrolled failure. The difference is the resource boundary: Kubernetes node-pressure eviction protects one worker node, while the others usually protect a service, queue, or request path.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for kubernetes-node-pressure-eviction-signal-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

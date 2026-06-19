@@ -1,4 +1,4 @@
-// Backpropagation: the forward pass ran left to right; now the ERROR runs
+﻿// Backpropagation: the forward pass ran left to right; now the ERROR runs
 // right to left, assigning blame to every weight via the chain rule —
 // and one small update makes the same network measurably less wrong.
 
@@ -48,63 +48,63 @@ export function* run(input) {
 
   yield {
     state: matrixState({
-      title: `Forward pass recap: prediction ŷ = ${r2(out)}, truth y = ${r2(y)}`,
+      title: `Forward pass recap: prediction Å· = ${r2(out)}, truth y = ${r2(y)}`,
       rows: [{ id: 'a', label: 'a' }],
       columns: hidden,
       values: [a.map(r2)],
     }),
     highlight: {},
-    explanation: `Same 2-3-1 network as Neural Network Forward Pass, same input [${X.join(', ')}]: hidden activations a = [${a.map(r2).join(', ')}], prediction ŷ = ${r2(out)}. But the CORRECT answer is ${y}. Loss = (ŷ − y)² = ${r3(loss)}. The question backpropagation answers: which of the 13 weights deserves how much blame — and in which direction should each one move?`,
+    explanation: `Same 2-3-1 network as Neural Network Forward Pass, same input [${X.join(', ')}]: hidden activations a = [${a.map(r2).join(', ')}], prediction Å· = ${r2(out)}. But the CORRECT answer is ${y}. Loss = (Å· âˆ’ y)² = ${r3(loss)}. The question backpropagation answers: which of the 13 weights deserves how much blame — and in which direction should each one move?`,
   };
 
   const dOut = 2 * (out - y);
   yield {
     state: matrixState({
-      title: 'The seed gradient: dL/dŷ = 2(ŷ − y)',
-      rows: [{ id: 'g', label: '∂L' }],
-      columns: [{ id: 'dy', label: '∂ŷ' }],
+      title: 'The seed gradient: dL/dÅ· = 2(Å· âˆ’ y)',
+      rows: [{ id: 'g', label: 'âˆ‚L' }],
+      columns: [{ id: 'dy', label: 'âˆ‚Å·' }],
       values: [[r3(dOut)]],
     }),
     highlight: { active: ['g:dy'] },
-    explanation: `Differentiate the loss: dL/dŷ = 2(ŷ − y) = ${r3(dOut)}. ${dOut > 0 ? 'Positive: the prediction is too HIGH, so anything that pushed ŷ up gets positive blame.' : 'Negative: the prediction is too LOW.'} This single number is the seed — every other gradient in the network is this, multiplied backward through the chain rule.`,
+    explanation: `Differentiate the loss: dL/dÅ· = 2(Å· âˆ’ y) = ${r3(dOut)}. ${dOut > 0 ? 'Positive: the prediction is too HIGH, so anything that pushed Å· up gets positive blame.' : 'Negative: the prediction is too LOW.'} This single number is the seed — every other gradient in the network is this, multiplied backward through the chain rule.`,
   };
 
   const dW2 = a.map((aj) => aj * dOut);
   yield {
     state: matrixState({
-      title: 'Output-layer gradients: ∂L/∂W₂ = a × dL/dŷ',
-      rows: [{ id: 'gw2', label: '∂W₂' }],
+      title: 'Output-layer gradients: âˆ‚L/âˆ‚Wâ‚‚ = a Ã— dL/dÅ·',
+      rows: [{ id: 'gw2', label: 'âˆ‚Wâ‚‚' }],
       columns: hidden,
       values: [dW2.map(r3)],
     }),
     highlight: { active: ['gw2:h1'] },
-    explanation: `Chain rule, step one: each output weight's blame = (the activation it carried) × (the downstream error): ∂L/∂W₂ = [${dW2.map(r3).join(', ')}]. Read the middle one: neuron 2's activation was 0, so its weight carried NOTHING into the error — zero blame, zero learning. Blame flows only through paths that actually fired.`,
+    explanation: `Chain rule, step one: each output weight's blame = (the activation it carried) Ã— (the downstream error): âˆ‚L/âˆ‚Wâ‚‚ = [${dW2.map(r3).join(', ')}]. Read the middle one: neuron 2's activation was 0, so its weight carried NOTHING into the error — zero blame, zero learning. Blame flows only through paths that actually fired.`,
   };
 
   const dA = W2.map((w) => w * dOut);
   const dZ = dA.map((g, j) => (z[j] > 0 ? g : 0));
   yield {
     state: matrixState({
-      title: "Through ReLU: ∂L/∂z = ∂L/∂a ⊙ ReLU′(z)",
-      rows: [{ id: 'da', label: '∂a' }, { id: 'dz', label: '∂z' }],
+      title: "Through ReLU: âˆ‚L/âˆ‚z = âˆ‚L/âˆ‚a âŠ™ ReLU′(z)",
+      rows: [{ id: 'da', label: 'âˆ‚a' }, { id: 'dz', label: 'âˆ‚z' }],
       columns: hidden,
       values: [dA.map(r3), dZ.map(r3)],
     }),
     highlight: { active: ['dz:h1'] },
-    explanation: `Step two: pass the blame through the activation. ReLU's derivative is 1 where z was positive, 0 where it was negative — so neuron 2 (z = ${r2(z[1])} < 0) BLOCKS its gradient entirely: ∂L/∂z = [${dZ.map(r3).join(', ')}]. The gate that silenced it forward silences its learning backward. (This is exactly the "dead ReLU" risk from Activation Functions.)`,
+    explanation: `Step two: pass the blame through the activation. ReLU's derivative is 1 where z was positive, 0 where it was negative — so neuron 2 (z = ${r2(z[1])} < 0) BLOCKS its gradient entirely: âˆ‚L/âˆ‚z = [${dZ.map(r3).join(', ')}]. The gate that silenced it forward silences its learning backward. (This is exactly the "dead ReLU" risk from Activation Functions.)`,
     invariant: 'Gradients flow backward through precisely the paths the data flowed forward.',
   };
 
   const dW1 = [0, 1].map((i) => [0, 1, 2].map((j) => X[i] * dZ[j]));
   yield {
     state: matrixState({
-      title: 'Input-layer gradients: ∂L/∂W₁ = x ⊗ ∂L/∂z',
-      rows: [{ id: 'rx1', label: 'x₁' }, { id: 'rx2', label: 'x₂' }],
+      title: 'Input-layer gradients: âˆ‚L/âˆ‚Wâ‚ = x âŠ— âˆ‚L/âˆ‚z',
+      rows: [{ id: 'rx1', label: 'xâ‚' }, { id: 'rx2', label: 'xâ‚‚' }],
       columns: hidden,
       values: dW1.map((row) => row.map(r3)),
     }),
     highlight: {},
-    explanation: `Step three: the first layer. Each weight's blame = (its input) × (its neuron's blame): an outer product. Note the sign flips on the x₂ row — x₂ = ${X[1]} is negative, so increasing those weights DECREASES the prediction. The chain rule handles all of this bookkeeping mechanically; in PyTorch this entire process is the single call loss.backward().`,
+    explanation: `Step three: the first layer. Each weight's blame = (its input) Ã— (its neuron's blame): an outer product. Note the sign flips on the xâ‚‚ row — xâ‚‚ = ${X[1]} is negative, so increasing those weights DECREASES the prediction. The chain rule handles all of this bookkeeping mechanically; in PyTorch this entire process is the single call loss.backward().`,
   };
 
   const W2n = W2.map((w, j) => w - lr * dW2[j]);
@@ -116,13 +116,13 @@ export function* run(input) {
 
   yield {
     state: matrixState({
-      title: `Update (lr=${lr}) and re-run: loss ${r3(loss)} → ${r3(newLoss)}`,
+      title: `Update (lr=${lr}) and re-run: loss ${r3(loss)} â†’ ${r3(newLoss)}`,
       rows: [{ id: 'before', label: 'before' }, { id: 'after', label: 'after' }],
-      columns: [{ id: 'pred', label: 'ŷ' }, { id: 'l', label: 'loss' }],
+      columns: [{ id: 'pred', label: 'Å·' }, { id: 'l', label: 'loss' }],
       values: [[r2(out), r3(loss)], [r2(after.out), r3(newLoss)]],
     }),
     highlight: { active: ['after:l'] },
-    explanation: `Every weight takes one step against its gradient: w ← w − ${lr}·∂L/∂w (that's Gradient Descent). Then run the SAME input forward again: ŷ moves from ${r2(out)} to ${r2(after.out)}, and the loss drops from ${r3(loss)} to ${r3(newLoss)}. The network is measurably less wrong — after ONE step.`,
+    explanation: `Every weight takes one step against its gradient: w â† w âˆ’ ${lr}Â·âˆ‚L/âˆ‚w (that's Gradient Descent). Then run the SAME input forward again: Å· moves from ${r2(out)} to ${r2(after.out)}, and the loss drops from ${r3(loss)} to ${r3(newLoss)}. The network is measurably less wrong — after ONE step.`,
   };
 
   yield {
@@ -136,87 +136,109 @@ export function* run(input) {
       values: [[0.25, 0.5, 0.75, 1.0]],
     }),
     highlight: {},
-    explanation: `Forward → loss → backward → update. That four-beat loop, repeated millions of times over millions of examples, is ALL that "training a neural network" means — including the LLM you might be reading this with. Backprop's deeper claim: it computes the gradient for every one of n weights in one backward sweep costing about as much as the forward pass — not n separate experiments. That efficiency is why deep learning is possible at all.`,
+    explanation: `Forward â†’ loss â†’ backward â†’ update. That four-beat loop, repeated millions of times over millions of examples, is ALL that "training a neural network" means — including the LLM you might be reading this with. Backprop's deeper claim: it computes the gradient for every one of n weights in one backward sweep costing about as much as the forward pass — not n separate experiments. That efficiency is why deep learning is possible at all.`,
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Backpropagation exists because a neural network can be wrong in millions of tiny ways at once. A prediction comes from many weights, biases, activations, and matrix multiplies. Training needs to answer a practical question after every batch: which parameters helped cause this loss, and which direction should each one move next?`,
-        `A forward pass only tells you the prediction and the loss. That is not enough to train. If the network predicts 0.9 when the target is 0.5, you know the output is too high, but you do not yet know whether the first hidden neuron should increase, whether a bias should fall, or whether a weight connected to a silent ReLU mattered at all. Backpropagation turns that single loss into a gradient for every trainable value.`,
-        `The useful definition is simple: backpropagation is reverse-mode automatic differentiation applied to a neural network computation graph. The network runs forward, stores the intermediate values needed for derivatives, seeds the backward pass from the loss, and applies the chain rule from right to left.`,
+        'The animation builds a computation graph for a 2-input, 3-hidden, 1-output network, then runs one complete training step through it. Each panel corresponds to one stage: forward pass values, the seed gradient at the loss, gradient flow back through each layer, and the parameter update.',
+        'Forward pass values appear left to right: inputs become pre-activations, pre-activations become post-activations through ReLU, activations become the prediction. The numbers in each cell are the cached intermediate values that the backward pass will need.',
+        'Gradient flow arrows run right to left -- the reverse direction. Highlighted cells mark the gradient currently being computed. A zero gradient means that neuron was gated off by ReLU during the forward pass, so no error signal passes through it backward either. The forward gate and the backward gate are the same gate.',
+        'The final panel reruns the forward pass with updated weights. The before-and-after loss comparison is the payoff: if the loss dropped, the gradients pointed downhill and the learning rate was small enough to follow them. One backward sweep, all weights updated, network measurably less wrong.',
       ],
     },
     {
-      heading: `The naive approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive way to assign blame is to perturb one parameter at a time. Add a tiny epsilon to weight 1, rerun the network, measure whether the loss changed, undo the change, and repeat for weight 2, weight 3, and so on. This finite-difference idea is easy to understand and useful for checking a small implementation, but it is hopeless as a training method.`,
-        `The cost breaks immediately. A model with one million parameters would need about one million extra forward passes to estimate one gradient vector. A modern language model has billions of parameters. Even if the estimates were accurate, the training loop would be too slow by orders of magnitude. The estimates are also noisy because epsilon must be small enough to approximate a derivative but large enough to survive floating-point roundoff.`,
-        `Another naive approach is local tweaking: increase weights that appear on paths to a good answer and decrease weights that appear on paths to a bad one. That fails because neural networks are composed systems. A weight can push an activation up, an activation can be gated by ReLU, another weight can flip the sign, and the loss can curve differently depending on the output. Blame is not visible from topology alone. It has to be computed through the actual numeric path the example took.`,
+        'A neural network predicts by multiplying inputs through layers of weights. When the prediction is wrong, the loss quantifies the error as a single number. But that number does not say which of the thousands or millions of weights caused the mistake, or which direction each one should move. Training requires the partial derivative of the loss with respect to every weight -- the full gradient vector -- so each parameter can be nudged in the direction that reduces the error.',
+        'Manual differentiation is possible for small networks but impractical at scale. A modern language model has billions of parameters. Computing each gradient by hand, even once, is not a real option. The field needed an algorithm that could compute all gradients mechanically, in one pass, from any differentiable computation graph.',
+        'Reverse-mode automatic differentiation was first described by Linnainmaa in 1970 as a method for propagating rounding errors. Werbos applied the idea to neural networks in 1974. Rumelhart, Hinton, and Williams popularized it in their 1986 Nature paper "Learning Representations by Back-Propagating Errors," showing that multi-layer networks could learn useful internal representations when trained this way. Every neural network trained since -- from LeNet to GPT-4 -- uses backpropagation.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that the chain rule can be organized as dynamic programming on the computation graph. You do not need to differentiate the whole network separately for every parameter. Start with the derivative of the loss with respect to the output. Then reuse that downstream derivative as you walk backward through each operation.`,
-        `If y_hat = a1*w1 + a2*w2 + b, then the derivative of the loss with respect to w1 is the downstream error times a1. The derivative with respect to a1 is the downstream error times w1. One local rule gives two pieces of reusable information. Matrix multiply, addition, ReLU, softmax, normalization, and attention all have local derivative rules like this. Backprop just composes them in reverse order.`,
-        `This is why backprop scales. A backward pass touches each operation and each edge of the graph in a structured way. It is not one experiment per parameter. It is one reverse sweep that shares intermediate gradients. That efficiency is the difference between neural networks as a clever idea and neural networks as a trainable technology.`,
+        'Numerical differentiation estimates each gradient independently. For a weight w_i, add a tiny perturbation epsilon, rerun the forward pass, and compute the finite difference: dL/dw_i is approximately (L(w_i + epsilon) - L(w_i)) / epsilon. This requires no calculus and no knowledge of layer internals -- just the ability to evaluate the loss.',
+        'For a network with 10 weights, run 11 forward passes (one baseline plus one per weight) and you have a usable gradient vector. The estimates are noisy but functional. Any engineer confronting the gradient problem for the first time would reach for this: perturb, measure, repeat. It is the finite-difference method from introductory numerical analysis, applied weight by weight.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The wall',
       paragraphs: [
-        `Training begins with a forward pass. The model receives an input, computes hidden pre-activations, applies activation functions, produces an output, and computes a scalar loss. During that pass, the system keeps values needed later: inputs to layers, pre-activation values for ReLU gates, activations feeding the next layer, and sometimes normalization statistics or attention probabilities.`,
-        `The backward pass starts at the loss. For squared error, dL/dy_hat = 2*(y_hat - y). That number is the seed gradient. It says how the loss changes if the prediction moves upward. The output-layer weights then receive gradients equal to hidden activation times that seed. If a hidden activation was zero, the weight attached to it gets zero gradient on this example because that path carried no signal into the output.`,
-        `The gradient then moves through the activation function. A ReLU passes the gradient through when its pre-activation was positive and blocks it when the pre-activation was negative. Sigmoid and tanh pass scaled gradients that can become small near saturation. This is why Activation Functions are not cosmetic. They decide how signal moves forward and how blame moves backward.`,
-        `For a dense layer, the first-layer weight gradients form an outer product: input value times hidden-layer error. A negative input can flip the sign of the gradient. Bias gradients receive the downstream error directly because adding a bias has derivative 1. After gradients are computed, the optimizer applies an update. Plain stochastic gradient descent uses w <- w - learning_rate * gradient. Momentum, RMSProp, Adam, weight decay, and learning-rate schedules change the update rule, but they still depend on the gradient backprop provides.`,
+        'Numerical differentiation costs one forward pass per parameter. A network with n weights needs n + 1 forward passes to estimate one gradient vector. For 10 weights that is fine. For a million weights it means a million forward passes per training step. GPT-3 has 175 billion parameters -- 175 billion forward passes for a single gradient update, before the optimizer even takes one step.',
+        'The cost is linear in the number of parameters, and training typically requires thousands to millions of gradient updates. The total work is n times the number of steps, which puts numerical differentiation beyond any feasible compute budget for modern networks.',
+        'There is also a precision problem. Epsilon must be small enough to approximate a true derivative but large enough to survive floating-point roundoff. In deep networks, the finite-difference errors compound through many layers. The method becomes both too slow and too noisy exactly where it matters most. Training needs all n gradients in one backward pass, not n separate experiments.',
       ],
     },
     {
-      heading: `What the visual is proving`,
+      heading: 'How it works',
       paragraphs: [
-        `The visual uses a tiny 2-3-1 network so the whole training step can fit on the screen. The first panel is not training yet. It is the stored forward pass: hidden activations, prediction, target, and loss. Those cached activations are the data the backward pass will reuse.`,
-        `The seed-gradient panel proves that the loss starts the backward pass with one number. The output-layer panel proves that a weight only receives blame through the activation it carried. The hidden neuron with zero activation is important: its outgoing weight may exist, but it did not affect this prediction, so it receives no output-layer gradient for this example.`,
-        `The ReLU panel proves that gates matter in both directions. A neuron silenced on the forward pass can also block learning on the backward pass. The first-layer panel proves that input signs matter; a negative input reverses the direction of the weight update. The final panel proves the practical point: after one gradient step, the same input is rerun and the loss drops. The animation is not only showing derivatives. It is showing why those derivatives become learning.`,
+        'Backpropagation has two phases. The forward pass runs the input through the network left to right, computing and caching every intermediate value: pre-activations z, post-activations a, and the final prediction y_hat. The backward pass then walks the computation graph in reverse topological order, applying the chain rule at each node to propagate the gradient of the loss back to every parameter.',
+        'The chain rule says: if y = f(g(h(x))), then dy/dx = df/dg * dg/dh * dh/dx. Each factor is a local derivative -- the derivative of one operation with respect to its immediate input. Backpropagation multiplies these local derivatives together, working from the loss backward toward the input, accumulating the global derivative along the way.',
+        'The backward pass starts at the loss. For squared error L = (y_hat - y)^2, the seed gradient is dL/dy_hat = 2(y_hat - y). This single number is the starting signal. Every other gradient in the network is this seed, multiplied backward through chain-rule factors at each operation.',
+        'At each node in the graph, the rule is the same: dL/dx = dL/dy * dy/dx, where y is the node output and x is its input. Three operations cover most of neural network arithmetic. A multiply gate distributes: if y = w * a, then dL/dw = dL/dy * a and dL/da = dL/dy * w. An add gate copies: if y = a + b, then dL/da = dL/dy and dL/db = dL/dy. A ReLU gate switches: if y = max(0, x), then dL/dx = dL/dy when x > 0, and dL/dx = 0 when x <= 0.',
+        'For the output layer, each weight gradient equals the activation it carried times the seed: dL/dw2_j = a_j * dL/dy_hat. If a hidden neuron produced zero activation, its weight gets zero gradient -- that path carried nothing forward and receives no blame backward.',
+        'Through ReLU, the gradient is gated. A neuron with positive pre-activation passes its gradient unchanged. A neuron with negative pre-activation blocks the gradient entirely. The same gate that silenced the neuron forward silences its learning backward.',
+        'At the first layer, weight gradients form the outer product of the input vector and the post-ReLU error vector: dL/dw1_ij = x_i * dL/dz_j. A negative input flips the gradient sign. Bias gradients equal the downstream error directly, since the derivative of an addition by a constant is 1.',
+        'After all gradients are computed, the optimizer updates each weight: w <- w - lr * dL/dw. That is gradient descent. Adam, momentum, and weight decay modify this update rule, but they all consume the same gradient vector that backprop produced.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Backprop works because every operation has a local derivative, and the chain rule tells you how to multiply local effects into global effects. The derivative at a weight does not need to know the entire network in one formula. It needs the input value that reached the weight and the downstream gradient that returned from the rest of the graph.`,
-        `The guarantee is narrower than beginners sometimes assume. Backprop gives the gradient of the loss you wrote for the computation you executed. It does not guarantee that the loss matches the real goal, that the data is clean, that the optimizer will find a good minimum, or that one step will improve every future example. It supplies accurate local slope information. Training still has to use that information well.`,
+        'The chain rule of calculus guarantees that the derivative of a composition f(g(h(x))) equals the product of each function\'s local derivative evaluated at its input: f\'(g(h(x))) * g\'(h(x)) * h\'(x). A neural network is exactly such a composition -- input, linear transform, activation, another linear transform, loss -- and each operation has a known, simple local derivative. The chain rule lets you multiply these together to get the exact derivative of the loss with respect to any weight, no matter how deep.',
+        'The efficiency comes from the direction of computation. Reverse mode computes dL/dy at the output once, then reuses it for every output-layer weight. The gradient flowing back to the hidden layer is computed once, then reused for every first-layer weight. Each intermediate result is shared, not recomputed. This is the same dynamic-programming insight that makes Viterbi and forward-backward algorithms efficient: compute partial results once, propagate, reuse.',
+        'Reverse-mode autodiff computes the gradient of one scalar (the loss) with respect to all n parameters in one backward pass -- O(n) total work, same as the forward pass. Forward-mode autodiff would need one pass per parameter. Numerical differentiation would need n + 1 forward passes. The reverse structure is what makes training networks with billions of parameters feasible.',
       ],
     },
     {
-      heading: `Cost and tradeoffs`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The major cost win is that one backward traversal gives gradients for all parameters. For dense neural networks, backward compute is usually on the same order as forward compute, often roughly two to three times a forward pass once all gradient calculations are included. That is expensive, but it is not one forward pass per weight. This scaling fact is why billion-parameter training is possible at all.`,
-        `The harsher cost is often memory. Training must keep activations for backward, parameter gradients, optimizer state, and sometimes master fp32 copies of weights. Adam can require much more memory than plain SGD because it stores running first and second moments. Larger batches increase activation memory. Longer sequences increase it again. In transformer training, activation memory is a major reason training is far more expensive than inference.`,
-        `The common tradeoff is recomputation. Gradient checkpointing discards selected activations during the forward pass and recomputes them during backward to save memory. Mixed precision reduces memory bandwidth and storage but requires numerical care. Distributed training adds communication costs because gradients must be reduced across devices.`,
+        'The backward pass costs roughly 2-3x the forward pass in compute. The same matrix multiplications run in reverse, plus local derivative evaluations at each node. But the critical point: this cost is independent of parameter count in the sense that one backward pass covers all parameters. A network with 100 weights and one with 100 billion weights both need exactly one backward pass.',
+        'Memory is the harder cost. The backward pass needs the intermediate activations cached during the forward pass -- every pre-activation, every post-activation, every intermediate matrix product. The gradient for every parameter must also be stored, and the optimizer adds its own state (Adam keeps two extra vectors per parameter: running mean and variance of past gradients). For large transformers, activation memory -- not compute -- is typically the binding constraint.',
+        'Activation checkpointing trades compute for memory: discard some cached activations during the forward pass and recompute them during the backward pass when needed. This can reduce activation memory from O(L) to O(sqrt(L)) for L layers, at the cost of roughly one additional forward pass. Mixed-precision training (fp16 or bf16 for the forward pass, fp32 for gradient accumulation) cuts memory and bandwidth further, but requires loss scaling to prevent gradient underflow in low-precision formats.',
       ],
     },
     {
-      heading: `Real uses`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Backpropagation trains almost every modern neural model: image classifiers, speech models, recommenders, diffusion models, language models, graph neural networks, tabular MLPs, and reinforcement-learning value or policy networks. Fine-tuning also uses it. The model starts from pretrained weights, computes task loss on new examples, backpropagates through the chosen layers, and updates a smaller or larger part of the network.`,
+        'Every neural network trained since 1986 uses backpropagation. Convolutional networks for images, recurrent networks for sequences, transformers for language, diffusion models for generation, graph neural networks, reinforcement-learning policy networks, and plain tabular MLPs -- all trained by forward pass, loss, backward pass, update. Fine-tuning a pretrained model uses the same algorithm; the only difference is which layers receive gradient updates and which are frozen.',
+        'Modern frameworks hide the backward pass entirely. PyTorch builds the computation graph dynamically during the forward pass, then loss.backward() runs the entire backward pass and populates every parameter\'s .grad attribute. TensorFlow uses GradientTape to record operations and compute gradients on demand. JAX uses jax.grad to transform a forward function into a gradient function. The programmer writes only the forward computation; the framework derives and executes the backward pass automatically. This is automatic differentiation in daily practice.',
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Where it fails',
       paragraphs: [
-        `The first failure mode is a bad objective. If the loss rewards the wrong behavior, backprop will faithfully optimize the wrong behavior. A recommender can learn clickbait, a language model can learn benchmark shortcuts, and a classifier can learn dataset artifacts. Gradients do not know intent. They only know the loss surface.`,
-        `The second failure mode is unstable optimization. A learning rate that is too high can overshoot and increase loss. A learning rate that is too low can waste compute. Deep products of Jacobians can create vanishing or exploding gradients. Dead ReLUs can block learning for units that rarely activate. Poor initialization can make early gradients useless. Normalization, residual connections, gradient clipping, careful initialization, and learning-rate warmup exist because raw backprop through deep systems is often fragile.`,
+        'Vanishing gradients: gradients are products of many local derivatives, one per layer. If each factor is less than 1, the product shrinks exponentially with depth. Sigmoid saturates with a maximum derivative of 0.25, so ten sigmoid layers multiply the gradient by roughly 0.25^10 -- about one millionth. Early layers receive almost no learning signal. ResNet skip connections fix this by adding a gradient highway that bypasses the shrinking chain. LSTM gating fixes it for sequences. Batch normalization and layer normalization stabilize the scale of activations and gradients across layers.',
+        'Exploding gradients: the opposite failure. If local derivatives exceed 1, gradients grow exponentially and the update overshoots wildly, often producing NaN losses. Gradient clipping caps the gradient norm before the optimizer step. Careful weight initialization (Xavier for sigmoid/tanh, He for ReLU) keeps gradients in a stable range at the start of training.',
+        'Non-differentiable operations break the chain rule. Hard thresholds, argmax, discrete sampling, and integer indexing have no derivative or a zero derivative everywhere useful. Straight-through estimators pretend the derivative is 1 through a non-differentiable step. Gumbel-softmax relaxes discrete choices into differentiable soft choices. Reinforcement learning uses policy gradients to estimate the gradient without differentiating through the environment at all.',
+        'Second-order methods that need the Hessian (the matrix of all second derivatives) are expensive: the Hessian for n parameters is n-by-n, which is infeasible for large networks. Approximations like K-FAC and L-BFGS exist but add complexity and rarely outperform well-tuned first-order methods with Adam.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Study Neural Network Forward Pass before this topic if the cached activations are not clear. Then read Gradient Descent for the simplest update rule, Activation Functions for derivative gates, and Vanishing and Exploding Gradients for the depth failure modes. Momentum, RMSProp and Adam show how optimizers reshape raw gradients into more useful steps.`,
-        `After that, connect backprop to BatchNorm and LayerNorm, Residual Networks, Learning-Rate Schedules and Warmup, The Loss Landscape in 3D, Automatic Differentiation, and Gradient Checkpointing. The recurring question is always the same: what computation produced the loss, what local derivatives does it expose, and what does the optimizer do with the gradient it receives?`,
+        'A minimal 2-layer network with no activation function, so every gradient is pure arithmetic. Input x = 2. First-layer weight w1 = 0.5. Second-layer weight w2 = 0.3. Bias b = 0.1.',
+        'Forward pass: hidden value h = w1 * x = 0.5 * 2 = 1.0. Output y_hat = w2 * h + b = 0.3 * 1.0 + 0.1 = 0.4. Target y = 1.0. Loss L = (y_hat - y)^2 = (0.4 - 1.0)^2 = (-0.6)^2 = 0.36.',
+        'Backward pass, step 1 -- the seed: dL/dy_hat = 2(y_hat - y) = 2(0.4 - 1.0) = 2(-0.6) = -1.2. Negative seed means the prediction is too low; anything that pushed y_hat down gets negative blame, meaning "increase this weight."',
+        'Backward pass, step 2 -- output layer: dL/dw2 = dL/dy_hat * h = -1.2 * 1.0 = -1.2. dL/db = dL/dy_hat * 1 = -1.2 (bias derivative is always 1). dL/dh = dL/dy_hat * w2 = -1.2 * 0.3 = -0.36. The chain rule propagates the error through w2 to reach the hidden layer.',
+        'Backward pass, step 3 -- first layer: dL/dw1 = dL/dh * x = -0.36 * 2 = -0.72. Every gradient computed, one pass, no numerical approximation.',
+        'Update with learning rate lr = 0.1: w1_new = 0.5 - 0.1 * (-0.72) = 0.5 + 0.072 = 0.572. w2_new = 0.3 - 0.1 * (-1.2) = 0.3 + 0.12 = 0.42. b_new = 0.1 - 0.1 * (-1.2) = 0.1 + 0.12 = 0.22.',
+        'Verify with a new forward pass: h_new = 0.572 * 2 = 1.144. y_hat_new = 0.42 * 1.144 + 0.22 = 0.48048 + 0.22 = 0.70048. New loss = (0.70048 - 1.0)^2 = (-0.29952)^2 = 0.08971. Loss dropped from 0.36 to 0.09. Three weights, three gradients, one backward pass. That is backpropagation.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Linnainmaa, "The Representation of the Cumulative Rounding Error of an Algorithm as a Taylor Expansion of the Local Rounding Errors" (1970) -- the first description of reverse-mode automatic differentiation, the mathematical foundation beneath backpropagation. Rumelhart, Hinton & Williams, "Learning Representations by Back-Propagating Errors," Nature (1986) -- the paper that demonstrated backprop could train multi-layer networks to learn internal representations, launching modern neural network research.',
+        'Prerequisites: Neural Network Forward Pass (the forward computation that backprop differentiates through). The chain rule from single-variable calculus is the only mathematical prerequisite; multivariable calculus helps but is not required to follow the algorithm.',
+        'Next steps by role. Optimizers that consume backprop gradients: Gradient Descent, Adam Optimizer. Gradient flow and stability: Activation Functions (their derivatives control which paths carry blame), ResNet and skip connections (gradient highways through deep networks). The general framework: computational graphs and automatic differentiation. Memory efficiency during backprop: activation checkpointing and gradient checkpointing.',
       ],
     },
   ],
 };
+

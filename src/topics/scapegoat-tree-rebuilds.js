@@ -245,101 +245,110 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The "find scapegoat" view shows a BST after an insertion that violates the height bound. The highlighted path walks upward from the too-deep leaf, computing subtree sizes at each ancestor. Watch the matrix frame: each row tests one ancestor against the alpha-weight condition. The row marked "scapegoat" is the first ancestor whose child subtree is disproportionately large relative to the ancestor subtree. That ancestor is blamed for the bad depth.',
+        'The "rebuild subtree" view shows the repair. The scapegoat subtree is flattened by inorder traversal into a sorted array, then rebuilt by choosing medians recursively. The tree before and after tells the whole story: the lopsided chain becomes a balanced subtree, and the parent pointer is redirected to the new root. No rotations happen -- the entire subtree is torn down and reconstructed.',
+        'The "tradeoff case study" view compares node layouts side by side. Scapegoat nodes carry only a key and child pointers. AVL nodes add a height or balance factor. Red-black nodes add a color bit. The cost matrix shows where scapegoat trees pay for that simplicity: bursty O(k) rebuilds instead of steady O(1) rotations.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A scapegoat tree is a self-balancing binary search tree that keeps node records simple. Nodes store the ordinary key and child pointers. They do not need AVL heights, red-black colors, random priorities, or balance metadata.',
-        'The price of that simplicity is occasional rebuilding. Instead of rotating after every small local imbalance, a scapegoat tree waits until a path becomes too deep, finds an ancestor to blame, flattens that ancestor subtree, and rebuilds it into a balanced tree.',
-        'This makes the structure a useful contrast with AVL and red-black trees: fewer per-node fields and simpler search nodes, but burstier update latency.',
+        {type: 'quote', text: 'We describe a form of self-balancing search tree that, unlike AVL trees and red-black trees, requires no balance information to be stored at the nodes.', attribution: 'Igal Galperin and Ronald L. Rivest, SODA (1993)'},
+        'Every self-balancing BST must answer the same question: how do you keep the tree short enough that search stays O(log n)? AVL trees store a balance factor at every node and rotate after each insert. Red-black trees store a color bit and rebalance with rotations and recoloring. Treaps store a random priority and rotate to maintain heap order. All three approaches require per-node metadata that the application never asked for.',
+        'Galperin and Rivest asked: what if nodes stored nothing extra? No heights, no colors, no priorities. The tree would insert like a plain BST most of the time, and when the shape drifted too far from balanced, it would find the guilty subtree and rebuild it from scratch. The repair is expensive when it happens, but it happens rarely enough that the amortized cost stays logarithmic.',
+        'The result is a structure where the node record is as lean as a plain BST -- just a key and two child pointers -- while search is still guaranteed O(log n). The tradeoff is that some insertions and deletions trigger a burst of O(k) work to flatten and rebuild a subtree of size k.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious self-balancing approach is local repair: store balance metadata and rotate or recolor after updates. AVL and red-black trees do this well, but every node carries some balancing story.',
-        'The opposite approach is a plain binary search tree. It has clean nodes, but sorted inserts can turn it into a linked list with O(n) search.',
-        'Scapegoat trees sit between those choices. They allow ordinary BST insertion most of the time, then use a global depth bound to decide when the shape has become too skewed to tolerate.',
+        'The obvious way to keep a BST balanced is local repair after every mutation. AVL trees check the balance factor of each ancestor on the insertion path and rotate when one side becomes two levels deeper than the other. Red-black trees recolor and rotate to maintain five structural invariants. Both approaches guarantee O(log n) worst-case search, insert, and delete. The repair is small -- at most O(log n) rotations per operation, often just one or two.',
+        'This works well, and production systems from the Linux kernel (red-black trees in the scheduler and memory maps) to database indexes (AVL-based in-memory indexes) rely on it. The approach is mature, well-understood, and has tight worst-case bounds.',
+        'Teams reach for these structures by default because they provide smooth, predictable latency. Every operation costs O(log n), no operation costs more, and the constant factors are small. If the workload needs guaranteed per-operation bounds, local rotation-based trees are the standard tool.',
       ],
     },
     {
-      heading: 'Reading the visualization',
+      heading: 'The wall',
       paragraphs: [
-        'In the find-scapegoat view, follow the insertion path upward from the too-deep new node. The algorithm is looking for an ancestor whose child subtree is too large relative to the ancestor subtree. That ancestor is where local imbalance became large enough to explain the bad depth.',
-        'In the rebuild view, notice that repair is not a rotation. The subtree is flattened by inorder traversal, which produces sorted keys, then rebuilt from medians. The parent pointer is reattached to the new balanced subtree root.',
-        'In the tradeoff view, compare what information lives in the node. Scapegoat trees avoid per-node balance metadata, but they pay for that choice with occasional O(k) subtree rebuilds.',
+        'The cost of local repair is structural overhead at every node. An AVL node stores a balance factor (or full height). A red-black node stores a color bit. A treap node stores a random priority. These fields exist solely to guide rebalancing -- the application data does not need them. In memory-constrained environments or when node records are cache-line-aligned, that extra field per node is real cost multiplied by millions of nodes.',
+        'The deeper issue is implementation complexity. Red-black insertion has multiple cases (uncle red, uncle black, left-left, left-right, and mirrors). AVL deletion has cascading rotations that can propagate to the root. Getting these right is notoriously error-prone. Sedgewick observed that most textbook red-black tree implementations contain bugs, and left-leaning red-black trees were designed partly to reduce the case count.',
+        'A plain BST avoids all of that: no metadata, no rotations, simple insertion. But a plain BST degrades to a linked list under sorted input, giving O(n) search. The wall is the gap between "no metadata but O(n) worst case" and "per-node metadata with O(log n) guarantees." Scapegoat trees occupy that gap: no per-node metadata, but still O(log n) search, at the cost of occasional expensive rebuilds.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Insertion begins exactly like ordinary binary search tree insertion. Track the depth of the new leaf. If that depth is within the allowed logarithmic height bound, no repair is needed.',
-        'If the new leaf is too deep, climb toward the root and compute subtree sizes until finding an ancestor whose child subtree is larger than alpha times the ancestor subtree size. That ancestor is the scapegoat.',
-        'Repair is intentionally heavy-handed. Traverse the scapegoat subtree in sorted order, store the nodes in an array, then recursively choose medians to rebuild a balanced subtree. Deletion is often handled with a global size counter: if the current node count falls too far below the historical maximum, rebuild the whole tree.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'If an insertion creates a path longer than the allowed logarithmic bound, the imbalance cannot be evenly spread. Somewhere on that path, an ancestor must be too heavy on one side. Rebuilding that subtree repairs the part of the tree responsible for the bad depth.',
-        'The inorder traversal is what makes rebuilding simple. Even a badly shaped binary search tree still yields sorted keys in inorder. Once the keys are in sorted order, choosing medians builds a valid balanced BST.',
+        'Insert a key exactly as in a plain BST: compare, go left or right, attach a leaf. While descending, track the depth of the new leaf. After insertion, check: is the depth greater than log_{1/alpha}(n), where n is the current tree size and alpha is a parameter between 0.5 and 1? If not, the tree is fine. No repair is needed, and the operation costs O(log n).',
+        'If the new leaf is too deep, the tree must find the scapegoat. Walk back up the insertion path (using parent pointers or a stack saved during descent). At each ancestor, compute the sizes of its left and right subtrees. The scapegoat is the first ancestor where one child subtree exceeds alpha times the ancestor subtree size. By a counting argument, such an ancestor must exist on any too-deep path.',
+        {type: 'code', text: 'function findScapegoat(node, size) {\n  // Walk up from the inserted node.\n  // size = size of the subtree rooted at node.\n  let childSize = size;\n  let parent = node.parent;\n  while (parent !== null) {\n    let siblingSize = subtreeSize(sibling(node, parent));\n    let parentSize = childSize + siblingSize + 1;\n    // alpha check: is the child too heavy?\n    if (childSize > ALPHA * parentSize) {\n      return parent;  // this ancestor is the scapegoat\n    }\n    childSize = parentSize;\n    node = parent;\n    parent = parent.parent;\n  }\n  return null;  // should not happen if depth > log bound\n}', language: 'javascript'},
+        'Once the scapegoat is found, rebuild its entire subtree. Traverse the subtree inorder to collect nodes into a sorted array. Then recursively pick medians: the middle element becomes the root, the left half becomes the left subtree, the right half becomes the right subtree. Reattach the rebuilt subtree to the scapegoat\'s parent. The result is a perfectly balanced subtree.',
+        {type: 'diagram', text: '  Before rebuild:          After rebuild:\n\n      15                      20\n       \\                    /    \\\n        20                15      25\n         \\                         \\\n          25                        30\n           \\\n            30\n\n  Inorder: [15, 20, 25, 30]\n  Median:  20 (index 1)\n  Left:    [15]        -> leaf 15\n  Right:   [25, 30]    -> 25 with right child 30', label: 'Weight-balanced subtree rebuild from sorted inorder traversal'},
+        'Deletion uses lazy counting. The tree tracks two numbers: n (the current node count) and maxN (the maximum node count since the last full rebuild). Delete a node normally. If n drops below alpha * maxN, rebuild the entire tree from the root and reset maxN = n. This prevents a long sequence of deletions from leaving a tree that is technically within the height bound but has degenerate shape from accumulated holes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The height check turns a local insertion problem into a global shape proof. If the path is too deep, then some ancestor on that path must violate the allowed size ratio. That ancestor is large enough to explain the bad depth and small enough that rebuilding it repairs the affected region.',
-        'The amortized argument is a payback argument. A subtree is rebuilt only after enough insertions or deletions have made it too imbalanced. The expensive rebuild is charged to the updates that created the imbalance, keeping average update cost logarithmic even though one update can be expensive.',
+        'The height bound is the first guarantee. If the tree has n nodes and maximum height at most log_{1/alpha}(n), then every search path visits at most log_{1/alpha}(n) nodes. Since alpha is a constant between 0.5 and 1, this is O(log n). The scapegoat rebuild enforces this bound: any insertion that would violate it triggers a rebuild that shortens the offending path.',
+        'The scapegoat existence proof is a pigeonhole argument. If a path has depth greater than log_{1/alpha}(n), then along that path the subtree sizes must shrink by at least a factor of alpha at each level. But the root subtree has size n and a leaf has size 1. If every ancestor were within the alpha bound, the depth could be at most log_{1/alpha}(n). Since the depth exceeds that, at least one ancestor must violate the bound -- that ancestor is the scapegoat.',
+        'The amortized cost argument uses a potential function. After a rebuild, the rebuilt subtree is perfectly balanced, so it takes many insertions into that subtree before it becomes unbalanced enough to trigger another rebuild. Specifically, a subtree of size k must absorb at least Omega(k) insertions before it can become unbalanced enough to be rebuilt again. The O(k) rebuild cost is charged to those Omega(k) insertions, giving each insertion O(1) amortized rebuild cost. Combined with the O(log n) insertion path, the total amortized insertion cost is O(log n).',
+        'The deletion rule works by the same accounting. If n drops below alpha * maxN, at least (1 - alpha) * maxN deletions happened since the last full rebuild. The O(n) full rebuild is charged to those Omega(n) deletions, keeping amortized deletion cost at O(log n).',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Search is worst-case O(log n) because the tree height is kept logarithmic. Insert and delete can cost O(n) in the worst case when they trigger a large rebuild, but their amortized cost is O(log n). The proof idea is that a subtree is rebuilt only after enough imbalance has accumulated to pay for the rebuild.',
-        'The alpha parameter must be between 0.5 and 1. A value near 0.5 enforces stricter balance and more frequent rebuilds. A value nearer 1 tolerates more skew, reducing rebuild frequency but increasing search-path length.',
-        'This makes scapegoat trees unusually explicit about a latency tradeoff: steady searches remain bounded, but some updates pause to rebuild a subtree.',
+        {type: 'table', headers: ['Property', 'Scapegoat tree', 'AVL tree', 'Red-black tree', 'Treap'], rows: [
+          ['Per-node metadata', 'None', 'Balance factor or height', 'Color bit (1 bit)', 'Random priority'],
+          ['Search (worst case)', 'O(log n)', 'O(log n)', 'O(log n)', 'O(n) expected O(log n)'],
+          ['Insert (worst case)', 'O(n)', 'O(log n)', 'O(log n)', 'O(n) expected O(log n)'],
+          ['Insert (amortized)', 'O(log n)', 'O(log n)', 'O(log n)', 'O(log n) expected'],
+          ['Delete (worst case)', 'O(n)', 'O(log n)', 'O(log n)', 'O(n) expected O(log n)'],
+          ['Delete (amortized)', 'O(log n)', 'O(log n)', 'O(log n)', 'O(log n) expected'],
+          ['Rotations per update', '0 (rebuild instead)', '1-2 (insert), O(log n) (delete)', '1-3', '0-2 expected'],
+          ['Rebalance mechanism', 'Subtree rebuild', 'Single/double rotation', 'Rotation + recolor', 'Rotation by priority'],
+          ['Height bound', 'log_{1/alpha}(n)', '1.44 log n', '2 log n', 'O(log n) expected'],
+        ]},
+        'The defining tradeoff: scapegoat trees trade worst-case update cost for structural simplicity. A single insert can cost O(n) when it triggers a rebuild of a large subtree. But amortized over a sequence of operations, the cost per operation is O(log n). AVL and red-black trees never have that spike -- every operation is worst-case O(log n) -- but they pay with per-node metadata and rotation logic.',
+        'The alpha parameter controls the tradeoff between search speed and rebuild frequency. With alpha = 0.5, the tree is always nearly perfectly balanced (height at most log2(n)), but rebuilds happen often. With alpha near 1, the tree tolerates significant skew (height up to n in the degenerate case), and rebuilds are rare. In practice, alpha between 0.55 and 0.75 balances search depth against rebuild cost. Common default: alpha = 2/3.',
+        {type: 'note', text: 'The O(n) worst case is not as bad as it sounds. A rebuild of a subtree of size k takes O(k) time, but that subtree absorbed at least Omega(k) cheap insertions before the rebuild was triggered. The expensive operations are rare precisely because they require many cheap operations to set up. In practice, the latency spike matters only for real-time systems where every single operation must complete within a bound.'},
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where it wins',
       paragraphs: [
-        'A complete case study is an ordered map where node memory overhead matters and updates do not require hard real-time latency. Red-black trees store color metadata and repair with rotations. AVL trees store or derive height balance. Treaps store random priorities. Scapegoat trees store none of that per node and pay with occasional subtree rebuilds.',
-        'This can be attractive in teaching, embedded code, or specialized indexes where a clean node layout matters more than worst-case update latency. It is less attractive for latency-critical services where a single O(k) rebuild pause is unacceptable.',
+        'Memory-constrained environments benefit most. If nodes are large records and every extra field per node costs real memory, eliminating the balance metadata matters. A scapegoat tree node is just a key (or key-value pair) and two child pointers. For millions of nodes, saving 4-8 bytes per node can mean megabytes of savings.',
+        'Teaching and prototyping are strong use cases. The scapegoat tree is one of the simplest self-balancing BSTs to implement correctly. There are no rotation cases to enumerate, no color invariants to maintain, no priority comparisons. The rebuild is a single function: flatten inorder, then build balanced. A correct implementation fits in under 100 lines. For a data structures course, it teaches amortized analysis and weight-balanced invariants without the case-analysis overhead of red-black trees.',
+        'Batch-oriented workloads where occasional pauses are acceptable also benefit. If the system can tolerate an occasional O(k) rebuild -- for example, an offline index builder or a configuration store that updates infrequently -- the scapegoat tree provides balanced search with minimal implementation and memory overhead. The rebuild can even improve cache locality: the rebuilt subtree is freshly allocated in a contiguous block, which can be friendlier to the cache than a tree that has been rotated thousands of times over scattered allocations.',
+        'Persistent or functional settings work well too. Since the rebuild creates a fresh subtree rather than mutating nodes in place, it integrates naturally with copy-on-write storage. There is no need to reason about which rotations are safe to share with old versions -- the rebuild produces an entirely new structure.',
       ],
     },
     {
-      heading: 'Implementation checklist',
+      heading: 'Where it fails',
       paragraphs: [
-        'Keep parent pointers or an insertion path stack so the algorithm can walk back up after inserting a node. If subtree sizes are not stored per node, compute them while searching for the scapegoat; that saves node memory but makes the repair search more expensive.',
-        'Rebuild by inorder traversal, not by sorting keys from scratch. The subtree is already a valid binary search tree, so inorder traversal gives sorted nodes in linear time. Then choose medians recursively and reconnect the rebuilt subtree to the old parent.',
-        'Handle deletion with the global-size rule deliberately. Many scapegoat implementations track current size and maximum historical size; when current size falls too far below the maximum, they rebuild the whole tree and reset the maximum.',
-        'Test sorted inserts, reverse-sorted inserts, alternating high-low inserts, and large delete waves. Those cases expose whether the height bound, scapegoat search, subtree rebuild, and global rebuild policy are actually wired together.',
-      ],
-    },
-    {
-      heading: 'Tuning alpha',
-      paragraphs: [
-        'Alpha controls the personality of the tree. Lower alpha means stricter balance, shorter search paths, and more frequent rebuilds. Higher alpha means fewer rebuilds, more tolerated skew, and longer but still logarithmic search paths.',
-        'There is no universal best alpha. A read-heavy map can choose stricter balance because update pauses are rare and lookup depth matters. A write-heavy map may tolerate more skew to avoid frequent rebuilds. The tuning should follow the latency profile the application can actually tolerate.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'The common misconception is that scapegoat trees are unbalanced most of the time. They are not perfectly weight-balanced at every node, but they maintain a logarithmic height bound.',
-        'Another mistake is saying they use rotations. The defining repair is partial rebuilding, not a small local rotation sequence.',
-        'Implementation pitfalls cluster around size computation and parent paths. Finding the scapegoat needs subtree sizes, but storing sizes in every node weakens the no-metadata story. Recomputing sizes during the upward walk is simpler but costs more. Production code must choose that tradeoff deliberately.',
-      ],
-    },
-    {
-      heading: 'Where it wins and fails',
-      paragraphs: [
-        'Scapegoat trees win when simple node layout, deterministic structure, and bounded search are more important than smooth update latency. They are also excellent for teaching because the repair operation is easy to visualize: flatten sorted, rebuild balanced.',
-        'They fail for hard real-time update workloads, highly concurrent maps where rebuilding a subtree complicates synchronization, and systems that cannot tolerate occasional update pauses. In those settings, red-black trees, AVL trees, B-trees, treaps, or skip lists may be easier to budget.',
+        'Hard real-time systems cannot use scapegoat trees. A single insertion that triggers a rebuild of a subtree with k nodes costs O(k), and k can be as large as n. If the system has a deadline per operation -- a packet router, a game physics loop, an audio callback -- that spike is unacceptable. Red-black trees or B-trees provide O(log n) worst-case guarantees per operation.',
+        'Concurrent data structures are difficult. Rebuilding a subtree requires exclusive access to every node in that subtree. During the rebuild, readers and writers targeting keys in that subtree must wait or be redirected. Lock-free or wait-free variants are not straightforward because the rebuild touches O(k) nodes atomically. Compare this with red-black trees, where a rotation touches at most 3 nodes and can be made lock-free with compare-and-swap.',
+        'High-frequency update workloads where amortized bounds are not good enough also suffer. If the workload is write-heavy with uniform key distribution, the rebuild spikes happen often enough to affect tail latency. A treap provides expected O(log n) per operation with low variance and no spikes. A skip list provides similar expected bounds with simpler concurrency.',
+        {type: 'bullets', items: [
+          'Real-time systems: use red-black or B-tree for worst-case O(log n).',
+          'Concurrent maps: use skip list or lock-free red-black tree.',
+          'Write-heavy uniform workloads: use treap or randomized skip list.',
+          'Disk-backed storage: use B-tree or B+ tree (scapegoat rebuilds would be I/O disasters).',
+        ]},
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Galperin and Rivest, "Scapegoat Trees", PDF at https://people.csail.mit.edu/rivest/pubs/GR93.pdf and ACM-SIAM proceedings page at https://dl.acm.org/doi/10.5555/313559.313676. Clear implementation reference: Open Data Structures, Scapegoat Trees at https://opendatastructures.org/newhtml/ods/latex/scapegoat.html. Study Binary Search Tree, AVL Tree Rotations, Red-Black Tree, Treap, Splay Tree, B-Trees, and Data Structure Design Patterns Primer next.',
+        {type: 'bullets', items: [
+          'Igal Galperin and Ronald L. Rivest, "Scapegoat Trees," Proceedings of the 4th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA), 1993. The original paper defining the structure, the alpha-weight condition, and the amortized analysis.',
+          'Pat Morin, Open Data Structures, Chapter 8.1: ScapegoatTree. Clear implementation walkthrough with pseudocode and amortized cost proof. Free online at opendatastructures.org.',
+          'Erik Demaine and Charles Leiserson, MIT 6.851 Advanced Data Structures, Lecture 4. Covers scapegoat trees in the context of weight-balanced and amortized data structures, with connections to BB[alpha] trees.',
+        ]},
+        {type: 'note', text: 'The name "scapegoat" is metaphorical: when the tree becomes too tall, the algorithm walks up the insertion path looking for someone to blame. The guilty ancestor is rebuilt, absorbing the punishment for all the small imbalances that accumulated below it. Galperin and Rivest chose the name deliberately.'},
+        'Study Binary Search Tree first if the BST invariant and insertion logic are not yet familiar. Study AVL Tree Rotations and Red-Black Tree to understand the local-repair alternative that scapegoat trees avoid. Study Splay Tree for another amortized self-balancing BST that uses a different mechanism (move-to-root via rotations rather than subtree rebuild). Study Treap for a randomized alternative with expected O(log n) per operation. Study B-Trees for the disk-oriented balanced tree that solves the problem scapegoat trees solve poorly: I/O-bound workloads.',
       ],
     },
   ],

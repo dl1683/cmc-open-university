@@ -95,67 +95,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Neural networks often end a classification or language-modeling step with raw scores. These scores are called logits. A logit can be negative, positive, large, small, or shifted by a constant. Larger means more preferred, but a row of logits is not a probability distribution. The values do not have to be between 0 and 1, and they do not sum to 1. A model that scores puppy at 2.0, kitten at 1.0, and banana at -0.5 has expressed an ordering, not a usable sampling rule.`,
-        `Softmax exists to turn those raw scores into probabilities. It exponentiates each logit and divides by the sum of all exponentials. After that, every candidate receives a positive probability and the probabilities sum to exactly 1. A classifier can use the largest probability as its predicted class. A language model can sample the next token from the distribution. An attention layer can use row-wise softmax to decide how much weight each key-value pair receives for a query.`,
-        `Temperature is the knob that reshapes the distribution before it is used. Decoding usually computes softmax(logits / T). Low temperature makes the distribution sharper and more deterministic. High temperature makes it flatter and more diverse. Temperature does not add knowledge to the model. It changes how aggressively the system commits to the preferences already present in the logits.`,
+        'The first frame shows raw logits -- the model\'s un-normalized scores for five candidate words completing "The cute little ___." Each subsequent frame divides those same logits by a different temperature T and applies softmax, producing a new row of probabilities. The highlighted row is the one just computed; earlier rows remain for side-by-side comparison.',
+        'Watch two things as you step through. First, the percentage values: at T=1 the model\'s preferences pass through directly; at T=0.5 the winner\'s share jumps because halving T doubles the logit gaps before exponentiation; at T=2 the gaps halve and probability leaks toward weaker candidates. Second, the ranking: it never changes. If candidate A has a higher logit than candidate B, A keeps a higher probability at every positive temperature. Temperature controls concentration, not preference.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Softmax treats logits as relative evidence. Absolute logit values do not matter by themselves; differences between logits become ratios of probability mass after exponentiation. That is why adding the same constant to every logit changes nothing, while widening the gap between two logits can make one candidate dominate.`,
-        `Temperature is gap control. It does not change what the model knows, and for positive temperatures it does not change candidate ranking. It changes how much the decoder trusts the top of the distribution versus how much probability it leaves for alternatives.`,
+        'A neural network finishing a classification or next-token prediction produces one raw score per candidate. These scores are called logits. They can be negative, arbitrarily large, and they do not sum to anything meaningful. A model that scores "puppy" at 2.0, "kitten" at 1.0, and "banana" at -0.5 has expressed a preference ordering, but you cannot sample from it or interpret the numbers as confidence.',
+        'Softmax converts that raw score vector into a probability distribution: every value becomes positive, and the values sum to exactly 1. A classifier can report the top probability as its prediction. A language model can roll a weighted die over the vocabulary. An attention layer can use row-wise softmax to weight key-value pairs for each query.',
+        'The name "softmax" comes from statistical mechanics. The Boltzmann distribution gives the probability of a system occupying energy state E_i at temperature T as proportional to exp(-E_i / kT). Softmax is the same equation with logits replacing negative energies. Bridle (1990) brought it into neural networks as the canonical output activation for classifiers, and the sharpness parameter inherited the name "temperature" from physics rather than being called "scale" or "gain."',
       ],
     },
     {
-      heading: `The naive approach and its wall`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The naive approach is argmax: choose the candidate with the highest logit every time. For classification reports, argmax is often enough. If the goal is to assign one label to an image, the top class is the decision. But language generation is not just choosing one label. A next-token distribution can contain many plausible continuations. Always picking the maximum can make text repetitive, brittle, and unable to explore alternate phrasings.`,
-        `The opposite naive approach is to sample too freely. If the system treats weak candidates as nearly equal to strong ones, output becomes diverse but unreliable. In factual answering, high randomness can surface low-probability tokens that derail the response. In code generation, a single unlikely token can break syntax. In creative writing, some diversity is useful, but completely flattening the distribution destroys the model's learned preferences.`,
-        `Softmax plus temperature sits between those extremes. It preserves the model's ranking while giving the system a controlled way to choose between determinism and variety. The wall is that no decoding knob can repair bad logits. If the model assigns the highest score to a false claim, lowering temperature makes the false claim more consistent. Raising temperature may make a different answer appear, but it is not a truth mechanism. It is only probability shaping.`,
+        'The simplest way to turn scores into fractions is linear normalization: divide each score by the sum. For logits [2.0, 1.0, 0.1], the sum is 3.1, giving [0.645, 0.323, 0.032]. That works until a logit is negative. Scores [-1.0, 2.0, 0.5] sum to 1.5, and -1.0 / 1.5 = -0.667, which is not a probability.',
+        'Even when all logits happen to be positive, linear normalization treats equal additive gaps as equal confidence gaps. A 10-point lead over a 5-point score feels more decisive than a 1-point lead over 0.5, but linear normalization cannot express that difference. It also provides no way to control sharpness -- no temperature knob.',
       ],
     },
     {
-      heading: `How softmax works`,
+      heading: 'The wall',
       paragraphs: [
-        `For each candidate i, softmax computes exp(z_i) divided by the sum over all candidates exp(z_j). The exponentiation is important because it turns additive logit gaps into multiplicative odds. A one-point logit advantage means about e to the 1, or 2.718 times the unnormalized weight. A two-point advantage means about 7.39 times. A five-point advantage means about 148 times. Small-looking logit gaps can create large probability gaps.`,
-        `Softmax is invariant to adding or subtracting the same constant from every logit. If every score is shifted by -100, the probabilities stay the same because the same factor appears in the numerator and denominator. Implementations use this fact for numerical stability. They subtract the maximum logit before exponentiating so exp(1000) does not overflow. The resulting probabilities are identical to the direct formula but safe to compute.`,
-        `The operation is local to a row. In a classifier, the row is the set of classes. In a language model, the row is the vocabulary for the next token. In attention, each query has a row of scores against keys, and softmax converts that row into attention weights. The guarantee is always the same: positive values that sum to 1. The interpretation depends on the surrounding system.`,
+        'Linear normalization fails on two fronts: it cannot handle negative inputs, and it has no mechanism to control how peaked or flat the output distribution is. Without a sharpness control, the only decoding options are argmax (always pick the top score, losing all diversity) or raw sampling from the linear fractions (which cannot be tuned between greedy and exploratory).',
+        'Language generation needs something in between. Always picking the maximum makes text repetitive and brittle. Sampling with no sharpness control means the system cannot distinguish "confident factual answer" from "creative brainstorming" -- both get the same distribution shape. The wall is the need for a function that (a) maps any real-valued vector to a valid probability distribution and (b) exposes a single knob to move continuously between deterministic and uniform.',
       ],
     },
     {
-      heading: `How temperature works`,
+      heading: 'How it works',
       paragraphs: [
-        `Temperature divides logits before softmax. Because only logit differences matter, temperature really scales the gaps between candidates. If T is 0.5, dividing by T doubles the gaps. The favorite becomes much more dominant, and sampling becomes closer to greedy decoding. If T is 2, dividing by T halves the gaps. Lower-ranked candidates receive more probability mass, and outputs become more varied.`,
-        `A positive temperature preserves ranking. If puppy has a higher logit than kitten, puppy keeps the higher probability for any T greater than 0. Temperature changes how much higher, not which one is higher. This is why temperature is often described as changing entropy. Low temperature reduces entropy because probability mass concentrates on the top candidates. High temperature increases entropy because mass spreads across more candidates.`,
-        `T = 1 means no temperature change. T approaching 0 is not a valid softmax limit in ordinary code because division explodes, so implementations use argmax or a near-greedy approximation. T approaching infinity pushes finite logits toward equal values, so the distribution approaches uniform. In practice, model APIs restrict the useful range. Extremely high temperatures are rarely helpful because they spend probability mass on candidates the model considered weak.`,
+        'Softmax with temperature computes: softmax(z_i / T) = exp(z_i / T) / sum_j(exp(z_j / T)). Three things happen in sequence. First, every logit is divided by temperature T (at T=1 this is a no-op). Second, exponentiation maps each scaled logit to a positive number -- exp(x) > 0 for all real x, so negatives are handled. Third, dividing by the sum of all exponentials forces the outputs to sum to 1.',
+        'Exponentiation turns additive logit gaps into multiplicative odds. A 1-point logit advantage means about e^1 = 2.72 times the unnormalized weight. A 2-point advantage means e^2 = 7.39 times. A 5-point advantage means e^5 = 148 times. Small-looking logit differences create large probability gaps.',
+        'Temperature scales those gaps before exponentiation amplifies them. At T=0.5, dividing by T doubles every gap: a 1-point advantage becomes 2 points, producing 7.4x the unnormalized weight instead of 2.7x. The winner dominates and sampling approaches greedy decoding. At T=2, dividing halves the gaps: a 1-point advantage shrinks to 0.5 points, and the distribution flattens toward uniform. T approaching 0 collapses to argmax. T approaching infinity pushes toward equal probabilities for all candidates.',
+        'The max-subtraction trick is required for numerical safety. Before exponentiating, subtract the maximum logit from every element: compute exp(z_i - max(z)) instead of exp(z_i). The largest exponent becomes exp(0) = 1, and every other exponent is safely below 1. Without this, logits like 1000 produce exp(1000) which overflows to infinity. The trick changes nothing mathematically because the subtracted constant cancels between numerator and denominator: exp(z_i - c) / sum(exp(z_j - c)) = exp(z_i) / sum(exp(z_j)). Every production implementation does this.',
       ],
     },
     {
-      heading: `Decoding in real systems`,
+      heading: 'Why it works',
       paragraphs: [
-        `Language model systems rarely use temperature alone. They often combine it with top-k sampling, nucleus sampling, repetition penalties, stop sequences, grammar constraints, or beam search. Top-k keeps only the k most likely tokens. Nucleus sampling keeps the smallest set of tokens whose cumulative probability exceeds a threshold. Temperature reshapes the distribution before or during these filtering steps, depending on implementation. The shared goal is to control the tradeoff between high-probability continuation and useful diversity.`,
-        `Different products choose different settings. Code completion, extraction, classification, and factual question answering often use low temperature or deterministic decoding because reproducibility and exactness matter. Brainstorming, naming, dialogue, and creative drafting often use higher temperature because variety is part of the product. Translation, speech recognition, and structured generation may use beam search or constrained decoding because the output space has strong validity requirements.`,
-        `Training uses softmax too, but in a different role. Softmax plus cross-entropy compares the model's predicted distribution with the target label or next token. Gradient descent then adjusts weights so the correct class logit rises relative to alternatives. At inference, the trained model no longer receives the answer; softmax turns its logits into a distribution that a decoder can consume. The same formula appears on both sides, but the purpose changes from learning to choosing.`,
+        'Two invariants hold unconditionally. First, every output is positive because exp(x) > 0 for all real x. Second, the outputs sum to 1 because the denominator is the sum of the same exponentials that appear in the numerators. These two properties make the output a valid probability distribution for any real-valued input, no exceptions.',
+        'Ranking is preserved for all positive temperatures. If z_a > z_b, then z_a/T > z_b/T for any T > 0, so exp(z_a/T) > exp(z_b/T), so p_a > p_b after normalization. Temperature cannot swap the ordering -- it can only control how much probability mass separates adjacent ranks.',
+        'Shift invariance follows from algebra: exp(z_i + c) / sum(exp(z_j + c)) = exp(c) * exp(z_i) / (exp(c) * sum(exp(z_j))) = exp(z_i) / sum(exp(z_j)). The constant cancels. This is why softmax([102, 101, 100]) produces the same result as softmax([2, 1, 0]), and why the max-subtraction trick is safe.',
+        'The gradient has a clean form: d(softmax_i)/d(z_j) = softmax_i * (delta_ij - softmax_j), where delta_ij is 1 when i=j and 0 otherwise. Paired with cross-entropy loss, the combined gradient simplifies to (predicted probability - target), which is why softmax + cross-entropy dominates classification training: the gradient is just the error.',
       ],
     },
     {
-      heading: `Calibration and confidence`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Softmax probabilities are not automatically calibrated confidence. A classifier can output 99 percent and be wrong far more often than 1 percent of the time. A language model can assign high probability to a fluent false continuation. The numbers are probabilities under the model's learned distribution and decoding context, not guaranteed probabilities of truth in the world.`,
-        `Temperature has a second use in calibration. After a classifier is trained, a validation set can fit one temperature that makes predicted probabilities better match observed accuracy. This is called temperature scaling. If the model is overconfident, T greater than 1 softens the distribution while preserving the predicted class and ranking. That is different from creative decoding, where a user chooses temperature to change output diversity. The same math is used, but the objective is different.`,
-        `The distinction matters in LLM products. Setting a low generation temperature does not make an answer more calibrated; it only makes the model more likely to choose its favorite continuation. If the favorite continuation is unsupported, low temperature can make hallucination more stable. Calibration requires measurement against outcomes, not just a smaller sampling knob.`,
+        'Softmax is O(C) for C candidates: one pass to find the max, one pass to exponentiate shifted values and accumulate the sum, one pass to divide. Temperature adds one scalar division per logit, also O(C). For a language model\'s final layer, C is the vocabulary size -- typically 32k to 128k tokens. That linear scan is negligible next to the transformer forward pass. Doubling the vocabulary doubles the softmax cost but barely changes total inference time.',
+        'Inside attention, softmax is applied per query over all keys. The cost is absorbed into the O(n_seq^2 * d) attention budget. Flash attention fuses softmax into a single memory-efficient kernel, computing log-sum-exp incrementally so the full score matrix never materializes in HBM. The arithmetic is the same; the memory behavior drops from O(n_seq^2) to O(n_seq).',
+        'Numerically, the only real concern is the max-subtraction trick. Skip it and large logits overflow float32/float64. With it, the largest exponent is 1 and everything works. The cost of finding the max is one extra pass -- negligible.',
       ],
     },
     {
-      heading: `Costs, limits, and study path`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Softmax is O(n) over n candidates. A stable implementation finds the maximum, exponentiates shifted logits, sums the exponentials, and divides. Temperature adds one scalar division per logit. For final language-model decoding, producing logits with the transformer and vocabulary projection is usually more expensive than softmax, but softmax is not free when the vocabulary is large and the batch is big. In attention, softmax is applied over many query-key score rows, so the cost scales with the attention matrix.`,
-        `The main limitation is that softmax normalizes only over the candidate set it sees. If the correct answer is not represented by an available class or token path, softmax cannot invent it. If logits come from biased data, weak training, prompt confusion, or distribution shift, the resulting probabilities inherit those problems. Temperature can sharpen or flatten uncertainty, but it cannot fix missing knowledge, bad retrieval, or an invalid output schema.`,
-        `Study Entropy and Information to understand why temperature controls concentration. Study Gradient Descent and Cross-Entropy to see how logits are learned. Study Attention Mechanism and The Transformer Block to see softmax inside modern sequence models. Study Beam Search vs Greedy, top-k sampling, and nucleus sampling to understand decoding choices. Then study Calibration and Reliability Diagrams to learn when a probability deserves trust, and Focal Loss and Hard Examples to see how training objectives can distort confidence.`,
+        'Neural network output layer: every classifier (image, text, medical, spam) ends with softmax over class logits. The argmax is the predicted label; the full distribution provides confidence signals for downstream decisions.',
+        'Attention weights: every transformer layer applies softmax row-wise over query-key dot products. Scaled dot-product attention divides by sqrt(d_k) before softmax -- this acts as an implicit temperature, preventing the dot products from growing large enough to push softmax into near-argmax territory as embedding dimension increases.',
+        'Language model decoding: the "temperature" slider in every LLM API is exactly softmax(logits/T). T near 0 for deterministic code completion and factual extraction. T = 0.7-1.0 for conversational fluency. T > 1 for brainstorming. The knob controls output personality without retraining.',
+        'Knowledge distillation (Hinton et al., 2015): a teacher model produces soft targets at high temperature (T = 5 to 20), revealing which wrong answers it considers close to right -- "dark knowledge." A student network trains to match these soft targets, learning richer structure than hard argmax labels provide.',
+        'Reinforcement learning (Boltzmann exploration): an agent selects actions by sampling from softmax(Q-values / T). Low T exploits learned values; high T explores uncertain actions. Temperature annealing -- starting high and decreasing -- balances exploration and exploitation over training.',
       ],
-    }
-  ]
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Overconfident predictions: softmax probabilities are not calibrated confidence. A classifier can output 99% and be wrong far more often than 1% of the time. Temperature scaling (fitting a single T on a validation set to improve calibration) helps, but it is a post-hoc patch. Low generation temperature does not make an answer more trustworthy -- it makes the model more likely to commit to its favorite continuation, including hallucinated ones.',
+        'Large vocabularies: for vocabulary sizes in the hundreds of thousands, the linear softmax pass becomes noticeable. Hierarchical softmax (decomposing the vocabulary into a tree) and sampled softmax (approximating the denominator with a subset) reduce this cost during training. At inference, top-k or nucleus filtering avoids computing probabilities for the entire vocabulary tail.',
+        'Multi-label problems: softmax forces outputs to compete -- raising one probability lowers others. When multiple labels can be simultaneously correct (an image containing both a cat and a dog), independent sigmoids per label are the right tool. Softmax is for mutually exclusive classification.',
+        'Temperature cannot fix bad logits. If the model assigns the highest score to a false claim, lowering T makes the false claim more stable. Raising T may surface alternatives, but it spreads mass to all candidates, not just correct ones. Practical systems combine temperature with top-k filtering, nucleus sampling, repetition penalties, constrained decoding, and post-generation judges. Temperature is one knob in a pipeline.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Logits: [2.0, 1.0, 0.1] for three classes.',
+        'T = 1 (standard softmax): subtract max (2.0) for stability, giving [0, -1.0, -1.9]. Exponentiate: [1.000, 0.368, 0.150]. Sum = 1.518. Divide: [0.659, 0.242, 0.099]. Class 0 leads at 65.9%, class 1 is a distant second at 24.2%, class 2 has under 10%. The ranking matches the logit ranking, and the probabilities sum to 1.',
+        'T = 0.5 (sharper): divide logits by 0.5 first, giving [4.0, 2.0, 0.2]. Subtract max (4.0): [0, -2.0, -3.8]. Exponentiate: [1.000, 0.135, 0.022]. Sum = 1.157. Probabilities: [0.864, 0.117, 0.019]. Class 0 jumps from 65.9% to 86.4%. Class 2 drops from 9.9% to 1.9%, nearly eliminated. Halving T doubled the logit gaps, so the dominant class absorbed almost all the mass. This is approaching argmax.',
+        'T = 2.0 (flatter): divide logits by 2, giving [1.0, 0.5, 0.05]. Subtract max (1.0): [0, -0.5, -0.95]. Exponentiate: [1.000, 0.607, 0.387]. Sum = 1.994. Probabilities: [0.501, 0.304, 0.194]. Class 0 dropped from 65.9% to 50.1%. Class 2 rose from 9.9% to 19.4%. All three classes are live sampling options. Uniform would be 33.3% each -- doubling T pushed the distribution halfway there. The ranking never changed across any temperature; only the concentration of mass.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Boltzmann (1868): the Boltzmann distribution in statistical mechanics, where probability of energy state E at temperature T is proportional to exp(-E/kT). Bridle (1990), "Probabilistic Interpretation of Feedforward Classification Network Outputs": introduced softmax as the canonical neural network output activation. Hinton, Vinyals, and Dean (2015), "Distilling the Knowledge in a Neural Network": high-temperature softmax for knowledge distillation.',
+        'Cross-entropy loss: softmax\'s training partner. The combined gradient simplifies to (predicted - target), which is why this pairing dominates classification and language modeling.',
+        'Attention mechanism: softmax applied row-wise over query-key dot products inside every transformer layer. The 1/sqrt(d_k) scaling is an implicit temperature -- understanding softmax temperature explains why attention heads sometimes sharpen to near-argmax and sometimes diffuse broadly.',
+        'Knowledge distillation: temperature as a training technique rather than a decoding knob. Temperature scaling: fitting one T on a validation set for probability calibration (Guo et al., 2017).',
+        'Activation functions: sigmoid, ReLU, and tanh shape signals inside a network; softmax is reserved for the final layer where a full probability distribution is needed. With two classes, softmax reduces to sigmoid.',
+      ],
+    },
+  ],
 };

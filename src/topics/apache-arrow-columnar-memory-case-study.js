@@ -1,4 +1,4 @@
-// Apache Arrow standardizes columnar in-memory arrays: schema, record batches,
+﻿// Apache Arrow standardizes columnar in-memory arrays: schema, record batches,
 // per-column buffers, validity bitmaps, offsets, and values.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -234,6 +234,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Apache Arrow Columnar Memory Case Study. Arrow arrays as data structures: record batches, validity bitmaps, offsets buffers, values buffers, and zero-copy columnar interchange..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Apache Arrow exists because analytics systems used to waste huge amounts of time translating data between incompatible in-memory representations. A database engine, dataframe library, machine-learning runtime, and RPC service might all understand columns, but each might store strings, nulls, timestamps, and nested values differently. Every boundary became a conversion tax.',
@@ -250,7 +259,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that logical values can be described by a small number of buffer patterns. A nullable primitive array stores a validity bitmap and a fixed-width values buffer. The bitmap decides which slots are meaningful. Bytes may exist for a null slot, but the validity bit says they should be ignored.',
         'Variable-size binary and string arrays add an offsets buffer. offsets[i] and offsets[i + 1] identify the byte range for slot i inside one contiguous data buffer. That avoids one heap allocation per string and lets kernels scan offsets and bytes predictably.',
@@ -266,7 +275,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The array-buffer view proves that one logical column is not one opaque object. The int column is validity plus values. The string column is validity plus offsets plus bytes. The schema and array metadata explain how to interpret those buffers. The kernel can process the buffers directly because the layout is regular.',
         'The zero-copy view proves why Arrow is an interchange format. Python, a query engine, and a client can agree on schema and buffers instead of converting through per-cell objects. The handoff is cheap only if lifetime, alignment, validity, and ownership are correct.',
@@ -282,7 +291,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Arrow reduces conversion and scan cost, but it is not free. Sliced arrays carry offsets that kernels must respect. Dictionary encoding, nested arrays, string data, device memory, and extension types can complicate zero-copy assumptions. Some boundaries still copy because ownership, alignment, or lifetime cannot be guaranteed.',
         'Mutation is another tradeoff. Arrow arrays are best treated as immutable batches. Appending or updating individual rows usually means building new arrays or using a separate mutable representation before finalizing an Arrow batch. Row-at-a-time transactional workloads usually want a different structure.',
@@ -290,7 +299,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Arrow wins at analytics boundaries: dataframe to query engine, query engine to client, Python to Rust, JVM to native engine, Flight RPC service to consumer, and Parquet reader to vectorized execution. It is especially useful when the data is already columnar and the next step can preserve that shape.',
         'A realistic pipeline reads Parquet into Arrow batches, filters or aggregates them in a vectorized engine, and returns Arrow batches to a Python, JavaScript, or Flight client. Each boundary can preserve columnar structure instead of rebuilding rows.',
@@ -298,7 +307,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Do not call Arrow a database. It does not provide transactions, indexes, query planning, durability, or storage management by itself. It is a memory format and interchange specification. IPC can serialize it, but the main idea remains typed column buffers with explicit metadata.',
         'Do not assume zero-copy automatically happens. Crossing a process, language, device, or trust boundary may require copies or validation. If a system has to materialize Python objects, decode strings, or rebuild rows, the Arrow advantage may disappear.',
@@ -312,5 +321,78 @@ export const article = {
         'Then inspect one Arrow string array by hand: validity bits, offsets, and data bytes. That exercise makes the whole format less abstract and gives you the right mental model for debugging copies and kernel behavior.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Apache Arrow Columnar Memory Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

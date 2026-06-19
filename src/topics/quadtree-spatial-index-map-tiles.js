@@ -221,14 +221,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Quadtree Spatial Index & Map Tiles. Recursively split 2D space into four quadrants, stop when leaves are simple enough, and reuse the hierarchy for sparse search and zoomable map tiles..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'A quadtree is a tree whose nodes represent regions of a two-dimensional space. The root represents the whole world, image, game board, or map extent. Each internal node splits its rectangle into four child rectangles, usually named northwest, northeast, southwest, and southeast. Leaves hold the actual payload for their regions: points, object references, pixels, occupancy values, tile metadata, or summary statistics.',
         'The structure exists because spatial data is rarely uniform. A city map has dense downtown streets and empty ocean. A game level has crowded rooms and blank walls. A satellite image has smooth fields and detailed urban blocks. One fixed grid either wastes memory on empty regions or loses detail in crowded regions. A quadtree lets the representation spend detail where the data demands detail.',
       ],
     },
     {
-      heading: 'The naive approaches',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first naive approach is a flat list. To find every restaurant in a viewport, every collision candidate in a rectangle, or every pixel block that differs from its neighbor, scan every object and test it. This is simple and exact, but it becomes linear in the whole dataset. It ignores the fact that most objects are obviously outside a small query window.',
         'The second naive approach is a uniform grid. A grid is much better than a flat list when density is steady, but it has a hard resolution choice. Small cells make empty regions expensive. Large cells make dense regions overloaded. If the data changes scale from one area to another, the grid has no way to adapt except by using many levels, which is the direction that leads to a quadtree.',
@@ -242,14 +251,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to divide space, not the objects. A quadtree chooses a region, asks whether that region is simple enough, and either stores it as a leaf or splits it into four child regions. The split is geometric and deterministic. Every child covers a disjoint quarter of the parent, and the four children exactly cover the parent rectangle.',
         'That invariant gives the structure its power. A query can compare its own rectangle with a node rectangle. If they do not intersect, the entire subtree is irrelevant. If they do intersect, the search descends only into the possible children. The same rule works for points, rectangles, pixels, occupancy grids, and map tiles, although each use case chooses a different stopping condition.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'Insertion into a point quadtree starts at the root. If the current leaf has room, store the point there. If the leaf exceeds capacity and the maximum depth has not been reached, split the leaf into four children and redistribute its points by quadrant. Future inserts descend according to coordinates. Production variants usually keep a small bucket in each leaf rather than forcing one point per node.',
         'Range search is the mirror operation. Start at the root with a query rectangle. If the query misses the node rectangle, return immediately. If the node is a leaf and intersects the query, test the leaf payload exactly. If the node has children, repeat the same intersection test on each child. The quadtree does not replace exact geometry checks; it reduces the candidate set that reaches them.',
@@ -277,21 +286,21 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works (2)',
       paragraphs: [
         'The subdivide view shows the most important invariant: the parent region is replaced by four children whose coverage is complete and non-overlapping. The active nodes are not just boxes on a diagram; they are the only regions that can still matter to the current insertion or query. Removed regions are safe to ignore because their bounds cannot intersect the query.',
         'The map tile view shows the same structure in product form. Zoom is tree depth. The viewport is a query rectangle. The cache key is a path through the tree. When the viewport moves, most old tiles remain valid and only a strip of new tiles must be fetched. When the zoom changes, parent and child tiles replace one another in a controlled way.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The best-case behavior is excellent on sparse or clustered data: queries visit a small number of relevant cells instead of every object. The worst case is less pleasant. If many objects lie very close together, subdivision can create a long branch. If large objects span many cells, they may need references in multiple leaves or a separate overflow policy. If the workload changes constantly, split and merge maintenance costs matter.',
         'Memory cost depends on how many internal nodes and empty leaves the implementation materializes. A sparse pointer-based quadtree allocates only nodes that exist, which is good for irregular data. A complete tile pyramid has predictable addresses but many possible cells, so storage systems usually materialize only generated tiles and let missing tiles be cache misses or inherited from lower detail.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Quadtrees win when the data is two-dimensional, the coordinate space is meaningful, and density varies across the plane. They are strong for map viewports, broad-phase collision culling, image compression, terrain level of detail, occupancy maps, sparse heatmaps, and any system where rectangular rejection removes large parts of the search.',
         'They are also easy to explain and debug. A bounding box either intersects another bounding box or it does not. That direct geometry makes quadtrees useful educationally before moving to R-trees, BVHs, k-d trees, geohashes, S2 cells, H3 cells, or more specialized spatial databases.',
@@ -305,7 +314,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Common failures include using too small a bucket capacity, forgetting max depth, treating objects on quadrant boundaries inconsistently, duplicating large objects into too many leaves, and relying on the index result without the final exact geometry check. The index should produce candidates; the domain logic should still prove the result.',
         'Map tile systems add their own failures. Tiles can show seams if neighboring tiles simplify geometry differently. Cache invalidation can serve old roads beside new roads. Different projections distort area and distance. Tile coordinates are a display and caching convention, not a replacement for precise geodesic calculations.',
@@ -318,5 +327,68 @@ export const article = {
         'Primary references worth reading are Hanan Samet survey work on quadtrees, OpenStreetMap slippy map tile documentation, and Microsoft Bing Maps tile system documentation for quadkeys. After those, implement a small quadtree with bucket capacity, max depth, rectangle search, and a test that compares every query against a slow flat scan.',
       ],
     },
-  ],
+      {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Quadtree Spatial Index & Map Tiles moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

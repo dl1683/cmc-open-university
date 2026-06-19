@@ -1,4 +1,4 @@
-// Write caching: reads were the easy half. When a WRITE hits a cache, you
+﻿// Write caching: reads were the easy half. When a WRITE hits a cache, you
 // must decide — push it through to disk now, or promise now and pay later?
 // The ack point is a durability dial, and crashes audit your choice.
 
@@ -29,8 +29,8 @@ function* threeWays() {
   yield {
     state: writeGraph({
       appNote: 'ack after BOTH land (~5ms)',
-      cacheNote: 'count = 43 ✓',
-      diskNote: 'count = 43 ✓',
+      cacheNote: 'count = 43 âœ“',
+      diskNote: 'count = 43 âœ“',
       edges: [
         { id: 'toCache', from: 'app', to: 'cache' },
         { id: 'toDisk', from: 'cache', to: 'disk' },
@@ -96,7 +96,7 @@ function* crashTest() {
       ],
       columns: [{ id: 'event', label: 'event' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'app writes count = 43 → cache (dirty)', 'app receives ACK — "saved!"', '⚡ POWER LOSS — flush never ran', 'reboot: disk says count = 42'][v],
+      format: (v) => ['', 'app writes count = 43 â†’ cache (dirty)', 'app receives ACK — "saved!"', 'âš¡ POWER LOSS — flush never ran', 'reboot: disk says count = 42'][v],
     }),
     highlight: { removed: ['t2:event', 't3:event'], compare: ['t1:event'] },
     explanation: 'The audit arrives as a power cut. At t=0.1ms the application was TOLD the write was saved; at t=40ms the dirty entry was still waiting for the flusher; at reboot, disk holds yesterday\'s value. The application did not crash, did nothing wrong, and lost an acknowledged write — the worst kind of loss, because upstream systems (a user shown "order placed", a Message Queue consumer that already deleted the message) acted on the ack. Write-back\'s dirty window is not a bug; it is the product working as designed. The design just needs one more piece.',
@@ -107,7 +107,7 @@ function* crashTest() {
     state: writeGraph({
       appNote: 'ack after the LOG line (~0.5ms)',
       cacheNote: 'count = 43 — dirty, relaxed',
-      diskNote: 'WAL: "set count=43" ✓ appended',
+      diskNote: 'WAL: "set count=43" âœ“ appended',
       edges: [
         { id: 'toCache', from: 'app', to: 'cache' },
         { id: 'toLog', from: 'app', to: 'disk' },
@@ -147,88 +147,168 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Read caching asks whether a copy is fresh enough to use. Write caching asks a sharper question: when is the system allowed to tell the caller "done"? Memory can absorb a write quickly. A disk, SSD, remote database, or replicated service is slower. The acknowledgement point becomes a promise about durability, visibility, and recovery.`,
-        `Write-through, write-back, and write-around are three ways to place that promise. They are not just performance settings. They define what an acknowledged write means. If the system crashes one millisecond later, the user does not care that the cache was fast. The user cares whether the write that was acknowledged can be recovered.`,
+        'The animation has two views. The first shows the same write flowing through three different policies: write-through, write-back, and write-around. Active edges are the write path the policy uses. Found nodes have received durable data. Removed nodes are knowingly stale. The second view replays a crash on a write-back timeline and then shows the WAL rescue.',
+        'Watch the ack point in each frame. That is the real variable. Everything else -- latency, durability, consistency -- follows from when the system says "done." If the ack fires before the disk confirms, you are inside a dirty window. If the ack waits for disk, you paid full latency. If the ack skips the cache, you traded read warmth for cache protection.',
+        'The matrix frames price each policy side by side. Read the latency column against the crash-safety column: the speed difference between write-through and write-back is not cleverness. It is borrowed risk.',
       ],
     },
     {
-      heading: `The reasonable first attempt`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The safest first attempt is write-through. On every write, update the cache and also update the backing store before sending the acknowledgement. The rule is easy to explain: if the caller received success, both copies have the value. A crash after the acknowledgement should not lose that write because the durable copy was already updated.`,
-        `The fastest first attempt is write-back. Update the cache, mark the entry dirty, acknowledge immediately, and flush to the backing store later. This makes the write path feel like RAM. It also coalesces repeated updates: a counter changed one thousand times in memory may become one later durable write of the final value. The policy is attractive because it attacks the real bottleneck, which is waiting for slow media or slow replication on every small change.`,
+        'Read caching asks whether a copy is fresh. Write caching asks something harder: when is the system allowed to tell the caller "done"? RAM absorbs a write in roughly 100 nanoseconds. A disk commit costs 5 milliseconds, a cross-region replica 50 milliseconds or more. Somewhere between the fast layer and the durable layer, the system must issue an acknowledgement, and that ack is a durability promise.',
+        'The promise matters because upstream systems act on it. A user sees "order placed." A message queue deletes the consumed message. A distributed transaction marks its branch committed. If a crash erases data the ack said was safe, the system has lied to every downstream consumer. Write-caching policy is not a performance knob. It is a contract about what survives failure.',
+        {
+          type: 'diagram',
+          label: 'Write flow through cache layers to storage',
+          text: [
+            'APP --write--> [CACHE (RAM)]',
+            '                   |                     \\',
+            '            write-through            write-back',
+            '            (sync to disk             (mark dirty,',
+            '             before ack)               ack now,',
+            '                   |                   flush later)',
+            '                   v                     v',
+            '              [DISK / DB] <---flush--- [dirty set]',
+            '',
+            'APP --write-around--> [DISK / DB]   (cache bypassed)',
+          ].join('\n'),
+        },
       ],
     },
     {
-      heading: `Where those attempts break`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Write-through breaks on latency and write amplification. If each small update must wait for the backing store, the cache does little to accelerate writes. Hot keys, counters, metadata updates, and small random writes all pay the slow path repeatedly. The policy is honest, but it can waste the main advantage of caching: absorbing bursts and batching expensive work.`,
-        `Write-back breaks on the crash test. If the system acknowledges after the cache update but before durable storage changes, then the acknowledged write lives only in volatile state during the dirty window. A power loss, process crash, or controller failure can erase data the caller was told had been saved. That is not an implementation bug. It is the meaning of acknowledging before durability unless another recovery mechanism exists.`,
-        `Write-around solves a different problem. It sends writes directly to the backing store and does not populate the cache. That protects the cache from bulk imports and write-once data, but it makes read-after-write cold. The first read of the newly written data misses because the cache intentionally skipped it.`,
+        'The safest first attempt is write-through: on every write, update the cache and push the value to the backing store before acknowledging. The rule is simple -- if the caller got success, both copies agree. A crash after the ack loses nothing because the durable copy was already current. No dirty metadata, no flush scheduling, no recovery log. Honest, correct, slow.',
+        'The fastest first attempt is write-back: update the cache, stamp the entry DIRTY, acknowledge immediately, and let a background flusher ship dirty entries to disk in batches. This makes write latency feel like RAM. It also enables write coalescing: a hot counter incremented 1,000 times produces 1,000 cache writes but one disk write of the final value. The policy is attractive because it attacks the real bottleneck -- waiting for slow media on every small mutation.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is that the acknowledgement point is the real policy. Write-through says the ack means the cache and backing store both hold the data. Write-back without a safety net says the ack means the cache holds the data and the backing store will catch up later. Write-around says the cache is not involved in the write path at all.`,
-        `A serious write-back design adds a recovery invariant: record the intent durably before acknowledging, then let the main structure flush lazily. That durable intent is usually a write-ahead log, journal, append-only file, replicated quorum entry, or battery-protected controller memory. The cache can be fast only if the system has decided what survives the crash.`,
+        'Write-through breaks on latency. Every small update -- a counter bump, a metadata flag, a session touch -- pays full disk round-trip latency. With a 5ms disk and a 0.1ms cache, write-through is 50x slower on the write path. For write-hot keys the cache accelerates nothing; it is just a read-side optimization watching every write crawl past.',
+        'Write-back breaks on the crash. The application receives its ack at t=0.1ms. The flusher has not run. At t=40ms the power dies. On reboot, disk holds yesterday\'s value. The application did nothing wrong and lost an acknowledged write -- the worst kind of loss, because upstream consumers already acted on the promise. The dirty window is not a bug. It is the policy working as designed. The design just needs one more piece.',
+        'Write-around avoids both walls by skipping the cache entirely, but it creates a different one: the first read of anything just written is a guaranteed cache miss. And if the write must go to disk synchronously anyway, the latency is the same as write-through without the read benefit.',
       ],
     },
     {
-      heading: `How the mechanism works`,
+      heading: 'How it works',
       paragraphs: [
-        `In write-through, the path is app to cache to backing store, and the acknowledgement waits until the backing store confirms the write. Reads after writes are simple because the cache and store agree. Recovery is simple because the acknowledged update reached durable state. The cost is that every write waits for the slowest required durable step.`,
-        `In write-back, the path is app to cache, mark dirty, acknowledge, and flush later. The cache maintains a dirty set: keys or pages whose cached value is newer than the backing store. A background flusher writes dirty entries out in batches, often ordered by age, pressure, or checkpoint policy. Repeated updates to the same dirty entry may collapse into one backing-store write. The backing store is temporarily stale by design.`,
-        `In write-around, the path is app to backing store, with the cache bypassed. This is useful when the write is unlikely to be read soon or would evict valuable hot data. A later read must load the value from the backing store and may then populate the cache according to normal read policy.`,
-        `With write-back plus a log, the path changes again: append the intent to durable sequential storage, update the cache and dirty metadata, then acknowledge. The expensive structure can flush later. If the system crashes, recovery reads the last durable checkpoint and replays log records that had been acknowledged but not yet folded into the main structure.`,
+        'Write-through: the app sends a write; the cache stores the value and forwards it to the backing store; the ack waits until the backing store confirms. Read-after-write is trivially consistent because both copies agree at the ack boundary. Recovery is trivial because every acknowledged write already reached durable storage. The cost is that every write pays the slowest hop in the path.',
+        'Write-back: the app sends a write; the cache stores the value, marks it dirty, and acks immediately. A background flusher periodically scans the dirty set and writes entries to the backing store in batches, ordered by age, memory pressure, or checkpoint policy. Repeated writes to the same dirty key collapse into one backing-store write. The backing store is temporarily stale by design -- for dirty entries, the cache IS the truth.',
+        'Write-around: the app sends a write directly to the backing store, bypassing the cache. The cache only learns about the value if a later read fetches it. This protects the cache from bulk imports that would evict the genuinely hot working set to make room for data nobody will read soon.',
+        'Write-back plus WAL: before acking, append one line to a sequential log -- "set count=43." Then mark the cache dirty and ack. The flusher ships dirty pages lazily. On crash, replay the log over the last checkpoint: every acknowledged write resurrects. Latency is roughly 0.5ms (a sequential append is the one thing disks do nearly as fast as RAM), durability is total. This is the literal architecture of PostgreSQL, InnoDB, and the LSM-tree memtable+log pairing.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Write-back cache with dirty-bit tracking',
+            'class WriteBackCache {',
+            '  constructor(backingStore, maxDirty = 100) {',
+            '    this.cache = new Map();      // key -> value',
+            '    this.dirty = new Set();      // keys needing flush',
+            '    this.store = backingStore;',
+            '    this.maxDirty = maxDirty;',
+            '  }',
+            '',
+            '  write(key, value) {',
+            '    this.cache.set(key, value);',
+            '    this.dirty.add(key);         // mark dirty -- not yet on disk',
+            '    if (this.dirty.size >= this.maxDirty) this.flush();',
+            '    // ack returns HERE -- before disk write',
+            '  }',
+            '',
+            '  read(key) {',
+            '    if (this.cache.has(key)) return this.cache.get(key);',
+            '    const val = this.store.read(key);   // cache miss',
+            '    if (val !== undefined) this.cache.set(key, val);',
+            '    return val;',
+            '  }',
+            '',
+            '  flush() {',
+            '    for (const key of this.dirty) {',
+            '      this.store.write(key, this.cache.get(key));',
+            '    }',
+            '    this.dirty.clear();          // all clean now',
+            '  }',
+            '',
+            '  // If crash happens before flush(), dirty entries are LOST.',
+            '  // Production systems pair this with a WAL to close that gap.',
+            '}',
+          ].join('\n'),
+        },
       ],
     },
     {
-      heading: `What the visual is proving`,
+      heading: 'Why it works',
       paragraphs: [
-        `The three-policy view proves that the same write can mean three different promises. In write-through, success waits for both cache and durable store. In write-back, success arrives while the backing store is knowingly stale. In write-around, the cache is protected from a write that may never be read. The boxes are simple because the hard part is not routing. The hard part is the promise attached to the acknowledgement.`,
-        `The crash-test view proves why write-back needs a safety net. The application receives success while the dirty value is still only in volatile cache. A power loss before the flush leaves the backing store with the old value. The WAL step changes the proof: the main structure may still be stale, but recovery has a durable record of the acknowledged write and can replay it.`,
+        'Write-through works because it keeps the cache and backing store synchronized at the ack boundary. After success, either copy can reconstruct the value. The invariant is simple: the slow copy is already current. The cost of that invariant is that every write pays for it.',
+        'Write-back with a WAL works because it separates durable ordering from expensive placement. A sequential log append is cheap -- roughly one disk seek regardless of data layout -- so the intent can be recorded before the ack without paying the cost of updating the main data structure in place. The cache and the flusher then optimize layout, batching, and compaction without weakening the recovery promise. The invariant: every acknowledged write appears either in the flushed main structure or in the durable log that recovery will replay.',
+        'Write-around works because it treats cache space as a scarce budget. If a workload dumps millions of rows that will not be read soon, caching them would evict the working set. Skipping the cache preserves read performance for the keys that actually benefit from memory residence.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Write-through works because it keeps the cache and backing store synchronized at the acknowledgement boundary. After success, either copy can be used to reconstruct the value. The invariant is simple and expensive: the slow copy is already current.`,
-        `Write-back with a log works because it separates durable ordering from expensive placement. The log is sequential, so it is cheaper to append than to update arbitrary pages or structures in place. The cache and backing store can then optimize layout, batching, and flushing without changing the recovery promise. The invariant is: every acknowledged write appears either in the flushed main structure or in the durable log that recovery will replay.`,
-        `Write-around works because it treats cache space as scarce. If a workload writes a huge amount of data that will not be read soon, caching those writes would evict the working set. Skipping the cache preserves read performance for the data that actually benefits from memory.`,
+        {
+          type: 'table',
+          headers: ['Policy', 'Write latency', 'Crash durability', 'Read-after-write', 'Best for'],
+          rows: [
+            ['Write-through', '~5ms (disk RTT)', 'Full -- ack = on disk', 'Consistent (both copies agree)', 'Config, metadata, low-rate writes'],
+            ['Write-back', '~0.1ms (RAM)', 'NONE without WAL -- dirty window', 'Consistent in cache, stale on disk', 'Hot keys, counters, high-throughput writes'],
+            ['Write-back + WAL', '~0.5ms (log append)', 'Full -- ack = in log', 'Consistent in cache, recoverable', 'Databases, filesystems, queues'],
+            ['Write-around', '~5ms (disk RTT)', 'Full -- ack = on disk', 'Cold -- first read misses cache', 'Bulk loads, write-once-read-maybe data'],
+          ],
+        },
+        'Write-through costs throughput because it cannot batch or coalesce. Its reward is no dirty metadata, no flush scheduling, and a one-line recovery story.',
+        'Write-back costs complexity: dirty tracking, flush scheduling, memory-pressure backpressure, checkpoint coordination, and a recovery process that replays the log. It also creates subtle durability gaps when operators assume "acknowledged" means "on stable storage" but the configuration disagrees.',
+        'The hidden tradeoff is layering. A database buffer pool, OS page cache, SSD firmware FTL, RAID controller, and cloud block device may each buffer writes independently. A durability guarantee is only as strong as the weakest link between the ack and stable media. Calling fsync() forces the OS page cache to flush; without it, even write-through code may be writing into a volatile OS buffer. Battery-backed RAID controllers close the gap at the hardware layer: dirty RAM survives a power cut because the battery keeps the controller alive long enough to flush.',
       ],
     },
     {
-      heading: `Cost and tradeoffs`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Write-through costs latency on every write. It also costs throughput because it misses chances to batch and coalesce. Its reward is a small recovery story and clear read-after-write behavior.`,
-        `Write-back costs complexity. The system needs dirty metadata, flush scheduling, memory pressure handling, checkpointing, recovery, and policy for what happens when dirty data cannot be flushed. It can also create surprising durability gaps if operators assume "acknowledged" means "on stable storage" when the configuration says otherwise.`,
-        `Write-around costs first-read latency and can surprise code that expects a just-written value to be hot in cache. It is best for bulk loads, migrations, append-heavy cold data, and write-once data. It is poor for workloads with immediate read-after-write locality.`,
-        `Layering is the hidden tradeoff. A database buffer pool, operating-system page cache, SSD firmware cache, storage controller, and cloud block device may each buffer writes. A durability guarantee is only as strong as the path from the application acknowledgement to media, replica quorum, or another failure-resistant record.`,
+        'Write-through wins for configuration records, low-rate metadata, and any system where simple recovery matters more than write latency. It is the right default when the backing store must be authoritative after every ack and the write rate is low enough that disk latency is not the bottleneck.',
+        'Write-back with a WAL wins in databases, filesystems, LSM-tree memtables, persistent queues, and hardware storage controllers. PostgreSQL and InnoDB WAL-log every transaction so dirty pages can flush lazily without losing acknowledged commits. LSM-tree designs (LevelDB, RocksDB, Cassandra) write to an in-memory memtable plus a log, then flush sorted files in the background. Your CPU L1/L2 caches use write-back with MESI coherence as the safety net. RAID controllers strap a battery to RAM so the dirty window survives the outage itself.',
+        'Write-around wins for bulk import, analytics staging, backup restore, and any workload where the written data has no near-term read locality. Loading a million rows through the cache would evict every hot key from the working set to make room for data nobody will query today.',
+        {
+          type: 'note',
+          text: 'fsync semantics matter at the boundary. On Linux, write() puts data in the OS page cache (volatile). fsync() forces it to stable storage. A "write-through" application that never calls fsync is actually write-back into the OS page cache -- a common production surprise. Databases call fdatasync or use O_DIRECT + O_DSYNC to bypass the OS buffer entirely.',
+        },
       ],
     },
     {
-      heading: `Real use cases`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Write-through fits configuration records, low-rate metadata, and systems where simple recovery matters more than write latency. It is also useful when the cache is an optimization and the backing store must remain authoritative after every acknowledged operation.`,
-        `Write-back with a log fits databases, filesystems, LSM-tree memtables, persistent queues, and storage controllers. PostgreSQL and InnoDB use write-ahead logging so dirty pages can flush later without losing acknowledged transactions. LSM-tree designs write to an in-memory memtable while also appending to a log, then flush sorted files later. Filesystems journal metadata or data to make lazy updates recoverable.`,
-        `Write-around fits bulk import, analytics staging, backup restore, and large cold writes. If a million rows are being loaded once and will not be read immediately, filling the cache with them can evict the hot working set. Bypassing the cache keeps memory for the reads that matter.`,
+        'The most dangerous failure is lying about the ack. If the application treats success as durable but the cache policy only made the value dirty in RAM, a crash violates the contract. This is catastrophic for payments, order placement, queue consumption, and identity changes -- anywhere an upstream system already acted on the promise.',
+        'Uncontrolled dirty growth is the second failure. If the flusher cannot keep up with write throughput, dirty data fills memory, new writes stall behind backpressure, and recovery time grows because the log or dirty set is enormous. Write-back needs an explicit policy for what happens when the dirty set exceeds its budget: slow writers, flush more aggressively, or reject work.',
+        'Cache pollution is the third failure. Write-through and write-back both populate the cache with written data. If that data has no near-term reads, it evicts the hot working set for nothing. This is exactly why write-around exists. A cache is a scarce working-set budget, not a faster copy of every byte.',
+        {
+          type: 'quote',
+          text: 'An ack that precedes durability is a promise the crash is allowed to break.',
+          attribution: 'The invariant behind every write-caching policy',
+        },
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `The most serious failure is lying about the acknowledgement. If the application treats success as durable, but the cache policy only made the value dirty in RAM, a crash can violate the application contract. This is especially dangerous for payments, orders, queue acknowledgements, identity changes, and metadata updates.`,
-        `Another failure is uncontrolled dirty growth. If the flusher cannot keep up, dirty data consumes memory, later writes stall, and recovery time grows because more log records or dirty pages must be processed. Write-back needs backpressure. At some point the system must slow writers, flush more aggressively, or reject work.`,
-        `A third failure is cache pollution. Write-through and write-back can both populate the cache with data that has no near-term reads. That is why write-around exists. A cache is not just a faster place to put every byte. It is a limited working-set budget.`,
-      ],
-    },
-    {
-      heading: `What to study next`,
-      paragraphs: [
-        `Study write-ahead logging to see how durable intent makes lazy data structures crash-safe. Study LSM trees to see write-back, memtables, logs, and compaction working together. Study cache invalidation for the read-side version of the problem. Study LRU and TinyLFU admission to understand cache pollution and working sets. Study Linux page cache, dirty writeback, fsync, rename-based crash consistency, and message queues to see how acknowledgement semantics show up in operating systems and distributed systems.`,
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Cache Invalidation -- the read-side version of the freshness problem. Understand read caching before studying write caching.',
+            'Prerequisite: LRU Cache -- eviction policy and working-set management. Write-around exists because cache space is finite.',
+            'Extension: Write-Ahead Logging -- how durable sequential intent makes lazy data structures crash-safe. The WAL is the piece that rescues write-back.',
+            'Extension: LSM Trees -- write-back, memtables, logs, and compaction working together in one design.',
+            'Production study: PostgreSQL WAL and checkpoint architecture (pg_wal, wal_level, checkpoint_timeout) for a real write-back + WAL system.',
+            'Production study: Linux dirty page writeback (vm.dirty_ratio, vm.dirty_expire_centisecs, fsync) for OS-level write-back policy.',
+            'Hennessy & Patterson, "Computer Architecture: A Quantitative Approach" -- cache write policy taxonomy (write-through, write-back, write-allocate).',
+            'Arpaci-Dusseau & Arpaci-Dusseau, "Operating Systems: Three Easy Pieces" -- crash consistency, journaling, and fsync semantics.',
+          ],
+        },
       ],
     },
   ],
 };
+

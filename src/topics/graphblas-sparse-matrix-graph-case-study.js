@@ -207,63 +207,6 @@ export function* run(input) {
   else if (view === 'graph analytics') yield* graphAnalytics();
   else throw new InputError('Pick a GraphBLAS view.');
 }
-
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'GraphBLAS is a standard way to express graph algorithms in the language of sparse linear algebra. Represent the graph as a sparse adjacency matrix. Represent frontier, score, and visited sets as sparse vectors or masks. Then run matrix-vector or matrix-matrix operations over the semiring that matches the algorithm.',
-        'The obvious engineering approach is to hand-write each graph algorithm as its own neighbor loop. That works, but every implementation has to solve storage, masking, parallel scheduling, and sparse traversal again. GraphBLAS exists because many of those loops are the same sparse matrix operation with different algebra.',
-        'This topic connects Compressed Sparse Row Graph, Graph BFS, PageRank, Pregel Graph Processing Case Study, and Apache Arrow Columnar Memory Case Study. The data-structure lesson is that CSR is not only compact storage; it is also an input layout for optimized sparse algebra kernels.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A BFS step can be written as q * A over the Boolean OR-AND semiring, where q is the current frontier vector and A is the adjacency matrix. Multiplication tests whether an active vertex has an edge; addition combines many possible predecessors. A mask removes already visited vertices. Repeat until the frontier is empty.',
-        'Why this is still BFS: the vector q contains exactly the current distance layer. Multiplying by A proposes every one-edge neighbor of that layer. Masking out visited vertices enforces the same rule as a queue-based seen set, so each vertex receives its first level only once.',
-        'Other algorithms use different algebra. PageRank iterates numerical matrix-vector operations. Single-source shortest paths can use min-plus relaxation. Triangle counting uses sparse matrix products and structural masks. The same API exposes matrices, vectors, masks, reductions, element-wise operations, and semiring multiplication.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read graph traversal as linear algebra. A frontier vector marks active vertices; multiplying by an adjacency matrix discovers neighbors; masking prevents revisiting vertices. The animation is showing BFS as sparse matrix-vector multiplication, not as pointer chasing.',
-        'The useful insight is that the semiring changes the meaning of combine and accumulate. With the right operators, shortest paths, reachability, triangle counting, and filtering become variations on sparse matrix operations. The data layout and algebra travel together.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The performance story is sparse-kernel reuse. A highly tuned implementation can optimize storage formats, parallel scheduling, masks, and matrix operations once, then many graph algorithms benefit. The cost is that algorithms must fit the sparse algebra model, and dynamic edge updates can be awkward if the matrix format is built for scans.',
-        'GraphBLAS also makes absence explicit. A sparse matrix stores only present edges, and the algebra defines what missing entries mean. That is why the identity and annihilator behavior of the chosen semiring matters. A wrong semiring changes the graph algorithm, not just an implementation detail.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Consider a social graph with hundreds of millions of edges. A custom BFS implementation might hand-code frontier queues, visited bitsets, neighbor scans, and parallel partitioning. In GraphBLAS, the frontier is a sparse vector, visited is a mask, the graph is a sparse matrix, and each BFS level is a masked vector-matrix multiply. The implementation can focus on optimized sparse kernels.',
-        'Pregel exposes a vertex-centric message-passing model. GraphBLAS exposes a matrix-centric algebra model. Both are valid ways to raise the abstraction above individual edges. GraphBLAS is especially attractive when many algorithms can reuse the same matrix representation and linear algebra backend.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'GraphBLAS is not a magic replacement for every graph system. If the graph is tiny, setup overhead can dominate. If edges mutate constantly, a dynamic adjacency structure may be more natural. If an algorithm has control flow that does not map cleanly to masks and sparse products, forcing it into GraphBLAS can obscure the implementation.',
-        'Another trap is thinking the matrix is dense. The whole point is sparse matrices. A graph with n vertices does not allocate n squared edge slots. It stores present edges in compressed structures and lets kernels stream those structures.',
-        'The semiring is also part of correctness, not a performance tweak. OR-AND, min-plus, and plus-times answer different questions. Choosing the wrong algebra can produce a fast result for the wrong algorithm.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: GraphBLAS Forum overview at https://graphblas.org/, SuiteSparse:GraphBLAS repository at https://github.com/DrTimothyAldenDavis/GraphBLAS, Davis GraphBLAS paper copy at https://people.engr.tamu.edu/davis/GraphBLAS_files/toms_graphblas.pdf, GraphBLAS pointers and tutorials at https://graphblas.org/GraphBLAS-Pointers/, and Python GraphBLAS primer at https://python-graphblas.readthedocs.io/en/stable/getting_started/primer.html. Study Compressed Sparse Row Graph, Graph BFS, PageRank, Pregel Graph Processing Case Study, and Apache Arrow Columnar Memory Case Study next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

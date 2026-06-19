@@ -1,4 +1,4 @@
-// Sparse format selection and compiler lowering: describe sparse tensor levels,
+﻿// Sparse format selection and compiler lowering: describe sparse tensor levels,
 // choose storage schemes, generate loops, and validate kernel fit.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -178,6 +178,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Sparse Format Selection Compiler Lowering Case Study. A compiler and systems case study: sparse tensor level encodings, position and coordinate buffers, COO/CSR/CSC/BSR selection, loop lowering, kernel dispatch, and format audits..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Sparse format selection exists because "sparse" is not one layout. COO, CSR, CSC, BSR, ELL, structured sparsity, and compiler-specific tensor encodings all represent the same broad idea: store only useful entries and enough metadata to find them. They do not support the same operations equally well.',
@@ -197,14 +206,14 @@ export const article = {
       paragraphs: [
         'A sparse compiler starts with three facts: what operation is being computed, what the sparsity pattern looks like, and what the target machine can run well. SpMV, SpMM, sampled dense-dense multiplication, element-wise add, and sparse convolution have different needs.',
         'COO is good for assembly because it appends coordinate tuples. CSR is good for row scans. CSC is good for column scans and transpose-style access. BSR is good when nonzeros come in dense blocks that can feed vector or matrix kernels. Dense can be better when the matrix is not sparse enough to justify metadata and irregular memory access.',
-        `The compiler's job is not to worship a format. It is to preserve the mathematical operation while choosing a layout whose physical access pattern fits the workload.`,
+        `The compiler\'s job is not to worship a format. It is to preserve the mathematical operation while choosing a layout whose physical access pattern fits the workload.`,
       ],
     },
     {
       heading: 'How lowering works',
       paragraphs: [
         'Lowering turns tensor dimensions into storage levels. A dense level stores every coordinate in that dimension. A compressed level stores positions and coordinates for only present entries. A singleton level stores one coordinate per parent. More specialized encodings can model blocks, slices, or structured sparsity.',
-        `The lowered program walks position buffers to find ranges, coordinate buffers to know which logical indices are present, and value buffers to read payloads. Operations that combine sparse tensors become merge problems over coordinate streams. When coordinates match, the loop combines values. When a coordinate is absent on one side, the loop either skips it or applies the operation's identity rule.`,
+        `The lowered program walks position buffers to find ranges, coordinate buffers to know which logical indices are present, and value buffers to read payloads. Operations that combine sparse tensors become merge problems over coordinate streams. When coordinates match, the loop combines values. When a coordinate is absent on one side, the loop either skips it or applies the operation\'s identity rule.`,
         'This is where correctness details become concrete. Sorted coordinates make merge loops simple. Duplicate coordinates need a defined combine rule. Explicit zeros may or may not behave like absent entries. Index bit width affects memory traffic and overflow. Shape metadata guards bounds.',
       ],
     },
@@ -225,7 +234,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Sparse lowering wins in graph analytics, recommender systems, scientific simulation, retrieval indexes, sparse ML features, pruned neural networks, and compilers that need to generate kernels for many sparse layouts. These systems cannot afford to treat layout as an afterthought.',
         'It is also valuable as documentation. A compiler IR that names sparse levels, coordinates, positions, and value buffers makes format assumptions explicit. That is easier to audit than handwritten kernels with implicit rules scattered across loops.',
@@ -249,10 +258,97 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MLIR SparseTensor dialect at https://mlir.llvm.org/docs/Dialects/SparseTensorOps/, MLIR sparsifier encoding guide at https://developers.google.com/mlir-sparsifier/guides/encode, PyTorch sparse tensors at https://docs.pytorch.org/docs/stable/sparse.html, SciPy sparse arrays at https://docs.scipy.org/doc/scipy/reference/sparse.html, and NVIDIA cuSPARSE at https://docs.nvidia.com/cuda/cusparse/. Study COO Sparse Tensor Assembly Primer, CSC Column Sparse Matrix Primer, Block Sparse Row Kernel Layout Case Study, GraphBLAS Sparse Matrix Graph Case Study, and Accelerator Kernel Compatibility Matrix Case Study next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for sparse-format-selection-compiler-lowering-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

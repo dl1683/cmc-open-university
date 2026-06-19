@@ -1,4 +1,4 @@
-// HTTP cache revalidation: freshness, validators, conditional requests, 304
+﻿// HTTP cache revalidation: freshness, validators, conditional requests, 304
 // responses, and the boundary between browser cache, CDN cache, and origin truth.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -212,14 +212,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where naive caching breaks',
+      heading: 'Where it fails',
       paragraphs: [
         'A cache has no private access to truth. It only has a stored response, a cache key, metadata, and policy. If it guesses, it can send old JavaScript, old HTML that points at missing bundles, or private data to the wrong user through a shared cache.',
         'The failure is usually a missing boundary. Vary might omit a request header that changes the representation. Cache-Control might allow shared storage of a user-specific response. A validator might fail to change when the bytes changed, or change on every response and destroy hit rate.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The core insight',
       paragraphs: [
         'A cached response is reusable only if policy says it is fresh or validation succeeds. The ETag is the server-chosen validator for the stored representation. The cache sends If-None-Match with that tag when the response is stale.',
         'The server compares the validator with current truth. If the cached representation is still valid, it returns 304 Not Modified and no response body. If not, it returns a normal 200 response with new bytes and usually a new validator.',
@@ -251,7 +251,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How to read the visualization',
+      heading: 'How to read the animation',
       paragraphs: [
         'In the revalidation-path view, the first frame is the local-hit case. The browser cache is highlighted and the CDN, origin, and body nodes disappear because freshness alone is enough.',
         'When the browser cache turns stale, follow the ETag edge instead of the body edge. The important state change is that the cache sends a question about identity before it sends or receives representation bytes.',
@@ -276,7 +276,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'ETag revalidation is a good fit for stable URLs with medium or large bodies and unpredictable updates: HTML shells, feeds, documentation pages, avatars, API documents, manifests, and configuration files.',
         'It pairs cleanly with immutable assets. Serve app.8f31.js and styles.91aa.css with long max-age and immutable because the names change with the bytes. Serve /index.html with revalidation because the name stays stable while its contents point at the current asset names.',
@@ -284,7 +284,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is the wrong tool',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Use no-store for responses that should not be stored, especially sensitive user data. Revalidation does not erase copies that should never have been kept.',
         'Use content-hashed names for immutable build artifacts. Revalidating a file whose URL already contains the content hash adds latency without much benefit.',
@@ -292,7 +292,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (3)',
       paragraphs: [
         'The common semantic trap is no-cache. In HTTP caching, no-cache allows storage but requires successful validation before reuse. no-store is the directive that tells caches not to store the request or response.',
         'The common security trap is shared-cache leakage. Authorization, Cookie, Accept-Language, Accept-Encoding, and other request dimensions can change the representation. If policy and Vary do not describe those dimensions correctly, the cache can reuse a response across the wrong boundary.',
@@ -300,7 +300,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example (2)',
       paragraphs: [
         'A production web app usually splits resources by update shape. Bundled JavaScript and CSS use content-hashed filenames with long max-age and immutable. The HTML shell keeps a stable URL with ETag and no-cache, so every navigation validates cheaply. Public images or avatars may use bounded freshness plus stale-while-revalidate. User-private API responses use no-store or private caching with strict boundaries.',
         'This is the HTTP version of cache invalidation by identity. Change the name when the bytes are immutable. Keep the name stable when users need a stable link, then attach a validator so stale copies can ask one cheap question before reuse.',
@@ -313,5 +313,87 @@ export const article = {
         'Study Cache Invalidation & Versioning for identity by name, HTTP Vary Cache-Key Normalization for variant safety, Cache-Status HTTP Observability for debugging cache decisions, CDN Stale-While-Revalidate Shield for layered caches, Service Workers & Offline-First for application-managed caches, LRU Cache for eviction, and CORS Preflight Cache for another conditional reuse pattern.',
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why HTTP Cache ETag Revalidation moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

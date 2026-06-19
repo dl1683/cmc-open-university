@@ -1,4 +1,4 @@
-// Readahead and dirty writeback: the policy loops around the Linux page cache.
+﻿// Readahead and dirty writeback: the policy loops around the Linux page cache.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
 
@@ -199,6 +199,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Readahead & Dirty Writeback. Buffered file I/O uses readahead to prefill likely future reads and dirty writeback thresholds to keep deferred writes bounded..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Buffered file I/O sits between applications and storage. The application asks to read or write file offsets. The kernel page cache holds file-backed memory so repeated reads can hit RAM and writes can be batched before they reach the device.',
@@ -206,7 +215,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The tempting wrong answer',
+      heading: 'The obvious approach',
       paragraphs: [
         'The simplest read policy is demand-only I/O: read exactly the requested page or folio when the application asks for it. The simplest write policy is immediate write-through: every modified range reaches storage before write returns. Both are easy to reason about.',
         'They are too conservative for real machines. Sequential reads would wait one storage round trip per page even though the next offsets are predictable. Small buffered writes would become device-latency events instead of memory copies followed by efficient batched IO.',
@@ -260,7 +269,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Readahead wins for sequential file scans, media streaming, backups, compaction jobs, database checkpoint reads, filesystem metadata walks, and mmap fault streams with predictable movement. It turns idle storage time into useful future reads.',
         'Dirty writeback wins for small writes, append-heavy logs, build artifacts, checkpoints, package installs, and workloads where batching turns many small updates into fewer larger IOs. It lets applications proceed after copying to memory while the kernel chooses a better device schedule.',
@@ -276,7 +285,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works',
       paragraphs: [
         'For reads, watch cache hit rate, major page faults, readahead hits, wasted prefetch where available, read throughput, IO queue depth, and memory reclaim. A sequential job with low cache benefit may have disabled or ineffective readahead, wrong access hints, or competing memory pressure.',
         'For writes, watch dirty pages, writeback pages, time spent in writeback, fsync latency, balance_dirty_pages stalls, backing-device congestion, cgroup writeback behavior, and reclaim waiting on writeback. These signals explain why write calls that were cheap a minute ago are now slow.',
@@ -290,5 +299,56 @@ export const article = {
         'Official sources: Linux memory-management API readahead documentation at https://docs.kernel.org/core-api/mm-api.html, VM dirty writeback sysctls at https://docs.kernel.org/admin-guide/sysctl/vm.html, VFS documentation at https://docs.kernel.org/filesystems/vfs.html, filesystem API summaries at https://docs.kernel.org/filesystems/api-summary.html, and readahead(2) at https://man7.org/linux/man-pages/man2/readahead.2.html.',
       ],
     },
+      {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for readahead-dirty-writeback-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

@@ -208,6 +208,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Sequence Locks (Seqlocks). A read-mostly consistency pattern: writers bump an odd/even version counter, while readers copy data and retry if the version changed..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Some shared state is read constantly and written rarely: clock values, compact statistics, routing metadata, configuration generation numbers, and small tuples that must be read as a coherent group. A reader-writer lock can protect that state, but every reader still participates in synchronization. On a hot read path, even cheap read-side locking can matter.',
@@ -216,7 +225,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive baselines and their wall',
+      heading: 'The wall',
       paragraphs: [
         'The first baseline is a mutex. It is simple and correct, but it serializes readers with writers and often with other readers. If the data is read millions of times per second and written rarely, that can waste the shape of the workload.',
         'The second baseline is a reader-writer lock. It allows concurrent readers, but readers still enter and leave a synchronization protocol. Writers must wait for active readers. That is often right, but it is heavier than necessary for a tiny copyable snapshot.',
@@ -257,7 +266,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The happy path is extremely small: two counter reads and a bounded data copy. That makes seqlocks attractive for read-mostly values where readers must be fast and writers are rare and short.',
         'The cost is retry work. If writers are frequent, long, preempted, or delayed while holding the write side, readers can spin and waste CPU. In real-time or latency-sensitive paths, unbounded retry loops need careful limits, fallback behavior, or a different synchronization primitive.',
@@ -265,7 +274,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Pointer lifetime is the most important failure mode. A seqlock can tell a reader that a copied pointer value was part of a coherent version, but it cannot guarantee that the object behind the pointer remains allocated while the reader dereferences it. Do not use seqlocks alone for pointer graphs that writers can free.',
         'Large data is another failure. If the protected structure is expensive to copy, retries become expensive and the read path can lose its advantage. A reader-writer lock, RCU, copy-on-write map, or snapshot structure may be better.',
@@ -304,5 +313,77 @@ export const article = {
         'Study Linearizability History Checker, Nonblocking Progress Guarantees, Read-Copy-Update (RCU), Hazard Pointers & Epoch Reclamation, MCS Queue Lock, Futex Wait Queue, Atomic Compare-And-Swap, MVCC Internals & VACUUM, and Snapshot Isolation next. Seqlocks are one point in a broader design space of validation, versioning, blocking, and reclamation.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Sequence Locks (Seqlocks) moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

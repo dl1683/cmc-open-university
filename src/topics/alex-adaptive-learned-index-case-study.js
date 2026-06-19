@@ -1,4 +1,4 @@
-// ALEX: an adaptive learned index that adds update machinery around learned
+﻿// ALEX: an adaptive learned index that adds update machinery around learned
 // position models so inserts and range queries remain practical.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -220,6 +220,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for ALEX Adaptive Learned Index Case Study. A dynamic learned-index case study: model nodes route by key, data nodes keep gapped arrays, and hot regions split or retrain as writes arrive..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Learned indexes start from a provocative observation: an ordered index is partly a prediction problem. Given a key, the index predicts where that key should appear in sorted order. A B-tree predicts coarsely with separator keys. A learned index can predict with a model trained on the key distribution. If the model is accurate, lookup can jump close to the answer and use only a short local correction.`,
@@ -236,15 +245,15 @@ export const article = {
       ],
     },
     {
-      heading: `Where the baseline fails`,
+      heading: `Where it fails`,
       paragraphs: [
-        `The wall is dynamic maintenance. An index must preserve exact ordered-map semantics while keys arrive in uneven patterns. If many inserts land near one predicted position, the local array region becomes crowded. If a model was trained on yesterday's distribution, its prediction error can grow today. If the repair policy is too aggressive, the index spends all its time rebuilding. If it is too lazy, lookup windows and insert shifts grow until the learned index loses its advantage.`,
-        `This is a data-structure problem, not just a machine-learning problem. The model answers "where should this key probably be?" The storage layer must answer "where can it go now, how far must existing keys move, when should this node split, and how do range scans remain sorted?" ALEX's contribution is to make those storage answers part of the learned-index design.`,
+        `The wall is dynamic maintenance. An index must preserve exact ordered-map semantics while keys arrive in uneven patterns. If many inserts land near one predicted position, the local array region becomes crowded. If a model was trained on yesterday\'s distribution, its prediction error can grow today. If the repair policy is too aggressive, the index spends all its time rebuilding. If it is too lazy, lookup windows and insert shifts grow until the learned index loses its advantage.`,
+        `This is a data-structure problem, not just a machine-learning problem. The model answers "where should this key probably be?" The storage layer must answer "where can it go now, how far must existing keys move, when should this node split, and how do range scans remain sorted?" ALEX\'s contribution is to make those storage answers part of the learned-index design.`,
         `The exactness requirement is also non-negotiable. A search index may rank approximate matches, but an ordered map cannot return the wrong key because the model guessed well on average. Every prediction needs a comparison-based correction path. The model can reduce work; it cannot replace the final proof that the key is present or absent.`
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `ALEX separates routing, storage, and repair. Model nodes route a key toward a child range. Data nodes store sorted records in arrays with deliberate gaps. Each data node has a local model that predicts a position inside that node, and the node uses local search plus comparisons to find the exact key or insertion point. When the node becomes crowded or the model becomes inaccurate, the index adapts the node instead of pretending the original prediction surface is permanent.`,
         `The core invariant is: prediction chooses a neighborhood; comparisons preserve exactness. That invariant keeps ALEX from becoming an approximate index. A wrong prediction costs extra local search, but it does not corrupt the answer. A crowded node costs shifts or repair, but it does not break sorted order.`,
@@ -260,7 +269,7 @@ export const article = {
       ],
     },
     {
-      heading: `Adaptation mechanism`,
+      heading: `How it works`,
       paragraphs: [
         `ALEX monitors operational symptoms rather than only model loss. Important signals include node density, insert shift distance, local search cost, model error, and hot ranges where many writes cluster. These symptoms tell the index whether the current bargain is still working: a little extra memory for gaps, a little local search for model error, and occasional repair for long-term health.`,
         `Expansion adds more space to a data node and redistributes records with gaps. It is useful when the model is still acceptable but the node is too dense. Splitting divides a node into smaller ranges, which can isolate a hot region or reduce search and shift costs. Retraining updates a model when the key-to-position relationship has changed enough that correction windows are too wide.`,
@@ -284,7 +293,7 @@ export const article = {
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `ALEX is strongest for in-memory ordered indexes where keys have a learnable distribution, reads and range scans are common, and writes are present but not so adversarial that every local model is constantly invalidated. It is a good fit when the workload benefits from cache-friendly arrays and when extra memory for gaps is acceptable.`,
         `The SIGMOD 2020 paper presents ALEX as an updatable learned index for read-write workloads. Microsoft released a C++ implementation that describes ALEX as an ML-enhanced range index with B+ tree-like functionality and a near drop-in role for std::map or std::multimap-style use cases. That framing is useful: ALEX is not a classifier bolted onto a database. It is an ordered range index with learned routing and adaptive storage.`,
@@ -304,23 +313,74 @@ export const article = {
       paragraphs: [
         `Start with exact ordered-map behavior before optimizing. Implement lower-bound verification, sorted data-node invariants, range boundary checks, and tests that compare every operation against a reference map. The model path should be allowed to be wrong about position but never wrong about membership or order.`,
         `Make repair decisions observable. Track per-node density, average and maximum shift distance, local search window, insert count, split count, expansion count, and retraining cost. Without those metrics, tuning becomes guesswork. Expose them in benchmarks and logs so bad distributions are visible rather than hidden behind average throughput.`,
-        `Keep repair operations safe and bounded. Splits must update parent routing atomically. Expansions must preserve sorted order and gap metadata. Retraining must not publish a model that routes outside the node's key range. If the implementation is concurrent, readers need a stable view while nodes are replaced or repaired.`
+        `Keep repair operations safe and bounded. Splits must update parent routing atomically. Expansions must preserve sorted order and gap metadata. Retraining must not publish a model that routes outside the node\'s key range. If the implementation is concurrent, readers need a stable view while nodes are replaced or repaired.`
       ],
     },
     {
       heading: `Worked example`,
       paragraphs: [
         `Suppose a data node covers keys from 50 to 100 and currently stores 50, 60, 80, and 95 with gaps between them. A lookup for 73 descends through model nodes, lands in that data node, predicts a slot near the gap between 60 and 80, and uses local comparison to decide that 73 is absent but should be inserted before 80.`,
-        `If a gap is available near that position, the insert can move only a few records or none at all. Later, many new keys arrive near 73: 70, 71, 72, 74, 75, 76. The nearby gaps disappear, insert shifts grow, and the node's local model may become less accurate. ALEX now has evidence that the node's original layout is no longer healthy.`,
+        `If a gap is available near that position, the insert can move only a few records or none at all. Later, many new keys arrive near 73: 70, 71, 72, 74, 75, 76. The nearby gaps disappear, insert shifts grow, and the node\'s local model may become less accurate. ALEX now has evidence that the node\'s original layout is no longer healthy.`,
         `The repair choice depends on the measured pain. If the model still predicts well but slack is gone, expansion can redistribute records with fresh gaps. If the region is hot or the node has become too large, splitting can give the dense subrange its own data node. If the prediction error is the main issue, retraining the local model can shrink future correction windows.`
       ],
     },
     {
-      heading: `Sources and study next`,
+      heading: `Study next`,
       paragraphs: [
         `Primary sources: the ALEX arXiv paper at https://arxiv.org/abs/1905.08898, the ACM DOI at https://dl.acm.org/doi/10.1145/3318464.3389711, the Microsoft Research page at https://www.microsoft.com/en-us/research/publication/msr-alex-techreport/, and the implementation at https://github.com/microsoft/ALEX.`,
         `Study Learned Indexes first for the static model-as-index idea. Then study PGM-Index: Piecewise Geometric Model, Packed Memory Array Gapped Order, B-Trees, B+ Tree Leaf Sibling Scan, Database Indexing, Adaptive Radix Tree, Bw-Tree Delta Chain and Mapping Table, and Binary Search. Those topics separate the model, the ordered layout, the update policy, and the production database concerns that ALEX brings together.`
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for alex-adaptive-learned-index-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

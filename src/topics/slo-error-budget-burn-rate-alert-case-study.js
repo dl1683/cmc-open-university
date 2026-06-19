@@ -1,4 +1,4 @@
-// SLO burn-rate alerting: convert user-visible failures into rolling-window
+﻿// SLO burn-rate alerting: convert user-visible failures into rolling-window
 // budget spend so pages fire on risk, not on statistically interesting noise.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -239,6 +239,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for SLO Error Budget Burn Rate Alert. How SLO alerting uses good/total counters, rolling windows, burn rates, and multi-window policies to page only when reliability budget is being spent too fast..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'SLO burn-rate alerting exists because alerting should be tied to user harm, not to every interesting graph movement. A production service can have high CPU, a full queue, a noisy dependency, or a strange latency shape without requiring a human to wake up immediately. The page should fire when the service is spending its reliability budget fast enough that the product promise is at risk.',
@@ -246,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive alert',
+      heading: 'The obvious approach',
       paragraphs: [
         'The naive alert pages when a metric crosses a fixed threshold: CPU above 90 percent, p99 latency above two seconds, 5xx rate above one percent, queue depth above a chosen number. This feels concrete, and it is often useful for dashboards. It is weak as a paging policy because it does not ask whether users are losing the promised experience. High CPU during a planned batch job may be healthy. A small latency bump on an internal endpoint may not matter. A short 100 percent error spike over two requests may not justify an incident.',
         'Another naive design uses one long rolling window over the SLI. The long window is stable, but it reacts late and resolves late. After a fix is deployed, the long window can remain bad because it still contains the outage. Humans stay paged even though current users are no longer being harmed. The opposite mistake is one tiny window, which reacts quickly but pages on noise. Burn-rate alerting is the compromise that keeps the user promise at the center.',
@@ -260,14 +269,14 @@ export const article = {
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
         'The system starts by classifying events. For an API, each request may be good if it returns a valid response under the latency target. For a checkout system, an eligible attempt may be good if it completes successfully. For a streaming product, seconds of playback may be the event. The counters are usually total events and bad events, sometimes sliced by route, tenant, region, or dependency. From those counters the platform computes error rate, burn rate, and budget consumed over rolling windows.',
         'The alerting rule then combines windows. A common pattern is multi-window multi-burn-rate alerting: require both a long window and a short window to be above threshold. The long window proves the error budget is under real threat, not just a one-minute blip. The short window proves the problem is still happening and lets the alert resolve quickly after the fix. A severe page might use a one-hour window and a five-minute window. A slower page or ticket might use six hours and thirty minutes, or three days and six hours, depending on the policy.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The burn-rate-window view proves the transformation from raw traffic to reliability risk. Events become an SLI. The SLI defines bad events. Bad events spend a fixed error budget. The burn-rate table translates error percentages into time-to-exhaustion. This is the conceptual move that makes the alert actionable: a responder can reason about how much time remains before the service violates its promise.',
         'The multi-window view proves why the rule uses two pieces of memory. A short bad window alone is evidence, but it may be noise. A long bad window alone may describe an outage that has already stopped. Short bad plus long bad means current harm and sustained budget risk. Long bad plus short good means the service is recovering and the alert should be allowed to close. The visual is not just showing alert thresholds; it is showing how the rule distinguishes urgency from historical damage.',
@@ -281,32 +290,105 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The first cost is SLI design. The metric must reflect user-visible success, and that is harder than choosing CPU or a generic 5xx rate. The team must decide which events count, which users or routes are in scope, how to treat retries, how to handle client cancellations, how to include latency, and whether low-volume slices should page. Bad SLI design produces clean math over the wrong promise.',
         'The second cost is operational tuning. Window pairs and burn thresholds control fatigue, speed, and severity. Aggressive thresholds catch incidents early but can page on transient problems. Conservative thresholds reduce noise but may wait too long. The policy also needs volume guards, missing-data behavior, maintenance handling, and labels that point responders to the affected user population. Burn-rate alerting reduces noise only when the data pipeline is trustworthy.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern is useful for API availability, checkout success, search freshness, streaming playback, data pipeline deadlines, model-serving latency, and any product promise that can be expressed as good events over total events. A payments team may alert on successful authorizations. A collaboration product may alert on document sync operations that complete within a target. An inference platform may alert on requests that meet time-to-first-token and inter-token latency objectives.',
         'A good page carries the evidence directly: SLI name, objective, burn rate, long window, short window, budget consumed, affected route or tenant, current volume, recent deploys, and representative traces or logs. Incident automation and AIOps systems become more useful when this packet exists. They can correlate incidents by user impact rather than trying to infer which of hundreds of graph spikes deserves attention.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
         'Burn-rate alerts fail when the SLI is not user-visible. If the SLI measures an internal proxy that users do not care about, the team will optimize the wrong thing with great discipline. They also fail without volume awareness. A 100 percent error rate over two requests is not the same operational event as a 5 percent error rate over millions of checkouts. Low traffic may need longer windows, synthetic probes, or ticket-level alerts instead of pages.',
         'They also do not explain root cause by themselves. A burn-rate page tells the team when user harm is urgent. It does not say whether the cause is a bad deploy, a dependency, a database lock, a cache stampede, a network partition, or overload. CPU, queue depth, traces, exemplars, logs, deploy metadata, and dependency health still matter after the page fires. The point is to separate paging evidence from diagnostic evidence, not to discard the latter.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Study next',
       paragraphs: [
         'Study sliding windows and streaming counters first, because burn-rate alerting is a data structure over time. Then study service-level indicators, error budgets, tail latency, percentile pitfalls, and Prometheus-style time series evaluation. The math is simple, but the operational behavior depends on counter reset handling, label cardinality, scrape gaps, and window alignment.',
         'After that, study OpenTelemetry metrics and exemplars, distributed tracing, incident response, alert routing, and post-incident review. The mature version of this topic is not a formula on a dashboard. It is an incident contract: the page proves current user harm, the payload names the affected promise, and the supporting telemetry lets the responder move from budget burn to cause without guessing.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why SLO Error Budget Burn Rate Alert moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

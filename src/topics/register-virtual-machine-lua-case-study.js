@@ -136,6 +136,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Register Virtual Machine: Lua Case Study. A register bytecode VM stores temporaries in virtual registers, trading wider instructions for fewer stack shuffles and better local access..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         `A bytecode virtual machine needs a portable instruction format and an interpreter loop that can run it cheaply. Every expression creates intermediate values. The VM has to put those values somewhere between the time they are produced and the time the next instruction consumes them. The major design choice is whether those values live on an implicit operand stack or in explicitly named virtual registers inside the current function frame.`,
@@ -143,7 +152,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive design',
+      heading: 'The obvious approach',
       paragraphs: [
         `The obvious first VM is a stack machine. To compile a + b * c, the compiler emits code that pushes a, pushes b, pushes c, multiplies the top two stack values, then adds the remaining values. Most operands are implicit because every arithmetic instruction consumes and produces values at the top of the stack. That makes instructions small and bytecode emission straightforward.`,
         `This design is not foolish. Stack bytecode is compact, easy to verify, and easy for a simple compiler to generate. It is used in serious runtimes and teaching interpreters because it matches recursive expression compilation nicely. The compiler does not need to assign many temporary names. It can rely on stack order to preserve intermediate values.`,
@@ -158,7 +167,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `The core insight is to make the function frame a small array of named slots and let instructions refer to those slots directly. A register instruction carries operand indexes. ADD R0, R1, R2 means read the values in R1 and R2, add them, and store the result in R0. A load instruction can place a local or constant into a slot. A call instruction can use a range of slots for arguments and results.`,
         `This is similar in spirit to compiler intermediate representations that name values, but it stays at bytecode level. The VM register names are not physical registers. They are indexes into an activation record managed by the interpreter. A later JIT compiler may map hot virtual registers to machine registers, but the bytecode itself remains portable and can run in a simple C interpreter.`,
@@ -166,17 +175,17 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         `A register VM has four main pieces: a bytecode format, a frame layout, a compiler that assigns slots, and an interpreter dispatch loop. The bytecode format decides how many operand fields fit in an instruction. Lua-style instructions often carry fields for destination and source slots. The frame layout decides where locals, temporaries, arguments, varargs, and return values live. The compiler maps source-level values to those slots and emits operations that read and write them.`,
-        `The interpreter loop fetches an instruction, decodes its opcode and operand fields, uses the current call frame as the register array, performs the operation, and advances. For ADD R0, R1, R2, the handler reads frame[R1] and frame[R2], computes the result using the language's arithmetic semantics, and writes frame[R0]. For a call, a base register and count can identify a contiguous region containing the function and arguments, then the result count determines where returned values land.`,
+        `The interpreter loop fetches an instruction, decodes its opcode and operand fields, uses the current call frame as the register array, performs the operation, and advances. For ADD R0, R1, R2, the handler reads frame[R1] and frame[R2], computes the result using the language\'s arithmetic semantics, and writes frame[R0]. For a call, a base register and count can identify a contiguous region containing the function and arguments, then the result count determines where returned values land.`,
         `Slot assignment is the compiler-side cost. The compiler has to avoid overwriting a live value too early. It can reuse a temporary slot once the old value is dead. It must preserve locals that remain visible, reserve slots for calls, and handle multiple returns. This is much simpler than global machine-register allocation, but it is still more planning than a basic stack emitter needs.`,
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The invariant is that each source operand names a slot containing the required current value, and each destination operand names a slot that may safely receive the result. The compiler establishes that invariant by assigning slots according to value lifetimes. The interpreter relies on it. It does not infer operands from stack height or recover temporaries from implicit positions. It applies each instruction's effect to the named slots.`,
+        `The invariant is that each source operand names a slot containing the required current value, and each destination operand names a slot that may safely receive the result. The compiler establishes that invariant by assigning slots according to value lifetimes. The interpreter relies on it. It does not infer operands from stack height or recover temporaries from implicit positions. It applies each instruction\'s effect to the named slots.`,
         `This can reduce dispatch because one instruction expresses a complete data-flow step. A stack VM might need LOAD a, LOAD b, LOAD c, MUL, ADD, RETURN. A register VM can often express the same work as LOAD R1, a; MUL R2, b, c; ADD R0, R1, R2; RETURN R0. The exact counts depend on constants, locals, instruction set, and calling convention, but the direction is clear: explicit operands can combine work that stack bytecode splits apart.`,
         `The design also makes bytecode inspection easier. In a register program, the operands reveal which local or temporary feeds which operation. That helps debuggers, disassemblers, simple optimizers, and humans. The frame slots become the concrete data structure connecting source variables, bytecode operations, and runtime values.`,
       ],
@@ -193,12 +202,12 @@ export const article = {
       heading: 'What the animation shows',
       paragraphs: [
         `The register-bytecode view begins with a source expression, a register allocation step, an instruction format, and a frame. That chain is the design: compile expressions into operations over frame slots, then let the dispatch loop decode operand fields and manipulate those slots. The example table for a + b * c shows the value flow. The product goes into a temporary register, the final sum goes into the return register, and the return instruction names that slot.`,
-        `The Lua frame highlights the historical choice. Lua 5.0 made register bytecode central so locals and temporaries could live in function-frame registers. The animation's call and local nodes show that registers are not only arithmetic temporaries. They are the layout mechanism for local variables, call arguments, and return values.`,
+        `The Lua frame highlights the historical choice. Lua 5.0 made register bytecode central so locals and temporaries could live in function-frame registers. The animation\'s call and local nodes show that registers are not only arithmetic temporaries. They are the layout mechanism for local variables, call arguments, and return values.`,
         `The stack-versus-register view is a tradeoff table. Stack bytecode has small instructions and simple emission. Register bytecode has wider operands, clearer value names, fewer tiny dispatches in many cases, and a compiler that must plan slots. The final frame connects this topic to Static Single Assignment and Linear Scan Register Allocation, which teach related ideas at compiler-IR and machine-code levels.`,
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The main cost is bytecode size. Operand fields take bits. If an instruction must name a destination and two sources, the encoding is wider than a one-byte stack opcode. On instruction-cache-sensitive workloads or when bytecode must be transmitted compactly, that width matters. Some register VMs use limited operand ranges or special instruction variants to control size.`,
         `The second cost is compiler complexity. A stack compiler can recursively emit code with little planning. A register compiler needs a slot allocator. It must know when values die, reuse temporaries, avoid clobbering live locals, and keep call conventions efficient. Bugs in slot assignment create wrong-code errors because the interpreter trusts the bytecode operands.`,
@@ -206,7 +215,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Register bytecode wins when interpreter dispatch is expensive and programs reuse local values across operations. It is a good fit for small dynamic-language interpreters that want portable bytecode, readable disassembly, and efficient local computation without immediately building a JIT. Lua is the classic example because the implementation values compactness and speed while keeping the runtime embeddable.`,
         `It also wins as a bridge between source compilation and runtime execution. The compiler can express data dependencies directly, the interpreter can read and write frame slots directly, and later optimization stages can reason about named values more easily than about anonymous stack positions. Even when all virtual registers are stored in memory, the explicit names help the VM structure its work.`,
@@ -227,5 +236,55 @@ export const article = {
         `Study Bytecode Stack Virtual Machine for the contrast, Interpreter Dispatch Table & Threaded Code for dispatch overhead, Static Single Assignment & Phi Nodes for named intermediate values, Linear Scan Register Allocation for lifetime-based slot reuse, V8 Ignition Bytecode Pipeline for a production interpreter, and WebAssembly Stack Machine for a different portable execution format. Then compile the same expression both ways and count instruction bytes, dispatches, and temporary moves.`,
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for register-virtual-machine-lua-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

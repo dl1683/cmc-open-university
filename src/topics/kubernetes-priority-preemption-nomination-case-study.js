@@ -186,6 +186,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Kubernetes Priority and Preemption Nomination Case Study. How PriorityClass, queue ordering, preemptionPolicy, victim selection, PDB best effort, graceful termination, and nominatedNodeName coordinate scarce capacity..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A Kubernetes cluster is a shared machine with finite CPU, memory, devices, ports, volumes, and topology slots. When every node is full, the scheduler has to decide which pending work is allowed to wait and which work is allowed to displace something already running.',
@@ -193,7 +202,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The baseline',
+      heading: 'The obvious approach',
       paragraphs: [
         'The normal scheduler loop picks a pending Pod, filters nodes by the Pod requirements, scores feasible nodes, and binds the Pod to one node. This works when capacity exists somewhere or when waiting is acceptable.',
         'A reasonable first policy is first-ready, first-served. A batch Pod that asked for resources earlier keeps them, and a control-plane add-on waits until a node naturally frees space. That policy is simple, fair by arrival time, and dangerous during scarcity.',
@@ -229,7 +238,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Reliability argument',
+      heading: 'Why it works',
       paragraphs: [
         'The reliability property is conditional feasibility. The scheduler only preempts on a node when the high-priority Pod would fit after the selected lower-priority Pods are gone. That keeps preemption tied to the same placement rules as normal scheduling.',
         'The property is not availability by itself. If every node lacks a required GPU, volume attachment, zone, or toleration, removing victims cannot make the Pod schedulable. If a lower-priority Pod is part of the preemptor affinity target, removing it can make the placement invalid.',
@@ -244,14 +253,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Production uses',
+      heading: 'Real-world uses',
       paragraphs: [
         'System-critical classes are useful for DNS, networking, storage agents, metrics collectors, and control-plane add-ons that keep the cluster usable. During node pressure, those Pods often matter more than replaceable batch work.',
         '`preemptionPolicy: Never` is useful when a job deserves queue priority but should not discard existing work. A data-science job can wait ahead of lower-priority pending Pods while still letting running Pods finish naturally.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The common failure is priority inflation. If every team marks its workload critical, priority stops carrying information and the cluster turns scarcity into churn.',
         'PDB surprises are another failure. Owners may assume a PodDisruptionBudget is a hard shield, but preemption can violate it when no non-violating victim set works. Workloads that cannot tolerate interruption need quotas, reservations, separate node pools, or application-level recovery.',
@@ -259,7 +268,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         'A cluster runs ten low-priority ETL Pods on every node. A high-priority CoreDNS replacement Pod arrives after a node failure. Normal filtering finds no node with enough free CPU and memory.',
         'The scheduler tests each node as if some ETL Pods were removed. On node N, evicting two ETL Pods would make the CoreDNS Pod fit without breaking its node selector or tolerations. The scheduler nominates node N, evicts the victims, waits for termination, then binds CoreDNS if the slot still exists.',
@@ -296,5 +305,55 @@ export const article = {
         'Primary sources: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/ and https://kubernetes.io/docs/concepts/scheduling-eviction/.',
       ],
     },
+      {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for kubernetes-priority-preemption-nomination-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

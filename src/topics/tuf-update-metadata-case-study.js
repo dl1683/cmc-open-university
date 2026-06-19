@@ -1,4 +1,4 @@
-// The Update Framework: signed metadata roles that make software updates
+﻿// The Update Framework: signed metadata roles that make software updates
 // resistant to rollback, freeze, mix-and-match, and key-compromise failures.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -193,14 +193,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for TUF Update Metadata Case Study. Secure software updates with root, targets, snapshot, timestamp, delegated roles, threshold signatures, hashes, versions, and expiry..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         `The Update Framework, or TUF, is a security design for software update metadata. It does not replace a package manager, build system, CDN, or installer. It gives those systems a way to decide which update metadata is trusted, which target files are allowed, and whether the repository state is fresh enough to use.`,
         `The problem is sharper than checking a signature on a downloaded file. An attacker may serve an old but valid version, freeze a client on stale metadata, combine new metadata with old metadata, replay a vulnerable package, or steal one online signing key. TUF treats the update repository as a set of signed roles with different jobs. Root defines trusted role keys. Targets signs information about files. Snapshot signs a consistent set of metadata versions. Timestamp signs the current snapshot and expires quickly.`,
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious approach is HTTPS plus a signed package. That blocks many simple attacks. If the transport is private and the file signature verifies, the client knows the bytes came from some trusted key at some time. For a small internal updater, that may look sufficient.`,
         `The wall is that freshness and consistency are separate from file authenticity. A mirror can serve an older package that was valid last month. A compromised online key can sign a new timestamp pointing at stale content. A repository can accidentally publish mismatched metadata where one role describes version N while another role still describes version N - 1. A single signing key can become too powerful if it can authorize every file and every repository state. TUF's answer is to split authority and make clients verify the shape of the update history, not just one signature.`,
@@ -214,7 +223,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'How it works',
       paragraphs: [
         `The main data structures are signed metadata files. Each file has a signed portion, a version number, an expiration time, and signatures from keys authorized for that role. Root metadata stores keys and role definitions, including signature thresholds. Targets metadata stores target paths, hashes, sizes, custom metadata, and delegations. Snapshot metadata stores the versions and hashes of metadata files. Timestamp metadata stores the current snapshot version and hash and is small enough to fetch often.`,
         `Delegation is a tree of authority under targets. A top-level targets role can delegate a path pattern to another role, such as releases for one product, nightly builds, language-package indexes, or hardware-specific images. The delegated role can then sign only the target paths it was trusted to manage. Revocation is also metadata: the delegating role signs a new version that removes or changes the delegation.`,
@@ -237,24 +246,106 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is useful and where it fails',
+      heading: 'Real-world uses',
       paragraphs: [
         `TUF fits package indexes, application updaters, plugin ecosystems, container or model artifact distribution, embedded devices, and any repository where clients may fetch through untrusted mirrors. Uptane adapts the same family of ideas to automotive update systems, where different electronic control units and safety constraints need more structure than a desktop updater.`,
         `TUF is the wrong layer for some questions. It does not prove that source code was reviewed, that a build was reproducible, that a maintainer was honest, that a dependency is free of vulnerabilities, or that installing the update is safe for a particular fleet. It can tell the client that these are the authorized bytes for this repository state. Provenance systems, transparency logs, policy engines, sandboxing, staged rollout, and vulnerability scanners answer adjacent questions.`,
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works (2)',
       paragraphs: [
         `Watch expired metadata, rejected rollback attempts, signature-threshold failures, unexpected root rotations, delegated-role misses, target hash mismatches, metadata size growth, mirror inconsistency, and clients pinned to old trusted metadata. A spike in timestamp failures can mean an outage, a clock problem, or a compromised mirror serving stale files. A target hash mismatch means the repository metadata and bytes no longer agree, and the client should not install.`,
         `The most important drill is key compromise. Decide in advance which role key is assumed stolen, what damage that role can do, which higher role can revoke or rotate it, how clients will receive the new metadata, and how operators will prove the recovery worked. Without that drill, threshold signatures and role separation can exist on paper while the real recovery path remains unclear.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Primary sources: The Update Framework specification at https://theupdateframework.github.io/specification/latest/, TUF project documentation at https://theupdateframework.io/, and Uptane at https://uptane.org/. Study Merkle Tree for hash commitments, Merkle Mountain Range Append-Only Log and Transparency Log Witnessing for public auditability, Software Supply Chain Provenance Graph for build evidence, Sigstore Keyless Signing Transparency for certificate-backed signing, Shamir Secret Sharing for key recovery ceremonies, and OPA Rego Policy Decision Graph for install policy next.`,
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why TUF Update Metadata Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

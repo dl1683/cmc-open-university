@@ -231,6 +231,14 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The build-postings view shows the inversion: raw documents on the left become sorted postings lists on the right. Active (highlighted) cells mark the terms or doc ids currently being processed. Found markers indicate completed postings entries whose sorted order is now locked in.',
+        'The segment frames show the production lifecycle: buffer, flush, search, merge. Active nodes are the write path; compare-highlighted nodes are the merge path.',
+        'In the query-execution view, active postings lists are the ones participating in the current Boolean intersection. The two-pointer table steps through the merge. Found markers in the action column are emitted matches. If a document is absent from a postings list, it never appears as a candidate -- that is the whole point.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'An inverted index exists because search should not scan every document for every query. Text collections, logs, code repositories, and RAG corpora need a direct route from a query term to the documents that might contain it.',
@@ -238,15 +246,15 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive baseline and wall',
+      heading: 'The obvious approach: the forward index',
       paragraphs: [
-        'The baseline is to store documents and scan their text at query time. That is acceptable for a tiny corpus and keeps ingestion simple. It collapses when the corpus has millions of documents and users expect interactive latency.',
-        'A slightly better baseline stores a per-document set of normalized terms. That avoids raw text parsing at query time, but the query still touches far too many documents. A rare term might appear in 50 documents out of 50 million; a scan wastes almost all of its work proving absence.',
-        'The wall is selectivity. Search needs to start from the terms in the query, not from the documents in the corpus.',
+        'The natural first attempt is a forward index: store each document as a list of its terms. To answer a query, scan every document and check whether it contains the query terms. This is grep. It works, it is simple, and for a folder of 200 files it is fast enough.',
+        'A forward index maps document -> terms. Searching for "quick" means opening every document and checking its term list. With 50 million documents, a single query touches 50 million term lists even though only 3,000 of them contain the word. Almost all the work proves absence.',
+        'The wall is selectivity. Search needs to start from the terms in the query, not from the documents in the corpus. A forward index cannot skip irrelevant documents because its structure does not know which documents are relevant until it has read them all.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The core insight',
       paragraphs: [
         'Map each normalized term to a postings list. A posting says that the term appears in a document, usually with extra data such as term frequency, positions, fields, payloads, or block-level score metadata.',
         'The key invariant is that each postings list is sorted by document id. Sorted postings make Boolean intersection a merge problem, make skipping possible, and let query engines move monotonically through candidate documents.',
@@ -262,15 +270,32 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'Tokenization and stemming',
+      paragraphs: [
+        'Before anything enters the index, text passes through an analysis pipeline. Tokenization splits raw text into terms: "The quick brown fox" becomes ["the", "quick", "brown", "fox"]. Lowercasing normalizes case. A stop-word filter may drop "the" because it appears in nearly every document and carries little search value.',
+        'Stemming reduces words to a root form. Porter stemming maps "running", "runs", "ran" to "run". Lemmatization is more precise but slower, using dictionary lookup: "better" becomes "good". The choice matters because the indexer and the query analyzer must agree. If the indexer stems "documents" to "document" but the query does not, the term will not match.',
+        'Other common analyzers include n-gram tokenizers (for substring and fuzzy matching), language-specific analyzers (CJK segmentation, German compound splitting), synonym expansion, and phonetic encoding. Each analyzer choice trades recall for precision or index size for query power.',
+      ],
+    },
+    {
+      heading: 'How it works',
       paragraphs: [
         'Index construction tokenizes documents, normalizes terms, assigns doc ids, emits term-document-position facts, groups those facts by term, sorts postings by doc id, and writes a term dictionary plus compressed postings files.',
-        'A Boolean AND query intersects postings lists, usually starting with the most selective term. A phrase query first intersects documents, then checks positions inside each candidate. A ranked query retrieves candidates and scores them with term statistics such as tf-idf or BM25, field boosts, static quality, learned features, or reranking models.',
+        'A Boolean AND query intersects postings lists, usually starting with the most selective term. Two pointers walk the sorted lists in lockstep: if both point to the same doc id, emit a match and advance both; if one is smaller, advance it because the smaller doc id cannot appear in the other list. This is the same merge logic as Merge Sort, running in O(n + m) where n and m are the list lengths.',
+        'A phrase query first intersects documents, then checks positions inside each candidate. A ranked query retrieves candidates and scores them with term statistics such as TF-IDF or BM25, field boosts, static quality, learned features, or reranking models.',
         'Large engines write immutable segments instead of mutating one giant index. Deletes are often tombstones until a merge rewrites segments. Merging improves locality and compression, but it creates write amplification.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'TF-IDF scoring',
+      paragraphs: [
+        'After retrieval identifies candidate documents, scoring decides the order. TF-IDF (term frequency -- inverse document frequency) is the foundational ranking signal. TF measures how often a term appears in a single document: a document mentioning "index" five times is more likely to be about indexing than one mentioning it once. IDF measures how rare a term is across the entire corpus: "the" appears in almost every document (low IDF), while "inverted" appears in few (high IDF).',
+        'The score for a term t in document d is TF(t,d) * IDF(t). TF is typically the raw count or its logarithm (1 + log(tf)) to dampen the effect of very high frequency. IDF is typically log(N / df), where N is the total number of documents and df is the number of documents containing t. The document score for a multi-term query is the sum of per-term TF-IDF scores.',
+        'BM25 refines TF-IDF with two improvements: term frequency saturates (a 20th occurrence adds less than the 2nd), and longer documents are penalized so that a long document does not win simply by containing more words. BM25 has two tuning parameters: k1 controls TF saturation (typically 1.2) and b controls length normalization (typically 0.75). Elasticsearch, Solr, and Lucene all default to BM25.',
+      ],
+    },
+    {
+      heading: 'Why it works',
       paragraphs: [
         'Retrieval is correct if the analyzer and indexer record every searchable occurrence under the same normalized term that the query analyzer will later produce. If query term q maps to postings list P, every indexed document containing q must appear in P.',
         'Two-pointer intersection is correct because postings are sorted. If one pointer is at a smaller doc id than the other, that smaller document cannot match the larger one, so advancing it cannot skip a valid intersection. Equal ids are emitted as matches.',
@@ -278,26 +303,32 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Worked example: indexing 3 documents and querying "quick fox"',
       paragraphs: [
-        'In the animation corpus, fast appears in docs 1 and 3. Need also appears in docs 1 and 3. The query fast AND need intersects [1, 3] with [1, 3] and emits docs 1 and 3 without reading docs 2 or 4.',
-        'For the phrase fast need, doc 1 has fast at position 1 and need at position 3, so the exact phrase is absent. Doc 3 has the same gap. Positions let the engine reject both documents after retrieval without rescanning the original text.',
-        'If the query were search AND engine, postings [1, 2] and [2, 4] would intersect to doc 2. Ranking would then decide whether doc 2 is the best result, but retrieval has already narrowed the candidate set.',
+        'Consider three documents. Doc 1: "the quick brown fox jumps". Doc 2: "a quick red car". Doc 3: "the fox is quick and brown". After lowercasing, removing stop words ("the", "a", "is", "and"), and no stemming, the normalized term lists are: Doc 1: [quick, brown, fox, jumps]. Doc 2: [quick, red, car]. Doc 3: [fox, quick, brown].',
+        'Building the inverted index produces these postings lists (sorted by doc id): quick -> [1, 2, 3], brown -> [1, 3], fox -> [1, 3], jumps -> [1], red -> [2], car -> [2]. Each entry can also store term frequency: quick appears once in each document (tf = 1 everywhere), fox appears once in docs 1 and 3.',
+        'Now query "quick AND fox". The postings are quick: [1, 2, 3] and fox: [1, 3]. Two pointers start at the beginning. Pointer A (quick) = 1, pointer B (fox) = 1: match, emit doc 1, advance both. Pointer A = 2, pointer B = 3: 2 < 3, so advance A. Pointer A = 3, pointer B = 3: match, emit doc 3, advance both. Both exhausted. Result: {1, 3}. Doc 2 was skipped because it lacks "fox" -- the intersection never read it.',
+        'For scoring, compute TF-IDF. N = 3 documents. IDF(quick) = log(3/3) = 0 (appears everywhere, no discriminating power). IDF(fox) = log(3/2) = 0.41. So the ranking signal comes almost entirely from "fox". Both docs 1 and 3 have tf(fox) = 1, so they tie on TF-IDF and a secondary signal (document length, recency, PageRank) would break the tie.',
+        'In the animation corpus, the same logic applies. The query "fast AND need" intersects [1, 3] with [1, 3] and emits docs 1 and 3 without reading docs 2 or 4. If the query were "search AND engine", postings [1, 2] and [2, 4] would intersect to doc 2 alone.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'The main costs are postings size, dictionary size, positions, stored fields, query-time decompression, cache behavior, and merge write amplification. Positions make phrase queries possible but can be a large part of the index.',
-        'Common optimizations include delta encoding doc ids, block compression, skip pointers, impact-ordered postings, block-max WAND metadata, Roaring Bitmaps for filters, term dictionaries backed by finite-state structures, query caches, and tiered segment merges.',
-        'The best layout depends on query mix. Boolean filters want fast intersections. Phrase search wants positions. Top-k ranking wants scoring bounds and early termination. Hybrid search wants lexical candidates to cooperate with vector retrieval and reranking.',
+        'Building the index costs O(D) where D is the total number of term occurrences across all documents. Each occurrence produces one posting entry. Dictionary construction (sorting terms, building a trie or FST) is O(V log V) where V is the vocabulary size, but V is typically much smaller than D.',
+        'A Boolean AND query costs O(n + m) for two-pointer intersection on lists of length n and m. With skip pointers the practical cost drops to O(n * log(m/n)) when one list is much shorter, because the short list drives skips through the long list. An OR query costs O(n + m) but produces more candidates.',
+        'Space is dominated by postings. Delta encoding and variable-byte or PForDelta compression reduce postings to 1-2 bytes per entry on average. Positions roughly double the index size. The term dictionary is compact: Lucene uses an FST (finite-state transducer) that typically fits in memory even for billions of terms.',
+        'When the corpus doubles, the index roughly doubles. When query terms are selective (low df), query time barely changes because postings lists stay short. When query terms are common, query time grows, but techniques like block-max WAND and impact-ordered postings let the engine skip blocks whose maximum score cannot beat the current top-k threshold.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses: Lucene, Elasticsearch, and Solr',
       paragraphs: [
-        'Inverted indexes win in web search, code search, log search, document retrieval, spam filtering, database text columns, observability tools, legal discovery, and many RAG pipelines.',
-        'Lexical retrieval remains strong for exact names, identifiers, error messages, rare terms, filters, and explainability. Even when vector retrieval adds semantic recall, postings are often the fastest way to honor exact constraints.',
+        'Apache Lucene is the reference implementation. It stores term dictionaries as FSTs, postings as compressed block streams with skip data, positions in separate files, and manages segments with a tiered merge policy. Lucene is a library, not a server; it powers everything below.',
+        'Elasticsearch wraps Lucene in a distributed system. Each Elasticsearch index is split into shards, each shard is a Lucene index, and each Lucene index is a collection of segments. Queries fan out to shards, each shard runs a local Lucene query, and results are merged by a coordinating node. This is how Elasticsearch handles billions of documents: the inverted index runs locally per shard, distribution handles scale.',
+        'Apache Solr also wraps Lucene but emphasizes configuration-driven schema design, faceting, and traditional enterprise search. Both Elasticsearch and Solr expose the same underlying postings, scoring (BM25 by default), and analysis pipeline from Lucene.',
+        'Beyond search engines: PostgreSQL full-text search uses a GIN (generalized inverted index) to map lexemes to row IDs. SQLite FTS5 builds an inverted index inside the database file. Git code search (GitHub, Sourcegraph) uses inverted indexes over token streams from source files. Log aggregation tools (Splunk, Loki) invert log lines to answer grep-like queries at scale.',
+        'Lexical retrieval remains strong for exact names, identifiers, error messages, rare terms, and filters. Even when vector retrieval adds semantic recall, postings are often the fastest way to honor exact constraints. Modern RAG pipelines frequently combine inverted-index retrieval with dense vector search in a hybrid approach.',
       ],
     },
     {
@@ -323,5 +354,30 @@ export const article = {
         'For a deeper text-search foundation, read Introduction to Information Retrieval and Lucene index-format documentation, then inspect how a real engine stores dictionaries, postings, positions, norms, deletes, and segments.',
       ],
     },
-  ],
+    {
+      heading: 'Inverted index vs. forward index',
+      paragraphs: [
+        'A forward index maps document -> terms. It answers "what terms does document 7 contain?" in O(1) but answers "which documents contain term X?" only by scanning every document: O(N). A forward index is natural for document storage and is how most databases store rows.',
+        'An inverted index maps term -> documents. It answers "which documents contain X?" by reading one postings list: O(df) where df is the document frequency of X. But answering "what terms does document 7 contain?" requires scanning the entire dictionary or maintaining a separate forward structure.',
+        'Most search engines keep both. The inverted index handles retrieval. A forward structure (stored fields, doc values, column store) handles display, sorting, aggregation, and highlighting. Lucene stores them in separate file formats within the same segment directory.',
+        'The tradeoff is clear: the forward index is write-friendly (append a document), the inverted index is query-friendly (jump to matching documents). Building an inverted index from a forward index is the indexing step; it costs O(D) but pays for itself on every query.',
+      ],
+    },
+    {
+      heading: 'Posting list intersection for AND queries',
+      paragraphs: [
+        'AND queries are the most common Boolean operation, and posting list intersection is the engine behind them. The algorithm is a two-pointer merge on sorted lists. Given postings for term A = [2, 5, 8, 12, 17] and term B = [3, 5, 9, 12, 20], start both pointers at position 0.',
+        'Compare A[0]=2 with B[0]=3. Since 2 < 3, advance A. Compare A[1]=5 with B[0]=3. Since 5 > 3, advance B. Compare A[1]=5 with B[1]=5. Match: emit doc 5, advance both. Continue: A[2]=8 vs B[2]=9, advance A. A[3]=12 vs B[2]=9, advance B. A[3]=12 vs B[3]=12: match, emit doc 12. A[4]=17 vs B[4]=20, advance A. A exhausted, stop. Result: {5, 12}.',
+        'For multi-term AND queries, intersect the two shortest lists first to minimize intermediate results. With skip pointers (every k-th doc id stored separately), the short list can binary-search or gallop through the long list, reducing practical cost from O(n + m) to O(n * log(m/n)) when n is much less than m.',
+        'OR queries union the lists instead of intersecting them. NOT queries subtract one list from another. These compose into arbitrary Boolean trees, which query planners optimize by reordering and pruning.',
+      ],
+    },
+    {
+      heading: 'Sources and further reading',
+      paragraphs: [
+        'The canonical textbook is "Introduction to Information Retrieval" by Manning, Raghavan, and Schutze (Cambridge University Press, 2008), freely available online. Chapters 1-5 cover the inverted index, postings compression, and scoring. The BM25 formula originates from Robertson and Walker (1994).',
+        'For implementation detail, the Lucene index format documentation describes exactly how terms, postings, positions, norms, and skip data are laid out on disk. The Elasticsearch and Solr reference guides explain distributed indexing and query fan-out built on top of Lucene segments.',
+      ],
+    },
+],
 };

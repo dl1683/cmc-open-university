@@ -374,61 +374,6 @@ export function* run(input) {
   else throw new InputError('Pick an LLM request-router view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'Why it exists',
-      paragraphs: [
-        'LLM replicas are stateful. Two workers serving the same model can have different queues, KV cache contents, prefix-cache hits, adapters, warmup state, and tenant eligibility. A generic load balancer that only sees request counts can send a prompt to the wrong place.',
-        'An SLO-aware request router chooses the replica or pool after ingress has selected the model. It scores cache locality, queue depth, latency objective, privacy policy, cost, and fallback constraints before routing the request.',
-      ],
-    },
-    {
-      heading: 'The tempting wrong answer',
-      paragraphs: [
-        'One tempting answer is lowest queue depth. That can destroy prefix locality and force repeated prefill. Another is best cache hit. That can send an interactive request behind a long decode queue and burn the SLO. Sticky routing helps sessions but can create hot spots.',
-        'The router needs a policy gate before optimization. Tenant boundaries, adapter availability, model revision, privacy rules, and multimodal constraints decide which replicas are legal. Only then should the scorer trade cache locality against load and latency.',
-      ],
-    },
-    {
-      heading: 'Core mechanism',
-      paragraphs: [
-        'The data structures are a route feature vector, a replica scoreboard, and a route ledger. The feature vector includes model id, token prefix hash, expected input and output tokens, queue depth, active decode slots, cache hit estimate, SLO class, tenant boundary, adapter id, cost tier, and fallback eligibility.',
-        'The scoreboard ranks legal replicas. The ledger records the selected replica, route scores, policy gates, cache result, queue wait, TTFT, TPOT, p99 slice, and fallback reason. The invariant is that a route is acceptable only if it passes policy before optimization.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'In the scoreboard view, gpuA has the best cache but a risky queue, while gpuB wins because it can still meet the SLO. The point is that locality is a weighted signal, not an absolute command.',
-        'The cache-locality view shows why the router needs an index. Prefix-aware routing estimates reuse from tokens; KV-aware routing asks which worker actually has reusable blocks after eviction. The SLO-audit view shows the rollout rule: hit rate, TTFT, TPOT, queue depth, cost, canary, and kill switch all travel with the route policy.',
-      ],
-    },
-    {
-      heading: 'Where it fits',
-      paragraphs: [
-        'Ray Serve LLM draws the ingress/request boundary directly: ingress routing maps a model id to a deployment, while request routing chooses a replica inside that deployment. Its default policy uses power of two choices, and its prefix-aware policy routes similar prefixes toward the same replicas to improve vLLM automatic prefix caching: https://docs.ray.io/en/latest/serve/llm/architecture/routing-policies.html.',
-        'vLLM Production Stack documents KV-cache-aware routing as sending incoming requests to the instance with the highest KV cache hit rate, instead of merely keeping identical prefixes sticky even after cache eviction: https://docs.vllm.ai/projects/production-stack/en/vllm-stack-0.1.8/use_cases/kv-cache-aware-routing.html. The llm-d guide makes the same argument: precise prefix cache mode can introspect each vLLM instance for actual KV entries when churn makes approximate routing weaker: https://developers.redhat.com/articles/2026/06/11/intelligent-inference-scheduling-llm-d-red-hat-ai.',
-        'KServe LLMInferenceService describes an architecture that combines vLLM execution, Kubernetes orchestration, llm-d intelligent routing, KV-cache-aware scheduling, prefill-decode separation, RBAC, monitoring, and metrics: https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Do not optimize hit rate alone. A cache hit on an overloaded worker can be worse than a cold route with a short queue. Do not trust a stale prefix index after eviction. Do not route across tenant, adapter, tokenizer, model-version, or multimodal-hash boundaries. Do not hide fallback in application code; fallback is part of the route policy.',
-        'Queue depth must be interpreted through the request SLO. Ray Serve autoscaling guidance uses ongoing requests per replica as a key signal and recommends load testing latency-sensitive workloads before choosing target ongoing request values: https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html. Multimodal traffic adds another key: NVIDIA Dynamo documents multimodal KV routing where image content contributes routing metadata through an image hash before the KV router selects a backend worker: https://docs.nvidia.com/dynamo/user-guides/multimodal/multimodal-kv-routing.',
-        'Primary sources: Ray Serve request routing at https://docs.ray.io/en/latest/serve/llm/architecture/routing-policies.html, Ray Serve prefix-aware routing at https://docs.ray.io/en/latest/serve/llm/user-guides/prefix-aware-routing.html, vLLM Production Stack KV-cache-aware routing at https://docs.vllm.ai/projects/production-stack/en/vllm-stack-0.1.8/use_cases/kv-cache-aware-routing.html, Ray Serve autoscaling at https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html, llm-d intelligent inference scheduling at https://developers.redhat.com/articles/2026/06/11/intelligent-inference-scheduling-llm-d-red-hat-ai, KServe LLMInferenceService at https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview, and NVIDIA Dynamo multimodal KV routing at https://docs.nvidia.com/dynamo/user-guides/multimodal/multimodal-kv-routing.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Load Balancer, Power of Two Choices Load Balancing, and Consistent Hashing first to separate general routing from LLM-specific routing. Then read LLM Serving Admission-Control Goodput Gate, LLM Serving Autoscaling Warm Pool, Prompt Cache-Key Canonicalization Ledger, Prefix Caching & RadixAttention, KV Cache Transfer Fabric Case Study, KV Cache Tiered Offload Store Case Study, LLM Continuous Batching, Chunked Prefill Token Budget Scheduler, Tail Latency & p99 Thinking, Feature Flag Control Plane, Distributed Tracing, and LLM Unit Economics Ledger Case Study.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

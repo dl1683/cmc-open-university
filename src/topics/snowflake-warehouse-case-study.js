@@ -1,4 +1,4 @@
-// Snowflake case study: multi-cluster shared-data warehouse architecture that
+﻿// Snowflake case study: multi-cluster shared-data warehouse architecture that
 // separates cloud storage, virtual warehouses, and cloud services.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -200,7 +200,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approaches and why they hurt',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first naive approach is a shared-nothing warehouse where storage and compute are tightly coupled. That can be fast, but scaling compute often means moving or rebalancing data. Workload isolation is hard because different teams contend for the same cluster. If one reporting workload consumes resources, another may suffer.',
         'The second naive approach is to copy data into separate clusters for isolation. That gives each team compute independence, but it creates duplication, governance problems, stale copies, and high storage cost. Every copy becomes another version to secure, catalog, and reconcile.',
@@ -224,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         'Snowflake-style architecture supports analytics, ELT, dashboards, data sharing, semi-structured data exploration, ad hoc analysis, and mixed workloads where teams need independent compute over shared governed data. The pattern appears throughout modern cloud warehouses and lakehouse systems, even when the exact implementation differs.',
         'The design is especially valuable in organizations with many teams using the same data. Finance, product analytics, machine learning, security, and operations may all query overlapping tables. A shared-data architecture lets them share governance and storage while scaling compute independently.',
@@ -232,7 +232,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and failure modes',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Separating compute and storage does not make queries free. Bad micro-partition layout, weak pruning, huge shuffles, cold caches, and poor warehouse sizing still hurt. A query that scans too much data will be expensive no matter how elegant the architecture is.',
         'Metadata scale is another pressure. The optimizer depends on metadata to prune, plan, and enforce visibility. If metadata becomes stale, too coarse, or too expensive to consult, shared storage loses its performance advantage. A cloud warehouse is only as good as its metadata and execution layer.',
@@ -240,21 +240,21 @@ export const article = {
       ],
     },
     {
-      heading: 'A worked query example',
+      heading: 'Worked example',
       paragraphs: [
         'Suppose a dashboard queries one year of orders but filters to one region and one product family. A naive object-store scan reads every file for the year. A Snowflake-style warehouse uses micro-partition metadata to skip partitions whose min and max values cannot match. The warehouse scans fewer bytes, uses local cache where possible, and exchanges intermediate results across workers.',
         'Now suppose a data-engineering job is loading new data at the same time. The dashboard should see a consistent table version, not half of the load. This is where the cloud services layer matters: metadata and transaction semantics decide which files are visible to which query. The storage files alone do not provide that contract.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works',
       paragraphs: [
         'A shared-data warehouse should be evaluated through bytes scanned, partition pruning rate, cache hit rate, warehouse utilization, queue time, spill volume, shuffle cost, query compilation time, and credit or compute spend by workload. These signals reveal whether decoupled compute is being used intelligently or merely hiding waste.',
         'Data layout deserves the same attention as compute size. Poor clustering can make pruning ineffective. Too many tiny files or partitions can make metadata heavy. Over-large partitions can reduce skipping precision. The warehouse works best when file layout, metadata, optimizer behavior, and warehouse sizing are tuned together.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Snowflake is a shared-data cloud warehouse: one governed storage layer, many independent compute warehouses, and a services layer that makes metadata, optimization, transactions, and security coherent. The architecture works because it treats object storage, metadata, and elastic compute as separate but coordinated parts.',
         'The deep lesson is that decoupling is not absence of design. Separating compute and storage makes the metadata layer more important, not less. Pruning, caching, transactions, and workload isolation are what turn cheap storage into a usable warehouse.',
@@ -266,10 +266,88 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Snowflake SIGMOD PDF at https://info.snowflake.net/rs/252-RFO-227/images/Snowflake_SIGMOD.pdf, CMU mirror at https://www.cs.cmu.edu/~15721-f24/papers/Snowflake.pdf, and ACM DOI at https://dl.acm.org/doi/10.1145/2882903.2903741. Study Dremel Query Engine Case Study, Delta Lake Case Study, Database Indexing, Feature Store: Offline/Online Consistency, and FoundationDB Case Study next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for snowflake-warehouse-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

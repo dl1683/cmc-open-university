@@ -1,4 +1,4 @@
-// LLM serving autoscaling: warm enough capacity before cold-start lag turns
+﻿// LLM serving autoscaling: warm enough capacity before cold-start lag turns
 // useful requests into missed deadlines.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -365,7 +365,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Serving Autoscaling Warm Pool. An LLM serving case study for autoscaling lag: metrics, warm replicas, model load time, cold KV caches, scale-to-zero tradeoffs, and SLO-aware capacity audits..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'LLM serving capacity is slow to appear. A user spike can arrive in a few seconds. A new GPU replica may need a node assignment, container image pull, model weight load, CUDA kernel warmup, health checks, routing registration, and enough initial traffic to make caches useful. The autoscaler can decide to scale in one control-loop tick, but users do not receive more tokens until the whole readiness path finishes.',
         'That gap matters because LLM traffic is often deadline-bound. Chat users notice time to first token. Agents can miss tool deadlines. Enterprise tenants may send synchronized bursts at the start of a workday, demo, or batch of workflow steps. A policy that eventually reaches the right replica count can still fail the live SLO if the demand spike is over before new capacity becomes useful.',
@@ -373,7 +382,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive autoscaler',
+      heading: 'The obvious approach',
       paragraphs: [
         'The naive approach is threshold scaling. Watch CPU utilization, GPU utilization, request count, or queue depth. When the metric crosses a threshold, ask Kubernetes, Ray Serve, KServe, or another control plane for more replicas. During quiet periods, scale down, maybe all the way to zero. This is attractive because it is simple, cheap at rest, and easy to explain.',
         'It works well for stateless web services with fast startup and small per-request state. If a container starts in two seconds and every request takes similar work, a target like requests per pod is often enough. The system may be a little late, but it catches up before users care.',
@@ -389,7 +398,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core data structure is a replica-state machine backed by a scale-event ledger. A hot replica is serving live traffic. A warm replica has expensive prerequisites paid, such as weights loaded and runtime initialized, but may be idle or lightly loaded. A cold replica is still being scheduled, pulled, loaded, or warmed. Zero means no serving process exists. These states must be explicit because each one has a different remaining time to usefulness.',
         'The invariant is simple: desired capacity and ready capacity are different facts. The autoscaler may request four more replicas, but the router cannot spend those replicas until they pass readiness and can serve the right class of request. The scale ledger records both facts: what the policy wanted and what actually became usable.',
@@ -422,7 +431,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Warm capacity is deliberately wasteful in the narrow accounting sense. A parked GPU is expensive. The justification is that missed interactive demand is also expensive: abandoned sessions, failed agent runs, retry storms, damaged tenant trust, and emergency overprovisioning after the fact. The right pool size is the point where idle cost is cheaper than the expected cost of missed deadlines.',
         'Upscale and downscale delays are coupled. Fast upscale helps bursts but can thrash if metrics are noisy. Slow downscale preserves cache warmth and avoids repeated cold starts, but it extends idle cost. Scale-to-zero is excellent for infrequent batch or admin paths and dangerous for latency-sensitive chat unless the product explicitly accepts cold starts.',
@@ -430,7 +439,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Warm-pool autoscaling wins for workloads with predictable burst shape: business-hour ramps, classroom starts, sales demos, enterprise tenant jobs, product launches, scheduled agent swarms, and recurring report generation. It also helps with failure recovery because a warm spare can absorb traffic when a hot replica crashes or is drained for rollout.',
         'It is especially strong when combined with smart routing, prefix caching, chunked prefill, and observability. The autoscaler supplies near-ready capacity. The router sends requests where they will do the least redundant work. Admission control protects the gap. Tracing explains what happened when reality differs from the plan.',
@@ -451,5 +460,56 @@ export const article = {
         'For systems grounding, study backpressure, load shedding, tail latency, Kubernetes scheduling, distributed tracing, and write-ahead logs. The mental model is the same across these subjects: make state transitions explicit, record the evidence, and tune the control loop against user-facing outcomes rather than comforting internal counters.',
       ],
     },
+      {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for llm-serving-autoscaling-warm-pool-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

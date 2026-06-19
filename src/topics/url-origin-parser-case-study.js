@@ -1,4 +1,4 @@
-// URL parsing and origin construction: the browser turns an input string plus
+﻿// URL parsing and origin construction: the browser turns an input string plus
 // base URL into structured fields used by fetch, routing, storage, and security.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -184,6 +184,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for URL Parser & Origin Tuple. How the WHATWG URL parser resolves bases, normalizes components, handles special schemes, computes origins, and feeds browser security checks..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `URLs look like strings, but browsers do not treat them as plain text. Before fetch, navigation, routing, storage, cookies, caches, service workers, and security policies can reason about a destination, the browser parses an input against a base URL and turns it into structured fields.`,
@@ -198,28 +207,28 @@ export const article = {
       ],
     },
     {
-      heading: 'Where the obvious approach fails',
+      heading: 'Where it fails',
       paragraphs: [
         `The wall is that a URL is structured state. Relative input needs a base. Hosts normalize differently from paths. Default ports can disappear. Percent encoding behaves differently by component. Backslashes, credentials, special schemes, fragments, and internationalized domain names can all change what the browser sees.`,
         `A hand-written regular expression often becomes a second parser. The bug appears when that second parser disagrees with the platform parser. In security-sensitive code, the platform parser wins because it is the parser used by navigation, fetch, storage, and policy machinery.`,
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The core insight',
       paragraphs: [
         `The invariant is parse first, then compare the structured field that matches the policy. If the policy is same origin, compare origin. If the policy is same host, compare host after parsing. If the policy is an application route, compare pathname only after the origin or host boundary is already approved.`,
         `A URL object is not a policy by itself. It is a shared interpretation. It records scheme, credentials, host, port, path, query, fragment, special-scheme behavior, and serialization rules. Correctness comes from using that shared interpretation before enforcing product rules.`,
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         `The parser takes an input string and, when needed, a base URL. It resolves relative paths, identifies the scheme, parses authority fields, normalizes the host, handles default ports, processes dot segments, treats fragments separately, and exposes a canonical serialization.`,
         `Origin computation is a second step over the parsed result. For ordinary http and https URLs, origin is scheme plus host plus port. Path and query can route application behavior, but they do not create separate origins. That single fact explains many browser security decisions.`,
       ],
     },
     {
-      heading: 'Algorithmic shape',
+      heading: 'How it works (2)',
       paragraphs: [
         `The WHATWG URL algorithm is a state machine because the meaning of a character depends on where the parser is. A colon can end a scheme. A question mark can begin a query. A hash starts a fragment. A percent escape in a path is not the same decision as a percent escape inside query data.`,
         `Special schemes such as http, https, ws, wss, ftp, and file have extra rules. Non-network schemes, data URLs, sandboxed documents, and some generated documents can produce opaque origins instead of normal tuples. That is why visible string prefixes are not enough for origin reasoning.`,
@@ -247,7 +256,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The runtime cost of using the URL API is usually irrelevant next to the cost of a boundary bug. The real cost is design discipline. The team must say whether a rule is about origin, site, host, serialized URL, pathname after origin approval, query keys, or a product-level authorization decision.`,
         `Normalization is not cosmetic. Host casing, IDNA, default ports, dot segments, path separators, percent encoding, and fragments affect equality, routing, logging, and cache identity. A canonical serialized URL is useful, but only after the code has chosen the correct policy boundary.`,
@@ -261,14 +270,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
         `Use platform URL parsing for redirect allowlists, webhook callback validation, link rewriting, router matching, service worker registration checks, CORS reasoning, cache-key construction, CSP reviews, Fetch Metadata checks, and any user-supplied navigation target.`,
         `The lesson also applies outside browser code. Proxies, API gateways, crawlers, test runners, security scanners, and link preview systems need to compare the same structured destination that the downstream runtime will use. If the upstream parser and downstream parser disagree, policy can be bypassed.`,
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'Where it fails (2)',
       paragraphs: [
         `A URL object does not decide product policy. It can tell you the parsed origin and path; it cannot know whether an admin export route is a valid post-login redirect for this user. Authorization must still happen at the application layer.`,
         `URL parsing also cannot erase differences between browser concepts. Origin, site, cookie Domain and Path, storage partition key, service worker scope, CORS policy, CSP, and user authorization are related checks with different inputs. Many bugs come from using one boundary where another was required.`,
@@ -281,5 +290,69 @@ export const article = {
         `For parser discipline, study UTF-8 Decoder DFA, CSV Parser State Machine, Pratt Parser, Finite State Machine, and Trusted Types DOM XSS Sink Case Study. They all teach the same systems lesson: parse once with the correct grammar, keep structured state, and enforce policy on that structure.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why URL Parser & Origin Tuple moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -136,93 +136,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why tries exist',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A trie exists because many string problems are not really whole-string problems. Search boxes ask for every word that begins with what the user has typed. Routers ask for the longest stored IP prefix that matches an address. Spell checkers, command palettes, tokenizers, IDE symbol indexes, and dictionary engines all care about shared beginnings.`,
-        `A flat collection of complete strings hides that structure. It can tell you whether "care" is present, but it does not give the prefix "car" a place in the data structure. A trie turns every prefix into a reachable node. Once the query reaches that node, the rest of the dictionary outside that subtree is irrelevant.`,
+        'Each circle is a trie node labeled with one character. The root carries a dot. The path from the root down to any node spells the prefix that node represents: root-c-a spells "ca." An edge from parent to child means "append the child\'s character."',
+        'Active (highlighted) nodes show the path the algorithm is walking right now. Found nodes have an end-of-word marker: the full root-to-node path is a complete stored word, not just a prefix. Visited nodes mark trail already covered.',
+        'Watch two things during insertion. First, how many existing nodes the walk reuses (shared prefix) versus how many it creates (unique suffix). Second, notice that "car" and "cat" share root-c-a, so three characters of storage serve both words. During autocomplete, the shaded subtree below the prefix node is the entire result set. Everything outside is never examined. When a prefix is missing, the walk hits a dead edge and the empty answer is proven in one failed child lookup.',
       ],
     },
     {
-      heading: 'The baseline and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious baseline is a hash table of complete words. For exact lookup, it is hard to beat. "Is card in the dictionary?" becomes a hash computation and a bucket check. A sorted array or balanced tree is also reasonable when ordered iteration matters.`,
-        `The wall appears when the query asks for a prefix. A hash table must scan keys or maintain a separate index for prefixes. A sorted array can binary-search the beginning of a prefix range, but it still stores the same leading characters again and again in every word. As prefix queries become the main workload, hiding common beginnings inside full strings becomes the wrong representation.`,
+        'Edward Fredkin named the structure "trie" in 1960, clipping the word "retrieval." Rene de la Briandais described the same idea independently in 1959. The problem both solved: how do you answer "what keys share this beginning?" without scanning everything?',
+        'A hash table can check whether "card" is present, but asking it for every word starting with "car" requires examining every key in the table. A BST can answer the query, but it compares whole strings at each node, costing O(m log n) where m is the key length. Tries take a different path: store words one character per edge so that shared prefixes are shared nodes. Lookup, insertion, and prefix queries all cost O(m) -- proportional only to the key length, independent of how many keys are stored.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is to store a key as a path from the root. Each edge consumes one symbol. If two words begin with the same symbols, they share the same path until the first symbol where they differ. The trie stores the shared beginning once and branches only at the point of disagreement.`,
-        `The node is not just a container; it has meaning. The node reached by c then a represents the prefix "ca". Every descendant of that node starts with "ca". A terminal marker says that the path itself is a complete key, which is why "car" can be present even when "card" and "care" continue below it.`,
+        'Store words in a sorted array. Exact lookup is O(m log n) via binary search (m characters compared at each of log n steps). Prefix search is possible: binary-search to the first key starting with the prefix, then scan forward until keys stop matching.',
+        'Alternatively, store words in a hash table. Exact lookup is O(m) average (hash the key, check the bucket). For small dictionaries and infrequent prefix questions, these are reasonable approaches.',
       ],
     },
     {
-      heading: 'Invariant',
+      heading: 'The wall',
       paragraphs: [
-        `The invariant is path meaning: the sequence of edge labels from the root to a node is exactly the prefix represented by that node. Every terminal descendant of a prefix node is a stored key with that prefix. Every stored key with that prefix must be in that subtree.`,
-        `This invariant gives the trie its strongest negative result. If a required child edge is missing while walking a prefix, no stored key can have that prefix. A missing branch is proof, not a guess. That is why autocomplete for an absent first character can return immediately without reading the rest of the dictionary.`,
+        'Hash tables cannot answer prefix queries. The hash of "car" reveals nothing about the hash of "card" or "care." Finding all words starting with "ca" requires scanning all n keys, every time. The hash function destroys the character-level structure that prefix queries need.',
+        'Sorted arrays can binary-search to the start of a prefix range, but insertion costs O(n) to shift elements, and each binary-search comparison touches all m characters of a key. Worse, "car" is stored redundantly inside "car," "card," and "care" -- the shared prefix "ca" is repeated in memory for every key that begins with it.',
+        'The core problem: neither structure gives the prefix itself a location. "ca" is not an addressable object in a hash table or sorted array. It is a substring buried inside complete keys. When prefix queries dominate the workload, that missing structure is the bottleneck.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        `Insertion starts at the root and consumes one symbol at a time. If the next child already exists, the insertion reuses it. If the child does not exist, the insertion creates it. After the last symbol, the node is marked terminal. Without that marker, the structure could not distinguish "car is a stored word" from "car is only a prefix of longer stored words."`,
-        `Exact lookup follows the same path and then checks the terminal marker. Prefix lookup follows only the prefix. If the walk succeeds, autocomplete is a traversal of the descendant subtree that collects terminal nodes. If the walk fails, the result is empty immediately. The algorithm spends time on the query prefix and the returned results, not on unrelated words.`,
+        'A trie is a rooted tree where each edge carries one character from the alphabet. Each node has up to |S| children, one per possible character (S is the alphabet: 26 for lowercase English, 256 for bytes). The path from the root to any node spells exactly the prefix that node represents. A boolean end-of-word flag on a node marks the root-to-node path as a complete stored key.',
+        'Insert: start at the root and consume the key one character at a time. If the child for the current character exists, follow it. Otherwise, create it. After the last character, mark the node as end-of-word. Inserting "cat" creates root-c-a-t(end). Inserting "car" reuses root-c-a, creates only r(end). The shared prefix c-a is stored exactly once.',
+        'Search: walk the same path. If every child exists and the final node is marked end-of-word, the key is present. If any child is missing, the key is absent. If the path exists but the final node is not end-of-word, the string is a stored prefix but not a stored key.',
+        'Prefix query: walk the prefix path. If it succeeds, traverse the subtree below the prefix node and collect every end-of-word descendant. Those are exactly the stored keys sharing that prefix. Cost: O(m + k), where m is the prefix length and k is the number of results.',
+        'Delete: walk to the end-of-word node and clear its flag. Then walk back toward the root, pruning any node that is no longer end-of-word and has no children. Stop at the first node that is still end-of-word or has other children, because that node is shared by other keys.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Correctness follows from insertion preserving the path invariant. When a word is inserted, the algorithm creates exactly the missing edges needed to spell it and marks exactly the final node terminal. Therefore every inserted word has a root-to-terminal path whose labels spell the word.`,
-        `Exact lookup is correct because it accepts only when that path exists and the final node is terminal. Autocomplete is correct because descendants preserve the prefix that reached their ancestor. After walking "ca", every terminal node below that point spells a word beginning with "ca", and any inserted word beginning with "ca" must have passed through the same node during insertion.`,
+        'The invariant is path meaning: the concatenation of edge labels from root to node is exactly the prefix that node represents. Insertion preserves this by extending paths one character at a time, creating only the edges needed to spell the new key. No existing path is modified, so previously inserted keys survive every insertion.',
+        'Prefix queries are correct because every descendant of a prefix node inherits that prefix by construction. If a stored key starts with "ca," its insertion path passed through the "ca" node, placing it in that subtree. Conversely, every end-of-word node below "ca" spells a word starting with "ca." The subtree is exactly the answer set.',
+        'A missing edge is a proof of absence. If the child for the next character does not exist, no stored key continues through that point. The trie rejects an absent key in one failed child lookup per missing character, without examining any stored word.',
+        'Lookup cost depends only on key length m because each character requires exactly one child-pointer follow. Whether the trie holds 6 words or 6 million, looking up "card" takes exactly 4 steps. The number of stored keys is irrelevant.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Insert "cat" into an empty trie. The root gains a c child, c gains an a child, a gains a t child, and the t node is marked terminal. Insert "car" next. The c and a nodes already exist, so the insertion reuses them and creates only r. The two words share c-a and split at the last letter.`,
-        `Now insert "card" and "care". Both reuse c-a-r. One creates a d child and marks it terminal; the other creates an e child and marks it terminal. Autocomplete "car" walks c, a, r. The r node itself is terminal, so "car" is a result. The traversal below r also finds "card" and "care". Autocomplete "x" fails at the root, proving the result is empty in one missing-edge check.`,
-      ],
-    },
-    {
-      heading: 'Cost model',
-      paragraphs: [
-        `Insertion and exact lookup cost O(L), where L is the key length in symbols. Prefix lookup costs O(P) to reach the prefix node, where P is the prefix length, plus the cost of enumerating the output subtree. This is the central performance promise: lookup time depends on the string being walked and the results being returned, not directly on the number of stored keys.`,
-        `Space is the tradeoff. A plain trie can allocate many nodes, especially when keys share little prefix structure. Child representation matters. A fixed array per node is fast for a tiny alphabet but wasteful for sparse Unicode. A map per node saves space but adds hashing or tree lookup cost. Packed arrays, sorted child lists, radix compression, and PATRICIA-style bit tries all adjust this memory-speed tradeoff.`,
+        'Insert, search, and delete all cost O(m), where m is the key length in characters. This is the key insight: cost tracks key length, not dictionary size. Looking up "card" in a trie of 6 words costs 4 steps. Looking up "card" in a trie of 6 million words costs 4 steps. Doubling the dictionary adds zero comparisons.',
+        'Prefix query costs O(m + k): m steps to reach the prefix node, then a subtree traversal proportional to the k results. The trie does no work on keys outside the prefix subtree.',
+        'Space is the tax. Each node may store up to |S| child pointers. For lowercase English, that is 26 pointers per node. With n keys of average length m, worst-case node count is O(n * m), and each node costs O(|S|) with a fixed child array. Total worst case: O(n * m * |S|). Shared prefixes reduce the actual node count, but sparse alphabets still waste space on empty child slots.',
+        'Compressed tries (radix trees, Patricia tries) collapse chains of single-child nodes into one node carrying a multi-character edge label. This cuts node count when keys share long prefixes or when the key set is sparse. A radix tree storing "card," "care," and "careful" merges the single-child chain c-a-r into one node labeled "car."',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        `Tries win when prefix is the natural query shape: autocomplete, IDE symbol completion, command lookup, dictionary search, spell-check candidate generation, longest-prefix IP routing, ordered byte-key dictionaries, tokenizer prefix lookup, and hierarchical policy matching. They turn "find the relevant range" into "walk the shared beginning."`,
-        `They also win when failed prefix queries should be cheap. A missing edge can reject an entire dictionary region that a scan would have to discover item by item. For user-facing search, that matters because many partial inputs are not complete words and many typed prefixes produce small result sets.`,
+        'Autocomplete: the user types a prefix, the trie walks it in O(m) and harvests completions from the subtree. Every search box, IDE symbol palette, and command launcher depends on this pattern.',
+        'Spell checkers: candidate generation walks the trie while tracking edit distance, pruning branches that exceed the error budget. Entire subtrees of impossible corrections are skipped without examining individual words.',
+        'IP routing (longest prefix match): routers store network prefixes in a bit-level trie and walk the destination address bit by bit. The deepest matching prefix determines the next hop. Every packet forwarded on the internet passes through this operation.',
+        'T9 predictive text: the phone keypad maps each digit to multiple letters. A trie of dictionary words keyed by digit sequence prunes impossible letter combinations at each keystroke and returns only real words.',
+        'DNA sequence search: genomic databases index sequences over the 4-character alphabet {A, C, G, T}. The small alphabet keeps per-node cost low, and prefix queries find all sequences sharing a motif.',
+        'Compiler symbol tables: identifier lookup during compilation is a prefix-structured problem. Tries give O(m) lookup independent of how many symbols are in scope.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `A trie is not automatically better than a hash table. If the workload is exact lookup on random strings, hashing is simpler and often faster. If the key set is small, a sorted array can be easier to build, easier to serialize, and fast enough. A trie earns its keep when prefix structure is used heavily.`,
-        `Real text also complicates the clean model. Unicode normalization, case folding, accents, grapheme clusters, locale-specific comparisons, and token boundaries decide what a "symbol" means. If the application treats bytes as symbols in one place and user-visible characters in another, the trie can return surprising results. Production systems must define the alphabet before they define the data structure.`,
+        'Memory hungry. Each node stores up to |S| child pointers, most of which may be null. A byte-indexed trie (|S| = 256) uses 256 pointers per node. A naive Unicode trie is impractical without hash-map or sorted-list children.',
+        'Cache unfriendly. Each node is a separate heap allocation, and following child pointers scatters memory access unpredictably. For CPU-cache-sensitive workloads, a sorted array with binary search can outperform a trie despite worse asymptotic prefix behavior, because the array is contiguous in memory.',
+        'For exact lookup only, a hash table is simpler and typically faster. The trie pays for prefix structure that exact queries never use. If the workload is "is this key present?" and nothing else, a hash table wins.',
+        'Compressed variants fix the space problem. Radix trees collapse single-child chains. DAFSAs (directed acyclic word graphs) share suffixes as well as prefixes. Adaptive radix trees size each node to its actual fanout (4, 16, 48, or 256 children). Each adds implementation complexity but can reduce memory by 10-100x.',
+        'For small, static key sets, a sorted array is easier to build, trivial to serialize, and fast enough. The trie earns its keep when prefix queries are frequent and the key set is large or dynamic.',
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'Worked example',
       paragraphs: [
-        `Choose the child representation from the alphabet and workload. For lowercase English words, a compact array or small sorted vector can be reasonable. For arbitrary strings, use a map or a packed representation. For memory-heavy dictionaries, consider a radix tree that stores multi-symbol edge labels, or a minimal deterministic automaton when the key set is static.`,
-        `Be careful with deletion. Unmarking the terminal node is not always enough; you may also want to remove now-unused nodes on the path back to the root. But removing shared nodes would corrupt other keys, so deletion must stop as soon as it reaches a node that is terminal or has another child. For ranked autocomplete, store scores or top-k summaries near prefix nodes, but update them consistently during insertions, deletions, and score changes.`,
+        'Start with an empty trie (just the root). Insert "cat": create nodes c, a, t along the path from root, mark t as end-of-word. The trie has 4 nodes.',
+        'Insert "car": walk root-c-a (both exist, reused), create r, mark r as end-of-word. One new node. The prefix "ca" is stored once and shared by "cat" and "car."',
+        'Insert "card": walk root-c-a-r (all exist, reused), create d, mark d as end-of-word. One new node. Node r is now both end-of-word ("car") and a parent (of d).',
+        'Insert "care": walk root-c-a-r (reused), create e, mark e as end-of-word. One new node. Node r now has two children: d and e.',
+        'Insert "cab": walk root-c-a (reused), create b, mark b as end-of-word. One new node. Node a now has three children: t, r, and b.',
+        'The trie has 8 nodes total (root, c, a, t, r, d, e, b). Five words, but the shared prefix "ca" created only one c node and one a node. Without sharing, five separate strings would need 16 character slots.',
+        'Prefix query "car": walk root-c-a-r (3 steps). Node r exists. Traverse its subtree: r itself is end-of-word ("car"), d is end-of-word ("card"), e is end-of-word ("care"). Result: ["car", "card", "care"]. The nodes for "cat" and "cab" were never visited.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Sources and study next',
       paragraphs: [
-        `During insertion, the useful thing to notice is reuse. "car", "card", and "care" share c-a-r, so the structure stores that beginning once and branches only for the different endings. The highlighted path is not just a route through nodes; it is the prefix represented by those nodes.`,
-        `During autocomplete, the highlighted prefix node becomes the boundary of the answer. Everything below it is relevant, and everything outside it is irrelevant. When the chosen prefix is absent, the dead end itself is the result: the missing edge proves there are no completions.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Hash Table for the exact-lookup alternative, Tree Traversals for completion harvesting, PATRICIA Trie and Radix Tree for compressed paths, eBPF LPM Trie CIDR Policy Case Study for longest-prefix matching, Hierarchical Heavy Hitters: Prefix Sketch for prefix aggregation, B-Trees for disk-oriented indexing, Tokenization (BPE) for AI text processing, Huffman Coding for prefix-free codes, and Finite State Machines for compact pattern recognition.`,
+        'Fredkin, "Trie Memory," Communications of the ACM, 1960 -- coined the name from "retrieval." De la Briandais, "File Searching Using Variable Length Keys," Proceedings of the Western Joint Computer Conference, 1959 -- independent invention. Morrison, "PATRICIA -- Practical Algorithm to Retrieve Information Coded in Alphanumeric," 1968 -- the first compressed trie. Bentley and Sedgewick, "Fast Algorithms for Sorting and Searching Strings," 1997 -- ternary search tries.',
+        'Prerequisite: Hash Table (contrast for exact-only lookup). Extension: Radix Tree / Patricia Trie (collapse single-child chains for space efficiency). Space-optimized: Adaptive Radix Tree (node sizes 4/16/48/256 matching actual fanout). Alternative: Ternary Search Tree (three pointers per node, BST-like space with trie-like speed). Pattern matching: Aho-Corasick (multi-pattern search built on a trie with failure links). Substring queries: Suffix Tree / Suffix Array (index all suffixes, not just prefixes). Compact static: LOUDS Succinct Trie (rank/select encoding). Routing: eBPF LPM Trie (longest prefix match for network policy).',
       ],
     },
   ],

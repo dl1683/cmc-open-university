@@ -5,20 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Data Structures &amp; Algorithms — Visualized</title>
   <meta name="description" content="Free, visual computer-science education: data structures, algorithms, and AI concepts animated and explained step by step.">
+  <meta name="theme-color" content="#1a1a2e">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Data Structures &amp; Algorithms — Visualized">
+  <meta property="og:title" content="Data Structures &amp; Algorithms — Visualized">
+  <meta property="og:description" content="Free, visual computer-science education: every algorithm animated, every step explained.">
+  <meta property="og:url" content="https://dl1683.github.io/DataStructuresInJavaScript/">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Data Structures &amp; Algorithms — Visualized">
+  <meta name="twitter:description" content="Free, visual computer-science education: every algorithm animated, every step explained.">
+
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles/site.css">
 </head>
 <body data-page="home">
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="wrap header-row">
       <div>
         <h1>Data Structures &amp; Algorithms, <em>Visualized</em></h1>
-        <p class="tagline">Free computer-science education for everyone — every algorithm animated, every step explained in plain English. Follow a course path, search a topic, or browse the full map.</p>
+        <p class="tagline">Free computer-science education for everyone — <span data-topic-count></span>, every algorithm animated, every step explained in plain English. Follow a course path, search a topic, or browse the full map.</p>
       </div>
       <button class="btn" data-theme-toggle aria-label="Toggle dark or light theme">◐ Theme</button>
     </div>
   </header>
 
-  <main class="wrap">
+  <main id="main" class="wrap">
     <label class="search-box">
       <span class="visually-hidden">Search topics</span>
       <input type="search" data-search placeholder="Search topics or paths — try &quot;databases&quot;, &quot;interview&quot;, or &quot;attention&quot;…" autocomplete="off">
@@ -35,6 +51,8 @@
         at <a href="https://github.com/dl1683/DataStructuresInJavaScript">github.com/dl1683/DataStructuresInJavaScript</a>.
       </p>
       <p>New topics are added over time — data structures, classic algorithms, core concepts, and modern AI.</p>
+      <p>The site is arranged into guided curriculum tracks so learners can study in connected progressions. Tracks can now depend on prior tracks, keep checkpoint prompts, and surface the next path once a path is complete.</p>
+      <p>Use the topic page map to see exactly which concepts feed into this one, what each path unlocks, and what to study next in the same learning thread.</p>
     </section>
 
   </main>

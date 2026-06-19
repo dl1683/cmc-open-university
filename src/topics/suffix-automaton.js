@@ -175,109 +175,195 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A suffix automaton exists because one fixed text can have quadratically many substrings, but many substring questions need a compact index. Membership, distinct-substring counting, longest common substring, repeated substring analysis, and online construction all ask for all-substring structure without storing every substring separately.`,
+        'In the online-build view, each highlighted node is the state just created for the newest prefix. Suffix links appear as dashed arcs pointing to shorter context states. The critical frame is not the one that adds a transition -- it is the one that clones a state because two substring classes need to split.',
+        'In the query view, the walk from the start state follows one transition per character. If every transition exists, the pattern is a substring. If any transition is missing, the pattern is not. The animation is deliberately simple here because the sophistication lives in construction, not lookup.',
+        'Active (bright) nodes mark the current extend path. Found (green) nodes mark suffix-link targets. Compare (dimmed) nodes show states that already existed before this step. Read each frame as: "we just extended by one character -- which states changed, and did any state need to be cloned?"',
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The reasonable first attempt is a suffix trie or suffix tree. A trie of all suffixes makes every substring a path, but the naive version is too large. A suffix tree compresses edges, but its construction and edge-label mechanics can be heavy when the desired interface is an online finite automaton.`,
+        'A string of length n has up to n(n+1)/2 substrings. Many tasks -- substring membership, counting distinct substrings, finding the longest common substring between two texts, locating repeated patterns -- need access to all of them. Storing every substring explicitly takes quadratic space and quadratic build time. The suffix automaton compresses all substring information into a deterministic finite automaton with at most 2n-1 states, built in O(n) time.',
+        'Blumer, Blumer, Haussler, McConnell, and Ehrenfeucht introduced the structure in 1985 under the name DAWG (Directed Acyclic Word Graph). The key promise: one linear-time, linear-space pass over the text produces an index that answers substring queries in time proportional to the query length, not the text length.',
+        {
+          type: 'note',
+          text: 'The suffix automaton is the minimal DFA that accepts exactly the set of all substrings of the input string. Minimal means no other DFA for the same language has fewer states.',
+        },
       ],
     },
     {
-      heading: `The wall`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The wall is duplicate future behavior. Many different substrings have the same set of possible continuations because they end at the same positions in the text. If the structure keeps separate nodes for histories that behave identically from now on, it wastes states.`,
+        'The natural first attempt is a suffix trie: insert every suffix of the text into a trie. Each node in the trie represents one substring, so every substring is reachable by a path from the root. Membership is a walk down the trie in O(|pattern|) time.',
+        'This works, and the query interface is clean. The problem is size. The suffix trie for a string of length n can have O(n^2) nodes because every suffix spawns its own path, and shared prefixes between suffixes are the only savings. For "abcabc" the trie stores separate nodes for "abc", "bc", "c", "abcabc", "bcabc", "cabc", and so on -- many of these share identical future behavior but sit in different parts of the trie.',
+        'A suffix tree compresses chains of single-child nodes into edge labels, bringing the node count to O(n). But suffix trees carry edge-label bookkeeping, and their construction (Ukkonen or McCreight) is notoriously hard to implement correctly. The suffix automaton offers the same linear guarantees with a different tradeoff: instead of compressing edges, it merges states that have the same future behavior.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The wall',
       paragraphs: [
-        `Merge substrings by end-position equivalence. Substrings that end in exactly the same set of text positions have the same future possibilities, so one state can represent that behavior. Suffix links move from a longer context to the largest proper suffix context that preserves useful continuation information.`,
+        'The suffix trie breaks on size: O(n^2) nodes for a string of length n. The suffix tree fixes the node count but introduces complex edge-label management and offline construction in most implementations.',
+        'The deeper issue is redundancy of futures. In "abab", the substrings "ab" and "ab" (at positions 1 and 3) end at the same set of positions, so they must have identical continuations. A suffix trie gives them separate subtrees. A suffix tree collapses edges but still keeps separate leaf paths. The suffix automaton asks: if two substrings always end at the same positions in the text, why keep two states? One state suffices, because the set of valid continuations is identical.',
+        'The wall is that naive structures track substring identity (which exact characters were matched) instead of substring behavior (what can follow from here). The automaton crosses this wall by merging substrings into equivalence classes defined by their ending positions.',
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'How it works',
       paragraphs: [
-        `In the online-build view, read each new state as the longest prefix seen so far and each suffix link as the best shorter context to repair next. The important moment is not simply adding an edge. It is deciding whether an existing state can keep representing its length range or whether a clone must split that behavior.`,
-        `In the query view, a substring test is deliberately boring: follow transitions from the start state. The sophistication is in construction. The build has already compressed every substring path into a minimal automaton, so membership becomes a direct walk.`,
+        'The suffix automaton is built online, one character at a time. Each character triggers an "extend" step that creates at most one new state and potentially clones one existing state. The algorithm maintains three fields per state: maxLen (the length of the longest substring in this state\'s equivalence class), link (the suffix link pointing to the next shorter equivalence class), and trans (a map from characters to successor states).',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: `function extend(ch) {
+  // Create state for the new prefix
+  let cur = { len: last.len + 1, link: null, trans: {} };
+  states.push(cur);
+
+  // Walk suffix links, adding transitions
+  let p = last;
+  while (p && !p.trans[ch]) {
+    p.trans[ch] = cur;
+    p = p.link;
+  }
+
+  if (!p) {
+    // No existing state has this transition -- link to root
+    cur.link = start;
+  } else {
+    let q = p.trans[ch];
+    if (q.len === p.len + 1) {
+      // q already represents the right length -- link directly
+      cur.link = q;
+    } else {
+      // Clone q: split its equivalence class
+      let clone = { len: p.len + 1, link: q.link,
+                    trans: { ...q.trans } };
+      states.push(clone);
+      // Redirect suffix-link chain through the clone
+      while (p && p.trans[ch] === q) {
+        p.trans[ch] = clone;
+        p = p.link;
+      }
+      q.link = clone;
+      cur.link = clone;
+    }
+  }
+  last = cur;
+}`,
+        },
+        'The extend step has three cases. First: no ancestor state has a transition on the new character, so the new state links directly to the root. Second: an ancestor has a transition to state q, and q.len equals p.len + 1, meaning q already represents exactly the right length class -- link directly. Third: q.len is too large, so q must be cloned. The clone gets the correct shorter length, copies q\'s transitions and suffix link, and then all ancestors that pointed to q are redirected to the clone.',
+        'Each extend call does O(1) amortized work. The total construction is O(n) for a string of length n, with at most 2n-1 states and at most 3n-4 transitions.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `The standard construction appends characters one at a time. Each append creates a current state for the whole new prefix, walks suffix links to add missing transitions, and either links directly to an existing state or creates a clone when an old state must be split by length. Each state stores maxLen, a suffix link, and transitions.`,
-        `For each state, maxLen is the longest substring represented by that state. The suffix link points to the state representing the largest proper suffix class. The state therefore represents a whole interval of substring lengths: maxLen(link(state)) + 1 through maxLen(state). That interval view is the easiest way to understand distinct-substring counting.`,
+        'The correctness rests on endpos equivalence classes. Define endpos(w) as the set of ending positions where substring w occurs in the text. Two substrings u and v belong to the same equivalence class if and only if endpos(u) = endpos(v). Each state in the automaton represents exactly one equivalence class.',
+        {
+          type: 'diagram',
+          label: 'Endpos equivalence classes and suffix links for "abab"',
+          text: `State 0 (start):  endpos = {}         len = 0
+  |
+  |-- a --> State 1:  endpos = {1,3}     len = 1
+  |           |-- b --> State 2: endpos = {2,4}  len = 2
+  |                       |-- a --> State 4: endpos = {3}  len = 3
+  |                                   |-- b --> State 5: endpos = {4}  len = 4
+  |
+  |-- b --> State 3:  endpos = {2,4}     len = 1
+              (suffix link target of State 2)
+
+Suffix links (each points to longest proper suffix class):
+  State 5 --link--> State 2  (endpos {2,4} contains {4})
+  State 4 --link--> State 1  (endpos {1,3} contains {3})
+  State 2 --link--> State 3  (endpos {2,4} = {2,4}, but len differs)
+  State 3 --link--> State 0
+  State 1 --link--> State 0`,
+        },
+        'Suffix links form a tree rooted at the start state. Each link points from a state with endpos set S to the state whose endpos set is the smallest proper superset of S (or equivalently, the longest proper suffix whose endpos differs). This tree has at most 2n-1 nodes, and every path from a leaf to the root strictly increases the endpos set.',
+        'Cloning preserves the invariant. When extending by a new character would force one state to represent substrings with incompatible length ranges, the clone splits that state into two: one keeps the original longer substrings, the other takes the shorter ones. After the split, both states have consistent endpos sets and the automaton remains minimal.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The automaton is minimal because states represent distinct future behavior, not arbitrary construction history. Clone creation preserves that invariant when one transition would otherwise make a state represent incompatible length ranges. The formula maxLen(state) - maxLen(link(state)) counts the distinct substrings introduced by a state's length interval.`,
-        `End-position equivalence is the proof idea. If two substrings end at exactly the same positions in the text, then every possible continuation after one is possible after the other. Merging them loses no future behavior. If a new character proves that two histories no longer share the same length constraints, cloning separates them just enough to restore the invariant.`,
+        {
+          type: 'table',
+          headers: ['Operation', 'Suffix Automaton', 'Suffix Tree', 'Suffix Array', 'FM-Index'],
+          rows: [
+            ['Build time', 'O(n)', 'O(n)', 'O(n) to O(n log n)', 'O(n)'],
+            ['Build space', 'O(n) states, O(n|A|) with arrays', 'O(n) nodes + edge labels', 'O(n) integers + O(n) LCP', 'O(n) compressed'],
+            ['Substring membership', 'O(|P|) walk', 'O(|P|) walk', 'O(|P| log n) binary search', 'O(|P|) backward search'],
+            ['Count distinct substrings', 'O(n) sum over states', 'O(n) sum over edges', 'O(n) with LCP array', 'Not direct'],
+            ['Longest common substring', 'O(|T2|) scan', 'O(|T1|+|T2|) generalized', 'O(|T1|+|T2|) with LCP', 'O(|T2|) backward search'],
+            ['Online construction', 'Yes, one char at a time', 'Ukkonen (complex)', 'No (rebuild needed)', 'No (rebuild needed)'],
+            ['Max states/nodes', '<= 2n-1', '<= 2n-1', 'n entries', 'n entries'],
+            ['Max transitions/edges', '<= 3n-4', '<= 2n-2', 'N/A', 'N/A'],
+          ],
+        },
+        'The suffix automaton has at most 2n-1 states and 3n-4 transitions for a string of length n. Both bounds are tight: the string "abbb...b" achieves the state bound, and "abb...bcc...c" achieves the transition bound. Construction is O(n) amortized because each extend step does constant work plus a suffix-link walk whose total length across all steps is O(n).',
+        'Distinct substring count is computed in O(n) after construction: each state contributes maxLen(state) - maxLen(link(state)) distinct substrings, and the total over all states equals the number of distinct substrings of the text. For "abab" with n=4, the count is 4+3+2+1 - 1(duplicate "ab") - 1(duplicate "a") - 1(duplicate "b") = 7 distinct substrings.',
+        'Space depends on how transitions are stored. For a small alphabet (DNA: |A|=4), fixed arrays give O(1) transition lookup with O(n|A|) total space. For Unicode or byte alphabets, hash maps save space at the cost of higher constant factors. The suffix automaton tends to use less memory than a suffix tree because it avoids storing edge-label intervals.',
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Build time is O(n) with suitable transition dictionaries, and memory is O(n) states plus transitions. The structure has at most 2n - 1 states for a string of length n. Pattern membership costs O(|P|). Longest common substring scans another string through the automaton while falling back by suffix links.`,
-        `Alphabet representation matters. For small alphabets, fixed arrays can make transitions fast. For Unicode, bytes, or large token alphabets, maps save space but add lookup overhead. The big-O story is linear, but the practical structure is shaped by the alphabet and by how many transitions each state carries.`,
+        'The suffix automaton is the right tool when the text arrives online and substring queries must begin before the text is complete. Unlike suffix arrays and FM-indexes, it does not require the full text up front. Unlike suffix trees, its construction logic fits in under 40 lines of code with no edge-splitting bookkeeping.',
+        {
+          type: 'bullets',
+          items: [
+            'Competitive programming: problems asking for distinct substring counts, k-th smallest substring, or longest common substring between two strings are natural suffix-automaton territory.',
+            'Plagiarism detection: build the automaton over one document, then scan a second document through it to find the longest matching substring in linear time.',
+            'Bioinformatics: counting distinct k-mers or finding repeated motifs in DNA/RNA sequences, where the alphabet is small and online construction matters.',
+            'Compression research: the suffix automaton exposes repeated structure that Lempel-Ziv-style compressors exploit, and its state count is a measure of string complexity.',
+            'Text analytics: counting how many distinct substrings appear, or finding the shortest unique substring at each position, which is useful for fingerprinting and deduplication.',
+          ],
+        },
+        'The longest common substring application deserves emphasis. Build the automaton for text T1. Then scan T2 character by character, maintaining the current state and current match length. When a transition exists, advance. When it does not, follow suffix links (shortening the match) until a transition exists or the start state is reached. The maximum match length seen during the scan is the LCS length. Total time: O(|T1| + |T2|).',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Suffix automata win in online substring analytics, distinct-substring counting, longest-common-substring search, plagiarism and near-duplicate analysis, compression research, bioinformatics exercises, and competitive programming tasks where all-substring structure must stay linear-size.`,
+        'The suffix automaton indexes exact symbol sequences. It does not handle approximate matching, edit distance, or wildcards without layering additional logic on top. If the task requires fuzzy search, a different index is needed.',
+        'For static, read-heavy workloads on large texts where memory is constrained, the FM-index (based on the Burrows-Wheeler transform) compresses better. The suffix automaton\'s transition maps can be memory-hungry for large alphabets: with 256 byte values and 2n states, a naive array-based implementation uses 512n bytes just for transitions.',
+        'It is also the wrong tool for simple problems. If the task is matching one pattern against one text, KMP or Boyer-Moore is simpler and faster in practice. If the task is matching many fixed patterns simultaneously, Aho-Corasick is more direct. The suffix automaton earns its complexity only when the problem requires all-substring structure.',
+        {
+          type: 'note',
+          text: 'A suffix automaton is not a suffix tree. It does not store edge-label intervals or support top-down traversal with branching on string depth. Converting between the two is possible but not free. Choose based on which query interface you actually need.',
+        },
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `A suffix automaton is not a suffix tree. It does not store explicit text intervals on edges; it merges equivalent substring futures. Transition maps and alphabet size matter, so it is not automatically smaller than every compressed suffix index. For static compressed full-text search, a suffix array or FM-index may be a better engineering target.`,
-        `It is also easy to teach badly. If the explanation starts with clone pseudocode, beginners see a ritual. The better path is to start with the problem of duplicate substring futures, then show suffix links as fallback contexts, then introduce cloning as the one case where a shared future must be split by length.`,
-      ],
-    },
-    {
-      heading: `Worked example`,
-      paragraphs: [
-        `For the text ababa, many substrings share continuations. The substring a occurs at positions 1, 3, and 5; ba occurs at positions 2 and 4; aba occurs at positions 1 and 3. The automaton does not store all those substrings as separate trie paths from every suffix. It stores states for equivalence classes of where those substrings can end and what can follow them.`,
-        `A query for aba starts at the initial state and follows a, b, a. A query for abb fails as soon as the second b transition is missing. Counting distinct substrings then uses state length intervals rather than enumerating strings: each state contributes the number of lengths it newly represents.`,
-      ],
-    },
-    {
-      heading: `Implementation guidance`,
-      paragraphs: [
-        `Use suffix automata when the text is built online or when substring aggregate queries matter. Store transitions in a structure appropriate for the alphabet: arrays for tiny alphabets, maps for broad alphabets, and compact encodings when memory dominates.`,
-        `Test clone behavior heavily. Most implementation bugs appear when repeated contexts force a state split. Compare substring membership and distinct-substring counts against a slow suffix-set implementation on small random strings.`,
-      ],
-    },
-    {
-      heading: `Complete case study`,
-      paragraphs: [
-        `A plagiarism checker receives one document as the indexed text and scans another document through the automaton to find the longest common substring. The scan keeps the current automaton state and match length. When the next character has no transition, suffix links shorten the context until a transition exists or the scan returns to the start.`,
-        `That gives a linear pass over the second document after a linear build over the first. The result is not semantic plagiarism detection, but it is a strong exact-substring primitive that can feed a larger report with source positions and thresholds.`,
-      ],
-    },
-    {
-      heading: `Limits and failure modes`,
-      paragraphs: [
-        `Suffix automata answer substring questions over the exact symbol stream they were built from. Tokenization, case folding, Unicode normalization, and separator handling change the language being indexed. Those choices should be explicit before using counts as product evidence.`,
-        `The automaton can also be overkill. If the task is one pattern against one text, KMP is simpler. If the task is many known patterns, Aho-Corasick is clearer. If the task is compressed static full-text search, FM-indexes may use less memory.`,
-      ],
-    },
-    {
-      heading: `Operational guidance`,
-      paragraphs: [
-        `Expose the automaton's state count, transition count, alphabet size, and clone count when building indexes. A sudden increase often means the input changed shape, tokenization changed, or an expected repetitive corpus became much less repetitive.`,
-        `For product use, store enough metadata to reproduce the symbol stream. A suffix automaton built over bytes, code points, words, or normalized tokens answers different questions even when the visible text looks similar. Query results should name that unit so readers do not confuse byte substrings with words or user-visible characters.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Primary source: Blumer, Blumer, Haussler, McConnell, and Ehrenfeucht, Complete Inverted Files for Efficient Text Retrieval and Analysis, at https://www.cs.cornell.edu/courses/cs786/2004sp/Lectures/l15-blumer.pdf. Study Trie, KMP Prefix Function, Aho-Corasick Automaton, Eertree Palindromic Tree, Suffix Array & LCP, and FM-Index next.`,
+        {
+          type: 'quote',
+          text: 'The smallest automaton recognizing the subwords of a text.',
+          attribution: 'Blumer, Blumer, Haussler, Ehrenfeucht, Chen, Seiferas (1985)',
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: A. Blumer, J. Blumer, D. Haussler, R. McConnell, A. Ehrenfeucht, "Complete Inverted Files for Efficient Text Retrieval and Analysis," Journal of the ACM, 1987. The 1985 conference version introduced the DAWG construction.',
+            'Foundational companion: A. Blumer, J. Blumer, D. Haussler, A. Ehrenfeucht, M.T. Chen, J. Seiferas, "The Smallest Automaton Recognizing the Subwords of a Text," Theoretical Computer Science, 1985. Proves the 2n-1 state bound and 3n-4 transition bound.',
+            'Implementation reference: the CP-Algorithms suffix automaton tutorial (cp-algorithms.com/string/suffix-automaton.html) provides clean pseudocode and worked examples for competitive programming applications.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Trie -- understand prefix sharing before substring sharing'],
+            ['Prerequisite', 'KMP Prefix Function -- failure links are the single-pattern ancestor of suffix links'],
+            ['Sibling structure', 'Suffix Array and LCP -- the sorted-suffix alternative for static text'],
+            ['Extension', 'Aho-Corasick Automaton -- multi-pattern matching with failure links'],
+            ['Extension', 'FM-Index -- compressed full-text index via Burrows-Wheeler transform'],
+            ['Related structure', 'Eertree (Palindromic Tree) -- similar online construction for palindromic substrings'],
+          ],
+        },
       ],
     },
   ],

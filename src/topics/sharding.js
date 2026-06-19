@@ -1,4 +1,4 @@
-// Sharding: when the table outgrows the machine, split it across many —
+﻿// Sharding: when the table outgrows the machine, split it across many —
 // by range or by hash — and discover what the split costs: range scans,
 // transactions, and the day you have to re-split everything.
 
@@ -44,7 +44,7 @@ function* splitting() {
       ],
       columns: [{ id: 'rows', label: 'rows (millions)' }, { id: 'note', label: '' }],
       values: [[90, 1], [135, 1], [185, 2], [90, 1]],
-      format: (v) => (v > 10 ? `${v}M` : ['', '', '⚠ S-names are common — 2× the load'][v]),
+      format: (v) => (v > 10 ? `${v}M` : ['', '', 'âš  S-names are common — 2Ã— the load'][v]),
     }),
     highlight: { compare: ['sh3:rows', 'sh1:rows'] },
     explanation: 'Range partitioning preserves order. That makes range scans, sorted pagination, and locality-friendly workloads cheap because adjacent keys live together. The price is skew. Names, timestamps, tenants, and regions are rarely uniform, and access is often more skewed than data. A timestamp range can put every new write on the newest shard. Range gives useful neighborhoods, but neighborhoods have rush hours.',
@@ -78,7 +78,7 @@ function* splitting() {
       ],
       columns: [{ id: 'load', label: 'load on its shard' }],
       values: [[1], [2], [3]],
-      format: (v) => ['', 'spread evenly — fine', '40% of CLUSTER traffic on one shard ⚠', 'celebrity#0…#15 → 16 shards share the fire'][v],
+      format: (v) => ['', 'spread evenly — fine', '40% of CLUSTER traffic on one shard âš ', 'celebrity#0…#15 â†’ 16 shards share the fire'][v],
     }),
     highlight: { removed: ['celeb:load'], found: ['salt:load'] },
     explanation: 'Even perfect key balance is not traffic balance. A celebrity account, flash-sale SKU, or viral post can send a huge share of requests to one key and therefore one shard. The usual repair is to split the hot key itself: salt it into key#0 through key#15, cache it aggressively, or move it to special handling. This is Hot Rows & Append-and-Aggregate at cluster scale. Sharding solves average distribution; hot keys are workload distribution.',
@@ -94,7 +94,7 @@ function* breaks() {
         { id: 's1', label: 'shard 1', x: 6, y: 6, note: 'top 10 in 12ms' },
         { id: 's2', label: 'shard 2', x: 7.5, y: 4.3, note: 'top 10 in 9ms' },
         { id: 's3', label: 'shard 3', x: 7.5, y: 2.5, note: 'top 10 in 11ms' },
-        { id: 's4', label: 'shard 4', x: 6, y: 0.9, note: 'top 10 in 94ms ⚠ (GC pause)' },
+        { id: 's4', label: 'shard 4', x: 6, y: 0.9, note: 'top 10 in 94ms âš  (GC pause)' },
       ],
       edges: [
         { id: 'e1', from: 'router', to: 's1' },
@@ -125,9 +125,9 @@ function* breaks() {
 
   yield {
     state: matrixState({
-      title: 'Casualty 3 — resharding day (4 → 8 shards)',
+      title: 'Casualty 3 — resharding day (4 â†’ 8 shards)',
       rows: [
-        { id: 'naive', label: 'hash mod 4 → mod 8' },
+        { id: 'naive', label: 'hash mod 4 â†’ mod 8' },
         { id: 'ring', label: 'consistent hashing' },
         { id: 'either', label: 'either way' },
       ],
@@ -167,79 +167,108 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The "splitting the table" view walks through partitioning strategies. Each shard is a row in the matrix. Row counts show data distribution; highlighted cells mark skew or imbalance. When a cell turns red, that shard is overloaded. Green cells mark balanced or repaired placements. The celebrity-problem frame shows how a single hot key can re-concentrate traffic even when row counts are perfectly even.',
+        'The "what sharding breaks" view shows the costs. The graph frame draws a query router fanning out to four shards; the red shard and edge mark the straggler whose latency becomes the entire query\'s latency. Matrix frames compare single-shard transactions (green, fast) against cross-shard transactions (red, slow). The resharding frame contrasts naive mod-N remapping against consistent hashing by how much data must move.',
+        'Watch for the contrast between highlighted and unhighlighted cells in each frame. The animation is designed so the highlighted state answers: "where is the pain right now?"',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Sharding is splitting one logical dataset across multiple machines. It exists when one machine no longer has enough storage, write throughput, memory, or maintenance headroom to own the whole table. Replication helps read throughput and availability, but a single primary still has to accept the writes and store the full primary copy. When the table, index, or write stream outgrows that primary, the system needs partitioning.',
-        'A shard owns a subset of the data. A router, client library, coordinator, or database layer uses a partition key to decide where each row and each request belongs. The partition key is the central design choice. It decides which reads are one-hop, which writes spread evenly, which transactions stay local, and which queries become distributed work.',
-        'This is why sharding is not a generic "make the database bigger" button. It is a bet about the workload. The system becomes cheaper for operations aligned with the partition key and more expensive for operations that ignore it. A good design makes the common, correctness-sensitive paths local and leaves rare global paths to pay the distributed cost.',
+        'A single database server has finite storage, finite memory, and finite write throughput. A 4 TB table on a 6 TB disk has months of runway. An index that no longer fits in RAM turns every lookup into a disk seek. A single primary that must accept every write serializes the entire application\'s mutation rate through one machine.',
+        'Replication does not solve this. Read replicas spread read traffic, but every replica still needs the full dataset, and one primary still owns every write. When the bottleneck is writes or storage, adding replicas adds cost without adding capacity where it matters.',
+        'Sharding splits the data itself across machines. Each shard owns a subset of rows, handles its own reads and writes, maintains its own indexes, and runs its own maintenance. The result is not a bigger database; it is N independent databases that together cover the full key space. The partition key is the central design decision: it determines which operations stay cheap and local, and which become expensive distributed work.',
       ],
     },
     {
-      heading: 'Why obvious scaling fails',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first obvious answer is to buy a larger machine. Vertical scaling is useful, but it eventually hits cost, availability, and operational limits. Larger machines also make failures larger. Backups, restores, index rebuilds, vacuuming, compaction, and schema migrations all become slower when the whole dataset lives in one place.',
-        'The second obvious answer is to add read replicas. Replicas are valuable, but they do not remove the write ceiling. A single primary still serializes writes for the shard it owns, and every replica still needs the full dataset or full replicated shard. Replicas multiply read capacity. They do not split storage ownership or make one hot write key less hot.',
-        'The third tempting answer is to shard by whatever key is easiest to compute. That can be worse than not sharding. If the common query is "all orders for this merchant" and the data is sharded by order ID, the common query must scatter to many shards and merge the answers. The easy key was not the workload key.',
+        'The first move is vertical scaling: buy a bigger server with more RAM, faster disks, more cores. This works until it does not. The largest available machine has a price ceiling, a single point of failure, and maintenance windows that affect the entire dataset. Backups, restores, index rebuilds, and schema migrations all scale with the full table size.',
+        'The second move is read replicas. They genuinely help when the bottleneck is read throughput: a reporting dashboard, a search index feeder, or a cache-miss path. Replicas are a proven, well-understood tool. But they do not split writes or storage.',
+        'The third tempting move is to shard by whatever key is easiest to hash. If the application shards an orders table by order_id but the dominant query is "all orders for merchant X," every merchant query must scatter to every shard. The easy key was not the workload key, and the system pays fan-out on its hottest path.',
       ],
     },
     {
-      heading: 'Core insight and mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'A sharded system needs three things: a partitioning function, a shard map, and a routing path. The partitioning function maps a logical key to a partition. The shard map records which machine or replica group owns each partition. The routing path sends reads and writes to the owner, handles retries, and updates its view when ownership changes.',
-        'Range partitioning assigns contiguous key ranges to shards: users A through F, users G through M, timestamps from one month, or order IDs from one interval. Range partitioning preserves order, so scans, sorted pagination, time windows, and locality-sensitive storage can be efficient. The cost is skew. Names, tenants, regions, and timestamps are rarely uniform. New writes against a timestamp key often land on the newest range and create a hot shard.',
-        'Hash partitioning hashes the partition key and assigns the hash space to shards. This usually balances row counts and makes point lookups simple. The cost is lost locality. A query for users G through M no longer maps to one range; it scatters across the hash space. Production systems also avoid naive hash(key) modulo N because changing N remaps too many rows. Consistent hashing, rendezvous hashing, jump consistent hashing, and virtual shards reduce movement when capacity changes.',
-        'Virtual shards are an important implementation pattern. Instead of mapping each key directly to a physical machine, the system maps keys to many small logical partitions, then maps those partitions to machines. Rebalancing can move virtual shard ownership without redefining the whole key space. This gives operators a smaller unit for growth, repair, and hot-spot isolation.',
+        'Vertical scaling hits a hard ceiling: the largest commercially available machine has a fixed amount of RAM, a fixed number of disk spindles or NVMe lanes, and a fixed write throughput. Beyond that ceiling, no amount of money buys a single bigger box.',
+        'Read replicas hit a different ceiling: write throughput. One primary still serializes every insert, update, and delete. If the application writes 50,000 rows per second and the primary can sustain 40,000, adding ten read replicas changes nothing about the write path. The replication lag may even get worse under higher write load because each replica must replay the same write stream.',
+        'The wall is: replicas scale reads; only partitioning scales writes and storage. Once the write rate or data volume exceeds what one machine can handle, the data must be split.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Sharding is a bet on the partition key. If the operation names the key, the distributed system collapses to a local operation on one shard. If the operation cannot name the key, it becomes a scatter-gather across all shards, paying fan-out latency and coordination overhead.',
+        'Every benefit of sharding flows from this: storage splits because each shard owns 1/N of the rows, write throughput splits because each shard accepts only its own writes, and index size shrinks because each shard indexes only its own data. Every cost of sharding also flows from this: cross-shard queries, cross-shard transactions, and resharding all exist because the partition key created a boundary.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A sharded system has three components: a partitioning function that maps a key to a partition, a shard map that records which machine owns each partition, and a routing layer that sends each request to the right owner.',
+        'Range partitioning assigns contiguous key intervals to shards: users A-F on shard 1, G-M on shard 2. This preserves sort order, so range scans, sorted pagination, and time-window queries can stay on one shard. The cost is skew. Names starting with S are far more common than names starting with X. Timestamps concentrate all new writes on the newest range. Range partitioning gives useful neighborhoods, but neighborhoods have rush hours.',
+        'Hash partitioning hashes the key and assigns hash-space segments to shards. Row counts balance well and point lookups become simple. The cost is lost locality: a query for users G through M now scatters across every shard. Naive hash(key) mod N also makes resharding brutal because changing N remaps most rows. Consistent hashing, rendezvous hashing, and jump consistent hashing reduce movement when shards are added or removed, but they do not restore range locality.',
+        'Directory-based partitioning uses an explicit lookup table: key X lives on shard Y. This is the most flexible scheme because any key can be moved to any shard without changing the function. The cost is that the directory itself becomes a dependency on every request, so it must be fast, replicated, and cached. Vitess uses a VSchema (a directory mapping vindex keys to shards). MongoDB\'s config servers maintain chunk-to-shard mappings.',
+        'Virtual shards decouple the logical partition from the physical machine. Instead of mapping keys directly to four machines, the system maps keys to 256 virtual shards, then maps those virtual shards to four machines. Rebalancing moves virtual shard ownership rather than redefining the key space. When a fifth machine arrives, 51 virtual shards migrate to it; the other 205 stay put.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Sharding works because it changes ownership. If four shards each own one quarter of the key space, then storage, indexes, compaction, cache pressure, write load, and backup work can be spread across four primary owners. A point lookup that includes the partition key can go directly to one shard. A write whose key maps to one shard can be accepted by that shard without coordinating with every other shard.',
-        'The benefit is locality by design. A user-profile service that shards by user ID can route getUser(123), updateUser(123), and many user-local settings operations to one place. A multi-tenant SaaS system that shards by tenant ID can keep tenant-local queries, quotas, and billing updates together. A time-series system that range-shards by time can make recent-window scans efficient, if it also handles the newest-range hot spot.',
-        'The proof idea is simple: if the operation names one partition and all required data lives in that partition, the distributed system collapses to a local operation for that request. The cost appears only when the request needs data owned by multiple partitions or when ownership itself changes.',
+        'If four shards each own one quarter of the key space, storage is split four ways, each shard\'s index covers one quarter of the rows, compaction and vacuum run on one quarter of the data, and write throughput is distributed across four independent primaries. A point lookup that includes the partition key goes to exactly one shard, with the same latency as a single-node database.',
+        'The correctness argument is straightforward: if the partition key fully determines shard ownership, and the operation touches only data within one partition, then no cross-shard coordination is needed. The operation is atomic, isolated, and durable on one machine using ordinary single-node ACID. The distributed cost appears only when a request crosses the partition boundary or when ownership changes.',
+        'Scaling is roughly linear for key-aligned operations. Doubling the shard count halves per-shard storage and per-shard write rate, assuming the key distribution is reasonably uniform. The system does not get faster for any single query; it gets wider, handling more concurrent queries without contention.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Cross-shard joins are expensive or impossible. A join between a users table sharded by user_id and an orders table sharded by order_id requires a full scatter to one table, then a lookup to the other for each matching row. Most sharded systems either co-locate related tables on the same shard key (Spanner interleaved tables, CockroachDB locality-optimized tables) or push joins to an analytics layer that can tolerate scatter-gather.',
+        'Resharding is disruptive. Adding a shard means copying data, catching up changes that arrive during the copy, verifying consistency, switching routing, and monitoring for regressions. With naive mod-N hashing, doubling from 4 to 8 shards moves roughly 75% of all rows. Consistent hashing reduces movement to about 1/N per new shard, but the operational machinery (copy, verify, dual-write, cutover) remains.',
+        'Hotspots appear when key distribution is skewed. Even perfect hash balance distributes rows, not requests. A celebrity account, a flash-sale product, or a viral post can send 40% of the cluster\'s traffic to one key and therefore one shard. Salting the hot key into key#0 through key#15 spreads the load across shards but complicates reads, which must now gather and merge the salted fragments.',
+        'Operational complexity compounds. The system now has N databases to monitor, back up, upgrade, and fail over. Schema migrations must coordinate across all shards. Capacity planning must track per-shard skew, not just aggregate throughput. The shard map itself is critical metadata that needs versioning, replication, and careful rollout.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'MongoDB auto-shards collections by a chosen shard key using either hash or range partitioning. The config servers maintain a chunk-to-shard directory, and the mongos router handles query routing and scatter-gather. Adding shards triggers automatic chunk migration.',
+        'Vitess, built at YouTube, shards MySQL horizontally. A VSchema maps each table\'s vindex (partition key) to a set of shards. The vtgate proxy routes queries, rewrites cross-shard queries into scatter-gather, and supports resharding workflows that split or merge shards with minimal downtime.',
+        'CockroachDB uses range-based partitioning. The key space is divided into ranges (default 512 MB each), and ranges are distributed across nodes using the Raft consensus protocol. Range splits and merges happen automatically based on size and load. Cross-range transactions use a parallel-commit protocol to minimize latency.',
+        'DynamoDB partitions tables by hash of the partition key. Each partition handles up to 3,000 read capacity units, 1,000 write capacity units, and 10 GB of storage. When a partition exceeds these limits, DynamoDB splits it automatically. Adaptive capacity moves throughput from underused partitions to hot ones.',
+        'Cassandra uses consistent hashing with virtual nodes (vnodes). Each physical node owns multiple token ranges, and the partition key\'s Murmur3 hash determines which token range (and therefore which node) owns the data. Adding a node redistributes vnodes, moving roughly 1/(node count) of the data.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Cross-shard transactions require Two-Phase Commit or an equivalent distributed protocol. 2PC adds a prepare round-trip, a coordinator that can fail, and blocking if the coordinator crashes between prepare and commit. Spanner uses TrueTime and 2PC together; CockroachDB uses hybrid-logical clocks and parallel commits. Both pay real latency for cross-range transactions compared to single-range ones.',
+        'The celebrity problem defeats hash balance. A single key that receives a disproportionate share of traffic creates a hot shard that no amount of rebalancing can fix, because the key cannot be split further by the partition function alone. The fix is application-level: salt the key, cache aggressively, precompute derived data, or route celebrity traffic through dedicated infrastructure.',
+        'Resharding under load is an engineering project, not a configuration change. Even with consistent hashing, the migration involves copying data, catching up the write stream, verifying correctness, switching routing atomically, and monitoring for data loss or stale reads. MongoDB, Vitess, and CockroachDB each have multi-step resharding workflows that take hours to days for large datasets.',
+        'Operational complexity grows with shard count. Each shard needs monitoring, alerting, backup, restore testing, failover testing, and capacity planning. A schema migration that takes 10 minutes on one shard takes 10 minutes times N if run sequentially, or requires parallel coordination. Teams that shard prematurely often spend more engineering time managing the shard infrastructure than they saved by distributing the load.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose a social application has 500 million users on one primary database. The user table is 4 TB, indexes no longer fit cleanly in memory, and write volume keeps climbing. Read replicas help feed timelines and profile reads, but the primary still owns every profile update, every follow edge write, and every storage maintenance task.',
-        'The team first considers range sharding by username. That preserves alphabetical scans and can make some admin tasks easy, but it creates uneven ranges. Some letters and prefixes have many more users than others, and popular names can concentrate traffic. A timestamp range would be worse for writes because every new account lands on the newest range.',
-        'The team then considers hash sharding by user ID. Point reads and writes spread well, and user-local profile updates become one-hop. The tradeoff is that alphabetical scans and some global queries now scatter. For a user-profile service, that is acceptable because the main path is "load this user ID" rather than "scan users G through M." For a reporting job, the system can use batch scatter-gather or a separate analytics store.',
-        'A new problem appears after launch: one celebrity user receives a huge share of traffic. Hashing distributed rows evenly, but it did not distribute requests for that one key. The repair is not merely adding more shards. The team salts the hottest derived data, caches aggressively, precomputes fanout where possible, and routes certain celebrity paths through special handling. Average balance and hot-key balance are different problems.',
-      ],
-    },
-    {
-      heading: 'What sharding breaks',
-      paragraphs: [
-        'The first broken assumption is that every query remains cheap. A query that cannot name the partition key must fan out. "Top 10 posts site-wide" may ask every shard for its local top 10, wait for the slowest shard, and merge the results. Scatter-gather latency is dominated by the tail. One paused, overloaded, or garbage-collecting shard can become the user-visible latency of the whole request.',
-        'The second broken assumption is that transactions stay simple. Inside one shard, the database can use its ordinary commit, rollback, locking, and isolation machinery. Across shards, the system needs Two-Phase Commit, a saga, escrow, reservation logic, idempotent retries, or application-level reconciliation. That adds latency and new failure states. A good partition key follows the transaction boundary whenever correctness matters.',
-        'The third broken assumption is that growth is easy. Adding shards requires data movement while the system is live. The migration usually needs copy, verification, change capture or dual-write, routing cutover, monitoring, and rollback planning. Consistent hashing and virtual shards reduce movement, but they do not remove the operational risk. Resharding is a project, not a configuration toggle.',
-        'The fourth broken assumption is that hash balance means load balance. A single hot key, hot tenant, flash-sale product, or viral post can dominate one shard. A range partition can also become hot when all new writes target the newest range. Skew is not a one-time design problem; it is a condition to monitor continuously.',
-      ],
-    },
-    {
-      heading: 'Where it matters',
-      paragraphs: [
-        'Sharding appears in user databases, payment ledgers, inventory systems, message stores, time-series databases, search indexes, analytics systems, queues, and object metadata services. The right key depends on the access pattern. User-facing profile systems often shard by user ID. Multi-tenant systems often shard by tenant when most operations are tenant-local. Location systems may shard by geospatial cells. Time-series systems often combine time ranges with hashing or bucketing to avoid a single hot newest partition.',
-        'Different database families make different tradeoffs. Dynamo-style systems and Cassandra-style systems lean toward hash distribution because even spread and key-value access are central. Range-split systems such as Spanner-like and CockroachDB-like designs preserve order and locality because scans, locality, and ordered keys matter. Search and analytics systems tolerate more scatter-gather because distributed merge is already part of their query model.',
-        'The common rule is stable: choose the partition key by the access paths and correctness boundaries that cannot afford to be slow. If a payment transfer, inventory reservation, entitlement check, or tenant quota update must be correct and fast, design to keep the critical data local or explicitly budget the distributed protocol.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Start by listing the top reads, top writes, top transactions, top maintenance jobs, and top global queries. For each one, mark whether it contains the candidate partition key. If the hot path cannot name the key, the design will route the hot path through scatter-gather. If the critical transaction crosses keys, the design will route correctness through a distributed protocol.',
-        'Over-partition earlier than physical capacity requires. Many virtual shards mapped onto fewer machines give the system room to rebalance later. Track per-shard storage, write rate, read rate, p95 and p99 latency, queue depth, compaction pressure, cache hit rate, hot keys, and failed routing attempts. Averages hide the problems that sharding creates.',
-        'Design resharding before the emergency. The migration plan should cover snapshot copy, incremental catch-up, dual-read or dual-write strategy, idempotency, verification, routing metadata updates, backpressure, rollback, and observability. The shard map is critical metadata, so it needs versioning, safe rollout, and clear failure behavior.',
-        'Make cross-shard operations explicit in the API. Some systems reject them on hot paths. Some route them to asynchronous workflows. Some use Two-Phase Commit only for rare admin paths. Some maintain derived global indexes or analytics projections. The important engineering habit is to name the distributed cost instead of hiding it behind a method that looks local.',
+        'A social application has 500 million users on one PostgreSQL primary. The users table is 4 TB. The team decides to shard by user_id mod 4, creating four shards.',
+        'Shard 0 gets user_ids 0, 4, 8, 12, ... Shard 1 gets 1, 5, 9, 13, ... Shard 2 gets 2, 6, 10, 14, ... Shard 3 gets 3, 7, 11, 15, ... Each shard holds roughly 125 million users and 1 TB of data. Point lookups like getUser(id=4812) hash to shard 4812 mod 4 = 0 and go directly there. Profile updates for a single user stay on one shard. Storage, indexes, and compaction all shrink to one quarter.',
+        'Six months later, growth requires a fifth shard. With mod-4 hashing, switching to mod-5 remaps roughly 80% of all user_ids to different shards. User 4812 was on shard 0 (4812 mod 4 = 0) but now belongs on shard 2 (4812 mod 5 = 2). The migration must copy 400 million user records while the application continues serving traffic. This is why production systems use consistent hashing or virtual shards from the start: adding a fifth node to a 256-vnode ring moves only about 51 vnodes (20% of data) instead of 80%.',
+        'Another problem emerges: user_id 7 is a celebrity with 200 million followers. Queries for their profile, feed, and follower list generate 30% of the cluster\'s read traffic, all routed to shard 3 (7 mod 4 = 3). Shard 3\'s CPU saturates while shards 0, 1, and 2 sit at 25% utilization. The fix is not more shards. The team caches the celebrity\'s profile at the routing layer, precomputes their feed into a separate hot-key store, and salts follower-list lookups into celebrity_7_shard_0 through celebrity_7_shard_3 so the fan-out spreads across all shards.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Study next: Consistent Hashing, Rendezvous Hashing HRW, and Jump Consistent Hash Case Study for placement that moves less data during growth. Hot Rows and Append-and-Aggregate explains salting and aggregation for celebrity keys. Tail Latency explains why scatter-gather waits on the slowest shard.',
-        'For correctness costs, study Transaction Isolation Levels, Two-Phase Commit, Saga Pattern, Idempotency, Distributed Locks, and Quorums. For storage and query design, study Cassandra Repair Case Study, Dynamo Case Study, Bigtable Case Study, Spanner Case Study, Range Tree Orthogonal Range Search, B-Tree, LSM Trees, and Message Queue. The same partitioning lesson shows up in each system: the key decides what stays local.',
+        'For placement algorithms that reduce data movement during resharding, study Consistent Hashing, Rendezvous Hashing (HRW), and Jump Consistent Hash. These are the tools that make adding or removing shards less painful than mod-N remapping.',
+        'For the costs that sharding creates, study Two-Phase Commit and Saga Pattern for cross-shard transactions, Hot Rows for celebrity-key handling, and Tail Latency for why scatter-gather waits on the slowest shard.',
+        'For production implementations, study the Spanner Case Study (range-based, TrueTime, cross-range 2PC), Bigtable Case Study (tablet splitting), Dynamo Case Study (consistent hashing with virtual nodes), and Cassandra Repair Case Study (anti-entropy in a hash-partitioned ring).',
+        'The CAP theorem and Replication are prerequisites: sharding splits data, replication copies it, and CAP constrains what guarantees the combination can offer during network partitions. Distributed Transactions complete the picture of what coordination costs when operations cross shard boundaries.',
       ],
     },
   ],
 };
+

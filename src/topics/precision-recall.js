@@ -1,4 +1,4 @@
-// Precision, recall, and the confusion matrix: why a classifier can score
+﻿// Precision, recall, and the confusion matrix: why a classifier can score
 // 95% accuracy by doing literally nothing — and which numbers to trust
 // instead. The four-cell table every model evaluation stands on.
 
@@ -61,7 +61,7 @@ export function* run(input) {
   };
 
   yield {
-    state: cm(`Precision ${pct(mt.precision)} · Recall ${pct(mt.recall)}`),
+    state: cm(`Precision ${pct(mt.precision)} Â· Recall ${pct(mt.recall)}`),
     highlight: { found: ['aspam:pspam'], swap: ['aham:pspam'], compare: ['aspam:pham'] },
     explanation: `The two questions that matter: PRECISION — of everything flagged, how much was really spam? ${m.tp}/(${m.tp}+${m.fp}) = ${pct(mt.precision)}. RECALL — of the real spam, how much did we catch? ${m.tp}/(${m.tp}+${m.fn}) = ${pct(mt.recall)}. Notice they audit DIFFERENT mistakes: precision punishes false alarms (good mail junked), recall punishes misses (spam delivered). ${name === 'lazy (always ham)' ? 'The lazy classifier\'s recall is 0% — the number accuracy was hiding.' : ''}`,
   };
@@ -89,7 +89,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why accuracy fails`,
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Precision, Recall & the Confusion Matrix. Accuracy lies on imbalanced data — meet the four cells and two ratios that tell the truth..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: `Where it fails`,
       paragraphs: [
         `Accuracy answers one question: what fraction of predictions were correct? That is useful only when the classes and mistakes are roughly balanced. Many real classifiers live in the opposite world. Fraud is rare. Cancer is rare. Critical defects are rare. Spam may be a small fraction of mail. In those settings, a classifier can achieve high accuracy by mostly predicting the majority class and ignoring the cases people actually care about.`,
         `The demo uses 1,000 emails, only 50 of which are spam. A lazy classifier that passes every email as ham gets 950 correct and scores 95 percent accuracy. It catches zero spam. Accuracy did not lie mathematically; it answered the wrong question for an imbalanced task. The model's success was mostly a reflection of the base rate.`,
@@ -113,7 +122,7 @@ export const article = {
       ],
     },
     {
-      heading: `Thresholds move the tradeoff`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Most classifiers produce scores, not final decisions. A threshold turns scores into labels. Lower the threshold and the model flags more items. True positives usually rise, false positives usually rise, recall improves, and precision may fall. Raise the threshold and the model becomes cautious. False positives fall, precision often improves, but false negatives rise and recall falls.`,
         `The cautious threshold 0.9 classifier in the demo shows the trade. It has TP = 25, FN = 25, FP = 2, and TN = 948. Precision is 25 / (25 + 2), or 92.6 percent. Recall is 25 / (25 + 25), or 50 percent. Compared with the threshold 0.5 classifier, the alert queue is much cleaner, but half the spam escapes. Neither model is universally better. The better choice depends on the cost of junking ham versus the cost of letting spam through.`,
@@ -137,7 +146,7 @@ export const article = {
       ],
     },
     {
-      heading: `Where it is used`,
+      heading: `Real-world uses`,
       paragraphs: [
         `Spam filters use precision to avoid hiding legitimate mail and recall to keep inboxes clean. Fraud systems use precision to manage investigator workload and recall to limit missed losses. Medical screening uses recall or sensitivity to reduce missed disease, then precision or positive predictive value to understand how many follow-up tests will be unnecessary. Search and recommendation systems often use precision at k because users inspect only the first page or first few recommendations.`,
         `Moderation systems use the same ledger but with high stakes on both sides: false positives suppress legitimate speech, while false negatives leave harmful content up. Defect detection balances missed defects against unnecessary inspection. Sales lead scoring balances wasted sales effort against missed opportunities. The vocabulary changes by domain, but the cells remain the same.`,
@@ -145,7 +154,7 @@ export const article = {
       ],
     },
     {
-      heading: `Common mistakes`,
+      heading: `Where it fails (2)`,
       paragraphs: [
         `Do not compare precision across datasets with different base rates without naming the prevalence. If positives become rarer, precision can fall even when the classifier's ranking skill is unchanged. Do not compute the confusion matrix on training data and call it evaluation. Do not tune the threshold on the test set and then report the same test set as an unbiased result. Use validation data for threshold selection and reserve test data for final measurement.`,
         `Do not assume precision and recall should both improve when you move only the threshold. Usually the threshold buys one with the other. If both improve, something else changed: the model, features, labels, data split, or calibration. Do not hide the confusion matrix behind F1 alone. A single number is useful for sorting experiments, but deployment needs the underlying counts and costs.`,
@@ -157,5 +166,114 @@ export const article = {
         `Study Imbalanced Data to understand why majority-class accuracy is seductive, ROC Curves and AUC for threshold sweeps from the false-positive-rate perspective, Picking a Threshold with Real Costs for cost-sensitive deployment, and Calibration and Reliability Diagrams before treating scores as probabilities. Then practice by writing the confusion matrix for a real product decision. Name the positive class, name both mistakes, attach costs, choose the threshold, and only then decide which metric should lead the dashboard.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Precision, Recall & the Confusion Matrix moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

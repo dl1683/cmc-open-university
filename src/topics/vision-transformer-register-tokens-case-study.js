@@ -1,4 +1,4 @@
-// Vision Transformer registers: extra learned tokens give ViTs a dedicated
+﻿// Vision Transformer registers: extra learned tokens give ViTs a dedicated
 // workspace so background patch tokens do not become accidental scratchpads.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -326,99 +326,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A Vision Transformer starts with a useful fiction: split the image into patches, turn each patch into a token, mix all tokens with attention, then read the final patch tokens as a spatial feature map. That fiction is powerful because it lets the same backbone support classification, detection, segmentation, depth, retrieval, and object discovery. Each output patch token still has a location, so a downstream head can reshape tokens back into rows and columns.`,
-        `Register tokens exist because large ViTs learned to violate that fiction. In several supervised and self-supervised backbones, especially DINOv2-style models, low-information background patches can become high-norm outliers late in the network. Those patches often look like sky, sand, wall, or empty background in the image, but internally they act like scratch space. The model has found a place to store global computation, and it chooses boring spatial cells because damaging them hurts classification less than damaging object patches.`,
-        `That behavior is clever from the model's point of view and harmful from the user's point of view. A dense head does not know that a sky patch is now an internal register. It treats the token as spatial evidence. The result can be a rough feature map, a misleading attention visualization, a bad object mask, or an unexplained high-norm spot in a supposedly empty region.`,
+        'The animation traces how a Vision Transformer processes an image. Image patches appear as tokens entering a sequence. Position embeddings are added to encode spatial location. Attention maps show which patches attend to which others across transformer layers. The CLS token aggregates a whole-image representation for classification.',
+        'Active markers highlight the current processing step: patch extraction, embedding projection, position encoding, or attention computation. Found markers show outputs that are now determined. Compare markers contrast baseline ViT behavior against register-token augmented models.',
+        'Watch how attention gives every patch global context from the first layer. In a CNN, a patch at the corner cannot see the opposite corner until many layers of convolution expand the receptive field. In a ViT, that same patch attends to every other patch immediately.',
       ],
     },
     {
-      heading: `The baseline approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The ordinary ViT sequence is simple: patch embeddings, optional positional embeddings, and often a CLS token for global classification. Every transformer block lets the tokens attend to one another. At the end, classification reads a pooled vector or the CLS token, while dense tasks keep the patch tokens and rebuild a grid.`,
-        `The obvious assumption is that the CLS token is enough global workspace. If the model needs global context, the CLS token can collect it; if a patch needs context, attention can bring that context into the patch representation. For many tasks this works. A patch representing a dog ear can still attend to the rest of the dog, and a patch representing blank sky can remain a blank-sky feature.`,
-        `The baseline fails when the model needs more internal memory than the sequence layout explicitly provides. A single CLS token is often optimized for the final global objective, not for all intermediate bookkeeping. Patch tokens are plentiful, attention-visible, and already part of every layer. If some patches carry little semantic evidence, the model can press them into service as internal workspace.`,
+        'Convolutional neural networks dominated image recognition from AlexNet (2012) through EfficientNet (2019). They build spatial hierarchies by stacking small local filters, gradually expanding the receptive field. Dosovitskiy et al. asked a direct question in 2020: can a pure transformer, with no convolution at all, match or beat CNNs on image classification? The answer was ViT -- the Vision Transformer.',
+        'The motivation was architectural unification. Transformers had already replaced RNNs for language. If the same architecture could handle images, a single design pattern would cover text, images, video, and audio. That simplification matters for research velocity, multi-modal models, and transfer learning across domains.',
+        'ViT proved the answer is yes, but with a caveat: it needs more data than CNNs to reach the same accuracy. Trained on ImageNet-21k (14 million images) or JFT-300M (300 million images), ViT-Huge reached 90.45% top-1 accuracy on ImageNet, beating the best CNNs. Trained on ImageNet-1k alone (1.3 million images), it underperformed a well-tuned ResNet.',
       ],
     },
     {
-      heading: `Where the baseline fails`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The failure is a role conflict. Patch tokens are asked to be two things at once: spatial evidence and general-purpose state. That is not a formal type error in the model, but it is a contract error for downstream systems. A token at row 6, column 12 should mean something about that image region. If it has become a scratchpad, the grid no longer means what the feature consumer thinks it means.`,
-        `The symptoms are visible because scratch tokens often develop unusually high norms. They can produce bright attention spots in dull background, holes in smooth feature maps, and object-discovery behavior that depends on artifacts rather than image objects. The bug is subtle because top-line classification can remain strong. The model can win the training objective while making its intermediate features harder to use.`,
-        `The wall is especially important for foundation backbones. A backbone is not a closed classifier; it is an upstream supplier of features. If the feature contract is noisy, every downstream task inherits the noise. Post-processing can hide some artifacts, but it does not repair the architectural reason the model used spatial cells as non-spatial memory.`,
+        'CNNs are the obvious tool for image recognition. A ResNet-152 stacks 152 layers of 3x3 convolutions with skip connections. Each layer looks at a small local neighborhood, detects edges, textures, parts, and objects in a hierarchy. EfficientNet-B7 reached 84.4% top-1 on ImageNet with careful architecture search over width, depth, and resolution.',
+        'The CNN approach works because images have strong local structure. A cat ear is made of edges, which are made of pixels. Local filters naturally capture this hierarchy. Translation equivariance comes for free: a filter that detects a vertical edge at one position detects the same edge at every position. Weight sharing across spatial positions keeps parameter counts manageable.',
+        'For years this was enough. CNNs improved through deeper networks (VGG, ResNet), wider networks (WideResNet), architecture search (NASNet, EfficientNet), and attention modules bolted onto convolutional backbones (SE-Net, CBAM). The architecture was assumed necessary for vision.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The wall',
       paragraphs: [
-        `The insight is to give the model honest workspace. Register tokens are extra learned embeddings appended to the input sequence. They do not correspond to image patches. They attend with the patch tokens through the transformer blocks, but downstream dense heads can ignore them when rebuilding the patch grid.`,
-        `This is a small data-structure change with a large semantic effect. The sequence now has patch positions, optional CLS position, and k register positions. Patch positions keep spatial meaning. Register positions are allowed to become global scratch slots. The invariant is direct: only patch tokens are reshaped into image maps; register tokens are model workspace.`,
-        `That invariant turns an accidental behavior into an explicit interface. Instead of hoping the model never overloads boring background patches, the architecture supplies tokens whose purpose is to be overloaded. The model still gets flexible attention-based computation, but the feature grid is less likely to carry internal bookkeeping artifacts.`,
+        'CNN receptive fields grow slowly. A 3x3 convolution sees 3x3 pixels. Two layers see 5x5. Ten layers see 21x21. To cover a 224x224 image, a CNN needs dozens of layers, and even then the effective receptive field -- the region that actually influences the output -- is often smaller than the theoretical maximum. Global context requires either very deep networks or explicit global pooling.',
+        'Attention modules like SE-Net (channel attention) and CBAM (spatial + channel attention) were bolted onto CNNs to compensate. They help, but they are additions to an architecture that was not designed around attention. The convolution still does the heavy lifting; attention adjusts the result. There is no native mechanism for a pixel in the top-left corner to directly influence a pixel in the bottom-right corner in a single layer.',
+        'Multi-modal learning exposed another wall. Language models use transformers. If vision uses CNNs, combining them requires adapters, projection layers, and architectural compromises. A shared transformer backbone for both vision and language would simplify architectures like CLIP, Flamingo, and GPT-4V.',
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: 'How it works',
       paragraphs: [
-        `Implementation starts by creating k learned register embeddings with the same hidden size as patch embeddings. For each image, the input builder concatenates patch tokens, positional information, optional CLS token, and the register tokens in a fixed layout. The transformer blocks do not need special register logic; ordinary self-attention lets every token exchange information with every other token.`,
-        `The output side is where discipline matters. A classifier may read a pooled representation, the CLS token, patches, registers, or a combination depending on the model design. A dense head should select only patch indices, reshape those patch tokens into the original patch grid, and drop the registers. Feature extraction APIs should document the sequence layout so callers know which slice is spatial.`,
-        `Telemetry should watch token norms by role. If patch tokens still show late high-norm background spikes, the register count may be too low, the training setup may not encourage the intended role separation, or the artifact may have a different cause. If register norms grow while patch maps smooth out, the registers are doing the job they were added to do.`,
+        'ViT splits an image into a grid of fixed-size patches. For a 224x224 image with 16x16 patches, that is 14 rows times 14 columns, producing 196 patches. Each patch is 16x16x3 = 768 values (height times width times RGB channels). A linear projection maps each flattened patch to an embedding vector of dimension D (typically 768 for ViT-Base).',
+        'A learnable CLS token is prepended to the sequence, making 197 tokens total. Learned position embeddings are added to every token, including CLS, so the transformer knows spatial arrangement. Without position embeddings, the model would treat the patches as an unordered set and lose all spatial information.',
+        'The token sequence passes through L transformer encoder layers (12 for ViT-Base, 24 for ViT-Large, 32 for ViT-Huge). Each layer applies multi-head self-attention followed by an MLP block, with layer normalization and residual connections. The attention mechanism lets every patch attend to every other patch, giving global receptive field from layer one.',
+        'For classification, the final CLS token output feeds into a small MLP head that produces class probabilities. The CLS token has attended to all patches across all layers, so it carries a whole-image representation. For dense tasks like segmentation, the patch token outputs can be reshaped back into a 14x14 spatial grid.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Registers work because attention is already a global communication system. A patch can write information into a register by attending to it, and later patches can read from that register through attention. The model does not need a separate memory API. It only needs non-spatial tokens that are visible during the same computation as the patches.`,
-        `The design also changes the optimization pressure. Without registers, a low-information patch can be the cheapest place to store global state. With registers, the model has dedicated learned slots that are not penalized for losing spatial purity. Patch tokens are still free to carry global context, but they do not need to act as anonymous scratch registers.`,
-        `The benefit is not that registers force perfect interpretability. They do not. The benefit is that they align the architecture with the downstream contract. Dense consumers expect patch tokens to be spatial. Register tokens absorb some non-spatial work, so feature maps tend to become smoother and less polluted by high-norm background artifacts.`,
+        'Self-attention gives global receptive field from the first layer. Every patch can attend to every other patch, weighted by learned relevance. A patch showing a wheel can attend to a patch showing a road and a patch showing a car body, assembling object-level understanding without waiting for convolution to expand a local window across dozens of layers.',
+        'Position embeddings learn spatial relationships during training. Nearby patches develop similar position embeddings; patches in the same row or column develop correlated embeddings. The model discovers 2D structure from 1D position indices without being told the image is a grid. This is weaker than the hard-coded translation equivariance of CNNs, which is why ViT needs more training data to learn what CNNs get for free.',
+        'The CLS token acts as a global aggregator. It has no image content of its own, so its representation is shaped entirely by what it collects from the patch tokens through attention. After many layers of refinement, it becomes a compressed summary of the entire image, suitable for classification.',
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost is extra sequence length. If an image has N patch tokens and k registers, attention runs over N plus k tokens. With full attention, the extra work is roughly proportional to the added query, key, and value interactions. Small k is usually modest, but the cost is real on high-resolution images and large batch sizes.`,
-        `The behavioral tradeoff is choosing enough registers without turning them into a new sink for waste. Too few registers may leave scratch pressure in patch tokens. Too many registers spend compute and memory while giving the optimizer more tokens whose roles may be hard to inspect. In practice, the register count is a model design parameter that should be swept against artifact metrics, dense-task quality, and latency.`,
-        `The operational cost is contract management. Training, fine-tuning, inference, export, quantization, and feature extraction all need to agree on sequence layout. A checkpoint with registers is not shape-compatible with the same model definition without registers. A dense head that forgets to drop register positions can silently produce maps with fake cells.`,
+        'Self-attention is O(n squared) in the number of tokens, where n is the patch count. For a 224x224 image with 16x16 patches, n = 196 and the attention matrix is 196x196 = 38,416 entries per head per layer. That is manageable. For a 384x384 image with 16x16 patches, n = 576 and the matrix grows to 331,776 entries -- nearly 9 times larger. Doubling resolution roughly quadruples patch count and increases attention cost by 16 times.',
+        'ViT-Base has 86 million parameters, comparable to ResNet-152. ViT-Large has 307 million. ViT-Huge has 632 million. The parameter count scales with embedding dimension squared and layer count. The compute cost per image is dominated by the attention and MLP blocks across all layers.',
+        'The data hunger is the real cost. ViT trained on ImageNet-1k (1.3 million images) underperforms ResNet. It needs ImageNet-21k (14 million) or JFT-300M (300 million) to reach its full potential. CNNs encode locality and translation equivariance in their architecture; ViT must learn these priors from data. DeiT (Data-efficient Image Transformers) partially solved this with strong augmentation, regularization, and knowledge distillation from a CNN teacher, reaching 83.1% top-1 on ImageNet-1k without extra data.',
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Register tokens are strongest when the patch grid is a product, not just an internal step. Object discovery, semantic segmentation, depth estimation, correspondence, saliency analysis, and retrieval all benefit from patch features that preserve spatial meaning. The more consumers reuse the backbone, the more valuable a clean feature contract becomes.`,
-        `They are also useful when a model family is distributed as infrastructure. A register-aware DINOv2-style backbone can give downstream teams cleaner maps without forcing every team to detect and remove artifacts independently. This matters for open checkpoints, model hubs, and production feature services where the backbone may serve many unknown consumers.`,
-        `The idea generalizes beyond this paper. It belongs to a broader family of learned workspace designs: CLS tokens, Set Transformer inducing points, Perceiver latent arrays, memory tokens, and adaptive token banks. The common pattern is to separate tokens that represent external data from tokens that provide internal computation capacity.`,
+        'ViT-Huge achieved 90.45% top-1 on ImageNet when pre-trained on JFT-300M, surpassing the best CNNs. DeiT showed that data-efficient training with distillation can make ViTs competitive on ImageNet-1k alone. These results established ViTs as viable replacements for CNNs in classification.',
+        'Swin Transformer introduced hierarchical windows, reducing attention from O(n squared) to O(n) by computing attention within local windows and shifting them across layers. This made ViTs practical for dense prediction tasks like object detection (using Swin as a backbone in Mask R-CNN) and semantic segmentation. DINO and DINOv2 showed that self-supervised ViTs learn powerful visual features without labels, producing features that transfer well to downstream tasks.',
+        'SAM (Segment Anything) uses a ViT-Huge backbone pre-trained with a promptable segmentation objective on 1 billion masks. CLIP pairs a ViT image encoder with a text encoder for zero-shot classification. Florence, PaLI, and GPT-4V all use ViT-family encoders for multi-modal understanding. The architecture has become the default vision backbone for foundation models.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Registers are not a universal vision fix. A small classifier whose intermediate patch maps are never inspected may see little value. A model with artifacts caused by data bias, bad normalization, poor positional handling, or downstream head design will not be repaired merely by adding workspace tokens.`,
-        `They can also fail through integration mistakes. If fine-tuning drops the registers but keeps a head trained with them, behavior changes. If export tools reorder tokens, dense consumers can read the wrong slice. If a serving system exposes "last hidden state" without layout metadata, clients may treat registers as image patches. The architecture is simple, but the interface must be explicit.`,
-        `Another limit is interpretability. A register is a workspace slot, not a named variable. It may collect useful state, but it does not automatically explain what the model is computing. Register tokens reduce one artifact source; they do not make all attention maps faithful explanations.`,
+        'Data efficiency remains the core weakness. Without large-scale pre-training or careful regularization (DeiT-style), ViTs overfit on small datasets. CNNs still win when training data is limited because their inductive biases -- locality, translation equivariance, spatial hierarchy -- encode useful priors that ViTs must learn from examples.',
+        'Quadratic attention cost limits resolution. Processing a 1024x1024 medical image with 16x16 patches produces 4,096 tokens and an attention matrix of 16.7 million entries per head per layer. Swin Transformer, linear attention variants, and FlashAttention address this, but they add architectural complexity or approximate the full attention pattern.',
+        'ViTs lack the inductive bias for translation invariance that CNNs have by construction. A CNN trained to recognize a cat in the center generalizes to a cat in the corner because the same filters apply everywhere. A ViT must see cats at many positions during training to learn this invariance through position embeddings. With enough data this works, but it is learned rather than guaranteed.',
+        'In this visualization, the register-token extension addresses another failure: ViT patch tokens can become accidental scratch space, producing high-norm artifacts in feature maps. Register tokens provide explicit workspace so patch tokens preserve spatial meaning for dense downstream tasks.',
       ],
     },
     {
-      heading: `Implementation guidance`,
+      heading: 'Worked example',
       paragraphs: [
-        `Start by deciding the sequence layout and write it down: patch slice, CLS position if present, register slice, and output slices exposed by the API. Make this layout a named constant rather than an implicit offset scattered through the model, feature extractor, and dense heads.`,
-        `Train and infer with the same register count. Initialize registers as learned parameters, include them in checkpoint loading, and test shape compatibility in export paths. If the model is fine-tuned for dense prediction, verify that the head receives only patch tokens. Unit tests should assert the number of spatial tokens equals grid height times grid width before reshaping.`,
-        `Measure the actual problem. Track token norms by role and layer, dense-task quality, feature-map smoothness, attention artifact frequency, throughput, and memory. Compare against a no-register model and against simple post-processing. A good register-token result should reduce artifacts without hiding a large latency regression or a downstream indexing bug.`,
+        'Take a 224x224 RGB image. Divide it into a 14x14 grid of 16x16 patches. Each patch is 16 pixels times 16 pixels times 3 color channels = 768 scalar values. Flatten each patch into a 768-dimensional vector.',
+        'Apply a learned linear projection (a 768x768 matrix for ViT-Base) to each flattened patch, producing 196 embedding vectors of dimension 768. Prepend a learnable CLS token (also dimension 768), making 197 tokens. Add learned position embeddings to each of the 197 tokens so the model knows patch (3, 7) is different from patch (10, 2).',
+        'Pass the 197 tokens through 12 transformer encoder layers. In each layer, multi-head self-attention (with 12 heads in ViT-Base) lets every token attend to every other token. The attention matrix at each head is 197x197. After attention, an MLP with hidden dimension 3072 (4 times 768) transforms each token independently. Layer norm and residual connections wrap both sub-layers.',
+        'After 12 layers, take the CLS token output (a single 768-dimensional vector) and feed it through an MLP head: a linear layer mapping 768 to 1000 class logits for ImageNet. The predicted class is the argmax of those 1000 logits.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Suppose an image shows a dog on a beach. Dog patches and edge patches carry strong visual evidence. Flat sand and sky patches carry less. In a baseline ViT, one flat sky patch may become a high-norm token because the model uses it to store global state about the whole image. A mask decoder later reads that sky token as a sky feature and gets a distorted map.`,
-        `With four register tokens, the sequence has dedicated non-spatial slots. The dog, sand, and sky patches still attend globally, but the model can store some global bookkeeping in the registers. The dense head then receives only the patch slice. The sky cell is more likely to remain a sky feature instead of secretly acting as an internal notebook.`,
-        `This example also shows the correct mental model. Registers do not remove global information from patch tokens. Patch tokens still become contextual representations. The improvement is that the highest-pressure scratch role has explicit capacity, so low-information spatial patches are less likely to become accidental registers.`,
-      ],
-    },
-    {
-      heading: `Sources and study next`,
-      paragraphs: [
-        `Primary sources: Vision Transformers Need Registers at https://arxiv.org/abs/2309.16588, OpenReview at https://openreview.net/forum?id=2dnO3LLiJ1, the DINOv2 repository at https://github.com/facebookresearch/dinov2, and the Hugging Face DINOv2-with-registers documentation at https://huggingface.co/docs/transformers/en/model_doc/dinov2_with_registers.`,
-        `Study attention first: Attention Mechanism, Multi-Head Attention, Positional Encoding, and Transformer Block. Then study learned workspace designs: Set Transformer Inducing Points, Perceiver IO Latent Array Bottleneck, AdaTape Adaptive Token Bank, Byte Latent Transformer, and StreamingLLM Attention Sinks. For deployment context, study Transformer Inference Roofline and Activation Checkpointing so the extra-token cost is not treated as free.`,
+        'Primary source: Dosovitskiy et al., "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale" (2020), https://arxiv.org/abs/2010.11929. DeiT: Touvron et al., "Training data-efficient image transformers & distillation through attention" (2021). Swin: Liu et al., "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows" (2021). Register tokens: Darcet et al., "Vision Transformers Need Registers" (2023), https://arxiv.org/abs/2309.16588.',
+        'Prerequisites: Convolution (to understand what ViT replaces), Transformer Block (the encoder architecture ViT reuses), Self-Attention and Multi-Head Attention (the core mechanism). Extensions: Swin Transformer (hierarchical windows for dense tasks), DINO (self-supervised ViT training), FlashAttention (efficient attention computation). Contrasting alternatives: CNN architectures (ResNet, EfficientNet) for when data is scarce and inductive bias matters more than flexibility.',
       ],
     },
   ],
 };
+

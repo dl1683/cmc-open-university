@@ -4,21 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Topic — Visualized</title>
+  <meta name="description" content="Free, visual computer-science education: every algorithm animated, every step explained.">
+  <meta name="theme-color" content="#1a1a2e">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Data Structures &amp; Algorithms — Visualized">
+  <meta property="og:title" content="Data Structures &amp; Algorithms — Visualized">
+  <meta property="og:description" content="Free, visual computer-science education: every algorithm animated, every step explained.">
+  <meta property="og:url" content="https://dl1683.github.io/DataStructuresInJavaScript/">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Data Structures &amp; Algorithms — Visualized">
+  <meta name="twitter:description" content="Free, visual computer-science education: every algorithm animated, every step explained.">
+
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles/site.css">
 </head>
 <body data-page="topic">
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="topic-layout" data-page="topic">
     <nav class="topic-nav" data-topic-nav aria-label="All topics">
       <a class="home-link" href="./index.html">← All topics</a>
     </nav>
 
-    <main class="topic-main">
+    <main id="main" class="topic-main">
       <header class="topic-header">
         <div class="header-row">
           <h1 data-topic-title>Loading…</h1>
           <button class="btn" data-theme-toggle aria-label="Toggle dark or light theme">◐ Theme</button>
         </div>
         <p class="topic-summary" data-topic-summary></p>
+        <p class="topic-progress" data-topic-progress>Not started yet.</p>
         <div class="link-chips" data-topic-links></div>
       </header>
 
@@ -30,8 +48,18 @@
         <!-- The explanation sits ABOVE the animation on purpose: people read
              it while the picture below moves. Education first. -->
         <aside class="explain-panel">
+          <div class="learn-tools">
+            <label class="study-control">
+              <input type="checkbox" data-auto-compact-notes checked />
+              <span>Auto compact study notes</span>
+            </label>
+          </div>
           <p class="explanation" data-explanation aria-live="polite"></p>
           <p class="invariant" data-invariant hidden></p>
+          <section class="frame-log" aria-live="polite">
+            <h2 class="frame-log-title">Frame log</h2>
+            <ul class="frame-log-list" data-frame-log></ul>
+          </section>
           <div class="player-bar">
             <div class="player-controls" data-player-controls>
               <button class="btn" data-action="reset" aria-label="Back to first step">⏮ Reset</button>

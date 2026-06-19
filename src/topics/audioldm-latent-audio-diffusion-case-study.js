@@ -198,14 +198,23 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'The real problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for AudioLDM Latent Audio Diffusion Case Study. Text-to-audio generation with latent diffusion: CLAP conditioning, audio latents, denoising, waveform decoding, edit masks, and evaluation ledgers..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Text-to-audio generation asks for more than assigning a label to a clip. The output has to contain plausible acoustic events, timing, texture, dynamics, and scene consistency. "Rain in a metal warehouse with distant thunder" is not just rain plus thunder; it is reverberation, material, distance, and temporal placement.',
         'Generating raw waveform samples directly is expensive because audio has high temporal resolution. A few seconds of sound contain far more sample positions than a small image contains pixels, and tiny waveform errors can become audible artifacts.',
       ],
     },
     {
-      heading: 'The obvious wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious way to generate sound is to predict waveform samples directly. That gives maximum fidelity in principle, but it makes the model operate on a long, fragile sequence where small errors can become audible clicks, noise, or timing artifacts.',
         'Another obvious route is to retrieve a matching clip from a library. Retrieval is reliable when the exact asset exists, but it cannot compose new scenes, edit a selected region, or satisfy unusual prompts without a very large catalog. AudioLDM sits between those extremes: generate new audio, but do the slow denoising in a compressed latent representation.',
@@ -261,35 +270,35 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and latency',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Latent diffusion is cheaper than direct waveform diffusion, but it is still an iterative sampler. More steps usually cost more latency. Longer clips enlarge the latent grid. Higher sample rates and stereo outputs increase decode and storage costs.',
         'Serving systems often need separate routes for preview, final render, and edit mode. Preview may use fewer steps and lower duration. Final render may spend more compute. Edit mode may preserve context and regenerate only masked regions.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Prompt match can be shallow. The model may produce a generic ambience that scores as "rain" but lacks warehouse acoustics or distant thunder timing. It may also smear transients, loop textures, clip peaks, hallucinate speech, or produce unstable loudness.',
         'Editing has its own failures. A masked region can create seams at the boundary, change ambience outside the intended span, or ignore the existing rhythm. Good tools need crossfades, loudness normalization, and audit trails for what was regenerated.',
       ],
     },
     {
-      heading: 'Where it fits',
+      heading: 'Real-world uses',
       paragraphs: [
         'AudioLDM-style systems fit sound design, game ambience, video prototyping, accessibility audio sketches, dataset augmentation, and creative exploration where plausible generated sound is useful and human review is acceptable.',
         'They fit less well when exact reproduction is required: legal evidence, medical audio, safety alarms, music licensing-sensitive production, voice identity, and low-latency interactive instruments. In those domains, generated plausibility can be a liability.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'The latent pipeline view shows the representation handoffs: text to CLAP text embedding, audio examples to audio embeddings, latent noise through the denoiser, then decoded spectrogram-like structure and waveform output.',
         'The audio edits view shows why masks and evaluation matter. The mask decides what can change, the prompt decides the new condition, and the evaluation ledger catches failures that a single text-match score would miss.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Audio generation becomes tractable when the system separates semantic control, compact acoustic representation, and waveform rendering. Text embeddings say what the user wants. Latent diffusion searches a compressed sound space. The decoder turns the chosen latent trajectory back into audible samples.',
         'That separation also explains the failures. A bad text-audio embedding loses intent, a weak latent representation loses acoustic detail, and a poor decoder turns a plausible latent into noisy playback. The pipeline is only as strong as the interfaces between those representations.',
@@ -303,11 +312,61 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: AudioLDM at https://proceedings.mlr.press/v202/liu23f.html, AudioLDM project page at https://audioldm.github.io/, and the paper PDF at https://proceedings.mlr.press/v202/liu23f/liu23f.pdf.',
         'Study Diffusion Models for the denoising loop, Variational Autoencoders for latent compression, Embeddings & Similarity for text-audio alignment, Convolution for time-frequency feature extraction, and Product Quantization for a different view of compressed representation search.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for audioldm-latent-audio-diffusion-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

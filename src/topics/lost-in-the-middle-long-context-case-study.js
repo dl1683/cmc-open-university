@@ -213,14 +213,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to put the whole corpus into the prompt and ask the model to answer. That feels attractive because it avoids retrieval engineering, chunking decisions, and source selection. It also gives demos a simple story: everything is in context.',
         'The wall is that context is not a uniform database scan. Primacy, recency, position encodings, attention competition, instruction placement, and distractor similarity can all shape what the model uses. The relevant clause may be present in the prompt and still functionally absent from the answer.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Long context is capacity, not guaranteed recall. The system must prove that evidence remains usable as length, insertion position, chunk order, and distractor similarity change. A single successful needle test at an easy position does not establish that proof.',
         'This shifts the design question. Instead of asking "can the model fit the document?" ask "can the system reliably find, foreground, quote, and reason over the evidence that matters?" That system may still use long context, but it uses it with retrieval, packing, citation, and evaluation discipline.',
@@ -235,7 +235,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'The mechanism is not one bug. It is a stack effect. Attention scores compete across many similar spans. Position representations have to extrapolate or generalize over long distances. Instruction templates may privilege early policy and late recency. Retrieval order can place important chunks between noisy neighbors. The model has learned many tasks where beginnings and endings carry high signal.',
         'Needle-in-a-haystack tests make the mechanism visible by holding the question fixed and moving the answer span. If accuracy changes only because the answer moved, the context window is not behaving like an order-invariant memory store.',
@@ -250,7 +250,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study: policy clause buried in a contract',
+      heading: 'Worked example',
       paragraphs: [
         'A contract-review assistant receives a 120-page vendor agreement and must answer whether customer data may be used to train vendor models. The key clause is not in the data-processing addendum; it is a middle-page carveout under "service improvement." A naive long-context system sends the whole contract to the model and asks for an answer. It works when the clause is near the end in a test fixture, then fails when a real contract places it in the middle between unrelated security exhibits.',
         'A stronger system treats the problem as retrieval plus verification. It chunks the contract, indexes definitions and obligations, retrieves candidate spans for "training," "improvement," "analytics," "model," and defined terms, reranks candidate clauses, quotes the exact span, and then asks the model to reason over a compact pack. The final answer cites the clause and preserves uncertainty if the retrieved span conflicts with another section. Multi-Index RAG, Maximal Marginal Relevance, RAG Context Packing Token Budget, Cross-Encoder Reranker, Agent Memory & Context Engineering Case Study, and RAG Evaluation all become practical tools, not optional extras.',
@@ -266,17 +266,59 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'How to read the animation',
       paragraphs: [
         'The position-bias plot compares an ideal flat line with a measured trough. A flat line would mean evidence position does not matter. The trough means the same evidence is less usable when buried in the middle. The prompt graph turns that into a concrete system shape: the question is stable while the needle moves.',
         'The benchmark view separates literal recall from semantic recall. Literal needles are useful sanity checks. Latent needles and position sweeps expose whether the model can connect meaning across a long context. The RAG frame shows why a smaller, better-packed context can outperform a giant prompt that buries the answer.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Lost in the Middle in TACL at https://aclanthology.org/2024.tacl-1.9/, arXiv version at https://arxiv.org/abs/2307.03172, Lost in the Middle repository at https://github.com/nelson-liu/lost-in-the-middle, NoLiMa at https://arxiv.org/abs/2502.05167, NoLiMa repository at https://github.com/adobe-research/NoLiMa, and U-NIAH at https://arxiv.org/abs/2503.00353.',
         'Study Attention Mechanism, Multi-Head Attention, Positional Encoding, RoPE, KV Cache, RAG Pipeline, Multi-Index RAG, Maximal Marginal Relevance, RAG Context Packing Token Budget, Cross-Encoder Reranker, Agent Memory & Context Engineering Case Study, LLM Evaluation Harnesses, and RAG Evaluation next.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to trust the context window as a uniform memory: paste the entire document, ask the question, and expect the model to find the answer wherever it sits. This feels right because the model accepts the input without complaint and the attention mechanism theoretically scores every token against every other token.',
+        'The wall is that attention is not a database index. Scores compete across thousands of keys. Position encodings, training distribution, instruction placement, and distractor similarity all shape which passages win the attention competition. A passage can be present in the prompt and still functionally invisible to the answer.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Lost-in-the-middle analysis works as a diagnostic because it isolates position from content. By holding the question and answer text fixed while moving only the position of the relevant passage, the experiment proves that accuracy changes are caused by position, not by content difficulty. If accuracy were flat across positions, the context window would behave like uniform memory. The U-shaped curve (high at edges, low in the middle) proves it does not.',
+        'The diagnostic is valid because it controls for confounds. The question stays the same, the answer text stays the same, and the distractors stay the same. Only the insertion point changes. Any accuracy change is therefore attributable to positional factors: attention patterns, position encoding extrapolation, primacy and recency biases from training, or instruction-following behavior that privileges early and late tokens.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost of long-context failure is not compute -- it is silent incorrectness. A model that misses buried evidence still produces a fluent answer. The user sees a confident response and has no signal that the decisive passage was ignored. In legal review, medical record analysis, or compliance checking, this failure mode is worse than a crash because it looks like success.',
+        'Mitigation costs are real but bounded. Retrieval adds an indexing and ranking step. Reranking adds a cross-encoder pass. Quote-first prompting adds output tokens. Position-varied evaluation adds test cases. Each costs less than the silent error it prevents, but none is free. The practical tradeoff is: spend engineering effort on evidence foregrounding now, or spend debugging effort on wrong answers later.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Lost-in-the-middle awareness matters most in document-grounded question answering, legal contract review, medical record summarization, compliance auditing, and any workflow where a small clause buried in a large document can change the answer. It also matters in multi-turn conversation where early instructions drift outside the attention sweet spot.',
+        'The practical response is not to avoid long context but to design systems that foreground evidence: retrieve candidate passages, rerank by relevance, place high-signal spans near prompt edges, quote exact text before reasoning, and evaluate with position-swept test sets. Systems that skip this step may pass demos where evidence happens to sit near an edge and fail on real document layouts.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Mitigations themselves can fail. Retrieval can miss the decisive passage if the query does not match its vocabulary. Reranking can prefer fluent distractors over dry but correct legal text. Quote-first prompting can overfit to snippets and lose document-level structure. Position-varied evaluation can use too few samples or too-easy needles.',
+        'The deeper limit is that lost-in-the-middle is a symptom, not a root cause. The underlying issue is that attention over long sequences is an approximation of memory, not memory itself. Improving position encodings, training on longer data, and using retrieval all help, but none guarantees uniform recall across arbitrary document layouts. Honest evaluation must test the hard case: important evidence buried among similar distractors far from both edges.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Lost in the Middle (Liu et al., TACL 2024) at https://aclanthology.org/2024.tacl-1.9/ and https://arxiv.org/abs/2307.03172, repository at https://github.com/nelson-liu/lost-in-the-middle. NoLiMa (latent needle benchmark) at https://arxiv.org/abs/2502.05167 and https://github.com/adobe-research/NoLiMa. U-NIAH (RAG vs long-context comparison) at https://arxiv.org/abs/2503.00353.',
+        'Prerequisites: Attention Mechanism for how scores compete, Multi-Head Attention for parallel attention paths, Positional Encoding and RoPE for how position enters the geometry. Extensions: RAG Pipeline and Multi-Index RAG for retrieval-based mitigation, Maximal Marginal Relevance and Cross-Encoder Reranker for evidence ranking, RAG Context Packing Token Budget for prompt engineering, KV Cache for serving cost, and RAG Evaluation for measuring retrieval quality. Contrast with Sliding-Window Attention Context Policy, which trades recall for bounded cost.',
       ],
     },
   ],

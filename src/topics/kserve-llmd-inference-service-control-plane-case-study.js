@@ -1,4 +1,4 @@
-// KServe plus llm-d: a Kubernetes-native control plane for generative
+﻿// KServe plus llm-d: a Kubernetes-native control plane for generative
 // inference services, with model lifecycle, routing, KV locality, and rollout.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -219,7 +219,7 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         'KServe LLMInferenceService plus llm-d is a Kubernetes-native control-plane pattern for production generative inference. KServe gives platform teams a declarative service object for model lifecycle, runtime configuration, routing, rollout, autoscaling, and status. llm-d adds LLM-specific scheduling intelligence: KV-cache locality, prefill/decode separation, load-aware routing, and SLO-aware placement.',
         'This topic complements NVIDIA Dynamo. Dynamo teaches a distributed inference framework and its fleet-level control plane. KServe/llm-d teaches what that world looks like when the operating surface is Kubernetes: CRDs, controllers, Gateway API, runtime pods, status fields, scheduler policy, metrics, and rollbacks.',
@@ -233,21 +233,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core data structure is a service object plus a route scorecard. The service object declares the desired model-serving shape. The scorecard records why the scheduler chose a pod: cache hit, queue depth, GPU fit, tenant fairness, SLO risk, rollout state, or fallback.',
         'That split matters. Declarative Kubernetes state makes the service repeatable. The route scorecard makes each request explainable. Without the first, operations become shell scripts. Without the second, intelligent routing becomes a black box.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'Inspect the control plane in layers. The CRD declares desired serving state. The controller reconciles pods, routes, and status. The gateway receives requests. The llm-d scheduler chooses the endpoint using LLM-specific signals. The runtime executes tokens. Observability ties the request back to the service revision and scheduler decision.',
         'The central question is whether the abstraction hides boilerplate or hides truth. Hiding Deployments and Services can be helpful. Hiding queue depth, cache locality, rollout version, or route score is dangerous because those fields decide cost and p99.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'A platform team declares an LLMInferenceService. The controller reconciles the model source, runtime template, Gateway route, scheduler configuration, pods, and status. Runtime pods execute inference, often through vLLM or another OpenAI-compatible engine. Metrics and traces feed autoscaling, alerts, and rollout decisions.',
         'The scheduler path is where llm-d changes the shape. Instead of sending traffic only to a ready endpoint, it can score endpoints by prefix-cache residency, queue pressure, GPU utilization, SLO class, and tenant policy. The selected pod and the score fields should appear in traces so operators can explain latency shifts after an autoscale, rollout, or cache-policy change.',
@@ -262,14 +262,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is another control plane to learn and debug. CRDs, controllers, scheduler extensions, runtime images, Gateway resources, autoscaling signals, RBAC, and observability must agree. Version skew or missing metrics can make a declarative service look clean while the serving path is degraded.',
         'There is also an abstraction tax. A platform API should hide boilerplate, not hide the levers that determine p99 and cost. If teams cannot see cache behavior, route reason, queue depth, and rollout status, the abstraction is too shallow for serious LLM serving.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern wins when a team already runs Kubernetes and needs repeatable LLM services across tenants, models, engines, and hardware pools. It is especially useful when platform teams need governed rollouts, Gateway integration, autoscaling, metrics, and scheduling policy in one object model.',
         'A strong use case is a customer-support model with repeated system prompts, tenant-specific policies, and canary rollouts. KServe owns the service and rollout. llm-d routes toward useful prefix cache while respecting queue depth and fairness. vLLM executes tokens. Kubernetes supplies the resource and reconciliation layer.',
@@ -283,14 +283,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works (3)',
       paragraphs: [
         'Track reconcile errors, stale status conditions, route-score fields, cache-hit rate by pod, TTFT, inter-token latency, pod queue depth, GPU memory pressure, request rejects, rollout slice metrics, autoscaler decisions, and tenant fairness. These signals show whether the declarative service is healthy as an LLM service, not merely as Kubernetes YAML.',
         'A mature platform also records why each request was routed. Cache locality, fairness, SLO risk, rollout safety, and capacity can conflict. If the system cannot explain which reason won, operators cannot debug a regression or teach users how the platform behaves.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'KServe/llm-d is a control-plane pattern: declarative service state plus LLM-aware scheduling evidence. It is valuable when a platform needs repeatable model serving, gateway integration, autoscaling, rollouts, and route decisions that account for KV locality and p99.',
         'The deep lesson is that Kubernetes readiness is not enough for LLM serving. A pod can be ready and still be a bad target for this request. LLM serving needs routing state that understands cache, queue, tenant, rollout, and SLO pressure.',
@@ -298,18 +298,82 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A company serves a support model for three tenants. Each tenant has repeated system prompts, different tool schemas, and separate risk policy. The platform team declares one LLMInferenceService per deployment profile, uses Gateway routes for API traffic, and rolls a new runtime image through a canary. llm-d chooses endpoints using cache locality, queue depth, GPU utilization, tenant fairness, and SLO class.',
         'The useful outcome is not just that traffic reaches vLLM. The useful outcome is that the system can answer operational questions: which CRD revision served this answer, which scheduler score won, why did autoscaling fire, which tenant slice regressed, and which flag rolls the change back?',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary and official sources: KServe LLMInferenceService docs at https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview, KServe and llm-d cloud-native inference post at https://kserve.github.io/website/blog/cloud-native-ai-inference-kserve-llm-d, llm-d GitHub at https://github.com/llm-d/llm-d, llm-d production-grade KServe/vLLM post at https://llm-d.ai/blog/production-grade-llm-inference-at-scale-kserve-llm-d-vllm, and KServe project docs at https://kserve.github.io/website/.',
         'Study Kubernetes Reconciliation Case Study for the controller model, Kubernetes HPA Recommendation Ring for autoscaling state, Kubernetes Ingress Gateway Route DAG for traffic policy, SLO-Aware LLM Request Router for scheduling scores, LLM Serving Admission-Control Goodput Gate for front-door rejection, LLM Serving Autoscaling Warm Pool for cold-start control, LLM Model Rollout Shadow Canary Ledger for governed rollout, NVIDIA Dynamo Distributed Inference Control Plane for the fleet abstraction, and GenAI Trace Token Cost Ledger for request evidence.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why KServe llm-d Inference Service Control Plane moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

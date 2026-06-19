@@ -1,4 +1,4 @@
-// One image request, end to end: DNS picks the nearest edge, the edge's
+﻿// One image request, end to end: DNS picks the nearest edge, the edge's
 // LRU cache answers in milliseconds — or misses, and the whole machine
 // (load balancer, origin, cache-fill) springs into motion. Five topics
 // from this site, composed into the everyday miracle of a fast page load.
@@ -103,7 +103,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for CDN Request Flow. Follow one HTTP request through DNS, an edge cache, a load balancer, and the origin..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: `Why this exists`,
       paragraphs: [
         `A CDN puts cached copies of content at edge locations near users. The visualization follows a user in Mumbai requesting cat.jpg while the origin servers live in Virginia. A direct origin trip is slow because physics matters. The CDN tries the nearby Mumbai edge first. If the edge has the file, the origin is not involved. If the edge is cold, it fetches the file once, stores it, and the next local user gets the fast path.`,
         `This page composes several systems topics into one everyday request: How DNS Works chooses an edge, TCP: Handshake & Congestion Control carries bytes across each path, HPACK Dynamic Table HTTP/2 Case Study explains how repeated request headers shrink on an HTTP/2 connection, HTTP/3 over QUIC explains the modern stream mapping, QPACK Dynamic Table HTTP/3 explains the newer header-compression state, and the edge cache decides whether the request stops nearby or continues to origin.`,
@@ -117,7 +126,7 @@ export const article = {
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `The core insight is that many web responses are reusable if the cache key and freshness rules are correct. A JavaScript bundle with a content hash, an image, a font, or a video segment can be served to many users from the same nearby edge. The origin produces or stores the object once; the edge repeats delivery where latency is low.`,
         `The hard part is deciding when two requests are the same. URL, method, query string, Vary headers, cookies, authorization, device class, language, and cache-control policy can all change the cache key. A CDN is a distributed key-value store with freshness rules, not a magic speed layer.`,
@@ -131,7 +140,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual is proving`,
+      heading: `How it works (2)`,
       paragraphs: [
         `Read the request path as a sequence of cache decisions: browser cache, edge cache, shield or regional cache, then origin. Each miss moves the request closer to the expensive system; each hit saves latency, bandwidth, and origin capacity. The hit path is valuable because the origin is absent.`,
         `The miss path is just as important. The first user pays the long trip, but the edge stores the response under a cache key and freshness policy. The next local user receives the object nearby. That is the fill pattern behind the business value of a CDN: one slow request can warm a city or region if the object is safely reusable.`,
@@ -145,7 +154,7 @@ export const article = {
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `The data-structure cost of a hit is tiny; the infrastructure cost is enormous: edge sites, storage, network contracts, monitoring, and purge systems. Hit ratio is the business metric. Static assets can reach very high hit rates; personalized or uncacheable responses may miss constantly. Tail Latency & p99 Thinking matters because users feel the misses and slow purges, not the average hit.`,
         `Invalidation is the hard part. When cat.jpg changes, every edge may hold the old copy until max-age expires or a purge propagates. Cache Invalidation & Versioning gives the safer pattern: version immutable files, use shorter TTLs for changeable data, and reserve emergency purges for mistakes.`,
@@ -160,7 +169,7 @@ export const article = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `A CDN is not magic. A miss still pays origin latency, database time, and the ocean crossing. If every response has max-age=0 or a unique cache key, the CDN becomes an expensive proxy. If you cache private responses without varying correctly, it becomes a security bug. If you deploy a security patch without purging or versioning, stale vulnerable code can keep serving until TTL expiry.`,
         `The operational failures are usually boring and severe: a purge that does not reach every edge, an origin shield that stampedes, a Vary header that explodes the cache, a personalized response cached publicly, or a long TTL attached to mutable content. Good CDN design starts with classifying content by mutability and privacy before tuning performance.`,
@@ -172,5 +181,78 @@ export const article = {
         `Study How DNS Works for edge selection, DNS Negative Cache & NXDOMAIN for failed-name caching, DNS Serve-Stale Resolver Cache for authoritative-outage resilience, Consistent Hashing for cache ownership, LRU Cache for eviction, Load Balancer for origin selection, HPACK Dynamic Table HTTP/2 Case Study for compressed request metadata, HTTP/3 over QUIC and QPACK Dynamic Table HTTP/3 for the modern web transport path, and Rate Limiter (Token Bucket) for stampede protection. Resource Hints: Preload & Preconnect shows how the browser warms or starts this path earlier, while HTTP Cache ETag Revalidation, HTTP Vary Cache-Key Normalization, and CDN Stale-While-Revalidate Shield show how edge and browser caches avoid blocking on unchanged, variant-specific, or temporarily unavailable origin content. TCP: Handshake & Congestion Control and QUIC Transport Streams & Loss Recovery explain the transport cost on each leg. Cache Invalidation & Versioning and Tail Latency & p99 Thinking are the production follow-ups once the basic flow works.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why CDN Request Flow moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

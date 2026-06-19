@@ -1,4 +1,4 @@
-// Tree traversals: four different orders to visit every node — and why
+﻿// Tree traversals: four different orders to visit every node — and why
 // each one exists. In-order on a BST comes out sorted; level-order is a
 // queue in action; pre/post-order are how you copy and delete trees.
 
@@ -38,9 +38,9 @@ export function* run(input) {
   const snapshot = () => treeState([...nodes.values()], rootId);
 
   const intros = {
-    'in-order': 'IN-ORDER visits left subtree → node → right subtree. On a binary search tree this produces the values in SORTED order — the structure of the tree does the sorting for you.',
-    'pre-order': 'PRE-ORDER visits node → left subtree → right subtree. The node comes FIRST — which is exactly the order you need to copy a tree or serialize it to disk (parents must exist before children).',
-    'post-order': 'POST-ORDER visits left subtree → right subtree → node. The node comes LAST — exactly the order for safely deleting a tree (children must be freed before their parent).',
+    'in-order': 'IN-ORDER visits left subtree â†’ node â†’ right subtree. On a binary search tree this produces the values in SORTED order — the structure of the tree does the sorting for you.',
+    'pre-order': 'PRE-ORDER visits node â†’ left subtree â†’ right subtree. The node comes FIRST — which is exactly the order you need to copy a tree or serialize it to disk (parents must exist before children).',
+    'post-order': 'POST-ORDER visits left subtree â†’ right subtree â†’ node. The node comes LAST — exactly the order for safely deleting a tree (children must be freed before their parent).',
     'level-order': 'LEVEL-ORDER visits the tree one level at a time, left to right — also called breadth-first. No recursion here: it runs on a QUEUE.',
   };
 
@@ -102,7 +102,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Tree Traversals. In-order, pre-order, post-order, and level-order — four ways to walk a tree, each with a job..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: `Why this exists`,
       paragraphs: [
         `A tree traversal is a disciplined order for visiting every node exactly once. The order is not cosmetic; it determines what information is available when a node is processed. In-order visits left subtree, node, right subtree. Pre-order visits node before children. Post-order visits children before node. Level-order visits nodes by depth from the root.`,
         `On a Binary Search Tree, in-order traversal emits keys in sorted order because every left key is smaller and every right key is larger by invariant. Pre-order is useful for copying or serializing structure because parents appear before descendants. Post-order is useful for deletion and expression evaluation because children finish before parents. Level-order is breadth-first traversal on a tree and uses a Queue instead of the call stack.`,
@@ -116,7 +125,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         "For each traversal, watch when the node itself is emitted relative to its children. In-order waits until the left subtree is done. Pre-order emits the node before descending. Post-order delays the node until both children finish. Level-order ignores recursion and works outward by depth.",
         "The highlighted frontier is the data structure doing the remembering. In recursive depth-first traversal, the call stack remembers ancestors whose right subtrees are unfinished. In iterative traversal, an explicit stack does that job. In level-order traversal, the queue stores the next nodes at the current and next depth.",
@@ -131,14 +140,14 @@ export const article = {
       ],
     },
     {
-      heading: `How it works`,
+      heading: `How it works (2)`,
       paragraphs: [
         `The depth-first orders are naturally recursive. To traverse a subtree, handle its left child, its own node, and its right child in the order demanded by the task. Recursion supplies the implicit stack of unfinished calls. The same walks can be written iteratively with an explicit stack, which is safer for very deep or adversarial trees.`,
         `Level-order is different. Enqueue the root. Repeatedly dequeue one node, visit it, and enqueue its children from left to right. That queue discipline guarantees all nodes at depth d appear before any node at depth d + 1. Graph BFS generalizes the same frontier idea to graphs, adding a seen set because graphs can cycle back to previously visited nodes.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Every traversal touches n nodes, so time is O(n). Depth-first space is O(h), where h is tree height: O(log n) for a balanced tree, O(n) for a chain. Level-order space is O(w), where w is maximum width; a complete tree can have about n / 2 nodes on its last level, so the queue can be O(n).`,
         `Edges are not repeatedly searched; each parent-child link is followed a constant number of times. Big-O Growth Rates matters when choosing the tree shape too: a balanced search tree keeps height logarithmic, while sorted insertions into an unbalanced tree can create a linear chain.`,
@@ -165,7 +174,7 @@ export const article = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `Traversal order is not insertion order. The same inserted values can yield different shapes depending on insertion sequence, and the same shape can be visited in several orders. In-order is sorted only when the tree obeys the search-tree invariant; it is not magically sorted for arbitrary trees. Duplicate-key policy also matters: equal keys must consistently go left, right, or into a count field.`,
         `Another pitfall is recursion depth. A million-node chain can overflow a JavaScript call stack. Use an explicit stack or queue for hostile input. Topological Sort may look like a traversal too, but it runs on directed dependency graphs and chooses in-degree-zero nodes rather than parent-child order.`,
@@ -178,5 +187,87 @@ export const article = {
         `Study the search-tree lesson to connect in-order traversal with sorted output. Queue and Graph BFS explain level-order traversal beyond trees. Recursion explains the implicit call stack behind depth-first walks. Rerooting DP: All Roots Tree DP, Virtual Tree LCA Compression, Trie (Prefix Tree), Binary Heap (Priority Queue), and Topological Sort show how different structures reuse the same visit-each-node discipline for different jobs.`,
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Tree Traversals moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

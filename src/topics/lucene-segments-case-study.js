@@ -192,59 +192,59 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: `Why this exists`,
       paragraphs: [
         `Lucene segments exist because a search engine must ingest documents while readers keep searching a stable index. Rewriting one giant inverted index in place would make concurrency, crash recovery, caching, and deletes much harder. Immutable segments give searchers point-in-time files while writers create new index pieces.`,
       ],
     },
     {
-      heading: `The Obvious Approach`,
+      heading: `The obvious approach`,
       paragraphs: [
         `The reasonable first attempt is one mutable index. Insertions update term dictionaries and postings in place; deletions remove old postings; readers use the same files. That sounds direct, but postings are compressed sorted structures, so arbitrary in-place changes are expensive and hard to isolate from active readers.`,
       ],
     },
     {
-      heading: `The Wall`,
+      heading: `The wall`,
       paragraphs: [
         `The wall is mutability under compression. Search structures are optimized for reads: sorted postings, term dictionaries, doc values, stored fields, and metadata. Fast writes want append-like behavior, while fast reads want fewer compact structures. Segment architecture separates those demands and pays reconciliation later.`,
       ],
     },
     {
-      heading: `The Core Insight`,
+      heading: `The core insight`,
       paragraphs: [
         `Treat each flushed batch as a complete immutable searchable index. A commit point records which segments are live. Searchers open a stable segment set. Updates become delete plus add. Background merges rewrite groups of segments into larger segments, reclaiming deleted documents and improving future search locality.`,
       ],
     },
     {
-      heading: 'Reading the visualization',
+      heading: 'How to read the animation',
       paragraphs: [
         `In the segment-lifecycle view, read every flushed segment as a complete mini index. New documents do not mutate one shared postings structure. They become new immutable files that a later searcher can include in its point-in-time segment set.`,
         `In the merge-economics view, watch Lucene pay back the debt created by immutability. Small segments and delete markers make writes and refreshes cheap at first, but search fanout and wasted deleted-document space eventually require background merges.`,
       ],
     },
     {
-      heading: `How It Works`,
+      heading: `How it works`,
       paragraphs: [
         `IndexWriter buffers documents and flushes new segment files. A segment contains term dictionaries, postings, positions, stored fields, doc values, norms, and metadata. Searchers query every live segment and combine results. Delete markers hide old documents until a merge physically rewrites the surviving data.`,
         `A commit point is the durable list of live segments. Near-real-time readers can see newly flushed segments before a full commit, but the core idea is the same: readers see a stable set of immutable files while writers continue producing future files.`,
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: `Why it works`,
       paragraphs: [
         `Immutability makes reader isolation simple: an open searcher can keep using old segment files while new files are written. Publishing a new generation changes metadata about which files are live, not the bytes under old readers. Merges are safe because they create replacement segments before old ones disappear from future views.`,
         `That is the concurrency win. A query does not need to lock a mutable postings list while indexing changes it. It reads a stable generation, while writers prepare the next generation beside it.`,
       ],
     },
     {
-      heading: `Cost and Behavior`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `The tax is merge economics. Too many small segments increase per-query fanout. Too much merging consumes IO and CPU. Deleted documents occupy space until rewritten away. Near-real-time refresh makes documents visible sooner but can create more small segments. Production systems tune refresh interval, merge policy, disk bandwidth, and indexing batch size together.`,
         `There is no free setting. A very short refresh interval improves freshness but creates many small segments. Aggressive merging reduces search overhead but steals IO from indexing and querying. Force merges can be useful after an index becomes read-only, but dangerous during active ingestion.`,
       ],
     },
     {
-      heading: `Operational checklist`,
+      heading: `How it works`,
       paragraphs: [
         `Watch segment count, deleted-document percentage, merge backlog, refresh time, indexing throughput, query latency, disk bandwidth, and cache warmup after large merges. Segment problems usually appear as a system curve, not as one isolated metric.`,
         `Tune refresh interval and merge policy together. Refresh controls when new segments become visible; merge policy controls how the system pays down the many-small-segment debt. A change to one side often moves pressure to the other.`,
@@ -252,21 +252,21 @@ export const article = {
       ],
     },
     {
-      heading: `Where It Wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `Lucene segments power full-text search, log search, e-commerce search, observability search, document retrieval, and search-backed analytics through Lucene, Solr, Elasticsearch, OpenSearch, and embedded applications. The pattern also teaches the LSM-like storage lesson: immutable pieces simplify reads, while background compaction pays cleanup cost.`,
         `They also make crash recovery and reader isolation easier. A searcher can keep an old view while a writer publishes a new generation, and recovery can reason about committed segment metadata rather than a half-mutated monolithic index.`,
       ],
     },
     {
-      heading: `Where It Fails`,
+      heading: `Where it fails`,
       paragraphs: [
         `A Lucene update is not an in-place row update; it is delete plus add. Force-merging at the wrong time can create heavy IO and hurt active indexing. Segment count, deleted-doc percentage, merge backlog, and refresh cadence are operational signals. The LSM analogy is useful but incomplete because Lucene segments contain search-specific structures, not only sorted key-value runs.`,
         `It also fails when users expect database update semantics. Document ids can change after update, old versions remain until merge, and disk usage may grow while deletes wait for reclamation. Search freshness and storage cleanup are separate knobs.`,
       ],
     },
     {
-      heading: `Worked Example`,
+      heading: `Worked example`,
       paragraphs: [
         `A log search service ingests documents continuously and refreshes every second. Each refresh makes recent documents searchable, but also increases the number of small segments. Queries now fan out across more readers, while deletes from retention policies stay as markers until merges rewrite surviving documents.`,
         `If the team lowers refresh to 100 milliseconds, dashboards feel fresher but merge pressure rises. If it force-merges during peak ingest, indexing latency spikes. The right answer is not freshness at any cost; it is a measured balance between refresh interval, ingest rate, query latency, disk bandwidth, and merge backlog.`,
@@ -279,7 +279,7 @@ export const article = {
       ],
     },
     {
-      heading: `Operational case study`,
+      heading: `How it works`,
       paragraphs: [
         `An observability cluster ingests logs into hourly indexes. During an incident, ingest spikes and refreshes keep dashboards current. That creates many small segments, while retention deletes mark old documents without immediately reclaiming space. Search latency begins to rise because every query fans out over more segment readers.`,
         `The fix is not one magic setting. The team may lengthen refresh slightly, increase indexing batches, throttle merges less during quiet hours, move old time partitions to read-only storage, and force-merge only sealed indexes. Each move changes freshness, write throughput, search latency, and disk pressure.`,
@@ -289,16 +289,58 @@ export const article = {
     {
       heading: `Implementation checklist`,
       paragraphs: [
-        `Treat updates as delete-plus-add in application design. If a product expects stable document ids, external ids and versioning need to live above Lucene's internal per-segment doc ids. Internal doc ids are implementation details that can change as segments merge.`,
-        `Plan for warmup after large merges. A new merged segment may be better for future queries, but it also replaces files that were hot in the operating-system cache. Search latency can wobble while the new segment's term dictionaries, postings, and doc values become hot.`,
+        `Treat updates as delete-plus-add in application design. If a product expects stable document ids, external ids and versioning need to live above Lucene\'s internal per-segment doc ids. Internal doc ids are implementation details that can change as segments merge.`,
+        `Plan for warmup after large merges. A new merged segment may be better for future queries, but it also replaces files that were hot in the operating-system cache. Search latency can wobble while the new segment\'s term dictionaries, postings, and doc values become hot.`,
         `Do not confuse commit with refresh. A commit is the durable index generation. A near-real-time refresh opens a reader on recent segment changes. Products often care about refresh latency, while disaster recovery cares about commit durability.`,
       ],
     },
     {
-      heading: `Sources and Study Next`,
+      heading: `Study next`,
       paragraphs: [
         `Primary sources: Lucene index package summary at https://lucene.apache.org/core/9_9_1/core/org/apache/lucene/index/package-summary.html, Lucene file format notes at https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/codecs/lucene90/package-summary.html, and Solr segment merging documentation at https://solr.apache.org/guide/solr/latest/configuration-guide/index-segments-merging.html. Study Inverted Index, LSM Tree, Roaring Bitmaps, Database Indexing, and ClickHouse MergeTree Case Study next.`,
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for lucene-segments-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

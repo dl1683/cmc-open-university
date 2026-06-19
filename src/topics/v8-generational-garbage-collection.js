@@ -199,104 +199,59 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The mark-and-sweep view shows a heap graph with roots, live objects (A through D), and one unreachable object (E). Active nodes are the current marking frontier. Found nodes are confirmed live. Removed nodes are reclaimed garbage.',
+        'Gray in the tri-color table is the worklist frontier. When a node turns black, all its children have been discovered. Any node still white when the worklist empties is unreachable and will be swept.',
+        'The generational view shows the object lifecycle: allocation into young space, minor GC scavenging, promotion to old space, and the write barrier that records old-to-young pointers. The pause plot contrasts stop-the-world collection against incremental slicing.',
+        'At each frame, ask: which objects are proven live, which are still unvisited, and what invariant lets the collector skip work safely.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `V8 garbage collection exists because JavaScript programs allocate constantly while programmers do not manually free most objects. Closures, arrays, strings, promises, DOM wrappers, request records, and engine-internal objects appear and disappear as code runs.`,
-        `The runtime must reclaim memory without changing program behavior. If running code can still reach an object, the object must survive. If no root can reach it, the object can be reclaimed even if it points to other unreachable objects.`,
-        `The runtime must also protect responsiveness. A browser tab can allocate while a user scrolls or types. A Node service can allocate many short-lived request objects per second. V8 needs a collector that is correct as a graph algorithm and practical as a scheduler for cleanup work.`,
+        'JavaScript programs allocate constantly. Closures, arrays, strings, promises, DOM wrappers, request records, and engine-internal objects appear and disappear as code runs. Programmers do not call free.',
+        'The runtime must reclaim memory without changing program behavior. If running code can still reach an object, the object must survive. If no root can reach it, the object is reclaimable even if it points to other unreachable objects.',
+        'The runtime must also protect responsiveness. A browser tab allocates while a user scrolls or types. A Node service allocates many short-lived request objects per second. The collector must be correct as a graph algorithm and practical as a scheduler that avoids freezing the application.',
+        'John McCarthy invented the first garbage collector in 1960 for Lisp. His mark-and-sweep algorithm traced reachable cells from a root set, then swept unmarked cells into a free list. Every modern tracing collector descends from that idea.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is manual memory management, but JavaScript does not ask ordinary application code to call free. That choice makes the language easier to use, but it moves lifetime decisions into the engine.`,
-        `A second obvious approach is reference counting. Count incoming references and reclaim an object when the count reaches zero. The wall is cycles: two unreachable objects can point to each other and keep nonzero counts. JavaScript object graphs create cycles easily through closures, DOM references, Maps, and application data structures.`,
-        `A third obvious approach is one large stop-the-world heap collection. Pause JavaScript, trace everything, reclaim garbage, and resume. That is simple to explain, but it can cause long pauses. V8 therefore uses tracing plus generations, barriers, incremental work, concurrent work, and compaction policies.`,
+        'The first obvious approach is manual memory management. C and C++ programmers call malloc and free (or new and delete). This works, but it demands that the programmer prove every object\'s lifetime. Use-after-free, double-free, and memory leaks are the cost of getting that proof wrong. JavaScript chose not to impose that burden.',
+        'The second obvious approach is reference counting. Each object tracks how many incoming references it has. When the count drops to zero, the object is freed immediately. Reference counting has real strengths: reclamation is prompt, pauses are small and predictable, and the mechanism is easy to understand. CPython, Objective-C (with ARC), and Swift use reference counting as a primary strategy.',
+        'Reference counting works well for trees and acyclic graphs. It fails on cycles. If object A points to B and B points back to A, both counts stay at 1 even after every external reference is gone. JavaScript object graphs create cycles easily through closures, DOM parent-child links, Map entries, and mutual references in application data structures. A pure reference counter leaks every cycle.',
+        'Cycle collectors (like the one Firefox pairs with its reference counter for DOM objects) can detect and break cycles, but they add a secondary tracing pass, which partly negates the simplicity advantage. V8 chose full tracing from the start.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is reachability. The heap is a directed graph. Roots come from stacks, globals, handles, registers, and engine internals. An object is live if some root can reach it by following references. Unreachable objects are garbage, even if they form cycles.`,
-        `The tracing invariant is: after marking finishes, every reachable object is marked and every unmarked object is unreachable. Tri-color marking maintains that search with white, gray, and black states. Gray objects are known live but not fully scanned. Black objects are scanned. White objects have not been reached yet.`,
-        `The generational invariant is: a young-only collection must still see every old-to-young pointer. V8 uses write barriers and remembered sets so minor GC can trace young objects without scanning the whole old generation every time.`,
-        `These invariants let the collector be both correct and fast in the common case. Reachability gives correctness. Generations exploit the fact that many new objects die quickly.`,
+        'A single stop-the-world tracing pass is correct but brutal. McCarthy\'s original collector paused the entire program, traced every reachable cell, swept everything else, and then resumed. For a small Lisp environment that was fine. For a modern JavaScript heap that can be hundreds of megabytes, a full pause can take tens or hundreds of milliseconds.',
+        'A 100ms pause drops six animation frames. A 200ms pause is perceptible as a stutter in scrolling, typing, or audio playback. Server-side, a long GC pause stalls every in-flight request. The wall is not correctness; mark-and-sweep is correct. The wall is latency.',
+        'The problem compounds with heap size. Tracing visits every live object. Sweeping inspects every dead region. Doubling the heap roughly doubles the pause. Applications that need large heaps and low latency cannot afford a naive stop-the-world collector.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        `A major tracing collection starts from roots and pushes reached objects onto a worklist. The collector repeatedly pops a gray object, scans its fields, marks newly reached children gray, and then marks the scanned object black. When the worklist is empty, every reachable object has been discovered.`,
-        `After marking, sweeping reclaims memory occupied by unmarked objects. Some memory can go into free lists. Some regions can be reused wholesale. A compacting collector can also move live objects together to reduce fragmentation, but then all references to moved objects must be updated safely.`,
-        `A minor collection focuses on the young generation. New objects are allocated cheaply, often by bumping a pointer in young space. During a scavenge, live young objects are copied to a survivor area or promoted to old space after surviving enough collections. Dead young objects are left behind.`,
-        `Write barriers connect the two worlds. When old code stores a pointer to a young object inside an old object, the barrier records that slot in a remembered set. The next minor GC treats those remembered slots as extra roots into young space.`,
-        `V8's modern work, often discussed under the Orinoco project, adds parallel, incremental, and concurrent phases. The aim is not merely total throughput. It is shorter user-visible pauses while preserving the same reachability semantics.`,
+        'The core insight is reachability, not reference counting. The heap is a directed graph. Roots come from stacks, globals, handles, registers, and engine internals. An object is live if and only if some root can reach it by following references. Unreachable objects are garbage, even if they form cycles among themselves.',
+        'The tracing invariant: after marking finishes, every reachable object is marked and every unmarked object is unreachable. Tri-color marking maintains that invariant with three states. White means unseen. Gray means seen but children not fully scanned. Black means fully scanned. The gray set is the frontier of a graph traversal. When it empties, every reachable object is black.',
+        'The strong tri-color invariant states: no black object may point directly to a white object. If a black object could hide a white child, the collector would never discover that child and would incorrectly reclaim it. Write barriers enforce this invariant when the mutator (running JavaScript) modifies references during concurrent or incremental marking.',
+        'The generational insight is a scheduling optimization built on the generational hypothesis: most objects die young. Empirically, in languages like Java, JavaScript, ML, and Haskell, 80-95% of newly allocated objects become unreachable before the next collection. If the collector partitions the heap by age and collects the young partition frequently, it reclaims most garbage cheaply without scanning long-lived objects every time.',
       ],
     },
     {
-      heading: 'What the visuals show',
+      heading: 'How it works',
       paragraphs: [
-        `The mark-and-sweep view is a graph search. Roots reach A, A reaches B and C, and B or C reaches D. E is the contrast case: it may contain fields, but no root reaches it, so the sweep phase can reclaim it.`,
-        `The tri-color table names the invariant. White is not yet reached, gray is the frontier, black is fully scanned. During incremental or concurrent marking, JavaScript keeps mutating the graph, so barriers are needed to keep a black object from hiding a white child.`,
-        `The generational view is a lifecycle. Allocation enters young space, minor GC copies survivors, repeated survivors promote to old space, and major GC handles older debt less often. The barrier node is the remembered-set path that keeps young-only collection correct.`,
-        `The pause plot teaches a scheduling limit. Slicing and background work can reduce a single long pause, but the work still exists. The runtime pays with barriers, coordination, and bookkeeping.`,
+        'Mark phase: the collector pushes every root onto a gray worklist. It repeatedly pops a gray object, scans its fields, marks newly discovered children gray, and marks the scanned object black. When the worklist empties, every reachable object is black and every white object is garbage.',
+        'Sweep phase: the collector walks memory and reclaims every white (unmarked) region. In V8, some pages go onto free lists for reuse; others are returned to the OS. A compacting collector can also relocate live objects to eliminate fragmentation, but relocation requires updating every pointer to every moved object.',
+        'Minor (young-generation) collection: new objects are allocated by bumping a pointer in a small young space (typically 1-8 MB in V8). When young space fills, a scavenge copies live young objects to a survivor area. Objects that survive enough scavenges are promoted to old space. Dead young objects, which are the majority, cost nothing to reclaim because the young space is simply reused.',
+        'Write barriers: when old-generation code stores a reference to a young object inside an old object, the write barrier records that slot in a remembered set. The next minor GC treats remembered-set entries as additional roots into young space. Without this, a young object reachable only through old space would be incorrectly collected.',
+        'Incremental marking: instead of one long pause, V8 breaks the mark phase into small time slices interleaved with JavaScript execution. Each slice processes a bounded amount of the gray worklist. Write barriers record any mutations that happen between slices so the collector does not miss newly created references.',
+        'Concurrent marking: V8 runs marking work on background threads while JavaScript continues on the main thread. The background threads traverse the object graph and mark objects. Write barriers on the main thread ensure that mutations during concurrent marking do not violate the tri-color invariant. The final short pause at the end handles any remaining work and sweeps.',
       ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `In the mark-and-sweep view, roots point to object A. A points to B and C. B and C point to D. Object E is not reachable from any root. The collector marks A gray, scans A, discovers B and C, then scans them and reaches D. E stays white, so sweeping can reclaim it.`,
-        `In the generational view, new allocations enter young space through a fast allocation path. A minor GC copies survivors and promotes long-lived objects into old space. If old space later stores a pointer back into young space, the barrier node in the animation represents the remembered set entry that keeps that young object visible to minor GC.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Tracing works because reachability from roots is a precise operational definition of "may still be used." If no running code can reach an object through any reference path, reclaiming it cannot change program behavior. Cycles do not matter because the question is not "does someone point to me?" but "can a root reach me?"`,
-        `Tri-color marking is correct because it turns graph traversal into a maintained frontier. When the frontier is empty, there are no more reachable children to discover. Barriers protect that statement while the program mutates references during incremental or concurrent marking.`,
-        `Generational GC works because object lifetimes are highly skewed in many JavaScript workloads. Temporary objects die after a function call, render pass, request, or promise chain. Collecting young space frequently gets large memory returns for small scans.`,
-        `Remembered sets preserve correctness by adding back the old-to-young edges that a young-only scan would otherwise miss. Without them, a young object reachable only from old space could be reclaimed incorrectly.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `Garbage collection makes allocation and ownership easier for programmers, but it moves complexity into the runtime. Allocation can be close to a bump-pointer increment, yet the program later pays with CPU time, memory overhead, barriers, metadata, and occasional pauses.`,
-        `Generational collection is a bet on short object lifetimes. When the bet is right, minor GC is cheap and productive. When many objects survive, promotion can fill old space and move cost into major GC.`,
-        `Compaction reduces fragmentation and can improve allocation locality, but moving objects requires relocation metadata and reference updates. Incremental and concurrent work reduce long pauses, but they add synchronization, scheduling, and write-barrier complexity.`,
-        `Memory overhead is also real. The collector needs spaces, mark bits, remembered sets, free lists, worklists, allocation metadata, and sometimes evacuation or relocation state. The runtime is trading programmer simplicity for engine machinery.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `V8's generational collector wins on ordinary JavaScript allocation patterns: many short-lived objects, a smaller set of long-lived objects, and interactive workloads where pause time matters. Browser UI code, request handlers, parsers, and promise-heavy code often create many objects that die quickly.`,
-        `It also wins as a language design trade. Most JavaScript developers can write normal object code without manually proving ownership. The runtime carries the memory-management burden and offers tools such as heap snapshots when behavior goes wrong.`,
-        `The data-structure lesson carries beyond V8. Tracing is graph reachability. Young GC is a hot-region optimization. Remembered sets are an index of cross-region edges. Incremental marking is graph traversal scheduled in slices.`,
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        `Garbage collection cannot reclaim objects that are still reachable. A forgotten event listener, global cache, Map, closure, timer, or DOM reference can keep a large object graph alive. From the collector's point of view, that is not garbage. It is reachable memory that the program forgot how to stop using.`,
-        `Large heaps take longer to trace, compact, and manage. Short-lived allocation bursts can pressure young space. Long-lived object churn can promote too much data into old space. Moving collectors must also coordinate with optimized code, stack maps, handles, and native references.`,
-        `A common failure mode is accidental retention. For example, a request cache stores response objects forever, a closure captures a large array, or a UI component removes a DOM node but leaves a listener reachable. Heap snapshots usually show a retaining path from a root to the object; that path is the bug.`,
-        `Another failure mode is pause sensitivity. A workload can have acceptable average throughput but still suffer visible jank when major GC, compaction, or promotion debt lines up with user work. That is why GC tuning and allocation reduction often focus on tail latency, not just total memory.`,
-      ],
-    },
-    {
-      heading: 'Practical guidance',
-      paragraphs: [
-        `For day-to-day JavaScript, the useful habit is to think in reachability paths. When memory grows, ask what root still reaches the data. Browser and Node heap snapshots expose dominators and retainers because those structures match the collector's view of liveness.`,
-        `For performance, reduce needless allocation in hot paths, clear caches by policy, remove event listeners, avoid unbounded queues, and be cautious with long-lived objects that point to many young objects. Those choices help the collector by shrinking the live graph and reducing barrier traffic.`,
-        `Debug memory growth by finding retaining paths, not by guessing which objects "should" be dead. Debug pause problems by looking at allocation rate, old-space size, promotion, compaction, and long tasks. GC is often the messenger for an allocation pattern created elsewhere.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: V8 Orinoco overview at https://v8.dev/blog/trash-talk, V8 Concurrent Marking at https://v8.dev/blog/concurrent-marking, V8 Pointer Compression at https://v8.dev/blog/pointer-compression, and MDN JavaScript memory-management guide at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Memory_management. Study V8 Hidden Classes and Inline Caches, WeakRef and FinalizationRegistry, Escape Analysis and Scalar Replacement, Graph BFS, Queue, Tree Traversals, Buddy Allocator Free Lists, Slab Allocator and Size Classes, and Web Workers next.`,
-      ],
-    },
+    }
   ],
 };

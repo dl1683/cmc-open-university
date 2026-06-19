@@ -169,7 +169,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious dashboard is a wall of graphs. Put CPU, memory, latency, request rate, error count, queue depth, and cost on one page. Add red and green thresholds. Let an operator scan it.',
         'That works while the system is small and the reader already knows the service. It fails when the operator needs causality. Averages hide tail latency, wrong units hide scale errors, variables fan out into expensive queries, and panels without links strand the responder at the summary layer.',
@@ -177,14 +177,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core idea',
+      heading: 'The core insight',
       paragraphs: [
         'Treat every panel as a small data pipeline. Variables define scope. Queries fetch raw series, tables, logs, or traces from Prometheus, Loki, Tempo, SQL, cloud APIs, or another source. Grafana receives data frames. Transformations rename, join, filter, calculate, organize, or reshape fields. The visualization encodes the resulting fields for a human.',
         'The invariant is provenance: a reader should be able to trace a visible value back to its query, source frame, transform chain, unit, labels, and time range. If that chain is visible, the dashboard can support decisions. If it is hidden, the dashboard becomes decoration.',
       ],
     },
     {
-      heading: 'Reading the visualization',
+      heading: 'How to read the animation',
       paragraphs: [
         'In the panel-graph view, follow the arrows from dashboard to panel to query to data source to frame to transform to visualization. The key transition is not the final chart. It is the moment raw source data becomes a frame with fields that Grafana can transform and render.',
         'The variable node is deliberately separate. A service, tenant, region, or pod variable can make one dashboard reusable, but it can also multiply query cost and cardinality. When the variable edge lights up, ask whether the selector narrows the question or explodes the backend work.',
@@ -222,7 +222,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Grafana is strongest when many signals need to answer one operational question: rollout health, SLO burn, capacity saturation, cost by tenant, service overview, queue backlog, or incident triage. It works especially well when labels, exemplars, data links, and trace/log/profile integrations connect the summary to the evidence.',
         'It also fits teams with heterogeneous data sources. The dashboard can put Prometheus metrics, Loki logs, Tempo traces, SQL tables, cloud billing, and annotation data into one investigation path as long as the frame shape and labels stay coherent.',
@@ -236,11 +236,61 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Grafana dashboard docs at https://grafana.com/docs/grafana/latest/visualizations/dashboards/, transform docs at https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/query-transform-data/transform-data/, server-side expression docs at https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/query-transform-data/expression-queries/, data links docs at https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/configure-data-links/, exemplars docs at https://grafana.com/docs/grafana/latest/fundamentals/exemplars/, trace integration docs at https://grafana.com/docs/grafana/latest/visualizations/explore/trace-integration/, Grafana data-plane docs at https://grafana.com/developers/dataplane/, and alert-rule docs at https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rules/.',
         'Study Prometheus Rule Evaluation Alert State Machine for backend rule semantics, Alertmanager Routing and Inhibition Tree for notification routing, Metric Label Cardinality Control for variable fanout, Prometheus TSDB Case Study for what metric queries read, Distributed Tracing for drill-down, OpenTelemetry Collector for signal ingestion, and Flagger Progressive Delivery Canary for rollout dashboards.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for grafana-dashboard-query-transform-graph-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

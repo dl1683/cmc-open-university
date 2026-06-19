@@ -1,4 +1,4 @@
-// Kubernetes admission policy gate: API-server request path, mutating and
+﻿// Kubernetes admission policy gate: API-server request path, mutating and
 // validating phases, ValidatingAdmissionPolicy with CEL, webhooks, audit, and supply-chain checks.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -194,68 +194,133 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The Problem Admission Solves',
+      heading: 'How to read the animation',
       paragraphs: [
-        "Kubernetes is an API-driven system. Almost every meaningful change to a cluster begins as a write request to the API server: create a Pod, update a Deployment, patch a Secret, delete a RoleBinding, or scale a workload. Authentication answers who is calling. Authorization answers whether that caller may perform the verb on the resource. Admission answers a different question: should this particular object, in this particular shape, be allowed to become cluster state?",
-        "That third question exists because RBAC is intentionally coarse. A team may be allowed to create Pods in its namespace, but that does not mean every Pod spec is safe. One Pod may use an approved image digest and a restricted runtime profile. Another may use a mutable latest tag, mount the host filesystem, run privileged, or reference an image whose provenance cannot be verified. Both are create pods requests. RBAC cannot express the full object-level policy without becoming a brittle application-specific language.",
-        "The naive design is to let every controller, scheduler, runtime, or security scanner reject bad state later. That fails because bad objects have already entered etcd. Once unsafe desired state is persisted, other controllers may observe it, users may build automation around it, and security tooling has to race the system. Admission moves the decision to the write boundary. If a request fails admission, it never becomes the cluster's desired state."
+        'The "admission chain" view traces a write request from client through authentication, authorization, mutating admission, schema validation, validating admission (in-process CEL or external webhook), audit logging, and finally persistence to etcd. Active nodes are the current phase. Compare markers show upstream or downstream phases that contrast with the active one.',
+        'The "CEL policy binding" view shows how a ValidatingAdmissionPolicy object, a binding, parameter resources, and the incoming request feed into the CEL evaluator, which produces Warn, Audit, or Deny outcomes. The supply-chain gate at the end highlights where CEL stops and external verification begins.',
+        'In both views, removed markers mean persistence was blocked. Found markers mean a decision outcome is now determined. Follow the edges to see which inputs feed each decision point.',
       ],
     },
     {
-      heading: 'Core insight: gate the request path',
+      heading: 'Why this exists',
       paragraphs: [
-        "A write request reaches the API server as an authenticated HTTP request. The API server decodes the object, authenticates the caller, checks authorization, and then runs admission before persistence. Admission is not used for ordinary reads. It protects mutations: create, update, delete, connect, and related subresource operations depending on the resource and controller.",
-        "The path has two broad admission phases. Mutating admission runs first. Mutating controllers can add defaults, inject sidecars, set fields, or apply patches. After mutation, Kubernetes performs schema and object validation. Then validating admission runs. Validating controllers decide whether the final object is acceptable. That ordering is central. A security rule that must inspect the final Pod spec belongs in validating admission, not in an early mutating step that might see a draft object.",
-        "If any admission controller rejects the request, the API server returns an error and does not write the object to etcd. If a controller allows the request but emits warnings or audit annotations, the object may still be persisted while leaving evidence for users and operators. The decision record is the useful mental model: caller, operation, namespace, object, old object for updates, policy version, decision, message, warning, audit annotations, and persistence outcome."
+        'Kubernetes is API-driven. Every cluster mutation -- create a Pod, update a Deployment, patch a Secret -- enters through the API server as an HTTP request. Authentication identifies the caller. Authorization (RBAC) decides whether that caller may perform the verb on the resource. But RBAC is intentionally coarse: it grants "create Pods in namespace X," not "create Pods whose images are digest-pinned and whose containers are non-privileged." A team allowed to create Pods can submit a spec that mounts the host filesystem, runs as root, and pulls an unsigned image with a mutable tag.',
+        'Admission controllers exist to answer the question RBAC cannot: given that this caller is allowed to write this resource type, should this particular object be allowed to become cluster state? They sit on the write path between authorization and etcd. If admission rejects a request, the object never persists. No controller ever sees it. No automation can build on it. The unsafe state simply does not exist.',
+        'Without admission, security becomes a race. Scanners, runtime policies, and controllers all try to detect and remediate bad state after it has already been committed. Every tool that reacts to persisted state instead of preventing it is slower, more complex, and easier to bypass than a gate at the write boundary.',
       ],
     },
     {
-      heading: 'Mutating Admission And Its Limits',
+      heading: 'The obvious approach',
       paragraphs: [
-        "Mutating admission is best for mechanical normalization. A namespace might require labels, default resource requests, a runtime class, a sidecar, or an image pull secret. A platform team may use mutation to save application teams from repeating boilerplate. Built-in Kubernetes admission plugins also use this phase for defaulting and service account behavior.",
-        "The wall appears when mutation becomes policy enforcement. Mutation can hide problems instead of rejecting them. It can also create ordering hazards: two mutating webhooks may patch the same field, or a later mutator may change the field that an earlier check assumed was safe. Kubernetes reinvocation helps some cases, but it does not turn mutation into a clean final-state verifier.",
-        "A good rule is simple: mutate to make valid intent explicit; validate to reject unsafe intent. If a Pod omits a seccomp profile and the platform has a harmless default, mutation may fill it in. If a Pod explicitly asks for privileged mode in a restricted namespace, validation should reject it with a precise reason. The caller should understand what policy was violated and how to fix the object."
+        'The first generation of Kubernetes policy enforcement used admission webhooks: external HTTP services that the API server calls for every matching write request. A team deploys a webhook service (often OPA/Gatekeeper or Kyverno), registers a ValidatingWebhookConfiguration, and writes policy in Rego or YAML. The webhook receives the admission review, evaluates it, and returns allow or deny.',
+        'This works, and thousands of clusters run it today. Webhooks can execute arbitrary logic: call a registry, verify a signature, query an external database, run a Rego program with hundreds of rules. The ecosystem is mature, the tooling is battle-tested, and the policy languages are expressive.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Policy language', 'Runs where', 'Latency', 'Failure mode', 'Maturity'],
+          rows: [
+            ['Admission webhook (raw)', 'Any (Go, Python, etc.)', 'External pod', 'Network RTT + eval', 'Webhook down = fail-open or block all writes', 'GA since v1.9'],
+            ['OPA / Gatekeeper', 'Rego', 'External pod (controller)', 'Network RTT + Rego eval', 'Same as webhook + OPA sync lag', 'Mature, CNCF graduated'],
+            ['Kyverno', 'YAML + CEL (some Rego)', 'External pod (controller)', 'Network RTT + policy eval', 'Same as webhook', 'CNCF incubating'],
+            ['ValidatingAdmissionPolicy (KEP-3488)', 'CEL', 'In-process (API server)', 'Microseconds (no network)', 'API server process = always available', 'GA in v1.30'],
+          ],
+        },
       ],
     },
     {
-      heading: 'ValidatingAdmissionPolicy And CEL',
+      heading: 'The wall',
       paragraphs: [
-        "ValidatingAdmissionPolicy is Kubernetes' in-process policy mechanism based on CEL, the Common Expression Language. A policy stores validation expressions. A binding attaches that policy to a resource scope and chooses actions such as Deny, Warn, or Audit. Optional parameter resources let the same policy logic use different settings in different namespaces or environments.",
-        "CEL is a strong fit when the required facts are already in the admission request. A policy can inspect object fields, oldObject fields during updates, request user information, namespace data made available to admission, and parameter values. For example, a policy can require image references to use digests, reject hostPath volumes, require labels, limit replica counts, or enforce that a field may only change in one direction.",
-        "This works because the policy is evaluated inside the API server process. There is no network call to a webhook service, no separate deployment to keep alive, and no extra serialization round trip. The tradeoff is that CEL is deliberately bounded. It should not call registries, fetch transparency logs, query vulnerability databases, or perform long-running cryptographic verification against remote state. The policy language is for fast, deterministic checks over local request data.",
-        "A clean design separates policy logic, binding, and parameters. The policy says what condition must hold. The binding says where it applies and what happens on failure. Parameters say which registries, labels, owners, or limits are acceptable for a particular environment. This split lets one platform rule serve dev, staging, and production without copying policy text."
+        'Webhooks put an external HTTP service on the critical write path of the API server. Every matching request -- every Pod create, every Deployment update -- blocks until the webhook responds or times out. The invariant that must hold: the webhook service must be reachable, healthy, and fast for every write in the cluster, at all times, including during upgrades, node failures, and burst deployments.',
+        'That invariant breaks in practice. A webhook pod gets evicted during a node drain. The webhook service has a memory leak and starts timing out. A broad match rule (all resources, all namespaces) turns a single-service outage into a cluster-wide write freeze. The failurePolicy setting forces a binary choice: Fail (block all matching writes when the webhook is down) or Ignore (allow unchecked writes). Neither is good. Fail-closed causes outages. Fail-open defeats the policy.',
+        'The deeper problem is architectural. Webhooks require deploying, monitoring, scaling, and upgrading a separate service that sits between the API server and etcd. That service becomes the most critical dependency in the cluster after etcd itself, but it gets less operational attention. Every webhook is a latency tax on every matching write and a reliability risk during control-plane instability -- exactly when you most need policy enforcement to work.',
       ],
     },
     {
-      heading: 'Webhook Admission',
+      heading: 'How it works',
       paragraphs: [
-        "Admission webhooks extend the API server with HTTP callbacks. Mutating webhooks return patches. Validating webhooks return allow or deny decisions. They are useful when policy needs application-specific logic, shared libraries, external evidence, or integrations that do not fit CEL.",
-        "The price is operational risk. A validating webhook is on the write path for matching requests. If it is slow, the API server waits until timeout. If it is down, the configured failurePolicy decides whether matching requests fail closed or are allowed to proceed. If the webhook has broad match rules, a small service outage can block cluster-wide writes. If it performs unbounded network calls, every deployment can become dependent on registry latency, database latency, or an external security service.",
-        "Production webhooks need narrow match rules, short timeouts, explicit failure policy, high availability, metrics, and careful dependency control. They should return precise messages. They should avoid side effects in validation. They should be versioned like any other control-plane component. A webhook that checks ten unrelated policies and returns policy denied is not an enforcement system; it is an outage and debugging machine.",
-        "For supply-chain checks, the best shape is often a verifier cache. A separate controller watches image references or release artifacts, verifies signatures and provenance out of band, and stores bounded evidence locally. Admission can then make a fast decision from cached verification state. That keeps expensive registry, Rekor, certificate, or SLSA lookups away from the hottest part of the API server write path."
+        'ValidatingAdmissionPolicy (KEP-3488, GA in Kubernetes 1.30) moves policy evaluation inside the API server process. No webhook. No network call. No external service to keep alive.',
+        {
+          type: 'diagram',
+          label: 'Admission flow',
+          text: 'Client ---> API Server: [AuthN] ---> [AuthZ] ---> [Mutating Admission] ---> [Schema Validation] ---> [Validating Admission: CEL + Webhooks] ---> [Audit Log] ---> etcd',
+        },
+        'The mechanism uses three Kubernetes objects. A ValidatingAdmissionPolicy defines one or more CEL expressions that evaluate the admission request and return true (allow) or false (deny). A ValidatingAdmissionPolicyBinding connects the policy to a resource scope (which namespaces, which resource types, which operations) and declares the enforcement action: Deny, Warn, or Audit. An optional parameter resource (any cluster object referenced by the binding) supplies environment-specific values like allowed registries, required labels, or replica limits.',
+        'When a matching write request arrives, the API server evaluates the CEL expressions in-process. The expression has access to object (the incoming resource), oldObject (the previous version on update), request (metadata like user, operation, namespace), and params (the referenced parameter resource). If any expression returns false, the action fires: Deny rejects the request, Warn returns the object but attaches a warning header, Audit persists the object but writes an audit annotation.',
       ],
     },
     {
-      heading: 'Concrete Image Gate',
+      heading: 'Why it works',
       paragraphs: [
-        "Consider a production namespace that requires four things before any Pod can run. Images must be pinned by digest, not by mutable tags. Images must be signed by the organization's release workflow. Provenance must show the artifact came from an approved repository and hardened builder. The Pod must use restricted runtime settings such as non-root execution, no privileged mode, and an approved seccomp profile.",
-        "The admission design should divide those checks by evidence location. CEL can reject image strings that do not contain @sha256. CEL can reject privileged containers, host namespace sharing, missing seccomp configuration, and disallowed volume types because those facts are in the Pod spec. A webhook or cached verifier should handle signature, certificate identity, transparency-log inclusion, and SLSA provenance because those facts live outside the object.",
-        "On success, the request is persisted and audit annotations can record the policy version and verification summary. On failure, the message should name the exact missing link: image must be pinned by digest, signature identity did not match release workflow, provenance builder was not approved, or container requests privileged mode. Operators should also be able to answer how many requests were denied, which namespaces fail most often, how old verifier cache entries are, and whether failurePolicy was ever used to allow a request during verifier outage."
+        'The correctness argument rests on two properties. First, validating admission sees the final object. Mutating admission and schema validation have already run. No later phase will change the object before persistence. A CEL expression that checks object.spec.containers[0].image sees exactly what will be stored in etcd if the request is allowed. Second, CEL is deterministic and bounded. It has no side effects, no network access, no unbounded loops, and a compile-time cost estimate. The API server can enforce a maximum evaluation cost per policy, preventing a malicious or buggy expression from blocking the control plane.',
+        'The availability argument is equally important. Because CEL runs inside the API server, it is available whenever the API server is available. There is no external dependency to fail, no network timeout to hit, no separate deployment to scale. The failure mode of the policy engine is the same as the failure mode of the API server itself. If you can write to the cluster, the policy is evaluated. That eliminates the entire class of "webhook is down, should we fail open or closed" problems.',
+        'The limitation is explicit: CEL can only inspect data available in the admission request. It cannot fetch external state. Signature verification, provenance checks, vulnerability scans, and anything that requires a network call still needs a webhook or a cached-evidence pattern. CEL handles the "is this object shaped correctly" question. Webhooks handle the "does external evidence support this object" question.',
       ],
     },
     {
-      heading: 'Failure Modes And Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Admission is not a replacement for reconciliation. Admission makes a bounded decision about one request. Controllers handle long-running work, retries, cleanup, repair, status, and convergence. If policy needs to create cloud resources, scan images asynchronously, rotate certificates, or repair drift, that belongs in a controller. Admission may block unsafe writes or require a reference to existing evidence, but it should not become a general workflow engine.",
-        "The hardest tradeoff is fail open versus fail closed. Fail closed protects the cluster when the verifier is unavailable, but it can stop deployments and emergency fixes. Fail open preserves availability but admits objects that were not fully checked. Warn or Audit actions are useful during rollout, but they are not enforcement. Mature systems choose by risk tier: fail closed for production namespaces and privileged resources, warn for migration windows, and fail open only when the residual risk is explicit and monitored.",
-        "Evaluation signals are concrete. Track admission latency by policy and webhook. Track rejection counts by reason. Track timeout and error rates. Track cache hit rate and evidence age for external verification. Track policy version adoption. Review audit annotations for high-risk allows. Load-test the webhook under deployment bursts. Run dry-run or warn mode before enforcing new rules. A policy that is theoretically correct but frequently bypassed, timed out, or misunderstood is not doing its job."
+        'CEL policy evaluation adds microseconds to the write path -- comparable to schema validation, orders of magnitude faster than a webhook round-trip (typically 5-50ms). The API server estimates CEL expression cost at compile time and rejects policies that exceed the cost budget, so evaluation time is bounded regardless of expression complexity.',
+        'Operational cost is where the real savings appear. A webhook requires a Deployment, a Service, TLS certificates, health checks, resource requests, monitoring, PodDisruptionBudgets, and upgrade coordination. A ValidatingAdmissionPolicy requires two to three YAML objects. No pods to deploy. No TLS to rotate. No availability to monitor. For structural checks -- label requirements, image digest pinning, resource limit enforcement, field immutability -- the total cost of ownership drops sharply.',
+        'The complexity tradeoff: CEL is less expressive than Rego or a general-purpose language. Complex policy graphs with cross-resource reasoning (e.g., "allow this Pod only if a matching NetworkPolicy exists") require either a webhook or a controller that pre-computes the answer into a label or annotation that CEL can inspect. The right split is usually CEL for object-local checks and webhooks for evidence that lives outside the admission request.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Where it wins',
       paragraphs: [
-        "Primary sources are the Kubernetes Admission Control, Dynamic Admission Control, and ValidatingAdmissionPolicy documentation. The next concepts to study are Kubernetes Reconciliation for what happens after accepted state enters the cluster, OPA/Rego for richer policy-decision graphs, Sigstore keyless signing for image identity, SLSA for provenance expectations, seccomp for runtime containment, and Zanzibar-style authorization for relationship-based access control. Together they show the boundary between who may ask, what object shape is safe, what evidence supports the artifact, and how the system converges after the write."
+        'Shift-left security policies that inspect the object itself. Requiring image digests instead of tags, blocking privileged containers, enforcing resource limits, requiring specific labels, preventing hostPath mounts, enforcing field immutability on updates -- these are all pure functions of the admission request and are natural CEL expressions.',
+        {
+          type: 'code',
+          language: 'yaml',
+          text: `apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: require-digest-pinned-images
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c,
+          c.image.contains('@sha256:'))
+      message: "All container images must be pinned by digest (@sha256:), not by tag."`,
+        },
+        'Platform teams managing multi-tenant clusters benefit most. One ValidatingAdmissionPolicy with parameterized bindings per namespace replaces dozens of duplicated webhook rules. Dev gets lenient parameters, staging gets moderate ones, production gets strict ones -- all from the same policy object. Policy changes are standard Kubernetes API operations with RBAC, audit logging, and dry-run support built in.',
+        'Organizations migrating from OPA/Gatekeeper or Kyverno can adopt ValidatingAdmissionPolicy incrementally. Start with Warn or Audit actions to verify the CEL expressions match existing policy behavior, then promote to Deny. The two systems can coexist during migration.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'CEL cannot replace webhooks for checks that require external state. Image signature verification needs a call to a registry or Sigstore transparency log. SLSA provenance verification needs to fetch and validate an attestation bundle. Vulnerability scanning needs a database lookup. These require either a webhook or a controller that pre-caches verification results for CEL to inspect.',
+        'Cross-resource policy is awkward. "Allow this Deployment only if a matching HorizontalPodAutoscaler exists" cannot be expressed in CEL because the admission request contains only the object being written. Workarounds exist (a controller that stamps a label, a parameter resource that lists approved combinations), but they add indirection. Rego and Kyverno handle cross-resource reasoning more naturally.',
+        'Admission is not reconciliation. It makes a point-in-time decision about a single write request. It cannot detect drift, repair state, handle async workflows, or enforce invariants that span multiple objects over time. A Pod that passes admission today may become non-compliant tomorrow if the policy changes. Continuous compliance requires a controller that watches existing resources and flags or remediates violations -- admission only gates new writes.',
+        {
+          type: 'note',
+          text: 'The fail-open vs. fail-closed tradeoff still exists for webhook-based checks. For CEL policies, the question disappears: the policy engine is always available because it runs inside the API server. This is the strongest operational argument for moving structural checks to CEL.',
+        },
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'KEP-3488: ValidatingAdmissionPolicy -- the design document for in-process CEL admission (kubernetes/enhancements repository).',
+            'Kubernetes documentation: Admission Controllers, Dynamic Admission Control, ValidatingAdmissionPolicy (kubernetes.io/docs).',
+            'CEL specification and Kubernetes CEL library reference for expression syntax and available functions.',
+            'OPA/Gatekeeper documentation for comparison with Rego-based policy (openpolicyagent.org).',
+            'Kyverno documentation for comparison with YAML-native policy (kyverno.io).',
+            'Sigstore (sigstore.dev) for keyless image signing and verification patterns that feed webhook-based admission.',
+          ],
+        },
+        'Study Kubernetes reconciliation next to understand what happens after an object passes admission and enters etcd. Study OPA/Rego if your policy requires cross-resource reasoning or complex decision graphs that exceed CEL expressiveness. Study Sigstore and SLSA provenance to understand the supply-chain verification that webhooks handle and CEL cannot. Study seccomp and AppArmor profiles to connect admission-time container restrictions to kernel-level runtime enforcement.',
       ],
     },
   ],
 };
+

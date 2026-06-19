@@ -226,6 +226,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Causal Forest Uplift Policy. Estimate heterogeneous treatment effects with honest forest leaves, then target the users whose predicted uplift justifies intervention..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Many interventions should not be sent to everyone. A coupon costs money. A notification can annoy a user. A retention call can waste staff time. A clinical treatment can carry risk. The useful targeting question is not "who has a high outcome probability?" It is "whose outcome changes because of the intervention?"',
@@ -233,7 +242,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is response modeling. Train a model to predict who will buy, renew, recover, or click, then target the highest scores. That often sends treatment to people who would have acted anyway. High response is not the same as high uplift.',
         'The other obvious approach is to estimate one average treatment effect and apply it to every person. That hides the policy problem. The average may be positive while one segment benefits strongly, another segment is unaffected, and a third segment is harmed.',
@@ -271,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The first cost is data. Honest forests spend data on split selection and effect estimation separately, so small datasets can become unstable. Leaves also need enough treated and control evidence. A beautiful tree structure is useless if a leaf has no real comparison.',
         'The second cost is causal discipline. Observational data needs overlap checks, propensity diagnostics, outcome nuisance modeling, and sensitivity analysis. Randomized holdouts are still needed to validate a targeting policy before it is trusted.',
@@ -279,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Causal forests win when the goal is a budgeted intervention and effects plausibly differ across people. They fit retention coupons, marketing campaigns, medical treatment targeting, collections outreach, student support programs, product nudges, and fraud review policies.',
         'They are especially useful when the organization can act on a ranked list. The value is not just an effect estimate; it is a treatment policy that can say who should be treated first under a fixed budget.',
@@ -293,7 +302,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked case study',
+      heading: 'Worked example',
       paragraphs: [
         'A subscription company can send a 20 percent renewal coupon to only 20,000 users. A normal response model ranks loyal users first because they have the highest renewal probability. Finance notices the campaign looks good by renewal rate but bad by profit because many targeted users would have renewed anyway.',
         'The company runs a randomized coupon experiment and trains a causal forest on pre-treatment covariates: tenure, usage trend, support tickets, plan price, prior discounts, renewal date, and product surface. The forest estimates that new price-sensitive users have +14 percentage points of renewal uplift, loyal heavy users have +1 point, and some chronic discount seekers have negative margin impact.',
@@ -314,5 +323,55 @@ export const article = {
         'Study Random Forest, Doubly Robust Estimation, Propensity Score Overlap Diagnostics, Causal Graphs, A/B Testing, and Multi-Armed Bandits next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for causal-forest-uplift-policy-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

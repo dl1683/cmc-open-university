@@ -255,6 +255,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for AI Capex Depreciation Utilization Ledger. A finance-control case study for AI infrastructure: GPU capex, construction-in-progress, depreciation clocks, utilization, refresh risk, and cost per accepted answer..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this ledger exists',
       paragraphs: [
         'AI infrastructure spending is not just a purchase order for GPUs. It is a chain of commitments: accelerator supply, network fabric, power, leases, construction-in-progress, placed-in-service dates, depreciation schedules, workload routing, and eventual refresh. A ledger exists because those commitments land in different systems and on different clocks.',
@@ -262,14 +271,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious spreadsheet and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to keep a finance spreadsheet with total GPU spend, divide by months of useful life, and then divide again by a rough utilization percentage. That is good enough for a board slide. It is not good enough to operate an AI platform.',
         'The wall appears when averages hide the real denominator. Interactive chat, RAG, coding agents, batch jobs, fine-tuning, and internal evaluation traffic use the same fleet in very different ways. Some work produces accepted answers. Some work retries, times out, violates policy, or occupies capacity without revenue. A single utilization number cannot say which product, route, or workload is carrying the depreciation burden.',
       ],
     },
     {
-      heading: 'Core insight: two clocks',
+      heading: 'The core insight',
       paragraphs: [
         'A GPU fleet has a finance clock and a useful-work clock. The finance clock starts when the asset is placed in service and depreciation begins. The useful-work clock advances only when workloads turn reserved capacity into accepted, billable, policy-compliant answers.',
         'The core insight is that unit economics improve only when those clocks are joined. Buying more capacity does not lower cost by itself. Cost falls when product demand, admission control, batching, prefix reuse, cache policy, and routing keep the depreciating assets doing valuable work.',
@@ -306,7 +315,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The ledger adds bookkeeping pressure. It needs stable asset identifiers, trace joins, allocation rules, cache and route metadata, and agreement between finance and platform teams. If the join keys are weak, the output becomes a false precision machine.',
         'High utilization is not automatically good. Pushing the fleet too hard can create queueing, p99 spikes, failed requests, poor answer quality, and burned-out batch backlogs. Low utilization is not automatically bad either if it buys launch readiness, resilience, or regulatory isolation. The ledger should make that tradeoff visible instead of pretending one metric decides everything.',
@@ -314,18 +323,86 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins when a company has enough AI traffic that small routing and utilization changes move real money: shared inference fleets, reserved GPU clouds, private clusters, batch plus interactive mixes, and products with multiple model tiers. It helps platform teams decide when to admit, shed, route, batch, cache, move work, or buy more capacity.',
         'It fails when the organization wants one tidy number for political reasons. It also fails when request traces do not carry product, model, route, cache, and outcome metadata, or when finance data is too coarse to map assets to deployable pools. In those cases the ledger can still teach the shape of the problem, but it should not be used as a pricing oracle.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Public filings and cloud-provider disclosures are useful primary material for this topic because they show how capital expenditures, construction-in-progress, depreciation, leases, committed capacity, and data-center demand appear in real reporting. Useful starting points include NVIDIA results and 10-K disclosures, CoreWeave S-1 and annual disclosures, and the FOCUS FinOps specification: https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026, https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm, https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm, https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf, and https://focus.finops.org/focus-specification/.',
         'Study LLM Unit Economics Ledger Case Study, LLM Inference Cost Stack Case Study, GPU Cloud Capacity Reservation Orderbook Case Study, AI Circular Financing Demand Graph Case Study, Inference ROI Payback Cohort Ledger Case Study, SLO-Aware LLM Request Router, GenAI Trace Token Cost Ledger Case Study, KV Cache Concurrency Capacity Model, LLM Serving Autoscaling Warm Pool, and Tail Latency & p99 Thinking next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for ai-capex-depreciation-utilization-ledger-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

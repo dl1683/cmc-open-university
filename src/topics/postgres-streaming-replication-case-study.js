@@ -1,4 +1,4 @@
-// PostgreSQL streaming replication: WAL sender, WAL receiver, replay lag.
+﻿// PostgreSQL streaming replication: WAL sender, WAL receiver, replay lag.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
@@ -180,55 +180,101 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'Why this exists', paragraphs: [
-      'A database primary is a single point of operational risk. If it fails, reads and writes stop unless another server can continue from the same durable history. PostgreSQL streaming replication exists to keep standby servers close to the primary by shipping WAL records as they are produced.',
-      'The key idea is that WAL is not only crash-recovery state. It is also the replication feed. A standby becomes current by replaying the same ordered storage-level history.',
-      'This is physical replication, not a logical stream of business events. The standby replays storage changes from the primary WAL. That makes failover and read replicas possible without asking every application table to invent its own synchronization protocol.',
-    ] },
-    { heading: 'The tempting wrong answer', paragraphs: [
-      'The wrong mental model is a file copy of the data directory. A live database changes through ordered WAL records, MVCC state, checkpoints, and replay. Copying files without WAL position discipline cannot tell a standby exactly which changes it has applied.',
-      'Another wrong answer is to treat a healthy standby as current. A standby can be up, accepting read traffic, and still behind the primary. Lag is part of the application contract.',
-      'A third mistake is to confuse replication with backup. A replica can protect availability, but it can also faithfully replicate a bad migration, dropped table, or corrupted application write. Backups, WAL archives, point-in-time recovery, and replicas solve overlapping but different problems.',
-    ] },
-    { heading: 'The core idea', paragraphs: [
-      'The primary writes WAL for every transaction. WAL sender processes stream records to standby WAL receivers. The standby writes, flushes, and replays those records, then may serve hot-standby reads.',
-      'Replication has stages: sent LSN, written LSN, flushed LSN, and replayed LSN. Those positions answer different questions: did the primary send it, did the standby receive it, is it durable there, and can reads observe it?',
-      'Asynchronous replication lets the primary commit before a standby confirms receipt, which keeps write latency low but admits a data-loss window. Synchronous replication waits for configured standby acknowledgement, which can reduce that window but adds latency and dependency on replica health. Quorum synchronous replication lets operators balance safety and availability across multiple standbys.',
-    ] },
-    { heading: 'What the visual is proving', paragraphs: [
-      'The WAL-stream view follows the write path from client commit to WAL to sender to receiver to standby replay. Read it as an ordered log pipeline, not a generic data copy.',
-      'The failover-lag view shows why high availability is a procedure. The system must detect failure, choose the best replay position, promote one standby, repoint clients, and prevent split brain if the old primary returns.',
-      'The lag table is the operational center of the topic. A replica can have received WAL without replaying it. It can have flushed WAL without serving reads from it yet. Those distinctions decide whether failover loses data, whether a read replica is stale, and whether an alert should page someone.',
-    ] },
-    { heading: 'Why it works', paragraphs: [
-      'Replication works because WAL is already the database serial history needed for crash recovery. PostgreSQL can reuse that durable ordered log as the stream that lets another server reproduce the same storage state. The standby does not need to understand application intent; it needs to replay the same records in order.',
-      'The design also works because position is explicit. Log sequence numbers let the system compare primary and standby progress precisely. Application code can wait for a standby to replay past a known LSN when read-your-writes matters, and operators can measure recovery point objective from lag rather than guess.',
-    ] },
-    { heading: 'Where it wins', paragraphs: [
-      'Streaming replication powers high availability, disaster recovery, read replicas, reporting standbys, blue-green migrations, and backup pipelines. A common design uses a synchronous local standby for low RPO failover and an asynchronous remote standby for regional disaster recovery.',
-      'Read replicas can isolate analytics load from the primary, but their staleness must be budgeted. Read-your-writes through a replica requires routing to primary or waiting until replay passes the write LSN.',
-      'A common production pattern is a write primary, one or more read standbys, replication slots for critical replicas, WAL archiving for recovery, and a failover manager or operator that promotes one standby. The database pieces are necessary but not sufficient; client routing and old-primary fencing matter just as much.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'Consider an order system with one primary in us-east, a synchronous standby in the same region, and an asynchronous standby in us-west. Normal writes commit after the local standby confirms the WAL position required by the synchronous policy. Reporting queries go to a hot standby, but the application routes read-after-write flows to the primary unless it can wait for replay past the transaction LSN.',
-      'During a regional incident, the failover controller compares standby replay positions, promotes the best candidate, fences the old primary through infrastructure controls, and repoints clients through a proxy or service discovery update. The business recovery point is not an abstract promise; it is the difference between the promoted standby replay LSN and the last committed primary LSN the application cares about.',
-      'After promotion, the work is not finished. Operators must rebuild replication topology, create or reattach standbys from the new primary, verify archives, and decide what to do with the old primary data directory. A failover that restores writes but leaves the system without a fresh standby has only moved the single point of failure.',
-    ] },
-    { heading: 'What to measure', paragraphs: [
-      'A serious replication dashboard tracks send lag, write lag, flush lag, replay lag, replication slot retained WAL, archive success, standby query conflicts, failover drill duration, and replica read staleness by workload. One lag number is not enough because each lag surface answers a different question.',
-      'The application should also record when it routes reads to replicas and when it needs read-your-writes guarantees. Otherwise a database team may see healthy replication while users see stale profiles, missing orders, or dashboards that contradict freshly written data.',
-      'Failover drills should be measured like incidents. Record detection time, promotion time, client reconnection time, data-loss estimate, old-primary fencing result, and time to restore a new standby. A replication setup that has never been promoted under practice conditions is an untested assumption, not an availability plan.',
-    ] },
-    { heading: 'Where it fails', paragraphs: [
-      'Synchronous replication raises commit latency and can reduce availability if standbys are slow or unreachable. Asynchronous replication lowers write latency but can lose recent committed transactions during failover.',
-      'Replication slots, WAL archiving, hot-standby feedback, vacuum behavior, and replay lag all interact. A slot can prevent missing WAL, but an abandoned slot can retain WAL until the primary disk fills.',
-      'Split brain is the catastrophic failure mode. If the old primary accepts writes after a standby is promoted, the system now has two divergent histories. Replication tooling therefore needs fencing: shut down, isolate, or demote the old primary before clients can write to the new one with confidence.',
-      'Write down RPO and RTO before choosing sync or async behavior. Otherwise replication mode is just a default setting wearing the costume of an availability plan.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Primary sources: PostgreSQL replication configuration at https://www.postgresql.org/docs/current/runtime-config-replication.html, hot standby at https://www.postgresql.org/docs/current/hot-standby.html, and warm standby/log shipping at https://www.postgresql.org/docs/current/warm-standby.html. Study Write-Ahead Log, MVCC Internals & VACUUM, Database Indexing, and PostgreSQL Query Planner Case Study next.',
-      'Then study PostgreSQL WAL Checkpoint & Recovery to separate crash restart from replica replay, and PostgreSQL Autovacuum Freeze & Wraparound to see why standby feedback and long reads can affect cleanup pressure on the primary.',
-      'Finally, compare this physical model with logical replication. Physical streaming copies storage-level history for a whole database state, while logical replication sends table-level changes that can support selective replication and migrations but has different conflict and schema concerns.',
-    ] },
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The WAL-stream view shows the write path as a pipeline: client commit, primary WAL write, WAL sender, WAL receiver, standby replay, and read replica. Active highlights mark the current stage of WAL propagation. Found highlights mark stages where data is durable or committed.',
+        'The replication-modes matrix compares asynchronous, synchronous, quorum, and cascading replication. Each row is one commit contract between the primary and its standbys. The lag-surfaces matrix breaks replication position into four distinct measurements: sent, written, flushed, and replayed LSN.',
+        'The failover-lag view traces what happens when the primary dies. Each row is one step in the promotion sequence. Risk columns name the failure mode at each step. Read the whole sequence top to bottom to see why failover is a procedure, not a toggle.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A single database server is a single point of failure. If it dies, every read and write stops until someone restores from backup and replays transaction logs. Even if backups are recent, that recovery window can be minutes to hours, depending on data volume.',
+        'Replication solves three problems at once. First, availability: if the primary fails, a standby that has been tracking its WAL can take over in seconds. Second, read scaling: standbys can serve read queries, spreading load that would otherwise saturate one server. Third, geographic distribution: a standby in another region can serve local reads with lower latency than a cross-continent round trip.',
+        'Database replication is not backup. A replica faithfully copies the primary state, including bad migrations and dropped tables. Backups protect against human error and corruption. Replicas protect against hardware failure and read bottlenecks. Production systems need both.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Run one database server. Take periodic backups. If the server dies, restore the latest backup and replay any archived transaction logs to bring the database forward to the point of failure.',
+        'This works. It protects data. For many applications it is sufficient. The approach is simple, well understood, and requires no coordination between multiple live servers.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A single server is a single point of failure for availability. When it goes down, the application goes down. Backup restore takes time proportional to data size: a 500 GB database can take 30 minutes just to copy back, plus WAL replay. During that window, no reads, no writes, no service.',
+        'Backups also cannot help with read scaling. If one server handles 10,000 queries per second and the application needs 30,000, adding more backups changes nothing. The read load hits one machine.',
+        'Geographic latency is the third wall. Users in Tokyo querying a server in Virginia pay 150+ ms per round trip. No amount of query optimization fixes the speed of light.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Single-leader replication is the most common model. One server (the primary or leader) accepts all writes. It ships its write-ahead log to one or more followers (standbys, replicas), which replay the log to maintain a copy of the data. PostgreSQL uses streaming replication: a WAL sender process on the primary streams log records over a TCP connection to a WAL receiver on each standby. MySQL uses binary log (binlog) replication: the primary writes changes to a binlog, and replicas pull and replay binlog events. MongoDB replica sets follow the same pattern, with the primary streaming its oplog to secondaries.',
+        'Synchronous replication means the primary waits for at least one standby to confirm it received (or flushed) the WAL before telling the client the transaction committed. This guarantees zero data loss on failover but adds one network round trip to every commit. PostgreSQL supports synchronous_standby_names to require confirmation from specific standbys or a quorum.',
+        'Asynchronous replication means the primary commits locally and streams WAL without waiting. Commits are faster, but if the primary dies before the standby receives the latest WAL, those transactions are lost. The gap between primary and standby is replication lag.',
+        'Replication lag has direct consequences for application correctness. Read-your-writes consistency breaks: a user writes to the primary, then reads from a lagging replica and sees stale data. Monotonic reads break: two consecutive reads from different replicas can go backward in time if one replica is further behind than the other. Applications that route reads to replicas must account for this.',
+        'Multi-leader replication allows writes at more than one node. CockroachDB ranges, Galera Cluster for MySQL, and PlanetScale use variants of this approach. The advantage is write availability when leaders are in different regions. The cost is conflict resolution: two leaders can accept conflicting writes to the same row, and the system must detect and resolve them. Galera uses certification-based conflict detection; CockroachDB uses serializable isolation with timestamp ordering.',
+        'Leaderless replication, used by Amazon DynamoDB and Apache Cassandra, sends writes to multiple nodes simultaneously and reads from multiple nodes. Consistency comes from quorum arithmetic: if W nodes confirm a write and R nodes are read, then W + R > N (total nodes) guarantees at least one read hits a node with the latest value. The tradeoff is that conflict resolution falls to the application via mechanisms like last-writer-wins or vector clocks.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Single-leader replication works because WAL already serializes all changes. The standby replays the same ordered history and reaches the same state. No coordination protocol is needed beyond shipping the log. The correctness argument is simple: same input sequence, deterministic replay, same output state.',
+        'Quorum-based systems (both multi-leader and leaderless) work because of overlap arithmetic. If a write reaches W nodes and a read contacts R nodes, and W + R > N, at least one node in the read set has the latest write. This is the same majority-overlap argument that powers Raft and Paxos. The quorum size controls the tradeoff: larger W means slower writes but fresher reads; larger R means slower reads but cheaper writes.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Synchronous replication adds one network round trip per commit. For an in-region standby this might be 1-2 ms. For a cross-region standby, 50-150 ms. That latency directly hits every write transaction.',
+        'Asynchronous replication adds no write latency but creates a lag window. During normal operation, lag is typically under a second. Under load spikes, long-running queries on the standby, or network congestion, lag can grow to minutes. The lag window is the maximum data loss on failover (the recovery point objective).',
+        'Multi-leader conflict resolution is the hardest cost. Last-writer-wins is simple but silently drops writes. Application-level merge functions are correct but complex to implement and test. Conflict-free replicated data types (CRDTs) solve specific data shapes but do not generalize to arbitrary SQL.',
+        'Split brain is the catastrophic failure. If the old primary comes back after a standby has been promoted, the system has two writers with divergent histories. Fencing the old primary (shutting it down or blocking its network) is not optional. PostgreSQL tooling like Patroni, pg_auto_failover, and repmgr all include fencing steps for this reason.',
+        'Bandwidth scales with write throughput. Every byte written to WAL must be shipped to every synchronous standby. A primary doing 100 MB/s of WAL generation needs 100 MB/s of network to each replica, plus disk I/O on the standby side for writing and replaying.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'PostgreSQL offers both physical streaming replication (the standby replays WAL byte-for-byte) and logical replication (the standby receives decoded row changes). Streaming replication is the standard for high availability and read replicas. Logical replication supports selective table replication and cross-version upgrades.',
+        'MySQL binlog replication has powered read scaling at scale for decades. GitHub, Shopify, and most large MySQL deployments use a primary with multiple read replicas behind a query router like ProxySQL or Vitess.',
+        'MongoDB replica sets elect a new primary automatically when the current one fails. Reads can be routed to secondaries with configurable read preferences, trading freshness for load distribution.',
+        'Redis uses leader-follower replication for read scaling and as the foundation for Redis Sentinel (automated failover) and Redis Cluster (sharded replication). Replication is asynchronous by default; WAIT can force synchronous acknowledgement for specific writes.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Cross-region synchronous replication makes every commit pay intercontinental latency. A write that takes 2 ms locally takes 150+ ms when the primary must wait for a replica in another continent. Most applications cannot tolerate this for every transaction.',
+        'Conflict resolution in multi-leader setups is genuinely hard. Two users edit the same document row at two leaders simultaneously. Last-writer-wins picks one and discards the other with no notification. Custom merge logic is correct but difficult to test exhaustively. Many teams choose single-leader replication specifically to avoid this problem.',
+        'Replication lag means replicas serve stale data. A user creates an account on the primary, then is routed to a replica for the next page load and sees "account not found." Fixing this requires either routing reads to the primary after writes, or waiting for the replica to catch up past the write LSN before serving the read. Both add complexity.',
+        'Replication does not help with write scaling. Every write still goes through one leader (in single-leader mode) or must be conflict-resolved (in multi-leader mode). Write-heavy workloads need sharding, not more replicas.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A 3-node PostgreSQL cluster: one primary (P), one synchronous standby (S1, same data center), one asynchronous standby (S2, remote region). synchronous_standby_names = \'S1\'.',
+        'A client commits INSERT INTO orders VALUES (42, ...) on P. PostgreSQL writes the WAL record to P\'s local disk. Before returning "COMMIT" to the client, the WAL sender ships the record to S1. S1\'s WAL receiver writes and flushes the record, then acknowledges. P now tells the client the transaction committed. Meanwhile, S2 receives the same WAL record asynchronously, with no effect on commit timing.',
+        'P crashes. The failover controller (Patroni, pg_auto_failover, or an operator) detects the failure. S1 has every committed WAL record because it was the synchronous standby. S1 is promoted to primary. S2 re-attaches to S1 as the new primary and catches up from its last received LSN. Clients are rerouted to S1 via DNS update or connection proxy. Order 42 is safe. Zero data loss.',
+        'If instead S1 had been asynchronous, it might be a few transactions behind P at the moment of crash. Those in-flight transactions would be lost. The recovery point is the gap between P\'s last committed LSN and S1\'s last received LSN.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'PostgreSQL replication documentation: https://www.postgresql.org/docs/current/runtime-config-replication.html. MySQL replication: https://dev.mysql.com/doc/refman/en/replication.html. Kleppmann, "Designing Data-Intensive Applications," chapters 5 and 9 cover replication and consistency models with clarity that most textbooks lack.',
+        'Prerequisites: Write-Ahead Log (the mechanism being shipped), CAP Theorem (why you cannot have consistency, availability, and partition tolerance simultaneously).',
+        'Extensions: consensus protocols (Raft, Paxos) for automatic leader election during failover, sharding for write scaling beyond one leader, CRDTs for conflict-free multi-leader data types.',
+        'Contrasts: Two-Phase Commit (coordinating transactions across shards, not replicas), Change Data Capture / Debezium (logical event streams from the WAL, not physical replication).',
+      ],
+    },
   ],
 };
+

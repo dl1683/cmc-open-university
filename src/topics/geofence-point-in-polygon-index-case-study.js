@@ -1,4 +1,4 @@
-// Geofence point-in-polygon: use a spatial index to find candidate fences,
+﻿// Geofence point-in-polygon: use a spatial index to find candidate fences,
 // then run exact polygon predicates with boundary policy and holes.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -197,6 +197,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Geofence Point-in-Polygon Index Case Study. A geofence case study: R-tree or cell prefilters, bounding-box candidates, point-in-polygon checks, holes, boundary policy, invalid geometry, and event dedupe..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A geofence system turns noisy position samples into operational decisions. A delivery van entered the depot. A courier left the paid service zone. A forklift crossed a safety boundary. A phone spent enough time inside a store to count as a visit. The product wants one clear event, but the input is a stream of latitude-longitude points and a changing catalog of polygons.`,
@@ -204,14 +213,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious solution',
+      heading: 'The obvious approach',
       paragraphs: [
         `The obvious approach is brute force: for every GPS sample, test the point against every polygon. That is fine for a demo with ten fences. It is also attractive because it seems honest. There is no approximate index, no caching, and no extra data structure to maintain. Every possible fence gets an exact answer.`,
         `The approach fails as soon as either side grows. Ten thousand devices reporting every few seconds against thousands of fences becomes millions of polygon checks per minute. Worse, raw containment still does not decide the product behavior. A point on a border may be inside for a retail visit but outside for a legal boundary. A polygon may have holes. A GPS sample may arrive late. A repeated inside result is not another enter event. Brute force solves only the smallest part of the problem.`,
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `The core idea is a two-stage decision. First, use a spatial index to find a safe superset of fences that might contain the point. Second, run exact point-in-polygon only on that candidate set. The index is allowed to return extra work. It is not allowed to hide a fence that could contain the point.`,
         `This split is the same reason database systems use spatial indexes for predicates such as contains and intersects. Bounding boxes, R-trees, GiST indexes, S2 cells, H3 cells, and geohash grids are fast because they reason about coarse covering shapes. Exact geometry is slower because it reasons about rings, vertices, holes, and boundary rules. The safe pattern is maybe first, exact answer second, event transition third.`,
@@ -246,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         `The candidate-filter view proves that the index and the exact predicate have different jobs. The index makes the search small by returning possible fences. The exact predicate makes the answer true by rejecting false positives. The event node appears only after state changes, because geometry alone does not know whether this sample is the first inside sample or the hundredth.`,
         `The boundary-policy view proves that many hard cases sit after the index. Holes, boundary points, invalid geometry, GPS accuracy, dwell time, and hysteresis cannot be decided by a bounding box. They are policy and state decisions wrapped around exact geometry. If those decisions are implicit, two teams can run the same polygon and produce different business events.`,
@@ -260,21 +269,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Index lookup cost is usually small compared with scanning every fence, but it is not free. Dense downtown regions, many overlapping polygons, and large administrative boundaries can return many candidates. Exact cost then depends on candidate count, vertex count, and predicate implementation. Simplifying geometry can help, but over-simplification can move borders and change events.`,
         `Updates also cost something. Stable fences are easy to index. Frequently edited fences require versioning, incremental index updates, or batch rebuilds. GPS noise adds a product tradeoff: hysteresis, dwell-time gates, accuracy filters, and map matching reduce border flapping, but they can delay real events or suppress short visits.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `This structure wins when many moving points are checked against a relatively stable set of polygons. Delivery zones, pickup areas, campus boundaries, industrial safety regions, toll regions, store visits, fleet alerts, and IoT asset tracking all fit the pattern. The more fences and samples you have, the more valuable the candidate filter becomes.`,
         `It also wins when events need evidence. A system that records only enter and exit strings cannot answer disputes. A system that records sample id, device id, fence id, geometry version, boundary policy, candidate method, exact predicate, previous state, and emitted transition can replay the decision. That audit trail is part of the design, not paperwork added later.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The dangerous shortcut is treating a bounding-box hit as inside. Another is leaving boundary behavior implicit. Invalid polygons, mixed coordinate systems, antimeridian-crossing shapes, polar regions, stale fence versions, and indoor GPS drift can all produce surprising results. So can planar predicates run on latitude-longitude data without understanding projection error.`,
         `Stream failures are just as common. Out-of-order samples can create impossible enter and exit sequences. Devices that report too rarely can miss short visits. Retry without idempotence can duplicate events. A full implementation protects both geometry correctness and event correctness, because users experience the event, not the predicate.`,
@@ -286,5 +295,65 @@ export const article = {
         `Study next: R-tree Spatial Indexing for candidate search, Point-in-Polygon Predicates for exact geometry, Finite State Machines for enter and exit transitions, Stream Deduplication for retry safety, Coordinate Reference Systems for projection risk, HMM Map Matching Viterbi for noisy GPS traces, and PostGIS Spatial Indexes for a production database implementation of the same two-stage idea.`,
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for geofence-point-in-polygon-index-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

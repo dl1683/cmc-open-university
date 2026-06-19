@@ -215,102 +215,132 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. "Tuple bounds" walks a small GK summary and shows how each tuple certifies a rank interval in the unseen stream. "Compress summary" shows the merge rule that deletes tuples without breaking the rank guarantee.',
+        'Active highlights mark the tuple or operation under inspection. Found highlights mark a query result whose rank interval covers the target. Removed highlights show tuples deleted by compression. Compare highlights show neighboring tuples whose rank intervals constrain the decision.',
+        'Watch the rank column. Every tuple carries a range like 6..8 meaning the tuple\'s true rank in the full sorted stream falls somewhere in that window. Compression widens a neighbor\'s window; it never lets a window exceed the epsilon budget.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A quantile is a statement about rank. The median is the value near the halfway rank. p95 is the value near the rank where 95% of observations are less than or equal to it. Latency dashboards, telemetry systems, data quality reports, and streaming analytics all depend on these questions because averages hide tails.`,
-        `The hard part is that many systems see values as a stream. Events arrive one at a time, possibly forever. Storing every value and sorting later may be impossible, too expensive, or too slow for an online service. The system still wants to ask rank questions such as "what is p50?" or "did p99 move?" without retaining the full history.`,
-        `The Greenwald-Khanna summary is the classic deterministic answer. It keeps a sorted list of carefully chosen tuples. Each tuple certifies a small interval of possible ranks in the full stream. Queries return a retained value whose rank is guaranteed to be close enough to the requested rank under a configured epsilon.`,
+        'A quantile is a question about rank. The median asks: which value sits at the halfway rank? p95 asks: which value sits at rank 0.95n? Latency dashboards, data quality reports, and streaming analytics need these answers because averages hide tails. A service whose average latency is 50 ms may have a p99 of 3 seconds, and the average will never reveal that.',
+        'The hard part is that many systems see data as a stream. Events arrive one at a time, possibly forever. Storing every value and sorting later may be impossible -- the stream is too large, the memory too small, or the query too urgent. The system still needs to answer "what is p50?" and "did p99 move?" without retaining every observation.',
+        {
+          type: 'quote',
+          text: 'The goal is to compute epsilon-approximate quantile summaries of large data sets using as little space as possible, ideally in one pass.',
+          attribution: 'Greenwald and Khanna, SIGMOD 2001',
+        },
+        'The Greenwald-Khanna summary (2001) is the foundational deterministic answer. It keeps a sorted list of tuples, each certifying a small interval of possible ranks. Queries return a retained value whose rank is guaranteed within epsilon * n of the requested rank. No randomness, no luck -- a hard contract.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is exact sorting. Keep every observed value, sort the array, and return the value at rank floor(q * n). This is correct, easy to test, and still the right choice for small offline batches where memory is not a problem.`,
-        `A streaming exact variant keeps an ordered tree with counts. Insert each value into the tree and answer select-by-rank queries by walking subtree sizes. That avoids sorting from scratch for every query, but it still keeps exact rank information. Memory grows with the number of distinct values, or with the number of observations if duplicates are stored individually.`,
-        `A fixed histogram is another tempting shortcut. Put values into buckets and answer quantiles from bucket counts. Histograms are small and merge well, but their accuracy depends on bucket boundaries. If many values pile up near a boundary, the value estimate can be poor. A histogram controls value buckets; GK controls rank error.`,
+        'Keep every value, sort the array, return the element at rank floor(q * n). This is correct, easy to test, and the right choice for small offline batches. Memory is O(n), query time is O(n log n) for sorting or O(log n) with an order-statistic tree. For a million values on a single machine, this works fine.',
+        'A fixed histogram is the next temptation. Divide the value range into buckets, count observations per bucket, and interpolate quantiles from cumulative counts. Histograms are small and merge well, but accuracy depends on bucket placement. If many values cluster near a bucket boundary, the value estimate can be wildly wrong. A histogram controls where value buckets sit; it does not control rank error.',
+        'Random sampling (reservoir sampling) keeps a fixed-size sample and returns order statistics from the sample. The answer is unbiased in expectation but has no deterministic worst-case guarantee. For audit-grade percentile reporting, "probably close" is not the same contract as "provably within epsilon * n ranks."',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is certification after deletion. A streaming summary must drop most values. Once it drops values, it no longer knows exact ranks. If it cannot explain how wrong a returned quantile might be, the answer is only a guess with a nice API.`,
-        `Random samples can be useful, but a reservoir sample does not give the deterministic rank certificate GK is designed to provide. Fixed histograms can be excellent when their bucket design matches the data, but they can hide rank error inside wide or unlucky buckets. The Greenwald-Khanna idea is to attach a rank interval to each retained value so the summary knows what uncertainty it has created.`,
-        `The wall gets sharper in monitoring. A team may make deployment decisions based on p95 or p99. It is not enough to say "this is approximately the percentile." The system should say what kind of approximation it is making. GK promises rank error: the returned value's true rank is close to the requested rank. It does not promise small value error.`,
+        'The wall is certification after deletion. A streaming summary must drop most values to stay small. Once values are dropped, exact ranks are lost. The question becomes: can the summary explain how wrong a returned quantile might be? If it cannot, the answer is a guess with a nice API.',
+        'Reservoir samples do not carry rank certificates. Fixed histograms hide rank error inside wide or unlucky buckets. Naive subsampling (keep every kth element) has unbounded rank error on adversarial inputs. The Greenwald-Khanna insight is to attach a rank interval to every retained value, so the summary knows exactly how much uncertainty each deletion introduced.',
+        'The wall gets sharper in production monitoring. A team makes deployment decisions on p95 or p99. "This is approximately the 95th percentile" is not enough. The system should say what kind of approximation it provides. GK promises rank error: the returned value\'s true rank is within epsilon * n of the requested rank. It does not promise the returned value is close in magnitude to the exact percentile value.',
       ],
     },
     {
-      heading: 'The core insight',
+      heading: 'How it works',
       paragraphs: [
-        `Store values as rank certificates, not as raw samples. Each retained tuple has the form (v, g, delta). The value v is an observed stream value. The gap g says how far the minimum possible rank has advanced since the previous retained tuple. The delta field records extra uncertainty in the tuple's maximum possible rank.`,
-        `Walking the tuples in sorted order gives a lower rank bound for each retained value. Adding delta gives an upper rank bound. The summary therefore does not need every value. It needs enough retained values that every query rank can be covered by a nearby certified interval.`,
-        `The invariant is the whole data structure: every retained tuple has a bounded rank interval, and compression is allowed only when the bound remains within the epsilon budget. GK saves memory by spending rank slack, never by silently breaking the rank promise.`,
-      ],
-    },
-    {
-      heading: 'Mechanics',
-      paragraphs: [
-        `Insertion first finds the sorted position for the new value. At the ends of the summary, a new minimum or maximum can be inserted with no extra uncertainty because its rank boundary is known. In the interior, the new tuple receives a delta that leaves enough room for uncertainty while respecting the current error budget.`,
-        `The running count n matters because epsilon is a fraction of stream length. A rank error of epsilon n grows as the stream grows. That growth is what makes compression possible. Tuples that were necessary early may become mergeable later because the allowed absolute rank slack has increased.`,
-        `Compression scans neighboring tuples. A tuple can be removed when the next retained tuple can absorb its gap without making the combined rank interval too wide. The usual condition is a form of g_i + g_{i+1} + delta_{i+1} staying within the rank-error budget. The exact indexing is less important for first understanding than the rule: delete only when the next certificate can cover the lost certificate.`,
-        `A query for quantile q targets rank qn. The summary walks cumulative gaps and looks for a retained value whose rank interval is close enough to that target. The result is an actual observed value from the stream, but it is not necessarily the exact value at rank qn. Its certificate says the rank error is within the configured tolerance.`,
+        'The summary is a sorted list of tuples, each with three fields: value v, gap g, and delta. Together, g and delta define a rank interval for the tuple.',
+        {
+          type: 'diagram',
+          label: 'GK tuple structure',
+          text: 'Tuple i: (v_i, g_i, delta_i)\n\n  v_i    = an observed value from the stream\n  g_i    = r_min(i) - r_min(i-1)\n         = gap in minimum rank since previous tuple\n  delta_i = r_max(i) - r_min(i)\n          = uncertainty in this tuple\'s rank\n\n  r_min(i) = sum of g_1 .. g_i      (minimum possible rank)\n  r_max(i) = r_min(i) + delta_i     (maximum possible rank)\n\n  Invariant: for every interior tuple, g_i + delta_i <= floor(2 * epsilon * n)',
+        },
+        'INSERT finds the sorted position for the new value. A new minimum or maximum enters with delta = 0 because its rank boundary is known exactly. An interior insertion gets delta = floor(2 * epsilon * n) - 1, consuming nearly the full error budget -- compression will tighten things later.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// INSERT operation (simplified)\nfunction insert(summary, v, epsilon, n) {\n  // Find position: largest i where summary[i].v <= v\n  let i = findPosition(summary, v);\n\n  // New min or max: rank is known exactly\n  if (i === 0 || i === summary.length) {\n    summary.splice(i, 0, { v, g: 1, delta: 0 });\n  } else {\n    // Interior: delta absorbs current error budget\n    let delta = Math.floor(2 * epsilon * n) - 1;\n    summary.splice(i, 0, { v, g: 1, delta });\n  }\n  n++; // stream count advances\n}',
+        },
+        'COMPRESS scans adjacent tuples and merges when safe. Tuple i can be deleted if the next tuple i+1 can absorb its gap without exceeding the budget. The merge condition is: g_i + g_{i+1} + delta_{i+1} <= floor(2 * epsilon * n). When tuple i is deleted, g_{i+1} increases by g_i -- the next tuple takes responsibility for the rank range the deleted tuple used to cover.',
+        'QUERY for quantile q targets rank r = ceil(q * n). Walk cumulative gaps and find the last tuple whose rank interval overlaps r within the error tolerance. The returned value is an actual observation from the stream, but not necessarily the exact value at rank r. The certificate says: the true rank of this value is within epsilon * n of the requested rank.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The proof rests on preserving the interval invariant. Insertions add a tuple with a legal possible-rank range. They do not pretend to know the exact rank of every deleted value around it. Compression removes a tuple only when the neighboring certificate can still cover the combined uncertainty. Querying then reads from a summary whose uncertainty has been bounded at every update.`,
-        `This is an induction argument. The empty summary is valid. After one insertion, the summary is valid. If the summary is valid before an insertion, the insertion rule keeps it valid. If it is valid before compression, the compression rule removes only tuples whose rank responsibility can be absorbed safely. Therefore, after any stream prefix, the retained values still cover the sorted stream with bounded rank slack.`,
-        `The guarantee is deterministic because it does not depend on sampling luck. Given the same stream and epsilon, a correct implementation preserves the same style of rank certificate. That makes GK useful when the system needs an auditable bound rather than an empirical confidence story.`,
+        'The proof is an invariant argument. Define the invariant: for every interior tuple i, g_i + delta_i <= floor(2 * epsilon * n). The empty summary satisfies it trivially. Insertion preserves it because new tuples are assigned delta values that respect the budget. Compression preserves it because tuples are deleted only when the merge condition holds -- the absorbing tuple\'s combined rank interval stays within budget.',
+        'The rank-error guarantee follows directly. For any query rank r, the summary contains a tuple whose minimum rank r_min and maximum rank r_max bracket a range of width at most 2 * epsilon * n. The returned value\'s true rank is therefore within epsilon * n of r (the factor of 2 in the invariant accounts for both sides of the bracket). This holds for every stream prefix, every query, every input distribution. No randomness involved.',
+        'The space bound falls out of the invariant. Since each tuple consumes at least 1 unit of the rank range and the total rank range is n, the number of tuples is bounded by O((1/epsilon) * log(epsilon * n)). The log factor comes from a band-based compression schedule that Greenwald and Khanna use to maintain the invariant efficiently across different "ages" of tuples.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Memory grows mostly with the error target rather than directly with stream length. The classic bound is on the order of (1 / epsilon) times a logarithmic factor in epsilon n retained tuples. Lower epsilon means a tighter rank promise and more tuples. Higher epsilon means a smaller summary and wider rank intervals.`,
-        `Insertion cost depends on how the sorted tuple list is represented. An array is cache-friendly and simple, but finding the position and inserting can require binary search plus shifting. A tree can reduce shifting but adds pointer overhead. Compression adds scans, often done periodically rather than after every value.`,
-        `When the stream doubles, the exact method doubles memory if it stores all values. GK does not double memory in the same way; the allowed absolute rank slack grows, and compression can merge old tuples. The cost of lower error is still real. Cutting epsilon in half roughly demands a much larger summary and more update work.`,
-        `Merge behavior is a major tradeoff. Histograms merge by adding buckets. Many modern sketches were designed with distributed merge in mind. Classic GK is strongest as a single-stream deterministic rank summary. It can be adapted, but if the main workload is thousands of shards rolling up constantly, KLL, DDSketch, or t-digest may fit the operational shape better.`,
+        {
+          type: 'table',
+          headers: ['Operation', 'Time', 'Notes'],
+          rows: [
+            ['Insert', 'O(log(1/epsilon) + 1/epsilon)', 'Binary search + shift in sorted array'],
+            ['Compress', 'O(1/epsilon * log(epsilon*n))', 'Scan all tuples, periodic'],
+            ['Query', 'O(1/epsilon * log(epsilon*n))', 'Walk cumulative gaps'],
+            ['Space', 'O(1/epsilon * log(epsilon*n)) tuples', 'Independent of stream length n beyond log factor'],
+          ],
+        },
+        'The space bound is the headline result. For epsilon = 0.01 and n = 10 billion, the summary holds roughly a few thousand tuples -- not 10 billion. Cutting epsilon in half roughly doubles the summary size. The log factor means space grows very slowly with stream length.',
+        'Insertion cost depends on representation. An array gives cache-friendly access and binary search for position, but shifting elements costs O(k) where k is the summary size. A balanced tree eliminates shifting but adds pointer overhead. In practice, summaries are small enough that array shifting is fast.',
+        'Compression is typically batched: run it every 1/(2*epsilon) insertions rather than after every value. This amortizes the scan cost and keeps the per-insert overhead low.',
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        `GK wins when the product wants a clear deterministic rank-error contract. Audit summaries, teaching systems, one-pass analytics jobs, embedded telemetry processors, and controlled reporting pipelines can benefit from being able to say exactly what the summary promises.`,
-        `It is also a useful baseline for understanding later sketches. KLL keeps rank-error thinking but uses randomized compaction to become smaller and more merge-friendly. t-digest reshapes memory toward tails, which is useful for latency percentiles. DDSketch changes the contract to relative value error, which can be better when values span many orders of magnitude.`,
-        `GK is especially helpful when the distinction between rank error and value error must be taught explicitly. A p95 value can move a lot when the distribution has a cliff. GK can certify rank closeness even when the value returned looks surprising. That is not a bug in the theorem; it is a reminder that quantile sketches make specific promises, not every promise a dashboard reader might want.`,
+        'GK wins when the product needs a deterministic, auditable rank-error contract. Compliance reporting, SLO verification, one-pass analytics jobs, and embedded telemetry processors benefit from being able to state exactly what the summary promises and prove it holds.',
+        'It is the conceptual baseline for all later quantile sketches. Understanding GK makes KLL, t-digest, and DDSketch legible -- each one modifies the error contract, the compression strategy, or the merge behavior, but the core idea of retaining values with rank certificates traces back here.',
+        {
+          type: 'table',
+          headers: ['Sketch', 'Error type', 'Space', 'Merge', 'Best for'],
+          rows: [
+            ['GK (2001)', 'Deterministic rank', 'O(1/eps * log(eps*n))', 'Hard', 'Auditable single-stream quantiles'],
+            ['t-digest (2019)', 'Rank, tail-biased', 'O(1/eps) centroids', 'Easy', 'Latency percentiles (p95, p99)'],
+            ['DDSketch (2019)', 'Relative value', 'O(log(max/min)/alpha) bins', 'Easy', 'Values spanning orders of magnitude'],
+            ['KLL (2016)', 'Randomized rank', 'O(1/eps * sqrt(log(1/delta)))', 'Easy', 'Space-optimal streaming quantiles'],
+            ['Exact sort', 'None', 'O(n)', 'N/A', 'Small offline batches'],
+          ],
+        },
+        'GK is also the right pedagogical tool when the distinction between rank error and value error must be made explicit. A p95 value can jump dramatically at a distribution cliff. GK certifies rank closeness even when the returned value looks surprising. That is not a bug -- it is the contract working as designed.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `The most common misconception is value accuracy. GK's guarantee is rank error, not value error. If a latency distribution has a cliff at a timeout boundary, two adjacent ranks may have very different values. A returned p99 can be rank-correct and still differ sharply from the exact p99 value.`,
-        `Implementation shortcuts can break the theorem. Dropping every kth tuple, compressing by value distance, compressing without the safe rank condition, or using floating-point comparisons carelessly around the error budget can produce a small summary with no valid certificate. The tuple fields are not decorative metadata; they are the proof state.`,
-        `Changing stream semantics can also break interpretation. If the stream mixes tenants, endpoints, regions, or time windows, a quantile answer may be mathematically valid and operationally meaningless. GK answers rank questions over the stream it was fed. It does not fix bad aggregation boundaries.`,
-        `Finally, GK may be the wrong tool for extreme-tail service monitoring if the organization cares more about tail value precision than deterministic rank error. It may also be the wrong tool for high-fanout distributed telemetry where merge simplicity matters more than the original single-stream guarantee.`,
+        'The most common misunderstanding is value accuracy. GK guarantees rank error, not value error. If a latency distribution has a cliff at a timeout boundary (say 200 ms to 3000 ms), two adjacent ranks may have vastly different values. A returned p99 can be rank-correct and still differ by 2800 ms from the exact p99 value. DDSketch addresses this with relative value error; t-digest addresses it by concentrating precision at the tails.',
+        'Merging is the operational weakness. Classic GK is designed for a single stream. Merging two GK summaries requires care -- the rank intervals must be reconciled, and the merged result may need recompression. In high-fanout distributed telemetry (thousands of shards rolling up every minute), KLL, DDSketch, or t-digest fit the operational shape better because they were designed with merge as a first-class operation.',
+        {
+          type: 'note',
+          text: 'Implementation shortcuts break the guarantee. Dropping every kth tuple, compressing by value distance instead of rank condition, or using floating-point comparison around the error budget can produce a small summary with no valid certificate. The tuple fields (v, g, delta) are not decorative metadata -- they are the proof state.',
+        },
+        'Stream semantics matter too. If the stream mixes tenants, endpoints, or time windows, a quantile answer may be mathematically valid and operationally meaningless. GK answers rank questions over exactly the stream it was fed. It does not fix bad aggregation boundaries.',
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Suppose a service records 10,000,000 request latencies and epsilon is 0.01. A p95 query targets rank 9,500,000. A GK summary may return a retained value whose true rank is within about 100,000 ranks of that target, depending on the exact convention used by the implementation. That is a deterministic statement about rank.`,
-        `If the returned value is 240 ms, GK is not saying the exact p95 is within 1% of 240 ms. It is saying the value 240 ms sits close enough to the p95 rank in the sorted stream. If ranks near 9,500,000 jump from 240 ms to 900 ms because many requests hit a timeout cliff, the rank guarantee can still hold while the value surprise is large.`,
-        `This example is why dashboards should label sketch semantics. "Approximate p95" is too vague for engineering decisions. "Deterministic rank error epsilon = 0.01" tells the reader which kind of approximation is being used and what questions still need exact or tail-specialized analysis.`,
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        `Keep n, epsilon, tuple order, and compression schedule explicit. Query behavior depends on stream length, and compression safety depends on the rank budget. Tests should check not only returned values but also tuple invariants after long streams, sorted inputs, reverse-sorted inputs, duplicates, and adversarial distributions with cliffs.`,
-        `Use the right numeric model for values and ranks. Values may be floats, timestamps, or integers; ranks and gaps should be treated as counts. Avoid letting floating-point rounding decide whether a tuple can be deleted when integer rank arithmetic is available.`,
-        `Expose the sketch contract in the API. A caller should know whether the sketch promises deterministic rank error, randomized rank error, relative value error, or bucketed approximation. Mixing these under a generic "percentile" interface leads to wrong comparisons across systems.`,
-        `For distributed systems, decide early whether summaries must merge frequently. If yes, test GK against merge-friendly alternatives on the real rollout pattern. The best sketch is not the one with the most elegant theorem in isolation; it is the one whose guarantee matches the data path that will actually produce the dashboard.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study KLL next to see how randomized compaction improves space and merge behavior while keeping rank-error quantiles. Study DDSketch when relative value error is the contract. Study t-digest for tail-aware percentile summaries. Study Reservoir Sampling to separate representative samples from quantile certificates.`,
-        `Then study order-statistic trees, histograms, streaming heavy hitters, and monitoring SLO design. Those topics help separate three questions that dashboards often blur: which ranks changed, which values changed, and which user-facing objectives were harmed. Primary source: Greenwald and Khanna, Space-Efficient Online Computation of Quantile Summaries.`,
+        {
+          type: 'bullets',
+          items: [
+            'Greenwald and Khanna, "Space-Efficient Online Computation of Quantile Summaries" (SIGMOD 2001) -- the primary source. Defines the tuple structure, the invariant, the compression rule, and the space bound.',
+            'Karnin, Lang, and Liberty, "Optimal Quantile Approximation in Streams" (FOCS 2016) -- the KLL sketch, which achieves optimal space with randomized compaction.',
+            'Dunning and Ertl, "Computing Extremely Accurate Quantiles Using t-Digests" (2019) -- tail-biased quantile estimation for latency monitoring.',
+            'Masson, Rim, and Lee, "DDSketch: A Fast and Fully-Mergeable Quantile Sketch" (PVLDB 2019) -- relative value error with simple bucket merging.',
+          ],
+        },
+        'Study KLL next to see how randomized compaction improves space and merge behavior while keeping rank-error semantics. Study DDSketch when the contract should be relative value error. Study t-digest for tail-aware percentile summaries where p99 value precision matters more than worst-case rank error.',
+        'Then study order-statistic trees (the exact-rank baseline), reservoir sampling (random samples vs. rank certificates), and histogram design (value buckets vs. rank intervals). These topics together clarify three questions that dashboards often blur: which ranks changed, which values changed, and which user-facing objectives were harmed.',
       ],
     },
   ],

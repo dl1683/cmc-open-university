@@ -1,4 +1,4 @@
-// Leader replacement: electing a new leader is the easy half. Detecting that
+﻿// Leader replacement: electing a new leader is the easy half. Detecting that
 // the old one is really gone, fencing it off when it comes back from the
 // dead, and carrying committed state across the handover — that's the job.
 
@@ -32,7 +32,7 @@ function storage() {
 }
 const DISK = storage();
 DISK.write(33, 'A: checkpoint #1');        // A holds the lock with token 33
-const ZOMBIE_SETUP = DISK.write(34, 'B: checkpoint #2'); // B acquired token 34 during A's pause
+const ZOMBIE_SETUP = DISK.write(34, 'B: checkpoint #2'); // B acquired token 34 during A\'s pause
 const ZOMBIE_BLOCKED = DISK.write(33, 'A: stale checkpoint'); // A wakes and tries again
 
 function table(title, rowDefs, colDefs, cellText) {
@@ -68,10 +68,10 @@ function* zombies() {
 
   yield {
     state: table('The zombie: a deposed leader that never got the memo', [
-      ['t1', 't1 · leader A (term 5) enters a 20s GC pause'],
-      ['t2', 't2 · followers time out; C wins election for term 6'],
-      ['t3', 't3 · A wakes up'],
-      ['t4', 't4 · A keeps acting as leader'],
+      ['t1', 't1 Â· leader A (term 5) enters a 20s GC pause'],
+      ['t2', 't2 Â· followers time out; C wins election for term 6'],
+      ['t3', 't3 Â· A wakes up'],
+      ['t4', 't4 Â· A keeps acting as leader'],
       ['fix', 'the in-protocol fix'],
     ], [['story', '']], [
       ['mid-heartbeat, mid-replication — a stop-the-world collection at the worst moment (the classic real-world trigger)'],
@@ -95,7 +95,7 @@ function* zombies() {
       ['accepted — 33 is the highest the store has seen'],
       [`${ZOMBIE_SETUP ? 'accepted — high-water mark is now 34' : 'rejected'}`],
       [`${ZOMBIE_BLOCKED ? 'accepted (BUG!)' : 'REJECTED — 33 < 34: the zombie\'s write bounces off the storage layer itself'}`],
-      ['one integer compare: accept a write only if its token ≥ the highest ever seen — no clocks, no heartbeats, no trust in the client\'s health'],
+      ['one integer compare: accept a write only if its token â‰¥ the highest ever seen — no clocks, no heartbeats, no trust in the client\'s health'],
     ]),
     highlight: { found: ['w3:result'], active: ['rule:result'] },
     explanation: 'Terms protect the consensus group — but leaders also touch the OUTSIDE world: shared disks, object stores, databases that know nothing about elections. A zombie that can no longer win a Raft vote can still happily corrupt a file. The fix is the FENCING TOKEN, simulated live above: the lock service hands out a monotonically increasing number with every grant, and the protected resource enforces one rule — never accept a token lower than the highest seen. A\'s stale write with 33 bounces off a store that has seen B\'s 34, regardless of what A believes about its own leadership. This is Kleppmann\'s famous critique of naive distributed locks (including Redis\'s Redlock as commonly deployed): a lock without fencing protects you only from processes polite enough to stay dead.',
@@ -118,15 +118,15 @@ function* carryingState() {
     ]),
     highlight: { active: ['same:how'] },
     explanation: 'Now the constructive half: a client was told "committed," so the entry must outlive the leader who said it. All three protocol families lean on the same quorum-intersection theorem and differ only in WHO does the carrying. Raft moves the work before the election — unfit candidates simply cannot win, so the winner\'s own log is already complete. Paxos moves it after — anyone can win, but the promise messages force the winner to adopt what previous ballots accepted. PBFT can trust neither voters nor winner, so the evidence travels as signed certificates that any replica can check. Three engineering cultures, one safety proof: the intersection always contains a witness.',
-    invariant: 'Committed ⇒ on a quorum ⇒ in every new quorum\'s intersection: protocols differ only in how the witness is consulted.',
+    invariant: 'Committed â‡’ on a quorum â‡’ in every new quorum\'s intersection: protocols differ only in how the witness is consulted.',
   };
 
   yield {
     state: table('The subtle one: Raft\'s figure-8 — when majority replication is NOT commitment', [
-      ['s1', 't1 · leader L1 (term 2) replicates entry X to 2 of 4 followers, crashes'],
-      ['s2', 't2 · L2 (term 3) — which never saw X — wins election from the others, writes Y locally, crashes'],
-      ['s3', 't3 · L1 returns, wins term 4, resumes spreading X — now on a MAJORITY'],
-      ['s4', 't4 · is X committed? NO.'],
+      ['s1', 't1 Â· leader L1 (term 2) replicates entry X to 2 of 4 followers, crashes'],
+      ['s2', 't2 Â· L2 (term 3) — which never saw X — wins election from the others, writes Y locally, crashes'],
+      ['s3', 't3 Â· L1 returns, wins term 4, resumes spreading X — now on a MAJORITY'],
+      ['s4', 't4 Â· is X committed? NO.'],
       ['rule', 'the rule that closes the hole'],
     ], [['story', '']], [
       ['X exists on L1 + 2 followers: 3 of 5 — a majority holds it, stamped term 2'],
@@ -185,61 +185,221 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Leader replacement is the hardest half of any consensus system. Electing a new leader is mechanically simple — the hard part is everything else: how to detect that the old one really is gone (when silence can mean slow or dead), how to fence off the deposed leader if it wakes up from the grave, and how to guarantee that committed state survives the transition. Every distributed system from Raft Leader Election to PBFT lives or dies on these three problems. On an asynchronous network, none of them have perfect solutions — only carefully chosen trade-offs tuned between two failure modes.`,
+        'The animation has two views, selectable at the top. "Zombies & fencing" traces a deposed leader returning from a GC pause and shows why fencing tokens stop its stale writes. "Carrying state across the change" traces how committed entries survive a leadership transition in Raft, Multi-Paxos, and PBFT.',
+        {
+          type: 'bullets',
+          items: [
+            'Active cells mark the current decision point -- the thing the protocol is evaluating right now.',
+            'Found cells mark outcomes now proven safe -- invariants that hold regardless of what happens next.',
+            'Removed cells mark states that violate safety -- writes that were rejected, scenarios that would break linearizability.',
+            'Compared cells highlight the tension between two design choices -- the trade-off the protocol must navigate.',
+          ],
+        },
+        'At each frame, ask: what changed, what invariant does that change preserve, and what would break if the invariant were missing? The fencing-token step is computed live from an actual monotonic-counter simulation -- the "REJECTED" result is not a label but a runtime check.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Leader replacement is safe only when authority is monotonic. A newer term, ballot, view number, lease epoch, or fencing token must dominate older authority everywhere the old leader can still act. The protocol cannot rely on the old leader understanding that it lost; it must make stale authority fail by construction.`,
-        `The same idea appears twice. Inside the consensus group, terms and quorums make stale leaders step down and carry committed entries forward. Outside the group, fencing tokens make stale writes bounce at the resource itself. A handover is not complete until both boundaries are protected.`,
+        'Electing a new leader is mechanically simple. The hard part is everything around it: detecting that the old leader is really gone when silence can mean slow or dead, fencing the deposed leader off when it wakes from the grave, and guaranteeing that committed state survives the transition. Every consensus system from Raft to PBFT lives or dies on these three problems.',
+        {
+          type: 'note',
+          text: 'Leader replacement is not an availability feature with a correctness side effect. It is a correctness protocol that happens to restore availability. If the handover loses a committed entry or allows two leaders to write simultaneously, the system has violated its contract -- no amount of uptime repairs that.',
+        },
+        'On an asynchronous network, none of the three problems have perfect solutions. FLP impossibility guarantees that no deterministic protocol can distinguish a crashed process from a slow one. The entire page is a study in carefully chosen trade-offs tuned between two failure modes that cannot both be eliminated.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Detection starts with a timeout: the followers wait for a heartbeat from the leader, and if silence lasts longer than the timeout, they assume it is dead and hold an election. But here is the rub — silence looks identical whether the leader has crashed or just paused (a 20-second garbage-collection pause, a packet queue, an overloaded network card). The FLP lesson from "Paxos: Consensus Without a Leader" surfaces as an operational parameter: every system on this page knows its timeout is imperfect and tunes it between two failure modes. If the timeout is too short, healthy leaders get deposed mid-pause and the cluster wastes energy on duel elections. If the timeout is too long, every real failure becomes a full outage of that length. Raft Leader Election randomizes between 150–300ms; production etcd defaults to ~1s. Both systems accept failure modes at the edges — they have to.`,
-        `The zombie scenario makes this vivid: A is the leader in term 5, hits a 20-second GC pause, and the cluster moves on. C wins an election for term 6, clients write through C, the consensus has progressed. A wakes up and has no idea it is deposed — its world-model is 20 seconds old. It sends heartbeats, serves reads, acknowledges writes, and suddenly two leaders are answering. Inside the consensus group, the cure is cheap: every message carries the sender's term (Raft), ballot (Paxos), or view number (PBFT). A's term-5 traffic hits the moved-on majority, learns it is term 6, and steps down instantly. Epochs on every message make staleness self-detecting — a zombie cannot complete one round without learning it is dead.`,
-        `Outside the consensus group, resources need their own fence. A deposed leader can no longer win a Raft vote, but it can still happily corrupt a file or lose writes to a database that knows nothing about elections. The fix is the fencing token: the lock service hands out a monotonically increasing number with every grant (A gets 33, B gets 34), and the protected resource enforces one rule — never accept a write with a token lower than the highest seen. A's stale write with 33 bounces off a store that has seen B's 34, one integer compare, regardless of whether A believes itself to be the leader. This is Kleppmann's famous critique of naive distributed locks: a lock without fencing protects you only from processes polite enough to stay dead.`,
-        `Carrying committed state across the handover rests on the quorum-intersection theorem: any committed entry lives on a quorum, any new regime needs a quorum, and the quorums overlap. The three protocol families differ only in who does the carrying. Raft moves the work before the election — unfit candidates simply cannot win, so the winner's own log already contains all committed entries. Multi-Paxos moves it after — anyone can win, but the promise messages from phase 1 force the winner to adopt the highest values previous ballots accepted. PBFT can trust neither voters nor winner, so the evidence travels as signed prepared certificates that any replica can verify. Raft's figure-8 teaches the subtle point: an entry from an old term sitting on a MAJORITY can still be erased, because election eligibility compares terms before lengths. So majority replication alone is not commitment — a leader commits an entry from its CURRENT term, and everything beneath becomes safe by log-prefix implication. The lesson generalizes: "how many copies" is never the whole commit condition. Which regime stamped the copies matters as much as the count.`,
-        `Even reads need the regime check. A zombie leader believes exactly as strongly that it is the leader and serves reads from its stale cache. The honest options both re-verify: ReadIndex exchanges one heartbeat round with a quorum before answering (the leader proves it is still leader); leases amortize that proof over a time window, but correctness now leans on clocks drifting less than the slack budgeted — it pays a physics assumption for latency. Production systems offer both and let the read choose its currency.`,
+        'The natural first attempt: use a heartbeat timeout. If the leader stops sending heartbeats for T milliseconds, declare it dead, elect a new one, and move on. The old leader will notice it lost the election eventually, so everything should converge.',
+        'This works well enough that every production system uses it. Raft randomizes between 150-300ms. Production etcd defaults to roughly 1 second. The heartbeat timeout is the universal starting point because there is no alternative -- in an asynchronous network, silence is the only evidence you get.',
+        {
+          type: 'table',
+          headers: ['Timeout choice', 'Failure mode', 'Real-world cost'],
+          rows: [
+            ['Too short (50ms)', 'Healthy leaders get deposed during GC pauses, packet queues, or NIC stalls; elections duel; the cluster thrashes through terms doing no useful work', 'Kafka once saw cascading partition reassignments from aggressive timeouts during routine JVM garbage collection'],
+            ['Too long (10s)', 'Every real crash becomes a full write outage lasting the entire timeout window', 'A 10-second etcd election timeout means 10 seconds of no writes after a leader OOM-kill'],
+            ['Compromise + jitter (150-300ms)', 'Accepts BOTH failure modes at the edges -- occasional false depositions AND occasional delayed detection', 'Raft and etcd accept this as the best available trade-off'],
+          ],
+        },
+        'The approach is not stupid. It is the only approach. The question is what you do about its two unavoidable failure modes.',
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: 'The wall',
       paragraphs: [
-        `Read leader replacement as failure detection plus handoff, not merely "pick a new primary." The system must notice the old leader is unavailable, prevent split-brain writers, transfer or rebuild authority, and let clients converge on the new leader.`,
-        `The animation is strongest when you track leases, terms, or fencing tokens. A new leader is safe only if stale leaders cannot keep committing writes. Leader replacement is a correctness protocol before it is an availability feature.`,
+        'The heartbeat timeout has a lethal blind spot: the old leader may not be dead. A 20-second garbage-collection pause, a saturated network queue, a kernel scheduling delay -- any of these produce the same silence as a crash. The protocol declares the leader dead and elects a replacement. Then the old leader wakes up.',
+        {
+          type: 'diagram',
+          text: 'Timeline:\n\n  t=0s   Leader A (term 5) enters GC pause\n         |  ...silence...\n  t=1s   Followers time out, start election\n  t=2s   C wins election for term 6\n  t=3s   Clients write X, Y, Z through C\n         ...\n  t=20s  A wakes up, believes it is still leader (term 5)\n         A sends AppendEntries, serves reads, acks writes\n         >>> TWO LEADERS ANSWERING <<<',
+          label: 'The zombie scenario: a GC pause creates two concurrent leaders',
+        },
+        'A is not malicious. It is not buggy. It is executing the protocol perfectly against a 20-second-old view of the world. Three things can go wrong simultaneously:',
+        {
+          type: 'bullets',
+          items: [
+            'Split-brain writes: A and C both accept client writes, forking the log.',
+            'Stale reads: A serves reads from its stale state, violating linearizability.',
+            'External corruption: A writes to a shared disk or database that knows nothing about elections.',
+          ],
+        },
+        'The wall is that detection unreliability is not a bug to fix -- it is a theorem (FLP) wearing operational clothing. Any protocol that declares a leader dead must handle the case where the declaration was wrong.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'How it works',
       paragraphs: [
-        `The core cost is detection latency: every view change begins with a timeout guess that can never be verified. Setting it wrong costs either thrashed elections (too short) or real outages (too long). Raft and etcd accept both at the edges and split the difference. The second cost is the fencing token: a monotonically increasing number that must be issued atomically with every leadership grant and checked by every protected resource. In-protocol epoch checks (terms, ballots, view numbers) add a few bytes per message and one integer comparison per receipt — negligible. The log-prefix shield to close Raft's figure-8 adds one condition: a leader counts replication only for its own term. The ReadIndex round-trip is +1 RTT per read batch; lease-based reads pay a physical clock-drift assumption instead of latency. Carrying state across the handover is mathematically forced (the quorum-intersection theorem is unavoidable); the work is just implementing whichever protocol you choose.`,
+        'Leader replacement solves three problems in sequence: detect the failure (imperfectly), fence the zombie (inside and outside the protocol), and carry committed state across the handover.',
+        {
+          type: 'note',
+          text: 'The three problems are independent defenses. Skipping any one of them creates a distinct failure mode: skip detection tuning and you get thrashing or long outages; skip fencing and you get split-brain corruption; skip state carrying and you lose committed entries.',
+        },
+        'Problem 1: Detection. Followers wait for heartbeats. If silence exceeds the timeout, they start an election. The timeout is a guess between two failure modes, tuned with randomized jitter to prevent election duels. No system can do better than this in an asynchronous network.',
+        'Problem 2: In-protocol fencing. Every message carries the sender\'s epoch -- term in Raft, ballot in Paxos, view number in PBFT. When zombie A sends a term-5 message to a node that has seen term 6, the node replies with the higher term. A learns it is deposed and steps down immediately. One integer comparison per message, and staleness becomes self-detecting.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Simplified epoch check on message receipt\nfunction onReceive(msg, myTerm) {\n  if (msg.term > myTerm) {\n    myTerm = msg.term;  // adopt higher term\n    stepDown();         // revert to follower\n  }\n  if (msg.term < myTerm) {\n    reply({ term: myTerm }); // tell sender it is stale\n    return;                  // reject stale message\n  }\n  // process message normally\n}',
+        },
+        'Problem 3: External fencing. A deposed leader can no longer win a Raft vote, but it can still corrupt a file or lose writes to a database that knows nothing about elections. The fix is the fencing token: the lock service hands out a monotonically increasing number with every leadership grant. The protected resource enforces one rule -- reject any write whose token is lower than the highest it has seen.',
+        {
+          type: 'diagram',
+          text: 'Lock service grants:\n  A gets token 33    B gets token 34 (during A\'s pause)\n\nStorage-side enforcement:\n  A writes (token 33) --> accepted  (high-water mark: 33)\n  B writes (token 34) --> accepted  (high-water mark: 34)\n  A retries (token 33) --> REJECTED (33 < 34)\n\nRule: accept iff token >= high-water mark\nNo clocks. No heartbeats. One integer compare.',
+          label: 'Fencing token: the storage layer enforces monotonicity, not the lock holder',
+        },
+        'Problem 4: Carrying committed state. A client was told "committed," so the entry must survive the leader that said it. All three protocol families lean on the quorum-intersection theorem: a committed entry lives on a quorum, a new leader needs a quorum, and those quorums overlap. The entry is in the intersection.',
+        {
+          type: 'table',
+          headers: ['Protocol', 'When state transfers', 'Mechanism', 'Trust model'],
+          rows: [
+            ['Raft', 'Before election', 'Voters reject candidates with less up-to-date logs; the winner already has all committed entries', 'Crash-fault (honest nodes)'],
+            ['Multi-Paxos', 'After election', 'Phase-1 promises report highest accepted values; the new leader MUST re-propose them', 'Crash-fault (honest nodes)'],
+            ['PBFT', 'During view change', 'View-change messages carry prepared certificates signed by 2f+1 replicas; the new primary re-includes every one', 'Byzantine-fault (up to f liars)'],
+          ],
+        },
+        'The subtle case is Raft\'s figure-8: an entry from an old term sitting on a majority can still be overwritten, because election eligibility compares terms before log lengths. Majority replication alone is not commitment. A leader commits only entries from its current term; older entries become safe as a prefix beneath a current-term commit.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Why it works',
       paragraphs: [
-        `ZooKeeper bakes the epoch into transaction ids (the zxid's high 32 bits ARE the epoch), so stale-epoch traffic is rejected by inspection. Kafka fences at two levels — controller epoch and per-partition leader epoch — because both the cluster controller and each partition leader can be replaced independently. etcd ships both the quorum round (ReadIndex) and the lease-based read as API options, letting you choose the latency/assumption trade-off. GFS and modern cloud storage generalize this pattern: chunk version numbers bump on every new lease, and conditional writes (S3's ETag If-Match, Google Cloud Storage's generation numbers) are fencing tokens you can use today without running a consensus protocol at all. For anyone building a distributed system, the practical takeaway is: cloud storage conditional writes are fencing tokens as a service — guard your cron job's output with one conditional write and you've applied this entire page.`,
+        'Safety rests on two monotonic invariants, each enforced by a different mechanism.',
+        {
+          type: 'note',
+          text: 'Invariant 1 (in-protocol): epoch numbers on every message make staleness self-detecting. A zombie cannot complete one round-trip without learning it is deposed, because any contact with the moved-on majority returns a higher epoch.',
+        },
+        {
+          type: 'note',
+          text: 'Invariant 2 (external): fencing tokens make stale authority fail at the resource. The storage layer rejects any token lower than its high-water mark, regardless of the writer\'s belief about its own leadership.',
+        },
+        'Preservation argument for in-protocol fencing: Before any message is processed, the receiver checks the sender\'s epoch against its own. If the sender\'s epoch is lower, the message is rejected and the sender is informed. If the sender\'s epoch is higher, the receiver adopts it and steps down. After the check, exactly one epoch governs -- the highest one. No stale-epoch operation can complete because the first message it sends triggers the check.',
+        'Preservation argument for state carrying (Raft): Before the election, every committed entry is on a majority. During the election, the candidate must win a majority. The two majorities overlap in at least one node, and that node rejects the candidate if its log is less up-to-date. After the election, the winner\'s log contains every committed entry. The log-prefix commit rule (commit only current-term entries) closes the figure-8 hole: an old-term entry on a majority is not yet committed, so its potential loss does not violate safety.',
+        {
+          type: 'quote',
+          text: 'If an entry is committed, then that entry will be present in the logs of the leaders for all higher-numbered terms.',
+          attribution: 'Diego Ongaro and John Ousterhout, "In Search of an Understandable Consensus Algorithm" (USENIX ATC 2014), Leader Completeness Property',
+        },
+        'The same quorum-intersection argument holds for Paxos (promise messages carry the witness) and PBFT (signed certificates carry the proof). The protocols differ in mechanics; the safety proof is the same.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The most common mistake is believing that detection can be reliable: it cannot. Every timeout is a guess tuned between two failure modes, not a measurement. The second trap is skipping in-protocol defenses: a lock without fencing only protects you from processes polite enough to stay dead, and many real systems (including Redis Redlock without additional hardware safety) have been caught serving split-brain data because they trusted the lock and forgot the fence.`,
-        `Another subtle pitfall is confusing majority replication with commitment in Raft. An entry on a majority can still be erased if an older-term entry wins the next election (Raft's figure-8). The whole commitment rule — current-term entry on a majority, with everything beneath as prefix — exists to close this hole. Reading Raft's own paper is mandatory before implementing it; the subtle cases bite anyone who skips that step.`,
-        `Finally, do not assume reads are free. A zombie leader serves reads confidently from a stale world-model. Linearizable reads require the leader to re-prove its regime, either by quorum round (ReadIndex) or by paying a bounded-clock-drift assumption (leases). There is no free lunch; the only question is which currency you choose.`,
+        {
+          type: 'table',
+          headers: ['Component', 'Cost', 'What it buys'],
+          rows: [
+            ['Failure detection', 'One timeout window of unavailability per real failure (typically 150ms-1s)', 'The only available signal in an async network'],
+            ['In-protocol epoch check', 'A few bytes per message + one integer comparison per receipt', 'Self-detecting staleness; zombies die on first contact'],
+            ['Fencing token issuance', 'One atomic counter increment per leadership grant', 'External resources protected without protocol awareness'],
+            ['Fencing token check', 'One integer comparison per write at the storage layer', 'Zombie writes rejected regardless of the writer\'s belief'],
+            ['State carrying (Raft)', 'Zero extra messages -- eligibility check is part of the vote', 'Committed entries survive by construction'],
+            ['State carrying (Paxos)', 'One extra round-trip (phase 1) after election', 'Winner adopts all previously accepted values'],
+            ['State carrying (PBFT)', '2f+1 signed certificates in view-change messages', 'Byzantine-safe proof that nothing committed is lost'],
+            ['ReadIndex', '+1 RTT per read batch (quorum heartbeat round)', 'Linearizable reads without clock assumptions'],
+            ['Lease-based reads', 'Zero extra RTT within lease window', 'Fast reads, but correctness depends on bounded clock drift'],
+          ],
+        },
+        'The dominant cost in practice is the detection timeout itself. Every other mechanism adds negligible overhead -- epoch checks are a single comparison, fencing tokens are a single counter, and state carrying is forced by the quorum-intersection theorem regardless of which protocol you choose.',
+        {
+          type: 'note',
+          text: 'The log-prefix commit rule (Raft\'s figure-8 fix) adds exactly one condition: a leader counts replication only for entries stamped with its own term. Older entries piggyback to safety beneath a current-term commit. This costs nothing at runtime -- it is a condition on the commit decision, not an extra message.',
+        },
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Use Raft Leader Lease Read Safety for the read-path version of the zombie-leader problem, and Fencing Token Zombie Writer for the external-resource version where epochs must be checked outside the consensus group.`,
-        `Dive into "Raft Leader Election" to see how eligibility creates the pre-election carrying rule. Study "Paxos: Consensus Without a Leader" to understand the FLP impossibility and why timeouts can never distinguish slow from dead. Explore "Byzantine Fault Tolerance: When Nodes Lie" to see how PBFT handles untrusted voters and moves the proof to signed certificates. Continue into "HotStuff BFT Quorum Certificate Case Study" to see view-change data compressed into quorum certificates, timeout certificates, and a chained commit rule. Read "Clocks & Ordering: Lamport to TrueTime" to understand how epoch numbers detect staleness the same way logical clocks enforce ordering — by comparing numbers instead of trusting actors. Finally, study "NTP & PTP: How Clocks Actually Sync" to ground the physical assumptions that lease-based reads silently import. Together, these let you design any leader handover: epochs inside the protocol, fences outside, and quorum-intersection carrying state across the change.`,
+        'Every system that elects a leader must replace it safely. The mechanisms on this page appear in every production consensus deployment.',
+        {
+          type: 'table',
+          headers: ['System', 'Epoch mechanism', 'Fencing mechanism', 'Read linearizability'],
+          rows: [
+            ['ZooKeeper', 'zxid high 32 bits ARE the epoch -- stale-epoch traffic rejected by inspection', 'Session expiry + sequential znodes as fencing tokens', 'Sync call forces leader round-trip before read'],
+            ['Kafka', 'Two layers: controller epoch + per-partition leader epoch', 'Brokers reject produce requests from deposed partition leaders', 'Consumers track high-water mark, not leader identity'],
+            ['etcd', 'Raft term on every message', 'Lease TTLs on lock keys; revocation fences stale holders', 'Both ReadIndex (quorum round) and lease reads available as API options'],
+            ['Cloud storage (S3, GCS)', 'N/A (no consensus protocol)', 'Conditional writes: S3 ETag If-Match, GCS generation numbers', 'Conditional writes are fencing tokens as a service'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The last row is the practical takeaway for builders who will never implement Raft: guard your cron job\'s output with one conditional write (If-Match on the ETag) and you have applied the fencing-token pattern from this entire page. The storage layer checks the regime; the zombie\'s retry bounces.',
+        },
+        'Lease-based reads (etcd, TiKV) amortize the regime-verification cost over a time window. This is legitimate only if clocks drift less than the budgeted slack -- the same synchrony assumption that NTP and PTP price. Production systems offer both lease reads and ReadIndex, letting each query choose its currency: latency or certainty.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Believing detection can be reliable. It cannot. Every timeout is a guess tuned between two failure modes, not a measurement. FLP guarantees this.',
+            'Skipping external fencing. A lock without a fencing token protects you only from processes polite enough to stay dead. Redis Redlock without additional storage-side checks has been caught serving split-brain data because it trusted the lock and forgot the fence.',
+            'Confusing majority replication with commitment. In Raft, an entry from an old term on a majority can still be erased if a candidate with a newer-term entry wins the next election (the figure-8 scenario). The commit rule -- current-term entry on a majority, everything beneath as prefix -- exists specifically to close this hole.',
+            'Assuming reads are free. A zombie leader serves reads from a stale world-model with full confidence. Linearizable reads require re-proving the regime: ReadIndex pays one RTT, leases pay a clock-drift assumption. There is no free option.',
+            'Ignoring lease clock drift. Lease-based reads silently import a synchrony assumption into an otherwise asynchronous protocol. If NTP drifts beyond the budgeted slack, a deposed leader can serve stale reads during the drift window without any protocol violation -- the lease has not expired from its perspective.',
+          ],
+        },
+        {
+          type: 'quote',
+          text: 'If you are using locks merely for efficiency, the cost of a lock failure is low... If you are using them for correctness, the cost of a lock failure is high, and you need a fencing token.',
+          attribution: 'Martin Kleppmann, "How to do distributed locking" (2016)',
+        },
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Ongaro & Ousterhout, "In Search of an Understandable Consensus Algorithm" (USENIX ATC 2014)', 'The Raft protocol, leader election, log-prefix commitment, and figure-8 (Section 5.4.2)'],
+            ['Lamport, "The Part-Time Parliament" (ACM TOCS 1998) / "Paxos Made Simple" (2001)', 'Original Paxos, phase-1 promise mechanism for state carrying'],
+            ['Castro & Liskov, "Practical Byzantine Fault Tolerance" (OSDI 1999)', 'PBFT view-change protocol with signed prepared certificates'],
+            ['Kleppmann, "How to do distributed locking" (2016)', 'Fencing tokens, the Redlock critique, and why locks without fences are unsafe'],
+            ['Fischer, Lynch & Paterson, "Impossibility of Distributed Consensus with One Faulty Process" (JACM 1985)', 'FLP impossibility -- why failure detection in async systems can never be reliable'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Raft Leader Election -- see how eligibility creates the pre-election carrying rule that makes the winner\'s log complete.',
+            'Prerequisite: Paxos: Consensus Without a Leader -- understand FLP impossibility and why timeouts can never distinguish slow from dead.',
+            'Extension: Byzantine Fault Tolerance: When Nodes Lie -- see how PBFT handles untrusted voters and moves proof to signed certificates.',
+            'Extension: HotStuff BFT Quorum Certificate Case Study -- view-change data compressed into quorum certificates and timeout certificates.',
+            'Related: Clocks & Ordering: Lamport to TrueTime -- epoch numbers detect staleness the same way logical clocks enforce ordering: by comparing numbers instead of trusting actors.',
+            'Related: NTP & PTP: How Clocks Actually Sync -- grounds the physical assumptions that lease-based reads silently import.',
+            'Applied: Raft Leader Lease Read Safety -- the read-path version of the zombie-leader problem.',
+            'Applied: Fencing Token Zombie Writer -- the external-resource version where epochs must be checked outside the consensus group.',
+          ],
+        },
       ],
     },
   ],
 };
+

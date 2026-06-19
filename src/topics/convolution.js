@@ -1,4 +1,4 @@
-// Convolution: slide a tiny grid of weights over an image and watch it
+﻿// Convolution: slide a tiny grid of weights over an image and watch it
 // light up wherever its pattern appears. Nine numbers that can find every
 // edge in a photo — the atom of computer vision.
 
@@ -8,14 +8,14 @@ export const topic = {
   id: 'convolution',
   title: 'Convolution',
   category: 'AI & ML',
-  summary: 'Slide a 3×3 kernel across an image — the same nine weights detect a pattern everywhere at once.',
+  summary: 'Slide a 3Ã—3 kernel across an image — the same nine weights detect a pattern everywhere at once.',
   controls: [
     { id: 'kernel', label: 'Kernel', type: 'select', options: ['vertical edge detector', 'box blur', 'sharpen'], defaultValue: 'vertical edge detector' },
   ],
   run,
 };
 
-// A 6×6 toy image: dim on the left, bright on the right — one vertical edge.
+// A 6Ã—6 toy image: dim on the left, bright on the right — one vertical edge.
 const IMAGE = [
   [1, 1, 2, 8, 8, 9],
   [1, 2, 1, 8, 9, 8],
@@ -54,7 +54,7 @@ export function* run(input) {
   yield {
     state: imageState('The input "image" (brightness values)'),
     highlight: {},
-    explanation: 'To a computer, an image is a grid of numbers — here 6×6 brightness values, dim (1–2) on the left and bright (8–9) on the right, with one vertical edge between them. Real photos are the same thing, just millions of numbers across three color channels.',
+    explanation: 'To a computer, an image is a grid of numbers — here 6Ã—6 brightness values, dim (1–2) on the left and bright (8–9) on the right, with one vertical edge between them. Real photos are the same thing, just millions of numbers across three color channels.',
   };
 
   yield {
@@ -65,10 +65,10 @@ export function* run(input) {
       values: K.map((row) => row.map(r1)),
     }),
     highlight: {},
-    explanation: `The KERNEL is a 3×3 grid of weights — ${choice.why} In a CNN these nine numbers are LEARNED by Gradient Descent; classic image editors hand-pick them. Either way, the operation is identical: slide it everywhere.`,
+    explanation: `The KERNEL is a 3Ã—3 grid of weights — ${choice.why} In a CNN these nine numbers are LEARNED by Gradient Descent; classic image editors hand-pick them. Either way, the operation is identical: slide it everywhere.`,
   };
 
-  // convolve (valid padding): output is 4×4
+  // convolve (valid padding): output is 4Ã—4
   const out = [];
   for (let i = 0; i <= 3; i += 1) {
     out.push([]);
@@ -90,7 +90,7 @@ export function* run(input) {
     yield {
       state: imageState('Sliding the kernel across the image'),
       highlight: { active: windowIds },
-      explanation: `Position (${i},${j}): lay the kernel over this 3×3 window, multiply each pixel by its weight, and add it all up — one dot product → output value ${out[i][j]}. ${j === 0 ? 'That single number says how strongly THIS patch matches the kernel\'s pattern.' : j === 1 ? 'Slide one pixel right, repeat. Same nine weights, new window.' : `Now the window straddles the bright/dim boundary — ${Math.abs(out[i][j]) > Math.abs(out[i][1]) ? 'and the response JUMPS.' : 'watch the response change.'}`}`,
+      explanation: `Position (${i},${j}): lay the kernel over this 3Ã—3 window, multiply each pixel by its weight, and add it all up — one dot product â†’ output value ${out[i][j]}. ${j === 0 ? 'That single number says how strongly THIS patch matches the kernel\'s pattern.' : j === 1 ? 'Slide one pixel right, repeat. Same nine weights, new window.' : `Now the window straddles the bright/dim boundary — ${Math.abs(out[i][j]) > Math.abs(out[i][1]) ? 'and the response JUMPS.' : 'watch the response change.'}`}`,
       invariant: 'One output pixel = one dot product between the kernel and the window under it.',
     };
   }
@@ -117,74 +117,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Images are not just long lists of numbers. They are grids. Neighboring pixels usually matter together, and the same visual pattern can appear in many places. A vertical edge in the upper-left corner is still a vertical edge if it moves to the center. A dense neural network ignores that structure at the first layer. It can learn from pixels, but it starts with no built-in idea that nearby pixels are related or that the same detector should work across positions.`,
-        `Convolution exists to encode those two facts directly: locality and weight sharing. A small grid of weights, called a kernel or filter, looks at a local patch and produces one number. The same kernel slides across the whole image. Instead of learning a separate detector for every location, the model learns one detector that can fire anywhere. That single design choice is why convolutional networks were able to scale computer vision before transformers became practical for images.`,
+        'The animation displays a 6 by 6 brightness grid and a 3 by 3 kernel (filter). Highlighted cells are the current window: the kernel is laid over those nine pixels. Each step multiplies each pixel by the kernel weight at the same position, sums the nine products, and writes one number into the output feature map.',
+        'The feature map is a smaller grid (4 by 4 with valid padding) where each cell records how strongly the kernel pattern matched at that position. When the edge-detector kernel straddles the dim-bright boundary, the output value jumps. When it sits inside a flat region, the output is near zero. The same nine weights produce every cell in the feature map. That reuse is weight sharing.',
+        'Max-pooling, shown in deeper CNN diagrams, highlights a small window (typically 2 by 2) and keeps only the largest value, halving spatial dimensions while preserving the strongest activation.',
       ],
     },
     {
-      heading: `The naive approaches`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The first naive approach is a fully connected layer over raw pixels. A 224 by 224 RGB image has 150,528 input values. Connecting that to even 64 hidden units needs more than 9.6 million weights before the model has learned a single useful local feature. It also treats pixel 12 in the top row as unrelated to pixel 13 unless the data and optimizer discover that relationship from scratch. The parameter count is high, and the inductive bias is poor.`,
-        `The second naive approach is hand-engineered feature extraction. Classic vision systems used Sobel filters, corners, blobs, histograms, and handcrafted pipelines. These can work, and the kernels in this demo are in that tradition. The wall is flexibility. A hand-picked edge detector does not automatically become a texture detector, a wheel detector, or a tumor-boundary detector for a new dataset. Convolutional neural networks keep the useful sliding operation but learn the filters from data.`,
+        'Images have spatial structure. Neighboring pixels form edges, textures, and shapes. The same edge can appear anywhere in the frame. A recognition system needs to detect local patterns and reuse those detectors across the entire image.',
+        'LeCun, Bottou, Bengio and Haffner showed in 1998 (LeNet-5) that a network built from small, sliding filters could learn to read handwritten digits without hand-designed feature extractors. Each filter scans the whole image, so the network uses far fewer parameters than a fully connected layer and automatically gains translation sensitivity: the same detector fires wherever its pattern appears.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `A convolutional layer asks the same local question everywhere. For a vertical edge detector, the question is "is the right side of this small window brighter than the left side?" For a blur kernel, the question is "what is the local average?" For a learned CNN filter, the question may not have a clean human name, but the structure is the same. The kernel is a small set of weights reused at every valid position.`,
-        `That reuse makes the layer translation-equivariant. If the input shifts to the right, the feature map shifts to the right. The layer does not have to relearn the detector for every coordinate. Later operations such as pooling, striding, data augmentation, and classification heads can turn equivariant feature maps into partial translation invariance, where the final class can stay stable even when the object moves.`,
+        'Flatten the image into a vector and feed it to a fully connected network. A 224 by 224 RGB image has 150,528 input values. One hidden layer of 1,000 units creates 150,528 times 1,000 = 150 million weights. Each weight connects one pixel to one hidden unit with no notion of spatial proximity.',
       ],
     },
     {
-      heading: `How convolution works`,
+      heading: 'The wall',
       paragraphs: [
-        `For a one-channel image, place the kernel over a local window, multiply matching entries, add the products, and write the result into the output feature map. Then slide the kernel one step and repeat. With valid padding, a 3 by 3 kernel over a 6 by 6 image produces a 4 by 4 output because the kernel must fit entirely inside the input. With same padding, border values are added so the output can keep the original height and width.`,
-        `Real images usually have channels. An RGB input has red, green, and blue channels, so a 3 by 3 filter has 3 * 3 * 3 weights before the bias. A layer with 64 filters produces 64 feature maps. Each filter sees all input channels and writes one output channel. The next layer receives those feature maps as its input, so it can combine simple features into richer ones: edges into corners, corners into textures, textures into parts, and parts into task-specific evidence.`,
-        `Training uses the same backpropagation machinery as other neural networks. The loss gradient tells each kernel weight whether increasing it would improve or worsen the final objective. Gradient descent updates the weights. Early filters often become edge, color, and contrast detectors because those are useful local primitives. Deeper filters become harder to name because they are distributed features shaped by the task.`,
+        'The fully connected layer hits three walls at once. First, parameter explosion: 150 million weights for a single layer, most connecting pixels that are spatially unrelated. The model overfits on small datasets because it has too many free parameters to constrain. Second, no translation invariance: a cat learned in the top-left corner is a different pattern from the same cat in the bottom-right, because every position maps to a different set of weights. Third, no locality: the layer has no built-in idea that adjacent pixels matter more than distant ones, so it must learn spatial structure from scratch.',
+        'Hand-designed filters (Sobel, Gaussian) avoid the parameter problem by using small sliding windows, but they cannot adapt. A Sobel kernel detects edges and nothing else. It cannot become a texture detector or a tumor-boundary detector without a human redesigning it. The breakthrough was combining the efficiency of the sliding window with learned weights.',
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: 'How it works',
       paragraphs: [
-        `The input grid proves that an image can be treated as structured numeric data. The kernel grid proves that a detector can be small. The sliding windows prove that one detector can be applied at many coordinates without changing its weights. Each highlighted 3 by 3 patch produces one output value by a dot product. The full feature map is simply the collection of those dot products.`,
-        `The vertical-edge view is the clearest case. Flat regions produce small responses because the left and right sides of the kernel cancel. A patch that straddles the dim-bright boundary produces a large response because negative weights land on dim pixels and positive weights land on bright pixels. The lesson is not only edge detection. The lesson is shared local computation: one tiny template can scan the whole image and create a map of where its pattern appears.`,
+        'A convolutional layer slides a small filter (typically 3 by 3) across the input. At each position, it performs element-wise multiplication between the filter weights and the pixel values under it, then sums the nine products into one output value. That output is one cell of the feature map.',
+        'Stride controls how far the filter jumps between positions. Stride 1 moves one pixel at a time. Stride 2 skips every other position, halving the output dimensions. Padding adds border values (usually zeros) so the output can keep the same spatial size as the input (same padding) or shrink naturally (valid padding, no border added).',
+        'Pooling follows convolution. Max-pooling takes a small window (commonly 2 by 2), keeps the largest value, and discards the rest, halving height and width. Average-pooling keeps the mean instead. Pooling reduces computation for the next layer and provides a degree of local translation invariance: if a feature shifts by one pixel, the maximum in the window often stays the same.',
+        'Channels extend the idea to color and depth. An RGB image has 3 input channels. A 3 by 3 filter on RGB input actually has 3 times 3 times 3 = 27 weights (plus one bias). A layer with 64 such filters produces 64 output channels, one feature map per filter. The next layer treats those 64 maps as its input channels, combining simple features into richer ones.',
+        'Parameter sharing is the key efficiency. One 3 by 3 filter has 9 weights (per input channel) regardless of whether the image is 32 by 32 or 1024 by 1024. A fully connected layer to the same output would need millions of weights that grow with image size.',
+        'A typical CNN architecture stacks these operations: Conv, ReLU activation, Conv, ReLU, Pool, repeated several times to build a hierarchy of features, then flattens the final feature maps into a vector and passes it through one or two fully connected layers to a softmax classifier.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Why it works',
       paragraphs: [
-        `Convolution works well because many signals have local regularity. In natural images, neighboring pixels are correlated, edges are local, textures repeat, and objects are built from parts. In audio spectrograms, nearby time-frequency bins carry local structure. In medical scans, local tissue boundaries and shapes matter. A convolutional network does not need to learn those facts from nothing. Its architecture already assumes local features are useful and reusable.`,
-        `The hierarchy is just as important as the first layer. A single kernel has a small receptive field, but stacking layers lets information from a larger region influence deeper features. Stride and pooling can widen the effective view while reducing resolution. Residual connections, normalization, and careful initialization made very deep CNNs trainable. ResNet showed that depth could be used without collapsing optimization, and later efficient architectures refined the compute tradeoffs for mobile and cloud inference.`,
+        'Local connectivity captures spatial patterns. An edge is a relationship between neighboring pixels, not between a pixel and one 200 rows away. A small filter is the right tool because the relevant information is local.',
+        'Weight sharing gives translation equivariance. If the input shifts right by one pixel, the feature map shifts right by one pixel. The filter does not need to relearn the pattern at every coordinate. Pooling and later layers convert this equivariance into approximate translation invariance for the final classification.',
+        'Hierarchical features emerge from depth. Layer 1 filters learn edges and color gradients because those are the simplest useful local patterns. Layer 2 combines edges into corners and textures. Layer 3 combines textures into parts (eyes, wheels, windows). Layer 4 combines parts into objects. No one designs these features; they emerge from backpropagation minimizing the classification loss. This hierarchy is why a 20-layer CNN can distinguish 1,000 ImageNet categories while each individual filter has fewer than 30 weights.',
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `For input height H, width W, input channels C, output channels F, and kernel size K, a stride-1 convolution costs about H * W * C * F * K * K multiply-adds. The parameter count is only C * F * K * K plus biases, independent of image size, but the compute can still be large because the same filter is applied at many positions. GPUs handle this well because output locations and channels can be computed in parallel.`,
-        `The tradeoff is that convolution buys efficiency by assuming locality. That is a good assumption for many vision tasks, but it limits immediate global mixing. A 3 by 3 kernel cannot directly compare the top-left corner with the bottom-right corner. Deep stacks, pooling, dilation, larger kernels, or attention layers are needed for long-range relationships. Depthwise separable convolutions reduce compute by splitting spatial filtering from channel mixing, but they can reduce capacity if used carelessly.`,
+        'A single convolutional layer with kernel size K, input channels C_in, output channels C_out, and spatial output size H by W performs K squared times C_in times C_out times H times W multiply-accumulate operations. For a 3 by 3 conv layer with 64 input and 128 output channels on a 56 by 56 feature map: 9 times 64 times 128 times 56 times 56 = about 231 million MACs.',
+        'The parameter count is much smaller: K squared times C_in times C_out plus C_out biases. For the same layer: 9 times 64 times 128 + 128 = 73,856 parameters. Compare that to a fully connected layer connecting the same 64 times 56 times 56 = 200,704 inputs to 128 outputs: 25.7 million parameters. Convolution is 350 times more parameter-efficient here.',
+        'Doubling the image resolution quadruples the compute (H and W both double) but leaves the parameter count unchanged. Doubling the number of filters doubles both parameters and compute. GPUs handle convolutions well because every output position can be computed independently, making the operation highly parallel.',
       ],
     },
     {
-      heading: `Real uses`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Convolutions are used in image classification, object detection, semantic segmentation, OCR, face detection, industrial inspection, robotics, satellite imagery, medical imaging, camera pipelines, and audio models over spectrograms. U-Net made encoder-decoder convolutional structure central to segmentation. ResNet made residual CNNs a default backbone. EfficientNet showed how to scale depth, width, and resolution together. Many production systems still use CNNs because they are fast, predictable, and strong when data has local spatial structure.`,
-        `Convolution also remains useful outside deep learning. Blur, sharpen, emboss, edge detection, and Gaussian smoothing are ordinary image-processing kernels. A CNN can be seen as a learned stack of these local operations, with nonlinearities and channel mixing between them. Even vision transformers often begin by splitting an image into patches with a convolution-like projection before attention handles global relationships.`,
+        'AlexNet (Krizhevsky, Sutskever, Hinton 2012) cut the ImageNet top-5 error from 26 percent to 16 percent, proving learned convolutional features could replace decades of hand-engineered descriptors. VGG (Simonyan and Zisserman 2014) showed that stacking many 3 by 3 filters outperforms fewer large filters. ResNet (He et al. 2015) introduced skip connections that enabled 152-layer CNNs without vanishing gradients.',
+        'Object detection systems like YOLO and Faster R-CNN use CNN backbones to extract features, then add detection heads for bounding boxes and class labels. Medical imaging uses CNNs for tumor detection in CT scans, retinal disease screening, and pathology slide analysis, where local texture and boundary patterns are the primary signal. Autonomous driving perception stacks use CNNs for lane detection, pedestrian recognition, and traffic sign classification.',
+        'CNNs also power non-image tasks with local structure: audio classification over spectrograms, 1D convolutions for time-series analysis, and text classification (though transformers have largely replaced them for language).',
       ],
     },
     {
-      heading: `Failure modes and limits`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Padding and stride are common sources of silent errors. Valid padding shrinks feature maps. Same padding introduces artificial border values. Stride can throw away detail. Dilation expands the receptive field but may create sparse sampling artifacts. A model can look correct on average while failing on small objects, thin boundaries, or features near the image edge because these choices damaged spatial information.`,
-        `CNNs can also learn shortcuts. They may rely on background, texture, scanner artifacts, watermark patterns, or dataset-specific color statistics instead of the intended object. They are not automatically robust to rotation, scale, lighting, occlusion, adversarial perturbations, or distribution shift. First-layer filters are often interpretable, but deeper features are not guaranteed to map to human concepts. Convolution is a strong inductive bias, not a full theory of vision.`,
+        'Rotation invariance is not built in. A CNN trained on upright faces may fail on rotated ones unless the training data includes rotations (data augmentation) or the architecture adds explicit rotation handling. Scale invariance has the same limitation: a filter trained on large objects may miss small ones unless multi-scale processing is used.',
+        'Global context requires many stacked layers. A 3 by 3 filter sees 3 pixels. Two stacked 3 by 3 filters see 5 pixels (the receptive field grows slowly). Relating the top-left corner to the bottom-right corner of a 224 by 224 image requires dozens of layers or architectural tricks like dilated convolutions and global pooling. Attention mechanisms (Vision Transformer, Dosovitskiy et al. 2020) handle long-range dependencies more directly, though at higher compute cost and data hunger.',
+        'CNNs can learn shortcuts: relying on background context, watermarks, or scanner artifacts instead of the actual object. They are not robust to adversarial perturbations (small, imperceptible pixel changes that flip the predicted class) or distribution shift (training on hospital A, deploying at hospital B).',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Study Neural Network Forward Pass, Activation Functions, Backpropagation, Gradient Descent, Regularization: L1 & L2, Batch Normalization, and Loss Landscape, in 3D to understand how convolutional networks train. Then compare Convolution with Attention Mechanism and Multi-Head Attention. The useful contrast is local shared filtering versus global content-based mixing. CNNs bring the structure of grids into the model; attention lets distant positions interact more directly, but usually pays more compute and needs more data or pretraining.`,
+        'Input (5 by 5):\n  0  0  0  0  0\n  0  0  0  0  0\n  0  0  1  0  0\n  0  0  0  0  0\n  0  0  0  0  0',
+        'Filter (3 by 3):\n  1  0 -1\n  2  0 -2\n  1  0 -1',
+        'This is the Sobel vertical-edge detector. Valid padding, stride 1, so the output is (5-3+1) by (5-3+1) = 3 by 3.',
+        'Position (0,0) covers rows 0-2, columns 0-2. The patch is [[0,0,0],[0,0,0],[0,0,1]]. Dot product: 0*1 + 0*0 + 0*(-1) + 0*2 + 0*0 + 0*(-2) + 0*1 + 0*0 + 1*(-1) = -1.',
+        'Position (0,1) covers rows 0-2, columns 1-3. Patch: [[0,0,0],[0,0,0],[0,1,0]]. Dot product: 0 + 0 + 0 + 0 + 0 + 0 + 0 + 1*0 + 0 = 0.',
+        'Position (0,2) covers rows 0-2, columns 2-4. Patch: [[0,0,0],[0,0,0],[1,0,0]]. Dot product: 0 + 0 + 0 + 0 + 0 + 0 + 1*1 + 0 + 0 = 1.',
+        'Position (1,0): patch [[0,0,0],[0,0,1],[0,0,0]]. Dot product: 0 + 0 + 0 + 0 + 0 + 1*(-2) + 0 + 0 + 0 = -2.',
+        'Position (1,1): patch [[0,0,0],[0,1,0],[0,0,0]]. Dot product: 0 + 0 + 0 + 0 + 1*0 + 0 + 0 + 0 + 0 = 0.',
+        'Position (1,2): patch [[0,0,0],[1,0,0],[0,0,0]]. Dot product: 0 + 0 + 0 + 1*2 + 0 + 0 + 0 + 0 + 0 = 2.',
+        'Position (2,0): patch [[0,0,1],[0,0,0],[0,0,0]]. Dot product: 0 + 0 + 1*(-1) + 0 + 0 + 0 + 0 + 0 + 0 = -1.',
+        'Position (2,1): patch [[0,1,0],[0,0,0],[0,0,0]]. Dot product: 0 + 1*0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 = 0.',
+        'Position (2,2): patch [[1,0,0],[0,0,0],[0,0,0]]. Dot product: 1*1 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 = 1.',
+        'Full output feature map (3 by 3):\n  -1   0   1\n  -2   0   2\n  -1   0   1',
+        'The filter found the single bright pixel. Negative values to the left mean brightness increases rightward. Positive values to the right mean brightness decreases rightward. Zero in the center means the pixel itself sits symmetrically. Shift the bright pixel one column right and the entire output pattern shifts one column right, with the same filter weights. That is translation equivariance.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'LeCun, Bottou, Bengio, Haffner 1998, Gradient-Based Learning Applied to Document Recognition. Krizhevsky, Sutskever, Hinton 2012, ImageNet Classification with Deep Convolutional Neural Networks. He, Zhang, Ren, Sun 2015, Deep Residual Learning for Image Recognition. Dosovitskiy et al. 2020, An Image Is Worth 16x16 Words: Transformers for Image Recognition at Scale.',
+        'Foundations: study Activation Functions (ReLU between conv layers is what makes depth useful), Backpropagation (how filter weights are learned from the loss gradient), Batch Normalization (stabilizes training of deep CNNs by normalizing layer inputs).',
+        'Extensions: study Residual Connections (skip connections that enable 100+ layer CNNs), Pooling (spatial downsampling and local invariance), Attention Mechanism and Vision Transformer (global context via attention instead of local filtering).',
+        'The useful contrast: CNNs assume locality and share weights spatially. Transformers assume all positions may be relevant and learn which ones to attend to. CNNs are cheaper per layer but need depth for global context. Transformers are expensive but see everything at once.',
       ],
     },
   ],
 };
+

@@ -225,6 +225,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Archetype ECS Column Store. Group entities by exact component set, store each group in packed column chunks, and move rows when components are added or removed..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Game engines and simulation systems spend much of their time doing the same operation to many similar things. A movement system updates positions from velocities. A visibility system reads transforms and bounds. A physics system reads colliders, masses, and transforms. The work is simple, but the data volume is large enough that memory layout can decide whether a frame fits its budget.',
@@ -233,7 +242,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'A reasonable first ECS design stores one collection per component type. Position has a dense set, Velocity has a dense set, Health has a dense set, and each set maps entity ids to component values. That sparse-set style is good for adding and removing individual components because a component can appear or disappear without moving the rest of the entity. It also makes single-component access direct.',
         'The wall appears in multi-component systems. A movement system needs the intersection of entities that have Position and Velocity. A renderer may need Transform, Mesh, Material, and Visibility. If every component owns its own sparse set, the system must join sets, probe membership, and chase component locations before it can do useful work. The loop spends time proving that rows line up instead of streaming aligned data.',
@@ -281,7 +290,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         'Consider a character simulation. Most active characters have Transform, Velocity, Collider, AnimationState, and Health. The movement system reads Transform and Velocity, so it scans every chunk whose archetype contains both. The animation system reads Transform and AnimationState. The health system scans Health. Each system gets a compact view of the columns it needs.',
         'Temporary state is where the design choice becomes visible. A Stunned component could be a real component if many systems query it and entities keep it for meaningful spans. If it appears for one frame and disappears immediately, moving rows between archetypes may be too expensive. A command buffer, sparse marker, timer wheel, or bitset can be a better fit.',
@@ -289,7 +298,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Archetype storage wins when systems repeatedly scan stable component sets. Movement, animation sampling, particle updates, broadphase preparation, visibility classification, audio emitter updates, and many AI perception passes have this shape. The system asks for a few columns across many entities, and most entities keep the same component set for many frames.',
         'It also helps scheduling. Chunks give the engine a natural unit for parallel jobs and conflict analysis. If one job writes Position and another reads Health, their component access declarations can be checked before execution. Chunk boundaries make it easier to split work while keeping cache-local loops.',
@@ -305,11 +314,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary references: Unity Entities archetype concepts, https://docs.unity3d.com/Packages/com.unity.entities%401.0/manual/concepts-archetypes.html; Bevy archetype module docs, https://docs.rs/bevy/latest/bevy/ecs/archetype/index.html; Bevy ComponentSparseSet docs, https://docs.rs/bevy/latest/bevy/ecs/storage/struct.ComponentSparseSet.html.',
         'Study Sparse Set Entity Index to understand the contrasting component-store design. Study Generational Arena Slot Map for stable entity handles. Study Apache Arrow Columnar Memory for the columnar layout instinct. Study Dynamic AABB Tree Broad Phase for a case where the engine needs a separate spatial structure. Study Dirty Rectangle Damage Tracking and Data Structure Design Patterns Primer for the broader lesson: choose the structure that matches the dominant access pattern, then name the tax it creates.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Archetype ECS Column Store moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

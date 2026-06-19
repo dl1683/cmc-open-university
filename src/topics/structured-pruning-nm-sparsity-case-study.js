@@ -417,6 +417,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Structured Pruning and N:M Sparsity. A model-compression case study: score weights, build N:M masks, pack sparse operands, verify sparse kernels, and roll out only when quality gates hold..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         'Large neural networks contain redundancy, but deleting weights is not automatically useful. A model can have many zeros and still run at dense speed if the accelerator, compiler, and matrix library cannot exploit those zeros. A compressed checkpoint can also be smaller while silently losing a narrow capability that the average benchmark does not expose.',
@@ -424,7 +433,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive pruning',
+      heading: 'The obvious approach',
       paragraphs: [
         'The naive idea is magnitude pruning: sort weights by absolute value and set the smallest ones to zero. That often works as a first experiment because small weights can contribute less to the output than large weights. If the model is fine-tuned after pruning, some lost accuracy may recover.',
         'The naive idea breaks in two ways. First, small by magnitude does not always mean unimportant. A small weight connected to a high-activation feature can matter more than a larger weight connected to a quiet feature. Second, arbitrary zeros are irregular. Dense matrix multiplication pipelines do not become fast just because the tensor contains zeros at random positions.',
@@ -440,14 +449,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to trade pruning freedom for regularity. Unstructured pruning can remove any weight, which gives the optimizer many choices but gives the hardware a messy pattern. N:M sparsity restricts each small group of M weights so that only N are kept. In a 2:4 pattern, every four-weight group keeps two entries and removes two.',
         'That local rule is the data-structure trick. Each group can be represented by kept values plus tiny position metadata. The kernel knows that every group has the same density, so it can schedule predictable sparse matrix work instead of chasing arbitrary indices. The price is that the pruning algorithm must choose the best legal pattern inside each group, not the best global set of weights.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'A pruning pass begins with a frozen dense reference. The system chooses target tensors, usually large linear layers where matrix multiplication dominates runtime. It collects calibration activations from representative data. A scoring rule ranks candidate weights inside each group. Magnitude pruning uses absolute weight size. Activation-aware methods multiply or otherwise combine weight information with activation statistics. Reconstruction-style methods estimate output error layer by layer.',
         'The mask builder enforces the local pattern. For 2:4 sparsity, it inspects each consecutive group of four candidate weights and keeps the two best according to the scorer. The debug artifact may be a dense-shaped tensor where removed weights are zero. The serving artifact is different: packed kept values plus metadata that tells the sparse kernel which positions survived.',
@@ -479,7 +488,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Pruning cost has several layers. Calibration needs representative data and activation collection. Mask construction needs scoring and legality checks. Packing needs format conversion and validation. Benchmarking needs enough shape coverage to prove the sparse route is not a dense fallback. Rollout needs shadow, canary, and telemetry work.',
         'The quality tradeoff is uneven. Average perplexity can move little while code, math, refusal behavior, rare languages, tool-call schemas, or long-context recall degrade. Some layers are more fragile than others. Some capabilities rely on small weights that look unimportant under a weak scorer.',
@@ -487,7 +496,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Structured N:M pruning wins when a large fraction of serving cost sits in compatible dense linear layers and the deployment hardware has fast sparse kernels for the chosen pattern. LLM feed-forward and projection layers are natural candidates because they contain large matrix multiplications and large parameter counts.',
         'It is especially useful when paired with other compression techniques. Distillation can move behavior into a more compressible student. Pruning can remove legal connections. Quantization can reduce bit width. Kernel fusion, CUDA graphs, batching, and routing can then make the serving path use the compressed artifact efficiently.',
@@ -508,5 +517,40 @@ export const article = {
         'Study Quantization for bit-width compression, Activation-Aware Quantization Calibration Ledger for calibration and packing decisions, Knowledge Distillation for behavior transfer, Transformer Inference Roofline for why sparsity only helps when it changes the bottleneck, Accelerator Kernel Compatibility Matrix for legal dispatch, Sparse Format Selection Compiler Lowering for layout choices, COO and CSC sparse tensor primers for sparse representation basics, Benchmark Variance Model Selection for quality gates, and Heterogeneous AI Compute Workload Router for dense fallback and device-aware serving policy.',
       ],
     },
+      {
+        heading: 'The obvious approach (pruning edition)',
+        paragraphs: [
+          'Trained neural networks are too large for deployment. GPT-3 has 175 billion parameters, roughly 350 GB in FP16. That does not fit on a single GPU. The naive response is to train a smaller model from scratch, but smaller models are harder to train because they have less capacity to learn from the same data.',
+          'Pruning removes unnecessary weights from the already-trained model. Unstructured pruning (LeCun et al. 1990, Optimal Brain Damage) sets individual weights to zero based on magnitude: if |w| is below a threshold, w becomes 0. This can remove 90% of weights with minimal accuracy loss. The problem is that sparse weight matrices are not faster on GPUs. GPUs need dense, regular computation. The zeros are stored but do nothing useful.',
+          'Structured pruning removes entire neurons, channels, or attention heads. The result is a genuinely smaller, dense model that runs faster without sparse-matrix tricks. N:M sparsity (Mishra et al. 2021) is the practical sweet spot: for every M consecutive weights, exactly N are zero. In 2:4 sparsity, 50% of weights are zero in a structured pattern. NVIDIA Ampere Tensor Cores have hardware support for 2:4 sparsity, delivering 2x throughput with no software overhead. This is meaningful speedup with minimal accuracy loss.',
+        ],
+      },
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'LeCun, Denker & Solla 1990, Optimal Brain Damage: pruning by second-derivative saliency, the original principled pruning paper. Han et al. 2015, Learning Both Weights and Connections for Efficient Neural Networks: magnitude pruning and the deep compression pipeline. Mishra et al. 2021, Accelerating Sparse Deep Neural Networks: N:M sparsity on Ampere hardware with hardware-supported 2:4 patterns. Frankle & Carlin 2019, The Lottery Ticket Hypothesis: sparse subnetworks that train as well as the full network when reset to their original initialization.',
+          'Study next: Quantization (complementary compression that reduces precision instead of removing weights). Knowledge Distillation (train a small model from a large model\'s outputs rather than pruning). Activation Functions (pruning interacts with ReLU sparsity because ReLU already zeros negative activations). Neural Architecture Search (find efficient architectures directly instead of pruning large ones). Transformer Block (attention head pruning as a form of structured sparsity within the transformer).',
+        ],
+      },
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Layer: 4 neurons, weight matrix W (4x4). Magnitudes: [[0.8, 0.1, 0.3, 0.9], [0.02, 0.5, 0.01, 0.7], [0.6, 0.4, 0.2, 0.3], [0.1, 0.05, 0.8, 0.1]]. Magnitude pruning at threshold 0.2: set 6 weights to zero (all |w| < 0.2). Result: 37.5% sparsity. Matrix is sparse but irregular, so no GPU speedup.',
+              'Neuron pruning: sum magnitudes per column. Col 0: 1.52, Col 1: 1.05, Col 2: 1.31, Col 3: 2.0. Remove column 1 (lowest sum): W becomes 4x3. Dense, genuinely smaller, 25% fewer computations.',
+              '2:4 sparsity on row 0: [0.8, 0.1, 0.3, 0.9] becomes [0.8, 0, 0, 0.9]. Keep the 2 largest magnitudes, zero the 2 smallest. Hardware pattern: every group of 4 has exactly 2 nonzeros. Matrix stored in compressed format with index metadata.',
+            ],
+          },
+        ],
+      },
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'The lottery ticket hypothesis (Frankle & Carlin 2019): within a randomly initialized network, there exists a sparse subnetwork (a winning ticket) that can train to full accuracy in the same number of steps. Finding it: train the full network, prune the smallest weights, reset the remaining weights to their original initialization, retrain. The winning ticket trains just as well as the full network. Implication: we train models 10-100x larger than necessary. But finding the ticket requires training the full model first, so there is no free lunch.',
+          'Iterative magnitude pruning (IMP): train, prune 20%, retrain, prune 20%, repeat. Can reach 90-99% sparsity. Each cycle takes full training time. Practical pruning skips the iteration: train once, prune once (one-shot), fine-tune briefly. Less optimal but 10x cheaper than IMP.',
+        ],
+      },
   ],
 };

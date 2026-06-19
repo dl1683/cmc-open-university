@@ -1,4 +1,4 @@
-// Gradient boosting: don't average the trees — CHAIN them. Each new tree
+﻿// Gradient boosting: don't average the trees — CHAIN them. Each new tree
 // fits what the ensemble still gets wrong, and the whole thing is gradient
 // descent wearing a forest costume. Computed live in this file.
 
@@ -57,7 +57,7 @@ function* residualByResidual() {
   yield {
     state: plotState({
       axes: { x: { label: 'house size (100s sq ft)' }, y: { label: 'price ($10k)' } },
-      series: [fnSeries('f0', 'F₀ = the mean', hist[0].F)],
+      series: [fnSeries('f0', 'Fâ‚€ = the mean', hist[0].F)],
       markers: dataMarkers(),
     }),
     highlight: { active: ['f0'] },
@@ -66,7 +66,7 @@ function* residualByResidual() {
 
   yield {
     state: plotState({
-      axes: { x: { label: 'house size (100s sq ft)' }, y: { label: 'residual: what F₀ missed' } },
+      axes: { x: { label: 'house size (100s sq ft)' }, y: { label: 'residual: what Fâ‚€ missed' } },
       series: [{ id: 'zero', label: '', points: [{ x: 1, y: 0 }, { x: 10, y: 0 }] }],
       markers: Y.map((y, i) => ({ id: `r${i}`, x: X[i], y: y - MEAN, label: i === 0 || i === 9 ? (y - MEAN).toFixed(1) : '' })),
     }),
@@ -79,8 +79,8 @@ function* residualByResidual() {
     state: plotState({
       axes: { x: { label: 'house size (100s sq ft)' }, y: { label: 'price ($10k)' } },
       series: [
-        fnSeries('f1', 'F₁', hist[1].F),
-        fnSeries('f2', 'F₂ = F₁ + stump₂', hist[2].F),
+        fnSeries('f1', 'Fâ‚', hist[1].F),
+        fnSeries('f2', 'Fâ‚‚ = Fâ‚ + stumpâ‚‚', hist[2].F),
       ],
       markers: dataMarkers(),
     }),
@@ -91,7 +91,7 @@ function* residualByResidual() {
   yield {
     state: plotState({
       axes: { x: { label: 'house size (100s sq ft)' }, y: { label: 'price ($10k)' } },
-      series: [fnSeries('f4', 'F₄: four stumps deep', hist[4].F)],
+      series: [fnSeries('f4', 'Fâ‚„: four stumps deep', hist[4].F)],
       markers: dataMarkers(),
     }),
     highlight: { found: ['f4'] },
@@ -104,11 +104,11 @@ function* residualByResidual() {
       rows: [{ id: 'gd', label: 'gradient descent' }, { id: 'gb', label: 'gradient boosting' }],
       columns: [{ id: 'what', label: 'updates' }, { id: 'step', label: 'each step' }],
       values: [[1, 2], [3, 4]],
-      format: (v) => ['', 'numbers (weights)', 'w ← w − η·∇loss', 'a FUNCTION F(x)', 'F ← F + η·(tree fit to −∇loss)'][v],
+      format: (v) => ['', 'numbers (weights)', 'w â† w âˆ’ ηÂ·âˆ‡loss', 'a FUNCTION F(x)', 'F â† F + ηÂ·(tree fit to âˆ’âˆ‡loss)'][v],
     }),
     highlight: { compare: ['gd:step', 'gb:step'] },
     explanation: 'For squared loss, the negative gradient with respect to each prediction is the residual y - F(x). Fitting a tree to residuals is therefore a gradient-descent step in function space: the tree is the step direction, and adding it updates the current function.',
-    invariant: 'For squared loss, residual = −∂loss/∂prediction: each tree is a gradient step in function space.',
+    invariant: 'For squared loss, residual = âˆ’âˆ‚loss/âˆ‚prediction: each tree is a gradient step in function space.',
   };
 }
 
@@ -157,7 +157,7 @@ function* knobs() {
       ],
       columns: [{ id: 'what', label: '' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'λ on leaf weights + tree size in the loss itself', 'bin features → find splits in O(bins) not O(n)', 'each split learns a default direction for NaN', 'most-winning model class on tabular Kaggle, ~decade'][v],
+      format: (v) => ['', 'λ on leaf weights + tree size in the loss itself', 'bin features â†’ find splits in O(bins) not O(n)', 'each split learns a default direction for NaN', 'most-winning model class on tabular Kaggle, ~decade'][v],
     }),
     highlight: { active: ['record:what'] },
     explanation: 'XGBoost and LightGBM are production versions of the same idea. They add regularized leaf weights, second-order gradients, histogram split search, missing-value handling, and fast tree growth, which is why boosted trees remain strong on medium-sized tabular data.',
@@ -174,6 +174,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Gradient Boosting. Each tree fits the previous ensemble's mistakes — gradient descent in function space, and the king of tabular data..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why gradient boosting exists`,
       paragraphs: [
         `Gradient boosting exists because many real prediction problems are too irregular for one simple model but too structured to ignore. Tabular data often contains thresholds, interactions, missing values, and feature effects that change across ranges. A linear model may miss those shapes. A single decision tree can find them, but it tends to overfit unless it is heavily constrained. The goal is to build a strong predictor from many small, controlled corrections rather than trust one large tree to discover everything at once.`,
@@ -181,14 +190,14 @@ export const article = {
       ],
     },
     {
-      heading: `The naive alternatives and why they fail`,
+      heading: `Where it fails`,
       paragraphs: [
         `The first naive alternative is to fit one deep tree. That can drive training error down, but it often memorizes accidents in the sample: rare categories, outliers, leakage, or noise in the labels. The tree becomes a list of brittle exceptions. It may look excellent on the training set and disappoint on new rows. Pruning helps, but then the tree may be too weak to capture the real nonlinear structure.`,
         `The second naive alternative is to average many independent trees, as a random forest does. That is often strong, and it reduces variance, but averaging does not create a sequence of targeted repairs. If every tree is trying to solve the whole problem from scratch, the ensemble may still keep the same bias. Boosting attacks bias directly. It asks, after each round, "what part of the target remains unexplained?" That question is the reason boosted trees can be very strong with shallow learners.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `The core insight is that a model can improve by fitting its own errors. Start with a crude function F0, such as the mean label. For each training example, compute the residual y - F0(x). That residual is a new target: positive if the model predicted too low, negative if it predicted too high. Fit a weak tree to those residuals, scale the tree by a learning rate, and add it to the model. Then recompute residuals and repeat.`,
         `For squared error, this is not just a metaphor. The residual is the negative gradient of the loss with respect to the current prediction. Ordinary gradient descent updates a vector of weights. Gradient boosting updates a function. The tree is the step direction in function space, and the learning rate controls how far the function moves in that direction. For logistic loss, ranking losses, and other objectives, modern boosting libraries fit trees to the appropriate gradients and often use second-order curvature information to choose better leaf values.`,
@@ -202,21 +211,21 @@ export const article = {
       ],
     },
     {
-      heading: `How the demo's system works`,
+      heading: `How it works`,
       paragraphs: [
         `The demo uses ten house sizes and prices. The initial model predicts the same price for every house: the mean. That model is intentionally dull, so the residuals show clear structure. Small houses sit below the mean, large houses sit above it, and a one-split stump can learn a useful correction. The stump searches possible split points, sends rows left or right, and predicts the average residual on each side.`,
         `After the first stump is added, the target changes. The second stump is not trying to fit original house prices. It is trying to fit the remaining errors after the first correction. That distinction matters. Boosting keeps changing the problem it gives to the next learner. In the plotted example, four one-split stumps recover the three price plateaus because each stump handles a different part of the remaining pattern. No individual stump is expressive enough to represent the full function. The sum is expressive because every stump is placed where the previous sum still fails.`,
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: `How it works (2)`,
       paragraphs: [
         `The first visual proves that boosting begins from an error, not from a finished idea of the target function. The mean line is bad in a useful way: the gaps between data points and the line are organized. The residual plot turns those gaps into a dataset. Once the errors are visible as targets, the purpose of the next tree becomes concrete. It is not another independent opinion. It is a correction with a job.`,
         `The learning-rate view proves the main regularization tradeoff. A full-size correction can reduce training error quickly on a clean toy problem. On noisy data, that same greed can memorize label noise. Shrinkage multiplies each tree by a value such as 0.1 or 0.03, forcing the ensemble to move in smaller steps. Smaller steps usually need more trees, but they give validation error more chances to reveal when the model has started chasing noise. Early stopping is therefore not an accessory. It is part of the algorithm's practical control system.`,
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Training cost is roughly the number of rounds times the cost of fitting one tree. Real libraries reduce that cost with histogram bins, sorted feature blocks, column sampling, row sampling, and parallel split search. Prediction is usually cheap: evaluate each tree, add its leaf value, and return the sum. The cost grows with tree count and tree depth, so a model with thousands of deep trees can become heavy for low-latency systems even if it trains well.`,
         `The tradeoffs are mostly about control. More trees reduce bias but can raise variance. Deeper trees capture interactions but can memorize small groups. A smaller learning rate is safer but requires more rounds. Subsampling adds noise that can improve generalization but also increases run-to-run variation. Regularization on leaf weights and tree structure keeps corrections from becoming too sharp. Compared with neural networks, boosted trees often need less feature scaling and less training infrastructure, but they are less natural for raw images, audio, long text, and representation learning.`,
@@ -224,7 +233,7 @@ export const article = {
       ],
     },
     {
-      heading: `Real uses and failure modes`,
+      heading: `Where it fails (2)`,
       paragraphs: [
         `Gradient boosting is a default baseline for tabular machine learning. It is used in fraud detection, credit risk, churn prediction, pricing, demand forecasting, ad ranking, insurance, medical risk scoring, and many Kaggle-style competitions. It handles mixed numeric and categorical features after encoding, nonlinear thresholds, missing values, and feature interactions. XGBoost, LightGBM, and CatBoost are production forms of the same idea with careful engineering around split search, missing values, categorical handling, regularization, and distributed training.`,
         `The failure modes are direct consequences of the algorithm's strength. Because every round attacks the remaining error, leakage is rewarded aggressively. A feature that accidentally contains the answer will look like the perfect correction. Noisy labels can be chased round after round unless validation and early stopping are honest. Time-series problems fail if rows are randomly split and future information leaks into training. Categorical encodings can leak target statistics if they are computed outside the validation fold. Boosting also gives feature importance numbers that can be misleading when features are correlated or when leakage is present.`,
@@ -237,5 +246,105 @@ export const article = {
         `Study decision trees first, because every boosted tree is still made of splits and leaves. Then study random forests to understand the difference between averaging independent models and adding sequential corrections. Study gradient descent to make the function-space update precise. Study cross-validation, leakage, and early stopping before trusting a boosted model's score. Finally, study regularization and calibration. A boosted classifier gives scores, but a real system must decide thresholds, costs, monitoring, and retraining policy after the score is produced.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Gradient Boosting moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

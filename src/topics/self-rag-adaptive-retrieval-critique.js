@@ -1,4 +1,4 @@
-// Self-RAG: train a model to decide when to retrieve, generate with evidence,
+﻿// Self-RAG: train a model to decide when to retrieve, generate with evidence,
 // and critique its own passages through special reflection tokens.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -198,70 +198,167 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Self-RAG exists because retrieval-augmented generation solves one problem and creates another. A language model that relies only on parametric memory can answer with stale or false claims. A standard RAG pipeline reduces that risk by retrieving passages and placing them in the context window. The naive version retrieves a fixed top-k set before generation, no matter what the prompt asks. That helps fact-heavy questions, but it can add noise to tasks that do not need evidence, waste latency on simple instructions, and still fail when the retrieved passages are irrelevant or the answer is not supported by them. Self-RAG, or Self-Reflective Retrieval-Augmented Generation, changes retrieval from a fixed middleware step into a learned control decision inside generation.',
+        'The reflection-loop view traces one Self-RAG generation cycle. Active nodes mark the current decision point: should the model retrieve, is the passage relevant, is the generated text supported, is the segment useful? Found markers show the final answer once the loop completes. Compare markers highlight components that are idle during a given step -- retrieval is skipped when the model decides evidence is unnecessary.',
+        'The control-and-scoring view shows what happens at inference time. The plot tracks the tradeoff between retrieval frequency and missed evidence as you move the threshold dial. The segment ledger shows how critique tokens score candidate continuations on support, relevance, and utility before selecting a winner.',
+        'Watch for the moment the model decides not to retrieve. That is the move that separates Self-RAG from fixed RAG. In standard RAG, every prompt pays the same retrieval cost. Here, the model has learned when to skip.',
       ],
     },
     {
-      heading: 'The Naive Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The reasonable first attempt is fixed RAG: retrieve the same number of passages for every query, then ask the model to answer using that context. It is simple, easy to instrument, and often enough for question answering. The wall is that retrieval need is not constant. A creative writing prompt may not need retrieval at all. A fact-checking prompt may need several retrieval points as the answer develops. A long-form answer may start grounded and then drift. A retrieved passage may be topically similar but not answer the question. Fixed RAG has no internal signal for these differences. It pushes all control into retriever settings and prompts, then asks the generator to behave as if the right evidence is already present.',
+        'Language models that rely only on parametric memory hallucinate. They produce fluent text that sounds right but cites nothing, and the user has no way to tell grounded claims from invented ones. Retrieval-augmented generation (RAG) addresses this by fetching passages from a corpus and placing them in the context window before generation. The model can now ground its answer in evidence.',
+        'The trouble is that vanilla RAG treats retrieval as a fixed preprocessing step. Every prompt gets top-k passages, whether it needs them or not. A creative-writing prompt gets irrelevant Wikipedia paragraphs. A multi-hop factual question gets passages that answer the first hop but not the second. A long answer starts grounded, then drifts past its evidence without any signal that grounding has been lost.',
+        {
+          type: 'quote',
+          text: 'Indiscriminate retrieval can impair the versatility of LLMs or lead to unhelpful response generation when retrieval is unnecessary or a retrieved passage is irrelevant.',
+          attribution: 'Asai et al., "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection", 2023',
+        },
+        'Self-RAG (Asai et al., ICLR 2024) reframes the problem. Instead of always retrieving, train the model to decide when to retrieve, judge whether what it retrieved is relevant, check whether its own output is supported by the evidence, and score how useful the segment is. Retrieval becomes a learned control decision inside generation, not a fixed step before it.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core insight is to train the model to emit special reflection tokens along with ordinary text. These tokens answer control questions: should the model retrieve now, is a retrieved passage relevant, is the generated segment supported by the evidence, and how useful is the segment for the user request. The token stream becomes a small control plane. It does not replace the retriever, the passage store, or external evaluation. It gives the generator a learned way to decide when evidence is needed and a learned way to score the local continuation. The invariant is that retrieval and critique happen at segment boundaries, before unsupported text becomes a polished final answer. That creates chances to skip, fetch, reject, revise, or select.',
+        'The reasonable first attempt is fixed-k RAG: embed the query, retrieve the top-k most similar passages, concatenate them into the prompt, and generate. This is simple to build, easy to debug, and works well for single-hop factual questions where the retriever usually finds a relevant passage.',
+        'A slightly better version adds a reranker -- a cross-encoder that rescores the retrieved passages before generation. This improves precision in the context window but still retrieves on every query, still retrieves only once (before generation starts), and still has no signal for whether the generated text actually uses the evidence.',
+        'Both approaches treat retrieval as plumbing external to the model. The generator never sees a signal that says "you need evidence here" or "what you just wrote goes beyond the passage." It generates in one shot, and any grounding problems are only caught downstream by evaluation.',
       ],
     },
     {
-      heading: 'How Training Works',
+      heading: 'The wall',
       paragraphs: [
-        'Training has three moving parts in the paper design: a retriever, a critic, and a generator. The critic is trained to produce reflection labels for retrieved passages and generated segments. Those labels are then inserted into instruction-output data. The generator is fine-tuned with an expanded vocabulary so it learns ordinary next-token prediction and reflection-token prediction in the same sequence. The important detail is that the generator is not merely prompted to say whether evidence is relevant. It has been trained to produce control tokens such as Retrieve, ISREL for relevance, ISSUP for support, and ISUSE for utility. The paper uses critic-generated supervision because hand-labeling every segment and passage would be expensive. That design makes the method scalable enough to study, but it also makes data quality and critic quality part of the system risk.',
+        'Fixed RAG breaks in three specific ways, all caused by the same root problem: the generator has no retrieval awareness.',
+        {
+          type: 'bullets',
+          items: [
+            'Unnecessary retrieval: "Write a haiku about rain" fetches five Wikipedia passages about precipitation. The passages add noise and latency without helping.',
+            'Missing mid-generation retrieval: "Compare the GDP of France and Germany in 2023" retrieves passages about France but not Germany. The model answers the France half from evidence, then hallucinates the Germany half. No signal fires when grounding is lost.',
+            'Unsupported but fluent output: The model generates a paragraph that sounds grounded but actually extrapolates beyond what the passage says. The passage mentions "revenue grew 12%" and the model writes "the company had a record year across all divisions." Nothing in the pipeline catches the unsupported claim.',
+          ],
+        },
+        'The invariant that is missing: at each generation boundary, the system should know whether it needs evidence, whether the evidence it has is relevant, and whether what it just wrote is supported by that evidence. Fixed RAG has none of these signals. It retrieves blindly, generates blindly, and hopes for the best.',
       ],
     },
     {
-      heading: 'How Inference Works',
+      heading: 'How it works',
       paragraphs: [
-        'At inference time the model generates in segments. Before or during a segment, it predicts whether retrieval is needed. If retrieval is triggered, the system queries the retriever and places candidate passages into the generation path. The model then predicts relevance tokens for those passages, generates a candidate segment, predicts support tokens that judge whether the segment is entailed by the evidence, and predicts utility. Decoding can use these token probabilities as preferences. A stricter product can raise the retrieval threshold or reward supported segments more heavily. A lower-latency product can retrieve less often and accept more parametric answers. Segment-level beam search can keep several continuations and select the one with better utility and support signals. The method turns generation into a loop of request evidence, draft text, critique text, select.',
+        'Self-RAG introduces four special reflection tokens into the model vocabulary. These are not prompt instructions -- they are tokens the model has been trained to predict as part of generation, just like ordinary words.',
+        {
+          type: 'table',
+          headers: ['Token', 'Question it answers', 'Values', 'When predicted'],
+          rows: [
+            ['Retrieve', 'Does this segment need external evidence?', 'yes, no, continue', 'Before generating each segment'],
+            ['IsRel', 'Is this retrieved passage relevant to the query?', 'relevant, irrelevant', 'After retrieval, before generation'],
+            ['IsSup', 'Is the generated text supported by the passage?', 'fully supported, partially supported, no support', 'After generating a segment'],
+            ['IsUse', 'How useful is this segment for the user query?', 'utility rating 1-5', 'After generating a segment'],
+          ],
+        },
+        'Generation proceeds segment by segment. At each segment boundary, the model predicts a Retrieve token. If retrieval is triggered, the system fetches passages, and the model predicts IsRel for each one to filter irrelevant evidence. Then it generates a candidate segment and predicts IsSup (is the segment entailed by the passage?) and IsUse (does the segment help the user?). Multiple candidate segments can be scored and the best one selected.',
+        {
+          type: 'diagram',
+          text: 'prompt --> [Retrieve?]\n              |\n        yes   |   no\n         |         |\n    [fetch passages]   [generate segment]\n         |                    |\n    [IsRel filter]            |\n         |                    |\n    [generate segment]        |\n         |                    |\n    [IsSup critique] <--------+\n         |\n    [IsUse score]\n         |\n    [select best segment] --> next segment or final answer',
+          label: 'Self-RAG reflection token flow for one segment',
+        },
+        'Training works in two phases. First, a critic model (GPT-4 in the paper) labels a large instruction-output dataset with reflection tokens: where retrieval would have helped, which passages are relevant, which outputs are supported. These labeled sequences become training data. Second, the generator (Llama 2 in the paper) is fine-tuned on this data with the reflection tokens added to its vocabulary. The generator learns to predict both ordinary text and reflection tokens in the same forward pass.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Simplified reflection-token decision logic at inference\ndef self_rag_segment(model, prompt, retriever, threshold=0.5):\n    # Step 1: Should we retrieve?\n    retrieve_prob = model.predict_token(prompt, token="Retrieve")\n    \n    if retrieve_prob > threshold:\n        # Step 2: Fetch and filter passages\n        passages = retriever.search(prompt, top_k=5)\n        scored = []\n        for p in passages:\n            relevance = model.predict_token(prompt + p, token="IsRel")\n            if relevance == "relevant":\n                scored.append(p)\n        context = scored[:3]  # keep top relevant passages\n    else:\n        context = []  # no retrieval needed\n    \n    # Step 3: Generate candidate segments\n    candidates = []\n    for _ in range(num_beams):\n        segment = model.generate(prompt, context)\n        support = model.predict_token(segment, token="IsSup")\n        utility = model.predict_token(segment, token="IsUse")\n        candidates.append((segment, support, utility))\n    \n    # Step 4: Select best segment by critique scores\n    best = max(candidates, key=lambda c: score(c[1], c[2]))\n    return best[0]',
+        },
+        {
+          type: 'note',
+          text: 'The reflection tokens are predicted by the same model that generates text. This is not a separate classifier bolted on after the fact -- the control signals and the output share weights, which is what makes adaptive retrieval possible without an external orchestrator.',
+        },
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        'Self-RAG works when the learned reflection tokens are correlated with the decisions the system needs. Retrieval tokens help because not every prompt should pay the same evidence cost. Relevance tokens help because top-k similarity is not the same as answer usefulness. Support tokens help because a fluent sentence can go beyond the passage. Utility tokens help because supported text can still be verbose, incomplete, or off task. The proof sketch is a control-flow argument, not a guarantee of truth. If the reflection model reliably marks missing evidence, irrelevant passages, unsupported segments, and low-utility continuations, then decoding can prefer outputs that are more grounded and useful. If those tokens are wrong, the loop can confidently select bad text. External evaluation is still needed.',
+        'The correctness argument rests on segment-level control flow. At each generation boundary, Self-RAG creates a decision point where the system can fetch evidence, filter it, and reject unsupported continuations before they become part of the final answer. This is the invariant: no segment passes into the output without a support and utility check.',
+        'Retrieval tokens help because retrieval cost should be proportional to need, not constant. A factual claim needs evidence; a transition sentence does not. Relevance tokens help because embedding similarity is not the same as answer usefulness -- a passage about "machine learning" is similar to a question about "machine learning safety" but may not answer it. Support tokens help because fluent text can extrapolate beyond a passage without any surface signal of the gap. Utility tokens help because a supported, relevant segment can still be verbose or off-topic.',
+        'The key limitation of this argument: all four tokens are model predictions. They are only as good as the critic supervision used during training. If the critic mislabels unsupported text as supported, the generator learns to emit confident IsSup scores for hallucinated content. The loop can select bad text with high confidence. External evaluation on held-out data is still the only way to verify that the reflection tokens are calibrated.',
       ],
     },
     {
-      heading: 'What the Visual Proves',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The reflection-loop view shows the move that separates Self-RAG from ordinary RAG. The prompt does not flow through retrieval once and then disappear into generation. It reaches a retrieval decision, optional passage retrieval, segment generation, critique, selection, and final answer. The reflection-token matrix names the control signals so the learner can see which decision each token affects. The scoring plot shows the product dial: lower retrieval thresholds increase evidence calls and cost, while higher thresholds increase missed evidence. The segment ledger shows the local failure cases. A segment can be relevant but unsupported, supported but not useful, or good enough to keep. The deployment checklist makes the system boundary visible: model, retriever, thresholds, and eval set must be designed together.',
+        'Training cost increases because you need critic-labeled data. The paper uses GPT-4 to generate reflection labels for ~150k instruction-output pairs. This is a one-time cost, but it ties data quality to the critic model.',
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'Fixed RAG', 'Self-RAG'],
+          rows: [
+            ['Retrieval calls per query', 'Always k', '0 to many, learned'],
+            ['Training data', 'Standard instruction data', 'Critic-labeled with reflection tokens'],
+            ['Inference compute', 'One retrieval + one generation', 'Per-segment retrieval + critique + beam selection'],
+            ['Latency profile', 'Fixed overhead', 'Variable -- fast on easy queries, slower on hard ones'],
+            ['Tracing complexity', 'Query + passages + answer', 'Query + per-segment decisions + passages + critique scores + selected/rejected segments'],
+          ],
+        },
+        'Inference cost depends on task difficulty. Simple prompts that skip retrieval are faster than fixed RAG. Complex prompts that retrieve multiple times and score several candidate segments are slower. Latency becomes a distribution rather than a single number.',
+        'Evaluation cost rises because you now need to measure retrieval necessity accuracy, passage relevance precision, support calibration, utility correlation with human judgments, and per-slice failure rates. A single end-to-end accuracy number hides whether the improvement comes from better retrieval decisions, better evidence filtering, or better segment selection.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Where it wins',
       paragraphs: [
-        'Self-RAG shifts cost from fixed retrieval into learned control. It can skip retrieval on self-contained prompts, but it can also retrieve multiple times during one answer. Latency becomes a distribution by task type rather than one average number. Training cost rises because reflection supervision has to be generated and filtered. Inference cost rises when segment-level selection keeps several candidates. Tracing cost rises because teams need to record retrieval decisions, passages, reflection tokens, rejected segments, thresholds, and final answers. Evaluation becomes more demanding. You should measure retrieval necessity, passage relevance, answer support, citation quality, answer utility, and failure by slice. A high support score on easy queries does not prove the system works on current events, long-form synthesis, or adversarial retrieval.',
+        'Self-RAG fits workloads where retrieval need varies across queries and within a single answer. The paper reports gains on open-domain QA (PopQA, PubHealth, ARC-Challenge), biography generation, and fact verification -- tasks where some prompts need evidence and others do not.',
+        {
+          type: 'table',
+          headers: ['Method', 'Retrieval strategy', 'Critique mechanism', 'Adaptive?', 'Best fit'],
+          rows: [
+            ['Naive RAG', 'Always top-k', 'None', 'No', 'Simple QA with good retriever'],
+            ['CRAG (Corrective RAG)', 'Always, then evaluate', 'External relevance evaluator', 'Partially', 'When retrieval quality varies'],
+            ['Self-RAG', 'Learned per-segment', 'Trained reflection tokens', 'Yes', 'Mixed workloads, citation-heavy tasks'],
+            ['FLARE', 'Triggered by low confidence', 'Token probability threshold', 'Yes', 'Long-form generation with uncertainty signal'],
+          ],
+        },
+        'A fact-checking assistant benefits because it can skip retrieval on well-known definitions and retrieve aggressively on contested claims. A research assistant benefits because it can retrieve mid-answer when the topic shifts from a grounded claim to one that needs a citation. A customer-support system benefits because generic policy answers need no retrieval but account-specific billing questions do.',
+        'Self-RAG also serves as a useful teaching bridge between vanilla RAG and full verifier-guided generation. It brings scoring signals into the decoding loop without requiring a separate reward model or tree search.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'Self-RAG fits mixed workloads where retrieval should be conditional. A fact-checking assistant receives both simple definitions and source-sensitive claims. A research assistant may answer one paragraph from memory, then need evidence for a named study. A customer-support agent may skip retrieval for generic policy wording but fetch the account-specific article for a billing claim. A long-form citation assistant can use support tokens to avoid drifting away from evidence. The access pattern is segment-level uncertainty: the system learns that some continuations need external grounding and some do not. Self-RAG is also a good teaching bridge between RAG and verifier-guided generation because it brings scoring signals into the decoding loop while still depending on external tests.',
+        'Reflection tokens are model predictions, not ground truth. A model can label an unsupported segment as "fully supported," mark an irrelevant passage as "relevant," or skip retrieval because training data made the retrieval policy overconfident on that topic. Self-reflection is not self-verification.',
+        'Retriever quality is still a hard dependency. If the retriever returns poor passages, relevance filtering helps but cannot conjure good evidence from a bad corpus. Outdated corpora still produce stale answers. Prompt injection in retrieved text can still attack the generator -- reflection tokens do not defend against adversarial passages.',
+        'Thresholds tuned on one domain transfer poorly. A retrieval threshold calibrated on short-form QA may over-retrieve on creative writing and under-retrieve on medical questions. Each deployment needs its own threshold tuning and slice-level evaluation.',
+        {
+          type: 'note',
+          text: 'Self-RAG is harder to retrofit than a reranker or a post-hoc citation checker. It requires model fine-tuning with an expanded vocabulary. You cannot bolt it onto an existing API-served model without training access.',
+        },
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Sources and study next',
       paragraphs: [
-        'The largest misconception is that self-reflection equals truth. Reflection tokens are model predictions. A model can label an unsupported segment as supported, mark a bad passage as relevant, or skip retrieval because training data made the policy overconfident. Poor retrievers still return poor evidence. Outdated corpora still make answers stale. Prompt injection in retrieved text can still attack the generator. Thresholds tuned on one domain can over-retrieve in another and under-retrieve in a high-risk slice. Self-RAG is also harder to retrofit than adding a reranker because it depends on model training. It is not the same as an agent loop. Agent failures come from planning, tool use, permissions, and state. Self-RAG failures come from learned retrieval policy, passage quality, critique calibration, and decoding choices.',
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        'Primary sources are the Self-RAG arXiv paper at https://arxiv.org/abs/2310.11511, the ICLR 2024 paper PDF at https://proceedings.iclr.cc/paper_files/paper/2024/file/25f7be9694d7b32d5cc670927b8091e1-Paper-Conference.pdf, the project page at https://selfrag.github.io/, the official repository at https://github.com/akariasai/self-rag, the OpenReview record at https://openreview.net/forum?id=hSyW5go0v8, and the IBM research page at https://research.ibm.com/publications/self-rag-learning-to-retrieve-generate-and-critique-through-self-reflection. Study standard RAG pipelines, multi-index retrieval, cross-encoder reranking, beam search, verifier search, process reward models, RAG evaluation, citation faithfulness, semantic caching, and prompt injection threat models next. The next mental step is to separate retrieval quality, generation quality, and critique quality instead of treating RAG as one black box.',
+        {
+          type: 'bullets',
+          items: [
+            'Primary paper: Asai et al., "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection," ICLR 2024. https://arxiv.org/abs/2310.11511',
+            'Official code and models: https://github.com/akariasai/self-rag',
+            'Project page: https://selfrag.github.io/',
+            'OpenReview discussion: https://openreview.net/forum?id=hSyW5go0v8',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Standard RAG pipelines -- retrieval, embedding, context injection'],
+            ['Prerequisite', 'Beam search -- segment-level candidate selection'],
+            ['Prerequisite', 'Cross-encoder reranking -- passage relevance scoring'],
+            ['Related method', 'CRAG (Corrective RAG) -- external retrieval evaluator'],
+            ['Related method', 'FLARE -- active retrieval triggered by low token confidence'],
+            ['Extension', 'Process reward models -- step-level verification in reasoning chains'],
+            ['Extension', 'Verifier-guided search -- tree search with learned value functions'],
+            ['Threat model', 'Prompt injection via retrieved passages'],
+          ],
+        },
+        'The key mental move is to stop treating RAG as one box and start separating retrieval quality, generation quality, and critique quality. Self-RAG makes that separation explicit by giving each concern its own reflection token.',
       ],
     },
   ],
 };
+

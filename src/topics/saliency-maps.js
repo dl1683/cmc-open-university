@@ -1,4 +1,4 @@
-// Saliency maps: asking a model "why?" and checking whether the answer
+﻿// Saliency maps: asking a model "why?" and checking whether the answer
 // is honest. The gradient that attacks a model (FGSM) can also explain it;
 // the hard part is that explanations can lie too.
 
@@ -39,9 +39,9 @@ function* interrogate() {
   const grads = { excl: W.w1 * slope, caps: W.w2 * slope };
   yield {
     state: matrixState({
-      title: 'Method 1 — gradient saliency: ∂p/∂feature',
+      title: 'Method 1 — gradient saliency: âˆ‚p/âˆ‚feature',
       rows: [{ id: 'excl', label: 'exclamation marks' }, { id: 'caps', label: 'ALL-CAPS words' }],
-      columns: [{ id: 'grad', label: 'gradient' }, { id: 'gxi', label: 'gradient × input' }],
+      columns: [{ id: 'grad', label: 'gradient' }, { id: 'gxi', label: 'gradient Ã— input' }],
       values: [[grads.excl, grads.excl * X.excl], [grads.caps, grads.caps * X.caps]],
       format: (v) => v.toFixed(3),
     }),
@@ -61,7 +61,7 @@ function* interrogate() {
       format: (v) => `${(v * 100).toFixed(1)}%`,
     }),
     highlight: { found: ['caps:drop'], compare: ['excl:drop'] },
-    explanation: `Occlusion verifies the claim by deletion. Remove exclamation marks and the score falls to ${(predict(0, X.caps) * 100).toFixed(1)}%; remove CAPS and it falls to ${(predict(X.excl, 0) * 100).toFixed(1)}%. The larger drop is stronger evidence than a bright heatmap because it changes the model's behavior.`,
+    explanation: `Occlusion verifies the claim by deletion. Remove exclamation marks and the score falls to ${(predict(0, X.caps) * 100).toFixed(1)}%; remove CAPS and it falls to ${(predict(X.excl, 0) * 100).toFixed(1)}%. The larger drop is stronger evidence than a bright heatmap because it changes the model\'s behavior.`,
   };
 
   const HEAT = [
@@ -106,7 +106,7 @@ function* honesty() {
       ],
       columns: [{ id: 'before', label: 'trained model' }, { id: 'after', label: 'RANDOM weights' }, { id: 'verdict', label: 'verdict' }],
       values: [[1, 2, 3], [1, 2, 3], [1, 4, 5]],
-      format: (v) => ['', 'crisp map', 'map turns to noise ✓', 'PASSES', 'map looks the same ✗', 'FAILS — edge detector'][v],
+      format: (v) => ['', 'crisp map', 'map turns to noise âœ“', 'PASSES', 'map looks the same âœ—', 'FAILS — edge detector'][v],
     }),
     highlight: { found: ['grad:verdict', 'ig:verdict'], removed: ['guided:verdict'] },
     explanation: 'The sanity check randomizes the model weights and redraws the map. A faithful attribution should collapse when the learned model is gone; a pretty map that survives is explaining the input texture, not the model.',
@@ -117,7 +117,7 @@ function* honesty() {
     state: matrixState({
       title: 'The attribution toolbox, with price tags',
       rows: [
-        { id: 'gxi', label: 'gradient × input' },
+        { id: 'gxi', label: 'gradient Ã— input' },
         { id: 'ig', label: 'integrated gradients' },
         { id: 'occ', label: 'occlusion / SHAP' },
         { id: 'cam', label: 'Grad-CAM' },
@@ -141,75 +141,120 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A model verdict is often not enough. A spam filter marks one email as spam. A radiology classifier flags one scan. A moderation model blocks one post. The user, reviewer, or engineer then asks a narrower question: which parts of this input pushed this specific prediction? Saliency maps exist to answer that local attribution question. They do not prove that the model is good in general. They try to explain why one verdict happened.`,
-        `The demo uses the same two-feature spam setup as Logistic Regression and FGSM. The email has four exclamation marks, three ALL-CAPS words, and a high spam probability. In a real image model, the feature table becomes a heatmap over pixels, patches, or regions. The shape changes, but the burden stays the same: the explanation must be tied to the model, the input, and the output being explained.`,
+        'The animation has two views. "Interrogating one verdict" fixes one email with known features and runs three attribution methods on it: gradient saliency, occlusion, and a pixel-level heatmap. "The honesty tests" runs sanity checks that catch lying explanations. Active cells mark the feature or method under examination. Found cells mark results that passed a behavioral test. Removed cells mark explanations that failed.',
+        'Watch the gradient table first. Each row is one input feature; the gradient column shows per-unit sensitivity, and gradient times input shows how much that feature contributed to this specific score. The occlusion table then deletes features one at a time and measures how far the verdict drops. If the two methods agree on which feature matters most, the attribution is more trustworthy.',
+        'The heatmap frame scales the same logic to a grid of pixels. Bright cells are high-sensitivity regions. The question to ask at every frame: if I deleted the highlighted feature, would the prediction actually change?',
       ],
     },
     {
-      heading: `The Obvious Approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious explanation is to inspect model weights or attention weights. If the spam model has a larger weight on ALL-CAPS words, maybe CAPS explains the verdict. If an attention head gives a word a bright score, maybe the model read that word. If an image heatmap outlines the object, maybe the model used the object. These explanations are attractive because they are visible and easy to narrate.`,
-        `The wall is that visible does not mean causal. A global weight does not say how much a feature mattered in this input. An attention weight can be a routing signal rather than a faithful explanation. A heatmap can look clean because it detects edges, not because it reflects the learned decision rule. Saliency work begins when the explanation must survive behavioral tests, not when it looks plausible to a human.`,
+        'A classifier says "spam" or "tumor" or "block this post." The next question is always narrower: which parts of this input caused this specific verdict? Saliency maps answer that local attribution question. They do not certify the model in general. They try to explain one prediction on one input.',
+        {
+          type: 'quote',
+          text: 'If the model needs to provide a visual explanation for any arbitrary decision, it needs to find what in the image is evidence for or against a class, and present that evidence to the user.',
+          attribution: 'Selvaraju et al., Grad-CAM (2017)',
+        },
+        'The demo uses a two-feature spam model: exclamation marks and ALL-CAPS words. In a real image classifier the feature table becomes a heatmap over millions of pixels, but the burden is identical. The explanation must be tied to the learned model, the specific input, and the specific output being explained. A pretty overlay that ignores any of those three is decoration, not attribution.',
       ],
     },
     {
-      heading: `The Core Insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is local responsibility. A feature is important for this verdict if changing that feature would change the verdict, or if the model is locally sensitive to that feature at this input. Gradient saliency uses derivatives to ask how the score changes for an infinitesimal feature change. Occlusion asks a simpler behavioral question: remove or mask a feature and run the model again.`,
-        `Both methods are approximations. Gradients are cheap and local, so they can miss effects when activations saturate or when the model responds only to combinations of features. Occlusion is more behavioral, but masking a feature can create an input the model never saw during training. The safest interpretation is not "the map is true." It is "this method suggests these features mattered, and the claim should be checked by perturbing them."`,
+        'The natural move is to inspect what the model already exposes. Look at the weight vector: ALL-CAPS has weight 1.6, exclamation marks have weight 1.1, so CAPS must matter more. Look at an attention head: token X got a bright score, so the model must have "read" token X. Look at the heatmap: it outlines the dog, so the model must have used the dog. These explanations feel right because they are visible and easy to narrate.',
+        'Attention weights are particularly seductive. They produce clean heatmaps over tokens or patches, and the temptation is to treat them as faithful attributions. But Jain and Wallace (2019) showed that alternative attention distributions can produce the same predictions, and Wiegreffe and Pinter (2019) showed that adversarial attention patterns can be trained to match original outputs. The heatmap looks causal, but its correlation with the actual decision mechanism is not guaranteed.',
       ],
     },
     {
-      heading: `How It Works`,
+      heading: 'The wall',
       paragraphs: [
-        `The first table fixes the case. Attribution is not explaining the average spam email or the whole classifier. It is explaining one email with a specific feature vector. The gradient table differentiates the spam probability with respect to each feature. In the demo, CAPS has the larger per-unit sensitivity. Gradient times input then asks a more verdict-specific question: a feature with a large slope but value zero did not contribute much to this particular score.`,
-        `The occlusion table deletes features and measures the score drop. Remove the exclamation marks and the spam score falls. Remove the CAPS words and it falls further, so CAPS has stronger behavioral evidence in this example. This is closer to the question a reviewer actually cares about: if we change the highlighted evidence, does the decision change? On images, occlusion may hide patches, blur regions, replace tokens, or mask superpixels instead of setting a numeric feature to zero.`,
-        `The heatmap scales the same idea to many features. A bright pixel or patch means high local sensitivity, high gradient-times-input score, strong occlusion effect, or another attribution score depending on the method. The map is not one algorithm. It is a visual surface over feature scores. The algorithm is the scoring rule behind the map and the sanity tests used to check it.`,
+        'The wall is gradient saturation and the faithfulness gap. A sigmoid or ReLU can flatten the gradient to near zero in large regions of input space, making the saliency map dim or uniform even when the model is highly confident. The derivative at a saturated point says almost nothing about what the model learned. This is not a rare edge case; deep networks with ReLU activations have exactly zero gradient for all negative pre-activations, which can blank out large portions of the attribution map.',
+        'Worse, an explanation can look sharp, well-localized, and intuitively correct while explaining the wrong thing. Adebayo et al. (2018) ran a devastating sanity check: they randomized the model weights layer by layer and recomputed the saliency maps. Guided backpropagation and guided Grad-CAM produced nearly identical maps on trained and fully randomized models. The maps were acting as edge detectors on the input image, not as explanations of the learned decision rule. A method that survives model destruction cannot be explaining the model.',
+        {
+          type: 'note',
+          text: 'The sanity check is simple: randomize the weights, redraw the map. If the map does not change, the method is explaining input texture, not the model. This test should be the first thing you run on any new attribution method.',
+        },
       ],
     },
     {
-      heading: `What the Visual Proves`,
+      heading: 'How it works',
       paragraphs: [
-        `The visual deliberately shows more than one attribution method. If the gradient table and the occlusion table agree, the explanation is stronger because two different tests point at the same feature. If they disagree, the disagreement is useful evidence. It may mean the model is saturated, the mask is unrealistic, features interact, or the local derivative is not enough to describe the finite change that matters.`,
-        `The honesty-test view proves the main warning. Attention weights are not automatically explanations. Random-weight sanity checks ask whether the map depends on the trained model at all. If a saliency method draws nearly the same map after the model weights are randomized, the map is explaining input texture or preprocessing artifacts, not the learned decision rule. A decorative overlay that survives a broken model should not pass review.`,
+        'Vanilla gradient saliency (Simonyan et al. 2014) computes the partial derivative of the class score with respect to each input dimension. For a classifier f and input x, the saliency map is the absolute value of the gradient evaluated at x. The gradient tells you: if this pixel changed by a tiny amount, how much would the class score move?',
+        {
+          type: 'diagram',
+          text: 'class score y_c\n      |\n  backpropagate gradient\n      |\n  layer N  (fc / softmax)\n      |\n  layer N-1  (conv + ReLU)\n      |\n     ...      (intermediate layers)\n      |\n  layer 1  (conv + ReLU)\n      |\n  input pixels x\n      |\n  saliency = |dy_c / dx|',
+          label: 'Backprop flow: gradient of class score with respect to input pixels',
+        },
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Vanilla gradient saliency in PyTorch\nimport torch\n\ndef saliency_map(model, image, target_class):\n    image.requires_grad_(True)\n    logits = model(image.unsqueeze(0))\n    score = logits[0, target_class]\n    score.backward()\n    # Absolute gradient across color channels\n    saliency, _ = image.grad.abs().max(dim=0)\n    return saliency',
+        },
+        'Gradient times input multiplies each gradient by the corresponding input value. This shifts the question from "where is the model locally sensitive?" to "how much did each feature actually contribute to this score?" A pixel with a large gradient but value near zero contributed little to this prediction; multiplying by the input captures that.',
+        'Occlusion works by intervention rather than derivatives. Mask a patch, re-run the model, measure the score drop. If the score collapses, the masked region was causally involved. The cost is one forward pass per patch position, which is expensive but produces a behavioral signal that does not depend on gradient flow or activation functions.',
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: 'Why it works',
       paragraphs: [
-        `The correctness idea is behavioral, not aesthetic. A faithful attribution should change when the model changes, and important highlighted features should matter when perturbed. Gradients work because the derivative is the local linear approximation of the model around the input. For a small feature change, the derivative predicts the direction and rate of output change. Gradient times input adds the actual feature magnitude so the score is less detached from the instance being explained.`,
-        `Occlusion works by intervention. It asks the model to make a second prediction with part of the evidence removed. If the output collapses, the removed evidence was causally involved in that tested condition. This is not a perfect proof because the replacement value matters and features can interact, but it is a clear invariant for attribution review: explanations should be tied to changes in model behavior.`,
+        'Gradient saliency works because the derivative is the best local linear approximation of the model around the input point. For a small perturbation epsilon, the change in output is approximately the gradient dot epsilon. This is the same mathematical object that powers FGSM adversarial attacks: the gradient points in the direction of maximum output change. For attribution, you take the magnitude; for attacks, you take the sign.',
+        'Integrated Gradients (Sundararajan et al. 2017) fixes the saturation problem by integrating the gradient along a straight path from a baseline (typically a black image) to the actual input. This satisfies two axioms: sensitivity (if a feature changes the output, it gets nonzero attribution) and implementation invariance (two functionally identical networks produce the same attribution). Vanilla gradients satisfy neither when ReLU saturation zeroes out the gradient.',
+        'Grad-CAM (Selvaraju et al. 2017) takes a different approach. Instead of computing gradients at the input layer, it computes gradients of the class score with respect to the feature maps of a convolutional layer. It then weights each feature map by its average gradient and takes a ReLU of the weighted sum. The result is a coarse, class-discriminative heatmap at the resolution of the chosen convolutional layer. It passes the Adebayo sanity check because it depends on learned feature maps, not just input edges.',
       ],
     },
     {
-      heading: `Cost and Behavior`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Plain gradient saliency is cheap: one backward pass through the model. Gradient times input adds a multiplication per feature. Integrated gradients costs many backward passes because it averages gradients along a path from a baseline to the input; the baseline choice becomes part of the explanation. Grad-CAM uses gradients at a convolutional feature layer to produce coarser class-activation maps. Occlusion costs one or more forward passes per feature group. SHAP-like methods can be far more expensive because they estimate contributions across feature coalitions.`,
-        `The cost should match the risk. A quick gradient map is useful during debugging. A model audit needs deletion tests, randomization checks, comparisons across methods, and examples where the explanation is expected to fail. High-dimensional inputs also need grouping. Pixel-level occlusion on a large image can be too slow and too noisy; superpixels or patches make the test tractable, but the grouping choice can change the story.`,
+        {
+          type: 'table',
+          headers: ['Method', 'Cost', 'Resolution', 'Sanity-check safe', 'Main weakness'],
+          rows: [
+            ['Vanilla gradient', '1 backward pass', 'Pixel-level', 'Yes', 'Noisy, saturates at ReLU/sigmoid'],
+            ['SmoothGrad', 'N backward passes (N~50)', 'Pixel-level', 'Yes', 'Smoothing hides real signal too'],
+            ['Integrated Gradients', 'M backward passes (M~50-300)', 'Pixel-level', 'Yes', 'Baseline choice changes the map'],
+            ['Grad-CAM', '1 backward pass + layer hook', 'Coarse (conv layer)', 'Yes', 'CNN-only, resolution of last conv'],
+            ['SHAP (KernelSHAP)', 'O(2^k) exact, sampled in practice', 'Feature-group level', 'Yes', 'Expensive, feature grouping matters'],
+          ],
+        },
+        'Vanilla gradients are nearly free: one backward pass, same cost as one training step. SmoothGrad averages gradients over N noisy copies of the input, typically N=50, so it costs 50x. Integrated Gradients interpolates along a path from baseline to input with M steps, costing M backward passes. Grad-CAM is cheap (one backward pass plus a hook on the target layer) but produces coarse maps at the spatial resolution of the last convolutional layer.',
+        'SHAP-based methods estimate Shapley values, which in theory require evaluating all 2^k feature coalitions. KernelSHAP samples coalitions to make this tractable, but cost still scales with the number of feature groups and desired precision. For a 224x224 image with superpixel grouping into 50 regions, a KernelSHAP run might need thousands of forward passes.',
       ],
     },
     {
-      heading: `Where It Wins`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Saliency is useful for finding shortcut learning and data leakage. A medical classifier may focus on scanner tags instead of anatomy. A content classifier may focus on a watermark, template phrase, or background style. A spam model may rely on formatting quirks that disappear in a new mail client. The map does not solve the model, but it points the investigator toward the feature to delete, mask, rebalance, or monitor.`,
-        `It is also useful as a bridge between debugging tools. LIME explains a prediction with a local surrogate rule. Influence functions ask which training examples helped produce a verdict. Sparse Autoencoder Feature Dictionary work asks whether internal features in a model mediate behavior. Saliency asks which input features mattered. These are different cuts through responsibility, and agreement across them is much stronger than one clean figure.`,
+        'Saliency maps are the fastest way to catch shortcut learning. A medical imaging classifier that focuses on hospital ID tags instead of tissue is using a spurious correlation. A bird classifier that focuses on habitat background instead of plumage will fail on out-of-distribution photos. A spam model that relies on email client formatting will break when the client changes. The attribution map does not fix the problem, but it points the investigator to the feature to delete, rebalance, or monitor.',
+        'Model debugging during development is the highest-value use case. Before deploying a model, run attribution on correctly classified, misclassified, and adversarially perturbed inputs. If correct predictions highlight the right features and errors highlight irrelevant ones, the model has learned something reasonable. If correct predictions also highlight irrelevant features (background, watermarks, metadata), the model may be right for the wrong reasons and will fail on distribution shift.',
+        'Attribution also bridges different explanation tools. LIME builds a local linear surrogate. Influence functions trace responsibility to training examples. Mechanistic interpretability studies internal features and circuits. Saliency asks which input features mattered. These are different slices through the same question, and agreement across methods is far stronger evidence than one clean heatmap.',
       ],
     },
     {
-      heading: `Where It Fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Saliency fails when the explanation is plausible but not faithful. Edge detectors, smoothing artifacts, saturated gradients, correlated features, and unrealistic masks can all produce maps that look meaningful. A model may use a combination of features where removing any one feature does little. A text model may shift responsibility across equivalent tokens. A vision model may depend on background context that humans ignore.`,
-        `It is also the wrong tool for claims about global model behavior. A saliency map explains one verdict under one method. It does not prove fairness, calibration, safety, or general reliability. It should not be used as a compliance artifact by itself. The right language is careful: this attribution method suggests the model was sensitive to these features, and these perturbation tests did or did not support that claim.`,
+        'Saliency fails when the explanation is plausible but unfaithful. The Adebayo sanity check exposed guided backpropagation as an edge detector that ignores the model. But even methods that pass the sanity check can mislead. Integrated Gradients depends on a baseline choice: a black image baseline assumes black pixels are "absent," which is arbitrary for medical images or satellite imagery. Different baselines produce different attributions, and there is no universal correct choice.',
+        'Feature interaction is a fundamental blind spot. If the model uses a conjunction of features (the prediction fires only when feature A and feature B are both present), removing either one alone causes a large score drop, but the attribution map assigns high importance to both. The map cannot distinguish "A and B are independently important" from "the model uses the joint presence of A and B." Shapley values handle this better in theory but are exponentially expensive in practice.',
+        'Saliency is also the wrong tool for global claims about model behavior. One attribution map explains one verdict under one method. It does not prove fairness, calibration, safety, or reliability. Using a handful of clean-looking heatmaps as compliance evidence is cargo-cult interpretability. The right language is always conditional: this method suggests the model was sensitive to these features on this input, and perturbation tests did or did not support that claim.',
       ],
     },
     {
-      heading: `Study Next`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Simonyan, Vedaldi, and Zisserman on deep network saliency at https://arxiv.org/abs/1312.6034, Integrated Gradients at https://arxiv.org/abs/1703.01365, Grad-CAM at https://arxiv.org/abs/1610.02391, Sanity Checks for Saliency Maps at https://arxiv.org/abs/1810.03292, and Attention is not Explanation at https://arxiv.org/abs/1902.10186.`,
-        `Study Backpropagation for the derivative machinery, FGSM for the link between gradients and adversarial changes, Softmax and Temperature for score interpretation, Multi-Head Attention for routing versus explanation, LIME for local surrogate explanations, Influence Functions for training-data responsibility, and Sparse Autoencoder Feature Dictionary Case Study for testing internal features by ablation or steering.`,
+        {
+          type: 'bullets',
+          items: [
+            'Simonyan, Vedaldi, Zisserman (2014). Deep Inside Convolutional Networks: Visualising Image Classification Models and Saliency Maps. https://arxiv.org/abs/1312.6034 -- the original vanilla gradient saliency paper.',
+            'Sundararajan, Taly, Yan (2017). Axiomatic Attribution for Deep Networks (Integrated Gradients). https://arxiv.org/abs/1703.01365 -- path-integrated gradients with sensitivity and implementation invariance axioms.',
+            'Selvaraju et al. (2017). Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Class Activation Mapping. https://arxiv.org/abs/1610.02391 -- coarse class-discriminative heatmaps from convolutional feature maps.',
+            'Adebayo et al. (2018). Sanity Checks for Saliency Maps. https://arxiv.org/abs/1810.03292 -- the randomization test that exposed guided backprop as an edge detector.',
+            'Smilkov et al. (2017). SmoothGrad: Removing Noise by Adding Noise. https://arxiv.org/abs/1706.03825 -- averaging gradients over noisy input copies.',
+            'Jain and Wallace (2019). Attention is not Explanation. https://arxiv.org/abs/1902.10186 -- alternative attention distributions produce the same predictions.',
+          ],
+        },
+        'Study Backpropagation for the derivative machinery that powers all gradient-based attribution. Study FGSM for the direct link between saliency gradients and adversarial perturbations -- the same gradient that explains the model also attacks it. Study Softmax and Temperature for how class scores are computed before attribution. Study LIME for local surrogate explanations that complement gradient methods. Study Multi-Head Attention for why attention weights are not automatically faithful attributions.',
       ],
     },
   ],
 };
+

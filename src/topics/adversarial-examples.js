@@ -1,6 +1,6 @@
-// Adversarial examples: the gradient that trains a model can be pointed
+﻿// Adversarial examples: the gradient that trains a model can be pointed
 // back at its input. One small, deliberate nudge and 97% "spam" becomes
-// 14% — same scam, two fewer exclamation marks. Confidence ≠ robustness.
+// 14% — same scam, two fewer exclamation marks. Confidence â‰  robustness.
 
 import { plotState, matrixState, InputError } from '../core/state.js';
 
@@ -38,10 +38,10 @@ function* foolTheFilter() {
       axes: AXES,
       series: [boundary],
       markers: [{ id: 'scam', x: 4, y: 3, label: '0.97' }],
-      vectors: [{ id: 'grad', label: '−∇ (the escape route)', from: { x: 4, y: 3 }, to: { x: 2.9, y: 1.9 } }],
+      vectors: [{ id: 'grad', label: 'âˆ’âˆ‡ (the escape route)', from: { x: 4, y: 3 }, to: { x: 2.9, y: 1.9 } }],
     }),
     highlight: { active: ['grad'] },
-    explanation: 'The trick that makes this a one-liner: GRADIENTS WORK ON INPUTS TOO. Training asked "how should the WEIGHTS change to reduce the loss?" — backpropagation\'s question. The attacker asks "how should the INPUT change to increase it?" — same calculus, different variable. For this model the input-gradient is just the weight vector (1.1, 1.6): exclamation marks and caps push spam-ward, so their negatives are the escape route. FGSM — the Fast Gradient Sign Method — takes the sign of each gradient component and steps every feature one ε in its most damaging direction: x′ = x − ε·sign(∇ₓ). The arrow IS the model\'s own knowledge, weaponized.',
+    explanation: 'The trick that makes this a one-liner: GRADIENTS WORK ON INPUTS TOO. Training asked "how should the WEIGHTS change to reduce the loss?" — backpropagation\'s question. The attacker asks "how should the INPUT change to increase it?" — same calculus, different variable. For this model the input-gradient is just the weight vector (1.1, 1.6): exclamation marks and caps push spam-ward, so their negatives are the escape route. FGSM — the Fast Gradient Sign Method — takes the sign of each gradient component and steps every feature one ε in its most damaging direction: x′ = x âˆ’ εÂ·sign(âˆ‡â‚“). The arrow IS the model\'s own knowledge, weaponized.',
     invariant: 'The attack direction is read directly off the model: no search, one gradient evaluation.',
   };
 
@@ -57,7 +57,7 @@ function* foolTheFilter() {
       ],
     }),
     highlight: { active: ['step2'], compare: ['step1'], visited: ['step0'] },
-    explanation: `Walk the escape route. One step (ε = 1): drop one exclamation mark, one caps word → p falls from 0.97 to ${p(3, 2).toFixed(2)} — still flagged, barely. Second step → (2, 1): p = ${p(2, 1).toFixed(2)}, comfortably under the threshold. The email sails into the inbox. Read the labels again: the TEXT of the scam never changed — same link, same lie — only two surface features moved. Real spammers discovered this before the term existed: "FR-EE", "C1ALIS", spelling tricks that subtract trigger features while preserving the payload. Every evasion is a walk down the model's gradient.`,
+    explanation: `Walk the escape route. One step (ε = 1): drop one exclamation mark, one caps word â†’ p falls from 0.97 to ${p(3, 2).toFixed(2)} — still flagged, barely. Second step â†’ (2, 1): p = ${p(2, 1).toFixed(2)}, comfortably under the threshold. The email sails into the inbox. Read the labels again: the TEXT of the scam never changed — same link, same lie — only two surface features moved. Real spammers discovered this before the term existed: "FR-EE", "C1ALIS", spelling tricks that subtract trigger features while preserving the payload. Every evasion is a walk down the model's gradient.`,
   };
 
   yield {
@@ -66,7 +66,7 @@ function* foolTheFilter() {
       rows: [{ id: 'orig', label: 'original scam' }, { id: 'adv', label: 'adversarial scam' }],
       columns: [{ id: 'excl', label: 'excl. marks' }, { id: 'caps', label: 'CAPS words' }, { id: 'p', label: 'p(spam)' }, { id: 'verdict', label: 'verdict' }],
       values: [[4, 3, p(4, 3), 1], [2, 1, p(2, 1), 2]],
-      format: (v) => (v === 1 ? 'JUNKED' : v === 2 ? 'inbox ✗' : v < 1 ? `${(v * 100).toFixed(0)}%` : String(v)),
+      format: (v) => (v === 1 ? 'JUNKED' : v === 2 ? 'inbox âœ—' : v < 1 ? `${(v * 100).toFixed(0)}%` : String(v)),
     }),
     highlight: { removed: ['adv:verdict'], compare: ['orig:p', 'adv:p'] },
     explanation: 'The before/after ledger. Notice what the 97% confidence was actually worth: the scam sat two small steps from acquittal the whole time. High confidence describes distance from the boundary ALONG THE DATA the model has seen — it says nothing about how close the boundary is in the direction an adversary gets to choose. Calibration & Reliability Diagrams audits whether 97% means 97% on honest inputs; this page shows the number can be simultaneously calibrated and trivially evadable. Different failure, different defense.',
@@ -85,13 +85,13 @@ function* whyTiny() {
     state: matrixState({
       title: 'The same ε = 0.01 nudge, applied to EVERY input dimension',
       rows: dims.map(({ id, label }) => ({ id, label })),
-      columns: [{ id: 'per', label: 'per-feature change' }, { id: 'shift', label: 'total logit shift ≈ ε·Σ|wᵢ|' }],
+      columns: [{ id: 'per', label: 'per-feature change' }, { id: 'shift', label: 'total logit shift â‰ˆ εÂ·Σ|wáµ¢|' }],
       values: dims.map(({ d }) => [eps, eps * avgW * d]),
       format: (v) => (v === eps ? '0.01 (invisible)' : v.toFixed(v < 1 ? 3 : 1)),
     }),
     highlight: { compare: ['toy:shift'], removed: ['imagenet:shift'] },
-    explanation: 'In our 2-feature toy the attack needed VISIBLE edits — whole exclamation marks. So why are image attacks invisible? Dimensionality. FGSM nudges EVERY dimension by a tiny ε simultaneously, and each nudge ε·sign(wᵢ) adds |wᵢ|·ε to the logit — the damage SUMS across dimensions: ε·Σ|wᵢ| ≈ ε·d·avg|w|. Two features: shift 0.002, nothing. An ImageNet image (150,528 values, each moved by 1/255th — below what a monitor can show): shift ≈ 150. The boundary is not crossed by one big step in one direction, but by 150,528 imperceptible steps in ALL directions at once. High dimension is the attacker\'s lever.',
-    invariant: 'Per-dimension damage stays ε·|wᵢ|; total damage grows linearly with dimension count.',
+    explanation: 'In our 2-feature toy the attack needed VISIBLE edits — whole exclamation marks. So why are image attacks invisible? Dimensionality. FGSM nudges EVERY dimension by a tiny ε simultaneously, and each nudge εÂ·sign(wáµ¢) adds |wáµ¢|Â·ε to the logit — the damage SUMS across dimensions: εÂ·Σ|wáµ¢| â‰ˆ εÂ·dÂ·avg|w|. Two features: shift 0.002, nothing. An ImageNet image (150,528 values, each moved by 1/255th — below what a monitor can show): shift â‰ˆ 150. The boundary is not crossed by one big step in one direction, but by 150,528 imperceptible steps in ALL directions at once. High dimension is the attacker\'s lever.',
+    invariant: 'Per-dimension damage stays εÂ·|wáµ¢|; total damage grows linearly with dimension count.',
   };
 
   yield {
@@ -99,7 +99,7 @@ function* whyTiny() {
       axes: { x: { label: 'input dimensions (thousands)' }, y: { label: 'logit shift from invisible ε' } },
       series: [{
         id: 'shift',
-        label: 'ε·d·avg|w|',
+        label: 'εÂ·dÂ·avg|w|',
         points: [0.002, 1, 5, 20, 50, 100, 150.5].map((d) => ({ x: d, y: d * 1000 * eps * avgW })),
       }],
       markers: [
@@ -139,6 +139,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Adversarial Examples & FGSM. Point the gradient at the input instead of the weights: one deliberate nudge turns 97% spam into 14%..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Adversarial examples exist because model features are not the same as human meaning. A spam filter may represent an email through counts, tokens, phrases, and learned weights. A vision model may represent an image through millions of pixel-derived activations. Those features can change in ways that preserve the human-level object: the scam is still a scam, the stop sign is still a stop sign, the panda is still a panda. The model can still cross its decision boundary.`,
@@ -146,7 +155,7 @@ export const article = {
       ],
     },
     {
-      heading: `The naive approach and its wall`,
+      heading: `The wall`,
       paragraphs: [
         `The naive defense is to train a more accurate classifier and trust its confidence. That helps against ordinary mistakes, but it does not answer adaptive pressure. If the attacker can probe the model, see rejections, or approximate the decision boundary, they can search for edits that preserve intent while changing features. In spam, that might be spelling tricks, punctuation changes, image text, or phrase substitutions. In vision, it can be pixel-level noise that a human does not notice.`,
         `Another naive reaction is to hide the exact model. Secrecy raises the attacker's cost, but it is not a clean boundary. Attacks can transfer from substitute models, and gradient-free search can exploit feedback from the deployed system. The wall is geometry. Smooth models trained by gradient methods tend to expose local directions where the score changes quickly. Accuracy on clean validation data does not measure how much movement is needed in those directions.`,
@@ -160,14 +169,14 @@ export const article = {
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: `How it works`,
       paragraphs: [
         `The toy spam filter has two features: exclamation marks and ALL-CAPS words. Logistic regression computes a weighted sum, then passes it through a sigmoid. The original scam sits on the spam side of the boundary. Because both feature weights are positive, reducing both features moves the message away from spam according to the model. One step lowers the score but may not cross the threshold. A second step can cross from flagged to inbox while the malicious payload remains intact.`,
         `In images, the mechanism is the same but the scale is different. A two-feature spam example needs visible edits because there are only two dimensions contributing to the logit. An ImageNet-sized input has 150,528 pixel-channel values. If each value moves by a tiny epsilon in the gradient sign direction, the total score shift is roughly epsilon times the sum of many sensitivities. The perturbation can be visually tiny while the model's internal score moves a long distance.`,
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works (2)`,
       paragraphs: [
         `The spam-filter plot proves that evasion is a boundary problem, not a meaning problem. The plotted point moves across the learned line while the human interpretation of the email stays the same. The arrow is not a random edit; it is the model revealing the direction that changes its own score fastest under the chosen features. The before-and-after table makes the security failure concrete: confidence was high, yet the allowed edit budget was small.`,
         `The high-dimensional view proves why "imperceptible" does not mean "irrelevant." A small per-feature change is harmless in two dimensions, but the same per-feature budget applied across thousands of dimensions can dominate a classifier's logit. The plot is linear in dimension count. That is enough to explain why attacks can be cheap, why they can transfer, and why a model can be both trainable by gradients and vulnerable through gradients.`,
@@ -188,7 +197,7 @@ export const article = {
       ],
     },
     {
-      heading: `Uses and failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `Adversarial thinking applies to spam, phishing, malware classification, fraud models, content moderation, face recognition, medical imaging, autonomous driving perception, and any model whose output changes an adversary's payoff. It also applies beyond security. A recommender can be gamed by behavior that preserves the actor's goal while changing model features. A ranking model can be pushed by keyword stuffing. A fraud model can be tested by small transaction-shape edits.`,
         `The main failure mode is confusing validation accuracy with safety. Another is evaluating only non-adaptive attacks. A third is assuming that a human-inspection standard is enough: if the model consumes normalized tokens, resized images, compressed audio, or extracted features, the attack surface is that preprocessing pipeline too. Calibration and reliability diagrams answer whether probabilities are honest on a distribution. They do not answer whether a nearby adversarial input can change the outcome.`,
@@ -201,5 +210,38 @@ export const article = {
         `The durable habit is to specify the adversary. What edits are allowed? How many probes do they get? What feedback do they see? Does the harmful intent survive the edit? Which preprocessing steps create new handles? A model that answers those questions may still be imperfect, but it is being evaluated as a deployed system rather than as a clean-data leaderboard score.`,
       ],
     },
-  ],
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Neural networks achieve superhuman accuracy on image classification. But add imperceptible noise to an image and the classifier fails catastrophically. A panda image plus a tiny perturbation is classified as "gibbon" with 99.3% confidence (Goodfellow et al. 2015). The noise is invisible to humans — the image looks identical.',
+        'FGSM (Fast Gradient Sign Method, Goodfellow et al. 2015): compute the gradient of the loss with respect to the input image. x_adv = x + ε · sign(∇_x L(θ, x, y)). Move each pixel in the direction that increases the loss. ε = 0.007 (in [0,1] pixel range): imperceptible to humans, catastrophic for classifiers.',
+        'Why it works: neural networks are approximately linear in high dimensions. In a 224×224×3 image (150,528 dimensions), even a tiny perturbation per pixel accumulates to a large dot product with the weight vector. The linear model’s decision boundary is a hyperplane — moving perpendicular to it (along the gradient) crosses it with minimal input change. PGD (Projected Gradient Descent, Madry et al. 2018): iterative FGSM within an ε-ball. Stronger attack, harder to defend against. The standard benchmark for robustness evaluation.',
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        '2D classifier: decision boundary at x₁ + x₂ = 1. Point (0.3, 0.3) → class A (sum = 0.6 < 1). Gradient of loss w.r.t. input: [1, 1] (the normal to the boundary). FGSM with ε = 0.25: x_adv = (0.3 + 0.25, 0.3 + 0.25) = (0.55, 0.55). Sum = 1.1 > 1 → class B. Misclassified. Perturbation magnitude: √(0.25² + 0.25²) = 0.35.',
+        'In high dimensions (d = 150,528): perturbation per pixel = ε/√d ≈ 0.0006. Invisible to humans. But the total perturbation magnitude = ε·√d ≈ 2.7. Massive impact on the classifier’s linear dot product. This is the curse of dimensionality working against robustness.',
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Adversarial training (Madry et al. 2018): generate PGD adversarial examples during training. Loss = max_δ L(θ, x + δ, y) subject to ||δ|| ≤ ε. Train on the worst-case perturbation. Result: roughly 50% robust accuracy on CIFAR-10 at ε = 8/255 (vs roughly 0% for standard models). Cost: 3–10x more compute than standard training (must run PGD at every step). Accuracy tradeoff: robust models are roughly 10% less accurate on clean data. The price of robustness is reduced standard accuracy — a fundamental tension.',
+        'Physical-world adversarial examples: a printed sticker on a stop sign causes misclassification by self-driving car vision systems (Eykholt et al. 2018). Adversarial patches: a small image patch that causes any object it is placed on to be classified as a target class. These work in the physical world — robust to angle, distance, and lighting changes. Defense research is an arms race: every proposed defense has been broken by stronger attacks, except adversarial training (which merely reduces but does not eliminate the problem).',
+      ],
+    },
+
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Goodfellow et al. 2015 (Explaining and Harnessing Adversarial Examples — FGSM, linearity hypothesis). Madry et al. 2018 (Towards Deep Learning Models Resistant to Adversarial Attacks — PGD, adversarial training). Szegedy et al. 2014 (Intriguing Properties of Neural Networks — first discovery of adversarial examples).',
+        'Study next: Gradient Descent (adversarial examples use gradient ascent on the input), CNN (the models being attacked), Loss Functions (the objective being maximized), Backpropagation (computing input gradients), Activation Functions (linearity enables FGSM).',
+      ],
+    },
+],
 };
+

@@ -183,6 +183,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Disjoint Sparse Table. Static O(1) range queries for any associative operation by combining two precomputed disjoint halves..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A disjoint sparse table is for static range queries. You have an array that will not change, an associative operation, and many queries like "combine A[l] through A[r]." You are willing to spend preprocessing time and memory so each later query is constant time.',
@@ -190,14 +199,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to precompute answers for powers of two, then answer a query with two blocks. For range minimum over [l, r], choose the largest power-of-two block length that fits, take one block starting at l and one block ending at r, and combine them. If they overlap, the minimum is still correct.',
         'The wall appears the moment overlap changes the answer. For sum, overlapping an element counts it twice. For string concatenation, overlap duplicates characters. For matrix multiplication or function composition, overlap and order both matter. A normal sparse table is O(1) only because idempotent operations tolerate the duplicate coverage.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The disjoint sparse table removes overlap by choosing the level where the query endpoints split around a midpoint. At that level, the table has already stored a suffix aggregate from l up to the midpoint side and a prefix aggregate from the other side to r.',
         'Those two stored cells are disjoint, ordered, and complete. Because the operation is associative, the table does not need to know how the range was parenthesized. It only needs to preserve left-to-right order and avoid counting any element twice.',
@@ -234,7 +243,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Preprocessing costs O(n log n) time and memory. Each query costs O(1). That tradeoff makes sense only when the array is static and query volume is high enough to repay the build.',
         'Updates are the main weakness. A single changed element can invalidate aggregates across multiple levels, so a segment tree, Fenwick tree, sqrt decomposition, or rebuilt immutable segment is usually better when data changes often.',
@@ -249,7 +258,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins on immutable arrays, sealed log segments, static telemetry windows, offline competitive-programming inputs, and custom aggregate records where queries greatly outnumber builds. It is especially useful when the operation is associative but not idempotent, so a classic sparse table cannot safely overlap blocks.',
         'It fails for frequently updated data, tiny arrays, low query volume, memory-constrained settings, and operations that are not associative. It also does not solve cross-segment planning by itself; if a query spans several immutable chunks, another layer must combine the per-chunk answers.',
@@ -265,9 +274,66 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Sources: CP-Algorithms Sparse Table overview, https://cp-algorithms.com/data_structures/sparse-table.html, and the Codeforces Disjoint Sparse Table tutorial, https://codeforces.com/blog/entry/79108. Study Sparse Table, Segment Tree, Prefix Sum, Binary Lifting, Fenwick Tree, Sqrt Decomposition, and Wavelet Tree next.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first attempt is a prefix-sum array. For range sum, prefix[r+1] minus prefix[l] gives O(1) queries with O(n) preprocessing. That works because subtraction inverts addition. For operations without inverses -- min, max, gcd, string concatenation, matrix product -- prefix sums do not apply.',
+        'The next idea is a classic sparse table: precompute results for every power-of-two length starting at each index. For idempotent operations (min, max, gcd), overlapping two blocks gives the correct answer because applying the operation twice to the same element is harmless. For non-idempotent operations like sum, the overlap double-counts.',
+        'The disjoint sparse table removes overlap entirely: each query combines two precomputed cells that cover disjoint index ranges.',
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The structure is static. A single element change can invalidate aggregates across multiple levels. If data changes, use a segment tree (O(log n) per update and query) or a Fenwick tree (for invertible operations). It also wastes memory on tiny arrays or low query counts -- the O(n log n) build is only worthwhile when queries vastly outnumber the build cost.',
+        'Non-associative operations (median, mode, percentile) cannot use this structure at all.',
+        'The subtlest bug is order: for non-commutative operations like matrix multiplication or string concatenation, the left cell must be combined before the right cell. A sum-only test suite will not catch a reversed combine.',
+      ],
+    },
+
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The disjoint sparse table was popularized in competitive programming communities. Key references: the Codeforces tutorial by Elegia (https://codeforces.com/blog/entry/79108) which gives clean build and query code, and CP-Algorithms sparse table overview (https://cp-algorithms.com/data_structures/sparse-table.html) for the classic idempotent version that motivates the disjoint variant.',
+        'Study next: Sparse Table (the idempotent-only O(1) predecessor), Segment Tree (the dynamic alternative), Fenwick Tree (prefix-based O(log n) for invertible operations), Sqrt Decomposition (block-based trade-off), and Binary Lifting (the same "highest differing bit" idea applied to tree ancestors).',
+      ],
+    },
+
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Prerequisites: prefix sums (the invertible-operation baseline), sparse table (the idempotent-operation O(1) query structure this extends), and bitwise operations (the highest-differing-bit trick selects the query level).',
+        'This topic unlocks: understanding why associativity is sufficient for fast range queries without idempotency, immutable-segment analytics patterns (sealed log chunks, OLAP fragments), and non-commutative range queries (matrix chain products, function composition lookups).',
+        'Compare with Segment Tree for the mutable alternative and Wavelet Tree for rank/select queries.',
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you explain why overlapping two sparse-table blocks gives wrong answers for sum but correct answers for min?',
+            'Can you compute the query level for [3, 12] using the highest-bit-of-XOR trick? (3 XOR 12 = 15, highest bit = 8, so the level with block size 16.)',
+            'Can you describe what happens if you forget the l == r base case? (The XOR is 0, and there is no valid level to select.)',
+            'Can you give an example where reversed combine order produces a wrong answer for a non-commutative operation?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Use A = [5, 2, 7, 1, 4, 6, 3, 8]. Build the level-2 (block-size-4) table by hand: block [0..3] has midpoint between indices 1 and 2. Left suffixes: A[1..1]=2, A[0..1]=7. Right prefixes: A[2..2]=7, A[2..3]=8. Block [4..7] has midpoint between indices 5 and 6. Left suffixes: A[5..5]=6, A[4..5]=10. Right prefixes: A[6..6]=3, A[6..7]=11.',
+        'Now answer sum([1,6]): endpoints differ at the top bit (level 3, whole-array block). Left suffix table[3][1] = 2+7+1 = 10. Right prefix table[3][6] = 4+6+3 = 13. Answer: 23. Verify by direct sum: 2+7+1+4+6+3 = 23.',
       ],
     },
   ],

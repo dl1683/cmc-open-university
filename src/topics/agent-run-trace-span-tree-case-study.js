@@ -214,21 +214,30 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Agent Run Trace Span Tree Case Study. An observability case study for agent workflows: trace roots, agent spans, generation spans, tool spans, handoffs, guardrails, approvals, checkpoints, cost, and replay links..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'A useful agent does not just call a model. It plans, delegates, calls tools, pauses for approval, trips guardrails, resumes from checkpoints, retries, spends tokens, and finally produces an outcome. When that outcome is wrong or expensive, a flat log line is not enough. The team needs to know which decision led to which action.',
         'An agent run trace span tree gives that workflow a shape. The trace root names the run. Child spans show agent invocations, model generations, tool calls, handoffs, guardrail checks, human approvals, checkpoints, replay links, costs, and final output. It turns an agent run from a story people reconstruct by memory into a structured execution record.',
       ],
     },
     {
-      heading: 'The Obvious Approach and the Wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to log every prompt, every tool result, and every final answer. That feels safe at first because nothing is hidden. In practice it creates a pile of sensitive, unindexed text. It can leak secrets, bury the important decision, and still fail to answer why the run paused, retried, or handed off to another agent.',
         'The wall is causality. Agent failures are usually not single events. A bad prompt can produce a bad tool argument, which can create a guardrail escalation, which can resume from stale state, which can lead to a plausible but wrong final answer. Observability has to preserve the parent-child path, not just the individual messages.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The core insight',
       paragraphs: [
         'Treat the run as a tree of obligations. The root promises to complete a workflow. An agent span promises to make progress on a role. A generation span promises a model call happened under a prompt version and schema. A tool span promises a side effect or read occurred. A checkpoint promises the run can resume from a named state.',
         'That tree is the natural unit of debugging. A span should explain what happened, what input shape was used, what decision was made, what cost was incurred, what state changed, and which child work followed from it. If the agent can act, the trace must explain the action.',
@@ -242,7 +251,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
         'Every run starts with a trace root. The root carries workflow id, user or tenant grouping when allowed, release version, entrypoint, and correlation ids. Each agent invocation becomes a child span with agent name, role, instructions version, available tools, selected model policy, and the reason it was invoked.',
         'Model generation spans record model, prompt template version, input and output schema names, token counts, latency, finish status, refusal or truncation flags, and compact redacted summaries. Tool spans record tool name, parsed arguments, idempotency key, result summary, error class, retry count, and whether the call read data or caused a side effect.',
@@ -250,45 +259,95 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'The tree preserves causality. A bad final answer can be traced back through the output span, the generation that produced it, the prompt and retrieved context it saw, the tool result it relied on, and the checkpoint state it resumed from. The trace does not prove the agent was right, but it gives investigators a concrete path to test.',
         'The shared ids matter. A trace without checkpoint links cannot replay the run. A checkpoint without trace links cannot explain why that state exists. A cost ledger without span ids cannot show which tool loop burned the budget. The span tree works because these records point at the same execution, not because any one record is complete by itself.',
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'A customer support agent issues a refund that should have required approval. The alert says refunds above a threshold rose after a deploy. Without a span tree, the team searches logs for account ids, prompt text, and refund calls. With a span tree, they filter to the refund workflow, the new prompt version, and tool spans whose approval child is missing.',
         'One trace shows the path: the agent generated a tool call with a stale policy label, the guardrail span passed because it read the old label, the refund tool span executed with an idempotency key, and the checkpoint span points to the exact state before the call. The fix is not guessed. The team updates the policy mapping, replays the checkpoint, verifies that the approval span now interrupts the run, and adds an eval case before rollout.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Tracing has real cost. It adds instrumentation work, storage, indexing, retention policy, UI design, and latency overhead if implemented badly. More detail is not automatically better. Full prompts, raw documents, secrets, customer data, and large tool payloads should not be sprayed into a trace store.',
         'Production traces should prefer ids, schema names, hashes, redacted arguments, compact summaries, and links to secured artifacts. High-value runs, incidents, approvals, and dangerous tools may need full retention. Low-risk high-volume workflows may need sampling. The target is enough evidence to debug and audit the run without turning observability into a data leak.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Span trees win when agents perform multi-step work: support refunds, coding changes, document review, research synthesis, data cleanup, workflow automation, and any process with tools, approvals, handoffs, or checkpoints. They let teams measure latency, token cost, retry count, approval burden, tool error rate, guardrail false positives, and handoff confusion by workflow slice.',
         'They are also useful as a product surface. A customer-facing or internal run history can show why an agent paused, what it is waiting for, which tool it used, and where a human can safely resume. That is different from a developer-only debug log; it is operational state.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'A trace can still lie by omission. If tool wrappers do not record parsed arguments, if prompts are unversioned, if checkpoints are not linked, or if handoffs hide filtered context, the tree will look complete while the cause remains outside it. Instrumentation has to cover decisions and side effects, not only latency.',
         'It also fails when teams treat tracing as a substitute for evaluation. A span tree can show exactly how a bad answer happened. It cannot decide that the answer is acceptable. The improvement loop needs replay, tests, evals, and rollout gates connected back to the trace.',
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: OpenAI Agents SDK tracing at https://openai.github.io/openai-agents-python/tracing/, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, Temporal OpenAI Agents integration at https://temporal.io/blog/announcing-openai-agents-sdk-integration, and OpenTelemetry traces at https://opentelemetry.io/docs/concepts/signals/traces/. Study Agent Workflow DAG Compiler Case Study, Agent Checkpoint Replay Ledger Case Study, Human Approval Interrupt Queue Case Study, GenAI Trace Token Cost Ledger Case Study, Distributed Tracing, OpenTelemetry Collector Case Study, and AI Audit Evidence Packet Case Study next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for agent-run-trace-span-tree-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

@@ -99,102 +99,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A Fenwick tree exists when values keep changing and the question keeps asking for a prefix total: "How many events happened up to minute k?", "What is the cumulative frequency through rank k?", "What is the sum of the first k cells after this edit?"`,
-        `A raw array handles the edit cheaply but recomputes the prefix by scanning. A prefix-sum array answers the prefix cheaply but turns one edit into a rewrite of every later prefix. The Fenwick tree keeps one compact array of partial sums so both operations are small.`,
+        `The animation shows a single flat array indexed from 1. Each slot tree[i] stores a partial sum covering lowbit(i) consecutive values ending at position i, where lowbit(i) = i & (-i) is the lowest set bit. The first frame displays your raw input values; the second frame displays the built Fenwick array, whose entries differ because each slot has absorbed a range of original values.`,
+        `Active (highlighted) cells mark whichever index the current walk is reading or writing. During a prefix-sum query the walk moves left, stripping the lowest set bit at each step. During a point update the walk moves right, adding the lowest set bit. Visited cells are ranges already accumulated (query) or already patched (update). Found cells mark update targets whose stored values changed.`,
+        `Watch for one invariant across every frame: the visited cells always cover disjoint, non-overlapping ranges that together tile the exact prefix or the exact set of owners. If two ranges ever overlapped, the answer would double-count. They never do, because the bit trick partitions the index space.`,
       ],
     },
     {
-      heading: 'The reasonable baseline',
+      heading: 'Why this exists',
       paragraphs: [
-        `The read-heavy baseline is prefix[k] = values[1] + ... + values[k]. It makes prefix(k) O(1), and it is the right answer for static arrays.`,
-        `The write-heavy baseline is the original array. Adding delta to values[i] is O(1), and it is the right answer when prefix queries are rare.`,
-        `A segment tree is the general baseline once range operations become rich. A Fenwick tree is narrower: it targets prefix-style aggregates and point updates with less memory, less code, and better constants.`,
+        `Many problems interleave two operations on the same array: compute the sum of the first k elements, then change one element, then query again. Event counting up to minute k in a live stream, cumulative frequency through rank k in a changing distribution, running totals in a spreadsheet column that users keep editing.`,
+        `Peter Fenwick published a structure in 1994 that handles both operations in O(log n) time using a single array of n + 1 integers. Boris Ryabko independently discovered the same layout in 1992 for adaptive arithmetic coding. The structure is simpler, shorter, and more cache-friendly than a segment tree, at the cost of supporting only invertible aggregates like sums, XOR, and counts.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `Store the values in a plain array. Updating A[i] is O(1), but computing prefix(k) = A[1] + A[2] + ... + A[k] requires scanning k elements. With a million entries and frequent prefix queries, every query costs up to a million additions.`,
+        `Alternatively, precompute a prefix-sum array where prefix[i] = A[1] + ... + A[i]. Now prefix(k) is a single lookup, O(1). But changing A[i] invalidates prefix[i], prefix[i+1], ..., prefix[n], so one point update rewrites the entire suffix. Neither representation gives both fast queries and fast updates.`,
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is uncontrolled overlap. Prefixes share most of their elements. Changing values[i] changes prefix[i], prefix[i + 1], prefix[i + 2], and every later prefix.`,
-        `The structure needs summaries that overlap enough to answer a prefix quickly but not so much that one update touches the whole suffix. It also needs the prefix 1..k to break into disjoint stored ranges, or the query will double-count.`,
-        `Fenwick's lowbit rule is the compact answer to that balance. Each slot owns a power-of-two suffix ending at its own index, so updates touch logarithmically many owners and queries tile the prefix with logarithmically many disjoint ranges.`,
+        `The prefix-sum array fails because its entries share too much history. prefix[5] and prefix[6] share their first five terms. Changing A[3] invalidates both, plus every later prefix. Any structure that stores complete running totals forces one point update to cascade through all downstream sums.`,
+        `The structure needs partial summaries that cover enough ground to answer any prefix query in few lookups, but not so much that one edit propagates to every summary. It also needs those partial ranges to be disjoint for any given prefix, or the query will double-count.`,
+        `The raw array stores too little precomputed information. The prefix-sum array stores too much. The gap calls for partial sums whose range lengths are chosen to limit both query depth and update depth simultaneously.`,
       ],
     },
     {
-      heading: 'Invariant and layout',
+      heading: 'The core insight',
       paragraphs: [
-        `The array is read with 1-based indexes. tree[i] stores the sum of values from i - lowbit(i) + 1 through i. lowbit(i) is the value of the lowest set bit in i.`,
-        `That one bit assigns a responsibility range to every slot. Index 12 is binary 1100, so lowbit(12) is 4 and tree[12] stores values 9..12. Index 10 is binary 1010, so it stores values 9..10. Odd indexes store one value.`,
-        `The invariant is exact: each tree slot stores the sum of the range it owns, and no query or update is allowed to break that ownership.`,
+        `The trick is lowbit(i) = i & (-i), which isolates the lowest set bit of i. In two's complement, -i flips every bit and adds 1, so the AND keeps only the rightmost 1-bit. For index 6 (binary 110), lowbit = 2. For index 12 (binary 1100), lowbit = 4. For any odd index, lowbit = 1.`,
+        `That single value assigns a responsibility range: tree[i] stores the sum of exactly lowbit(i) consecutive values ending at position i. Index 6 covers positions 5..6. Index 12 covers positions 9..12. Odd indices cover only themselves. The binary representation of each index encodes its range length with no extra storage.`,
+        `Stripping the lowest bit (i -= lowbit(i)) moves left to the start of the next uncovered range: the query walk. Adding the lowest bit (i += lowbit(i)) moves right to the next larger summary that contains i: the update walk. The two walks are mirror images of the same bit operation.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `To query prefix(k), add tree[k], then move to k - lowbit(k). Repeat until k becomes 0. The walk moves left from one owned range to the previous uncovered range.`,
-        `To update position i by delta, add delta to tree[i], then move to i + lowbit(i). Repeat until the index passes n. The walk moves right through every summary range that contains the changed position.`,
-        `The common linear build starts with each value in its own slot, then pushes tree[i] into i + lowbit(i). Each slot contributes once to the next larger range that owns it.`,
+        `The array uses 1-based indexing. tree[i] stores the sum of values from position i - lowbit(i) + 1 through position i.`,
+        `Query prefix(k): start at i = k, add tree[i] to a running total, then set i = i - lowbit(i). Repeat until i reaches 0. Each step jumps left to the end of the next uncovered range. The visited slots cover 1..k exactly once with disjoint ranges.`,
+        `Update(i, delta): start at the target position, add delta to tree[i], then set i = i + lowbit(i). Repeat until i exceeds n. Each step jumps right to the next summary slot whose range contains the original position. Only slots that own the updated position are touched.`,
+        `Build in O(n): place each value in its slot, then for each i from 1 to n, add tree[i] into tree[i + lowbit(i)] if that parent index exists. Each slot pushes its total into the next larger range exactly once.`,
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `A prefix query is correct because subtracting lowbit removes exactly the range just counted. The next index is the end of the remaining prefix. The visited ranges are disjoint and tile 1..k exactly once.`,
-        `A point update is correct because the only stale summaries are the ranges that contain position i. Adding lowbit jumps from one such owner to the next larger owner. Ranges that do not contain i are skipped, so no unrelated sum changes.`,
-        `The proof is an invariant proof. If every tree slot starts with the correct owned-range sum, query reads a disjoint cover of the requested prefix, and update adds the same delta to all and only the owners of the changed cell.`,
+        `The query is correct because subtracting lowbit removes exactly the range just counted. The next index is the end of the remaining uncovered prefix. No two visited ranges overlap, and their union is 1..k. This is a consequence of the binary representation: each set bit of k corresponds to one range in the decomposition.`,
+        `The update is correct because the only stale summaries are ranges that contain position i. Adding lowbit jumps from one such owner to the next larger owner. Ranges that do not contain i are never visited, so no unrelated sum changes. The chain of owners is exactly the set of indices whose ranges include i.`,
+        `Both walks visit at most floor(log2(n)) + 1 indices, because each step changes at least one bit. The structure is self-consistent: if every slot starts with the correct owned-range sum, both walks preserve that invariant.`,
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `prefix(k) and add(i, delta) each take O(log n) time because each loop changes at least one bit of the index and there are only O(log n) bits. Doubling n adds at most one more bit to the index, so the walk grows slowly.`,
-        `Space is O(n), usually an array of length n + 1. The structure is cache-friendly because it uses contiguous storage and no pointers. The hidden tax is indexing discipline: most bugs come from mixing 0-based client positions with 1-based lowbit loops.`,
-        `Fenwick trees work cleanly for sums, counts, and other prefix aggregates where differences between prefixes are meaningful. If the operation needs arbitrary lazy range updates, range minimum with changing values, or several fields per node, a segment tree is usually easier to reason about.`,
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        `Expose a clean public indexing convention. If the public API accepts zero-based positions, convert to one-based exactly once at the boundary. Inside the tree, keep every loop one-based. That separation prevents the most common off-by-one errors.`,
-        `Define the aggregate contract. Sums and counts are natural because prefix ranges can be subtracted to answer range(l, r). Minimum and maximum are not drop-in replacements under arbitrary point updates because removing an old value from a summary is not generally invertible.`,
-        `Use wide enough numeric types. Frequency tables and cumulative weights can overflow ordinary integer ranges in languages with fixed-width numbers. In JavaScript, large exact counts may need BigInt or careful limits if precision matters.`,
-      ],
-    },
-    {
-      heading: 'Testing it',
-      paragraphs: [
-        `Randomized tests are effective. Keep a plain array beside the Fenwick tree, apply random point updates, and compare prefix(k) and range(l, r) against direct sums after every operation. Include negative deltas, updates at position 1, updates at n, and queries at every boundary.`,
-        `For order-statistic search over cumulative counts, compare against a linear scan over the plain frequency array. That catches the second class of bugs: not the lowbit update/query loops, but the binary lifting used to find the first prefix that reaches a target.`,
+        `Both prefix(k) and update(i, delta) run in O(log n) time. Each loop iteration flips at least one bit of the index, and an n-element array has at most floor(log2(n)) + 1 bits. Doubling n adds one step per walk. 1,000 elements: at most 10 steps. 1,000,000 elements: at most 20 steps.`,
+        `Space is one array of n + 1 integers, roughly half what a segment tree uses. A segment tree needs 2n to 4n nodes with implicit or explicit child pointers. A Fenwick tree stores n + 1 integers in contiguous memory with no pointers, which makes it cache-friendly. The entire query and update logic is a three-line loop each.`,
+        `The O(n) build visits every index once and pushes into at most one parent, so it is strictly linear. Total memory is (n + 1) integers regardless of the values stored.`,
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        `Fenwick trees win on dynamic frequency tables. If index r stores the count of items with rank r, prefix(r) gives "how many items have rank at most r" after each insertion or deletion.`,
-        `They are common in inversion counting, live rank queries, arithmetic coding tables, online histograms, and offline counting problems after coordinate compression. The fit is strongest when keys can be mapped to dense integer positions.`,
-        `They also support order-statistic search over cumulative counts: walk the implicit binary structure to find the smallest index whose prefix sum reaches a target count.`,
+        `Competitive programming uses Fenwick trees heavily because the code is short, fast, and hard to get wrong once the lowbit pattern is memorized. Inversion counting, online rank queries, and frequency tables are the most common applications.`,
+        `In inversion counting, process elements right to left. For each A[i], query prefix(A[i] - 1) to count how many smaller elements already sit to its right, then update(A[i], 1). Total inversions equal the sum of all queries, in O(n log n).`,
+        `Two-dimensional Fenwick trees handle rectangle prefix sums on a grid. Each dimension adds a log factor: O(log^2 n) per operation, still much faster than naive O(n^2). Coordinate compression maps sparse keys to dense integer positions, which is where the fit is strongest.`,
+        `Other applications: arithmetic coding frequency tables, online histograms, BIT-based merge sort, and order-statistic search by binary-lifting the cumulative frequency structure.`,
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `It is the wrong tool for static arrays. A prefix-sum array is simpler and answers queries in O(1) when there are no updates.`,
-        `It is also the wrong default for sparse multidimensional data. Two-dimensional Fenwick trees exist, but memory grows with the grid unless the implementation is compressed. For geometric points, a k-d tree, range tree, or spatial hash may fit better.`,
-        `It does not give sorted iteration, arbitrary range assignment, or rich interval logic. Those are different contracts.`,
+        `Range update combined with range query requires maintaining two Fenwick trees in parallel (one for the coefficients of a linear function over prefixes). The bookkeeping is correct but less intuitive than a segment tree with lazy propagation.`,
+        `Arbitrary range queries (not just prefixes) require computing query(r) - query(l - 1). This works for sums and XOR because subtraction inverts addition, but not for min, max, or GCD, where prefix differences do not recover the original range answer. Segment trees handle non-invertible operations directly.`,
+        `For static arrays with no updates, a plain prefix-sum array is simpler and answers queries in O(1). For sparse multidimensional data, memory grows with the grid size, so a k-d tree or range tree may be more appropriate. A Fenwick tree does not support sorted iteration, range assignment, or interval scheduling.`,
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
-        `Suppose values are [3, 2, -1, 6, 5, 4] and you ask for prefix(6). The query might read tree[6], then tree[4]. tree[6] owns values 5..6, and tree[4] owns values 1..4, so the two reads cover 1..6 exactly once.`,
-        `If values[3] increases by 2, every stored range that contains position 3 must increase by 2. The update walk touches position 3, then 4, then 8 if it exists. It does not touch tree[6], because range 5..6 does not contain position 3.`,
+        `Start with A = [3, 2, -1, 6, 5, 4, -3, 3, 7, 2] (1-indexed, n = 10). Build the Fenwick array. tree[1] = 3 (lowbit = 1, covers A[1]). tree[2] = 3 + 2 = 5 (lowbit = 2, covers A[1..2]). tree[3] = -1 (lowbit = 1, covers A[3]). tree[4] = 3 + 2 + (-1) + 6 = 10 (lowbit = 4, covers A[1..4]). tree[5] = 5 (lowbit = 1, covers A[5]). tree[6] = 5 + 4 = 9 (lowbit = 2, covers A[5..6]). tree[7] = -3 (lowbit = 1, covers A[7]). tree[8] = 3 + 2 + (-1) + 6 + 5 + 4 + (-3) + 3 = 19 (lowbit = 8, covers A[1..8]). tree[9] = 7 (lowbit = 1, covers A[9]). tree[10] = 7 + 2 = 9 (lowbit = 2, covers A[9..10]).`,
+        `Query prefix_sum(6). Start at i = 6 (binary 110). tree[6] = 9, covers A[5..6]. Strip lowest bit: 6 - lowbit(6) = 6 - 2 = 4. tree[4] = 10, covers A[1..4]. Strip lowest bit: 4 - lowbit(4) = 4 - 4 = 0. Stop. Answer: 9 + 10 = 19. Verify: 3 + 2 + (-1) + 6 + 5 + 4 = 19. Two slots visited, two disjoint ranges {5..6} and {1..4} tile positions 1..6.`,
+        `Update index 3 by +5. Start at i = 3 (binary 11). tree[3] += 5, becomes 4. Add lowest bit: 3 + lowbit(3) = 3 + 1 = 4. tree[4] += 5, becomes 15. Add lowest bit: 4 + lowbit(4) = 4 + 4 = 8. tree[8] += 5, becomes 24. Add lowest bit: 8 + lowbit(8) = 8 + 8 = 16 > 10. Stop. Three slots touched: indices 3, 4, 8 — exactly the slots whose coverage ranges contain position 3.`,
+        `Re-query prefix_sum(6). tree[6] = 9 (unchanged, range 5..6 does not contain position 3). tree[4] = 15 (updated, range 1..4 contains position 3). Answer: 9 + 15 = 24 = 19 + 5. The delta of +5 appeared in the prefix because position 3 lies inside positions 1..6.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Prefix Sums first if static cumulative totals are not automatic yet. Study Fenwick Range Update & Range Query for the difference-array and two-BIT variants. Study Segment Tree for richer range operations, Coordinate Compression for dense indexes from arbitrary keys, and Binary Lifting for another data-structure trick driven by index bits.`,
+        `Peter Fenwick, "A New Data Structure for Cumulative Frequency Tables," Software: Practice and Experience, 1994. Boris Ryabko, "A Fast On-Line Adaptive Code," IEEE Transactions on Information Theory, 1992 — an independent discovery of the same structure for adaptive arithmetic coding.`,
+        `Prerequisites: prefix sums (the static O(1)-query structure that a Fenwick tree makes dynamic), binary representation of integers, and two's complement (which is why i & (-i) isolates the lowest set bit).`,
+        `Study next: Segment Tree (more general, supports min/max/GCD and lazy propagation, at 2-4x memory and longer code). Sparse Table (O(1) static range minimum via overlapping precomputation, no update support). Prefix Sums (the static version this structure generalizes). Merge Sort (inversion counting, one classic Fenwick application, reduces to processing elements and querying prefix counts).`,
       ],
     },
   ],

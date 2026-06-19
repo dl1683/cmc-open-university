@@ -6,7 +6,7 @@ import { graphState, InputError } from '../core/state.js';
 
 export const topic = {
   id: 'kruskal-mst',
-  title: "Kruskal's Minimum Spanning Tree",
+  title: "Kruskal\'s Minimum Spanning Tree",
   category: 'Data Structures',
   summary: 'Connect every node at minimum total cost: cheapest edges first, cycles vetoed by Union-Find.',
   controls: [
@@ -57,7 +57,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: `Seven cities, eleven possible cables, each with a cost. The job: connect ALL of them — directly or indirectly — for the minimum total cost. The answer is always a SPANNING TREE: ${NODES.length} nodes need exactly ${NODES.length - 1} edges, and any extra edge is a wasted cycle. Kruskal's recipe is pure greed: sort the cables by cost, take the cheapest one that doesn't create a cycle, repeat.`,
+    explanation: `Seven cities, eleven possible cables, each with a cost. The job: connect ALL of them — directly or indirectly — for the minimum total cost. The answer is always a SPANNING TREE: ${NODES.length} nodes need exactly ${NODES.length - 1} edges, and any extra edge is a wasted cycle. Kruskal\'s recipe is pure greed: sort the cables by cost, take the cheapest one that doesn\'t create a cycle, repeat.`,
   };
 
   yield {
@@ -104,88 +104,116 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: hl(),
-    explanation: `Done: ${mst.length} edges (exactly n−1), total cost ${total} — provably the minimum possible. Note what got skipped: AB and BG were cheap-ish, but by their turn their endpoints were already connected. Sorting dominates the cost: O(E log E), with Union-Find adding effectively nothing.`,
+    explanation: `Done: ${mst.length} edges (exactly n-1), total cost ${total} — provably the minimum possible. Note what got skipped: AB and BG were cheap-ish, but by their turn their endpoints were already connected. Sorting dominates the cost: O(E log E), with Union-Find adding effectively nothing.`,
   };
 
   yield {
     state: snapshot(),
     highlight: hl(),
-    explanation: `This is how you wire a campus with minimum fiber, how chip designers route minimal interconnect, and how network designers plan backbones. The cousin algorithm — Prim's — grows one tree outward using a Binary Heap (Priority Queue) instead of sorting all edges (better for dense graphs). And as the clustering mode shows, stop Kruskal early and data-mining falls out. Greedy + Union-Find: two site topics composed into a third.`,
+    explanation: `This is how you wire a campus with minimum fiber, how chip designers route minimal interconnect, and how network designers plan backbones. The cousin algorithm — Prim\'s — grows one tree outward using a Binary Heap (Priority Queue) instead of sorting all edges (better for dense graphs). And as the clustering mode shows, stop Kruskal early and data-mining falls out. Greedy + Union-Find: two site topics composed into a third.`,
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Kruskal's algorithm exists for the basic network-design question: how do we connect every vertex with the least total edge cost? The output is a minimum spanning tree, or MST. It spans because every vertex is connected. It is a tree because it has no cycles. It is minimum because no other spanning tree has lower total weight.`,
-        `This problem appears whenever the cost is attached to connections rather than to paths from one source. A campus fiber plan, a power-distribution sketch, a clustering dendrogram, and a circuit-layout approximation all ask some version of "connect all the points without paying for redundant links." Kruskal is the cleanest greedy answer when the graph is naturally stored as an edge list.`,
+        'Edges are processed in sorted order, lightest first. The active (highlighted) edge is the one being tested. Green edges have been accepted into the MST: their endpoints were in separate components, so no cycle was created. Dimmed edges were rejected because both endpoints already belonged to the same component.',
+        'Watch the component count. It starts at V (every node alone) and drops by one each time an edge is accepted. After V minus 1 acceptances, one connected tree remains. Rejections matter too: each one proves that a cheaper route already exists between those endpoints through previously accepted edges.',
+        'In clustering mode, the algorithm stops early at three components. The remaining groups are single-linkage clusters: cheap edges glued nearby nodes together, and the expensive edges that would have merged the clusters were never accepted.',
       ],
     },
     {
-      heading: 'The Naive Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The brute-force approach is to list every possible spanning tree, compute its total weight, and keep the cheapest. That is not practical. The number of spanning trees can be enormous even for moderately sized graphs. Exhaustive search treats the problem as if every global tree shape must be tested.`,
-        `A more tempting approach is to keep taking cheap edges. That is closer, but it is incomplete. Cheap edges can close cycles. A cycle means at least one edge is redundant because the same vertices remain connected without it. The naive greedy rule needs a veto: cheap is good only when the edge joins two separate connected components.`,
+        'Given a weighted graph, connect every vertex using the least total edge weight. The result is a minimum spanning tree (MST): it spans because every vertex is reachable, it is a tree because it has no cycles, and it is minimum because no other spanning tree weighs less.',
+        'This is the oldest problem in combinatorial optimization. Boruvka solved it in 1926 for the Moravian electrical network. Kruskal published his sort-and-merge method in 1956. Prim independently described the grow-one-tree approach in 1957, rediscovering work Jarnik had done in 1930.',
+        'The problem appears whenever cost attaches to connections rather than to paths from a single source. Campus fiber plans, power-distribution networks, circuit-layout approximations, and clustering dendrograms all ask the same question: connect all the points without paying for redundant links.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        `Kruskal's insight is to sort all edges by weight and run a cheapest-first audition. Each edge gets one question: do its endpoints currently belong to different components? If yes, accepting it merges those components and cannot create a cycle. If no, the endpoints are already connected through cheaper or equal accepted edges, so this edge would only add a loop.`,
-        `The partial answer is a forest, not a single tree at first. Every accepted edge reduces the number of components by one. With n vertices, the algorithm needs exactly n - 1 accepted edges to produce one connected tree. The forest view is what makes the greedy choice safe: the algorithm is always joining islands, never decorating an island with redundant internal links.`,
+        'Try every spanning tree and pick the lightest one. A spanning tree on n vertices uses exactly n minus 1 edges and has no cycles. Enumerate all such trees, sum the weights, keep the minimum.',
+        'The idea is correct in principle. On a small graph you can list the trees by hand. For four vertices in a complete graph there are 16 spanning trees. You could check all 16.',
       ],
     },
     {
-      heading: 'Union-Find Machinery',
+      heading: 'The wall',
       paragraphs: [
-        `The cycle question is a connectivity query. Union-Find, also called Disjoint Sets, is the data structure that answers it cheaply. Each vertex starts as its own set. find(x) returns the representative of x's current component. union(a, b) merges two components after an edge is accepted.`,
-        `With path compression and union by rank or size, Union-Find operations are effectively constant time for ordinary input sizes. That matters because Kruskal asks find twice for every edge. Without Union-Find, the algorithm would need repeated graph searches to test whether an edge closes a cycle. The greedy idea would still be correct, but the implementation would be much slower.`,
+        "Cayley\'s formula: a complete graph on n labeled vertices has n^(n-2) spanning trees. For 10 vertices that is 10^8 (a hundred million). For 20 vertices it is 20^18, roughly 2.6 times 10^23. Enumeration is not slow; it is physically impossible at any useful scale.",
+        'The natural greedy impulse -- keep taking cheap edges -- almost works, but it hits a second wall: cycles. If you grab cheap edges without checking connectivity, you can add an edge whose endpoints are already reachable through previously accepted edges. That creates a cycle, which wastes cost and breaks the tree property. Without a fast cycle test, you need a graph traversal per candidate edge, pushing the total to O(E^2) or worse.',
       ],
     },
     {
-      heading: 'What The Visual Proves',
+      heading: 'How it works',
       paragraphs: [
-        `The visual proves that the algorithm never needs to know the final tree shape in advance. It sorts edges such as EF(2), GA(2), and BC(3), then tests each candidate against the current components. Accepted edges become the growing forest. Rejected edges are not "bad" globally; they are just unnecessary for this forest because their endpoints are already connected.`,
-        `The cluster mode proves a second idea. If Kruskal stops before one component remains, the remaining components are single-linkage clusters. Cheap local connections have joined nearby vertices, while expensive edges between groups have not yet been accepted. The same sorted-edge process therefore supports both MST construction and hierarchical clustering.`,
+        'Kruskal sorts all E edges by weight. Then it scans the sorted list once. For each edge, it asks one question: are the two endpoints in the same connected component? If no, accept the edge (it merges two components). If yes, reject it (it would close a cycle). Stop after accepting V minus 1 edges.',
+        "The cycle question is a connectivity query, and Union-Find answers it in near-constant time. Each vertex starts as its own singleton set. find(x) returns the representative of x\'s component. When an edge is accepted, union(a, b) merges the two sets. With path compression and union by rank, each operation costs O(alpha(V)) amortized, where alpha is the inverse Ackermann function -- effectively constant for any graph that fits in memory.",
+        'The partial result is a forest, not a single tree. Each accepted edge reduces the component count by one. After n minus 1 acceptances, the forest has merged into one spanning tree.',
       ],
     },
     {
-      heading: 'Why The Greedy Rule Works',
+      heading: 'Why it works',
       paragraphs: [
-        `The proof rests on the cut property. Take any split of the vertices into two sides. The cheapest edge crossing that split is safe: there is some minimum spanning tree that contains it. If a proposed MST did not contain that cheapest crossing edge, adding the edge would create a cycle, and that cycle must include another edge crossing the same cut. Replacing the heavier crossing edge with the cheapest one cannot increase total cost.`,
-        `Kruskal repeatedly applies this safe-edge logic. When an edge connects two current components, it crosses the cut between one component and the rest of the graph. Because edges are considered in sorted order, no cheaper available crossing edge was skipped unless it would have stayed inside a component. The accepted edge is therefore safe.`,
+        'The cut property: for any partition of the vertices into two non-empty sides, the lightest edge crossing that partition belongs to some minimum spanning tree.',
+        'Proof. Suppose T is an MST that does not contain the lightest crossing edge e. Adding e to T creates a cycle. That cycle must include at least one other edge f that also crosses the same partition (otherwise the cycle could not close). Since weight(e) is at most weight(f), swapping f for e produces a spanning tree whose total weight is at most that of T. So e belongs to some MST.',
+        'Kruskal applies this property at every step. When an edge connects two different components, those components define a partition of the vertices. Because edges are processed in sorted order, no cheaper crossing edge was skipped (any cheaper edge that crossed this partition would have been processed earlier and either accepted or found both endpoints in the same component). The accepted edge is the cheapest available crossing, so by the cut property it is safe.',
+        'The preservation argument ties it together. Before the first step, the empty set is trivially a subset of every MST. Each accepted edge preserves the invariant: the accepted set is a subset of some MST. After V minus 1 acceptances, the subset spans all vertices and is itself an MST.',
       ],
     },
     {
-      heading: 'Cost And Complexity',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Kruskal costs O(E log E) for sorting E edges. The Union-Find work adds O(E alpha(V)), where alpha is the inverse Ackermann function and is tiny in practice. Sorting dominates almost always. Space is O(V) for the disjoint-set parent structure plus the space used to store the edge list and the output tree.`,
-        `Because a simple graph has at most about V squared edges, O(E log E) is often written as O(E log V). On sparse graphs, that is a strong fit. On dense graphs, Prim's algorithm with an adjacency matrix can be competitive at O(V squared), and Prim with a binary heap runs in O(E log V). Representation matters as much as the abstract algorithm.`,
-        `Implementation details still matter. If the edge list is already nearly sorted by weight, the sort may be cheaper in practice than the asymptotic expression suggests. If edges stream in over time, a plain Kruskal run is less convenient because the global sorted order is central to the algorithm. If memory is tight, storing every candidate edge can be the real bottleneck, while Prim can work directly from adjacency data.`,
+        'Sorting E edges costs O(E log E). The Union-Find work across all edges is O(E alpha(V)), which is negligible. Total time: O(E log E). Since E is at most V^2, log E is at most 2 log V, so this is equivalently O(E log V). Space: O(V) for the Union-Find parent array, plus the edge list and output tree.',
+        'What happens when the graph doubles in size? If both V and E double, the sort does roughly twice as much work per element (one extra comparison level) but the Union-Find cost barely changes. Sorting dominates in practice.',
+        "Compared to Prim: Prim with a binary heap runs O((V+E) log V). On sparse graphs (E near V), both are similar. On dense graphs (E near V^2), Prim with an adjacency matrix runs O(V^2), which avoids the sort entirely. Prim with a Fibonacci heap achieves O(E + V log V), the best known bound for deterministic MST on dense graphs. Kruskal shines when the input is already an edge list and the graph is sparse.",
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Where it wins',
       paragraphs: [
-        `Kruskal wins when the graph arrives as a list of candidate connections. You sort the list once, scan it once, and use Union-Find for the cycle veto. It is easy to explain, easy to test, and naturally stops as soon as n - 1 edges are accepted. It also handles disconnected input gracefully by returning a minimum spanning forest.`,
-        `It is useful in network planning, approximate physical layout, clustering, image segmentation, and any problem where pairwise connection costs are known ahead of time. Engineers often use the MST as a baseline, then add redundancy, capacity, latency, or reliability constraints afterward. The pure MST is the cheapest connected skeleton, not the whole production design.`,
+        'Network design. Connect campus buildings, data-center racks, or cell towers with minimum total cable. Kruskal fits naturally when the input is a list of candidate connections with costs, because sort-and-scan matches that format directly.',
+        'Circuit design. VLSI layout computes rectilinear MSTs (Manhattan distances between pins) as a lower bound on total wire length. The MST sets the wiring budget; detailed routing refines from there.',
+        'Clustering. Stop Kruskal before one component remains and the current components are single-linkage clusters. The cheap edges glued nearby nodes; the expensive unprocessed edges mark cluster boundaries. This is the basis of single-linkage hierarchical clustering.',
+        'TSP approximation. On metric graphs (symmetric, triangle-inequality weights), doubling the MST edges and shortcutting gives a tour at most twice the optimal length. The MST lower-bounds the TSP, making it the backbone of the 2-approximation.',
+        'Image segmentation. The Felzenszwalb-Huttenlocher method builds an MST over pixels weighted by color difference, then cuts heavy edges to form segments.',
       ],
     },
     {
-      heading: 'Failure Modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `Do not confuse a minimum spanning tree with a shortest-path tree. Dijkstra's algorithm optimizes paths from one source. Kruskal optimizes total cost to connect all vertices. A low-cost MST can contain a long route between two particular vertices, because pairwise route distance is not the objective.`,
-        `Do not assume the MST is unique. Equal weights can create several valid minimum trees. Do not apply Kruskal directly to directed graphs; directed minimum branching is a different problem. Do not expect redundancy from a tree, because removing one accepted edge disconnects part of it. And if the original graph is disconnected, no spanning tree exists; the algorithm correctly returns a forest.`,
-        `Also watch the weight model. Negative weights are allowed for MSTs, but the edge weights must represent comparable connection costs. If a domain has capacity limits, reliability requirements, or geographic constraints, those rules are not magically captured by a single number. Kruskal optimizes the graph you give it, so a bad graph model produces a cheap answer to the wrong problem.`,
+        "MST is not shortest paths. Kruskal minimizes total connection cost. Dijkstra minimizes path distance from one source. An MST can contain a long route between two particular vertices, because pairwise distance is not the objective.",
+        "Directed graphs need a different algorithm. The minimum-cost arborescence (directed spanning tree rooted at a given vertex) is solved by Edmonds\' algorithm (Chu-Liu/Edmonds, 1965), which is structurally different from Kruskal.",
+        'No redundancy. A tree has exactly V minus 1 edges. Remove any one and the tree disconnects. Real network designs start from the MST cost baseline, then add backup links for fault tolerance.',
+        'Uniqueness is not guaranteed. When multiple edges share the same weight, different tie-breaking orders can produce different MSTs. All such MSTs have the same total weight, but the edge sets may differ. If the application depends on a specific tree (not just minimum cost), ties must be broken deterministically.',
+        "Distributed MST is harder. Kruskal requires a global sort, which means one machine must see all edges. Boruvka\'s algorithm, where each component independently finds its cheapest outgoing edge, parallelizes naturally and is the basis for distributed MST implementations.",
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Union-Find first, because it is the cycle detector that makes Kruskal fast. Then compare Prim's algorithm on the same weighted graph to see a frontier-growing alternative. Binary Heap Priority Queue explains the data structure behind efficient Prim and Dijkstra implementations.`,
-        `For graph context, review Breadth-First Search, Depth-First Search, and Dijkstra's Shortest Path so the difference between reachability, route cost, and global connection cost is clear. For clustering context, compare Kruskal's early-stop single-linkage behavior with K-Means Clustering. Big-O Growth Rates explains why sparse and dense graphs often prefer different MST implementations.`,
+        'Six vertices (A through F), nine edges: A-B(4), A-C(2), B-C(1), B-D(3), C-D(5), C-E(7), D-E(6), D-F(8), E-F(9).',
+        'Sort by weight: B-C(1), A-C(2), B-D(3), A-B(4), C-D(5), D-E(6), C-E(7), D-F(8), E-F(9).',
+        'B-C(1): Find(B) = B, Find(C) = C. Different components. Accept. Union(B,C). Components: {B,C}, {A}, {D}, {E}, {F}. Total: 1.',
+        'A-C(2): Find(A) = A, Find(C) = B (through path compression). Different. Accept. Union(A,B). Components: {A,B,C}, {D}, {E}, {F}. Total: 3.',
+        'B-D(3): Find(B) = B (root of {A,B,C}), Find(D) = D. Different. Accept. Union(B,D). Components: {A,B,C,D}, {E}, {F}. Total: 6.',
+        'A-B(4): Find(A) and Find(B) both reach the same root. Same component. Reject -- this edge would create a cycle through A-C-B.',
+        'C-D(5): Find(C) and Find(D) share a root. Same component. Reject.',
+        'D-E(6): Find(D) is in {A,B,C,D}, Find(E) = E. Different. Accept. Total: 12.',
+        'C-E(7): both in the same component now. Reject. D-F(8): Find(D) is in the big component, Find(F) = F. Different. Accept. All six vertices connected. Total: 20.',
+        'Final MST: B-C(1), A-C(2), B-D(3), D-E(6), D-F(8). Five edges, total weight 20. Every acceptance joined two previously separate components. Every rejection prevented a cycle.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        "Boruvka, \"O jistem problemu minimalnim,\" 1926 -- the oldest MST algorithm, designed for Moravia\'s electrical network. Each round finds the cheapest edge from each component and merges. O(log V) rounds, each parallelizable. Kruskal, \"On the Shortest Spanning Subtree of a Graph and the Traveling Salesman Problem,\" 1956 -- the sort-and-merge approach. Prim, \"Shortest Connection Networks,\" Bell System Technical Journal, 1957. Jarnik, 1930 -- described the grow-one-tree method decades before Prim. Pettie and Ramachandran, 2002 -- the provably optimal deterministic MST algorithm.",
+        'Prerequisite: Union-Find (Disjoint Sets) powers the cycle test. Without it, cycle detection costs O(V+E) per edge and the algorithm degrades to O(E^2).',
+        "Same structure, different objective: Prim\'s Algorithm grows one tree outward using a priority queue instead of a global sort. Compare both on this site\'s shared seven-node graph.",
+        "Same greedy family: Dijkstra\'s Shortest Path uses the same priority-queue loop as Prim but ranks by total distance from the source, not single edge weight.",
+        'Graph foundations: Breadth-First Search and Depth-First Search for unweighted traversal and component discovery.',
       ],
     },
   ],

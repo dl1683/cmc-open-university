@@ -217,7 +217,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The name is literal. Read: readers enter a read-side critical section and follow the current pointer. Copy: writers build a replacement away from readers. Update: writers publish the replacement with a pointer update.',
         'The invariant is version stability. A reader may see the old version or the new version, but it must not see a half-patched structure. The old version remains reclaimable only after every pre-existing reader has passed through a quiescent state.',
@@ -225,7 +225,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'How to read the animation',
       paragraphs: [
         'In the read-path view, the reader follows a stable pointer without taking the writer lock. The writer does not patch that structure in place for active readers; it builds or edits a replacement, then publishes a pointer to the new version.',
         'In the grace-period view, unlinking and freeing are deliberately separated. A removed version may no longer be reachable by new readers, but old readers can still hold it. The grace period is the proof that those old readers have exited before memory is reclaimed.',
@@ -263,7 +263,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'RCU fits routing tables, kernel lookup structures, configuration maps, caches, and read-mostly indexes where reads dominate and old versions can temporarily coexist.',
         'The Linux kernel documentation describes RCU as optimized for read-mostly situations, especially kernel lookup paths. Userspace RCU libraries bring the same idea to programs and include RCU-based structures such as hash tables, queues, stacks, and lists.',
@@ -286,17 +286,80 @@ export const article = {
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'Worked example (2)',
       paragraphs: [
         'A routing table is the classic example. Every packet needs a lookup, so putting a contended lock on the read path harms throughput. With RCU, the reader enters a read section, loads the current table pointer, and walks a stable structure. A writer builds a replacement table or node, publishes it, and waits before freeing the old one.',
         'The result is not free updates. The writer must handle copying cost and delayed reclamation. The benefit is that the packet path is short, predictable, and mostly independent of other readers.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Linux kernel RCU overview at https://docs.kernel.org/RCU/whatisRCU.html, RCU concepts at https://www.kernel.org/doc/html/v5.5/RCU/rcu.html, userspace RCU at https://liburcu.org/, and the original RCU paper PDF at https://www.rdrop.com/users/paulmck/RCU/rclockpdcsproof.pdf. Study Nonblocking Progress Guarantees, Linearizability History Checker, Hazard Pointers & Epoch Reclamation, Lock-Free Queue, MVCC & Vacuum, and Snapshot Isolation next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Read-Copy-Update (RCU) moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

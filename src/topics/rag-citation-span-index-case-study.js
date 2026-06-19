@@ -1,4 +1,4 @@
-// Citation span indexes: bind generated claims back to exact document offsets
+﻿// Citation span indexes: bind generated claims back to exact document offsets
 // so RAG answers can be audited below the chunk level.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -231,9 +231,18 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for RAG Citation Span Index Case Study. Store document ids, offsets, quoted spans, and claim links so cited RAG answers can be audited below the chunk level..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Retrieval-augmented generation exists because a model's parameters are a poor place to store every fact a product needs. A RAG system retrieves documents at answer time, places relevant context in the prompt, and asks the model to generate from that evidence. That reduces some hallucination risk and makes knowledge updates possible without retraining the model.`,
+        `Retrieval-augmented generation exists because a model\'s parameters are a poor place to store every fact a product needs. A RAG system retrieves documents at answer time, places relevant context in the prompt, and asks the model to generate from that evidence. That reduces some hallucination risk and makes knowledge updates possible without retraining the model.`,
         `The citation problem starts after retrieval succeeds. A generated answer can include a citation marker that looks trustworthy while pointing only to a chunk id, a page, or a broad document. That may be enough for a demo, but it is not enough for a product where users, evaluators, auditors, and support engineers need to inspect exactly which sentence, table row, clause, code range, or transcript interval supports each claim.`,
       ],
     },
@@ -263,11 +272,11 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         `The useful invariant is claim-to-span replayability. For every cited factual claim, the system should be able to answer four questions without rerunning the model: which source span was cited, what text was visible to the user, which corpus version supplied it, and what kind of support relation was asserted. If any of those answers is missing, the citation is not auditable.`,
-        `This does not prove the answer is true in a philosophical sense. It proves a narrower and more useful property: the product can inspect whether the answer is grounded in the indexed corpus under the user's permissions and under the active document versions. That is enough to debug most RAG failures. A bad answer becomes traceable to ingestion, retrieval, ranking, context packing, generation, citation formatting, or support verification.`,
+        `This does not prove the answer is true in a philosophical sense. It proves a narrower and more useful property: the product can inspect whether the answer is grounded in the indexed corpus under the user\'s permissions and under the active document versions. That is enough to debug most RAG failures. A bad answer becomes traceable to ingestion, retrieval, ranking, context packing, generation, citation formatting, or support verification.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The storage cost is usually modest compared with embeddings and raw documents. Span records are mostly ids, ranges, hashes, short quotes, and metadata. The real cost is lifecycle discipline. Every parser change, document update, permission rule, re-chunking job, and alias swap can break provenance if the span ledger is treated as an afterthought.`,
         `There is also runtime cost. Claim extraction and support checks add latency if they run synchronously. Entailment models can be expensive and imperfect. Very small spans may need surrounding context to verify a clause; very large spans make verification weak. Tables, OCR noise, images, formulas, footnotes, and legal cross-references all complicate the idea of an exact supporting span.`,
@@ -275,7 +284,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         `Consider a customer-support assistant answering refund questions from policy PDFs, FAQ pages, release notes, and internal macros. The old refund policy allowed 45 days. The current policy allows 30 days. A chunk-only system may retrieve both because they share the same vocabulary. The generator may answer from the stale chunk and cite it cleanly.`,
         `A span-indexed system can keep both documents while marking their versions and freshness states. The 45-day sentence remains a real span, but it is stale under the active corpus alias. The 30-day sentence is current. When the answer claims "refunds are available for 30 days", the support map can point to the exact current sentence. If the answer says 45 days, the audit can say the citation exists but fails the freshness gate.`,
@@ -283,7 +292,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Citation span indexes are strongest in domains where provenance is part of the product contract: support automation, legal research, policy assistants, enterprise search, scientific review, incident reports, medical documentation workflows, financial research, and deep research agents. In these systems, the answer is not useful merely because it sounds plausible. It must show where each important claim came from.`,
         `They also help evaluation. Metrics such as faithfulness, context precision, and answer correctness become easier to reason about when the evaluator can inspect claim-level support. The span ledger becomes shared infrastructure for user citations, offline scoring, regression tests, source freshness checks, and operational debugging.`,
@@ -302,5 +311,56 @@ export const article = {
         `Primary sources: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks at https://arxiv.org/abs/2005.11401 and RAGAs: Automated Evaluation of Retrieval Augmented Generation at https://aclanthology.org/2024.eacl-demo.16/. Study RAG Pipeline for the retrieval-generation loop, Multi-Index RAG for source fusion, RAG Evaluation for faithfulness metrics, Claim Graph & Source Ledger for assertion provenance, RAG Index Lifecycle and Alias Swap for version-safe reindexing, and Lost in the Middle for context-position failures that a citation ledger cannot fix by itself.`,
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for rag-citation-span-index-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

@@ -224,6 +224,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for IndexedDB Object Store Case Study. Browser storage as a data-structure lesson: ordered object stores, secondary indexes, cursors, key ranges, transactions, and offline sync queues..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "A serious web app needs storage that survives reloads, works offline, and answers more than one query shape. An in-memory Map disappears when the page closes. localStorage gives synchronous string slots, which is useful for small settings but wrong for large structured data. IndexedDB exists because browser apps sometimes need a real local database.",
@@ -245,7 +254,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core model',
+      heading: 'The core insight',
       paragraphs: [
         "The core abstraction is an ordered object store. Each record has a key and a value. The key is the durable address and the main sort axis. The value is structured data copied through the structured clone algorithm, not a live object reference into the JavaScript heap.",
         "An index is an alternate sorted projection over records in an object store. A document can be keyed by id while an updatedAt index supports a recents view and a syncStatus index supports a pending-sync view. The same stored record becomes reachable through several ordered routes. The invariant is that writes must keep the primary store and every affected index consistent within the transaction.",
@@ -294,7 +303,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         "IndexedDB wins for structured client-side data, offline workflows, large local caches, search indexes, media metadata, map tiles, local-first documents, and durable mutation queues. The fit is strongest when queries are key-shaped or range-shaped and the app can name its access paths ahead of time.",
         "It is also the right tool when storage must be available in workers. MDN notes that IndexedDB is available in Web Workers, which lets an app keep heavy persistence work away from the main UI path. A worker can own database access, batch writes, compact old records, and coordinate sync without blocking pointer input or rendering.",
@@ -315,11 +324,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         "Primary references: Indexed Database API 3.0 at https://www.w3.org/TR/IndexedDB/, MDN IndexedDB API at https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API, IDBObjectStore at https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore, IDBIndex at https://developer.mozilla.org/en-US/docs/Web/API/IDBIndex, IDBKeyRange at https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange, IDBCursor at https://developer.mozilla.org/en-US/docs/Web/API/IDBCursor, and storage quotas at https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria.",
         "Study B-Trees and Database Indexing for the ordered-access model. Study Local-First Sync Engine, Background Sync Outbox Queue, Service Workers, Web Workers, Structured Clone Transferable Objects, Browser Message Channels, Web Locks API Lock Manager, OPFS Origin Private File System, Cache Storage Versioned Precache, and Browser Storage Quota Eviction Manager for production browser storage design.",
       ],
     },
-  ],
+      {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why IndexedDB Object Store Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

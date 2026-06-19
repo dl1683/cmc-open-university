@@ -1,4 +1,4 @@
-// TCP reassembly and SACK scoreboards: interval state around a byte stream.
+﻿// TCP reassembly and SACK scoreboards: interval state around a byte stream.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
@@ -246,68 +246,215 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. "Receiver reassembly" shows segments arriving out of order, the receiver buffer, SACK feedback, and hole repair. "Sender scoreboard" shows the sender classifying byte ranges after receiving SACK blocks, then retransmitting the missing interval.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the current decision point: which segment just arrived, which range is being classified, or which feedback is being sent.',
+            'Removed nodes represent lost segments -- data the network dropped before it reached the receiver.',
+            'Found nodes are confirmed outcomes: bytes delivered to the application, or ranges the sender now knows are safe.',
+            'Compare nodes show state that is relevant but not the focus of this step, such as an in-flight segment while the receiver processes earlier arrivals.',
+          ],
+        },
+        'In the matrix views, each row is a byte range and each column is a property (state, deliverability, ACK effect, or sender action). Watch the "missing" row: it is the hole that drives the entire recovery process.',
+        {
+          type: 'note',
+          text: 'The animation uses 1000-byte segments for readability. Real TCP segments are typically 1460 bytes (Ethernet MSS) and sequence numbers are 32-bit byte offsets, not packet counts.',
+        },
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `TCP gives applications a simple abstraction: an ordered, reliable byte stream. The application writes bytes on one side and reads the same bytes in the same order on the other side. The network underneath does not provide that abstraction directly. IP packets can be lost, duplicated, delayed, or reordered. A receiver may get bytes 0-999, miss 1000-1999, and then receive 2000-3999. The application still cannot read 2000-3999 until the missing hole is repaired.`,
-        `TCP reassembly is the receiver-side interval problem behind that stream abstraction. The receiver buffers out-of-order byte ranges, tracks the first missing byte, merges adjacent ranges, and releases only the contiguous prefix to the application. Selective acknowledgment adds a sender-side information structure. A cumulative ACK says, "I have everything before byte N." SACK blocks add, "I also have these later ranges." Together, they let the sender repair holes instead of guessing or resending the whole flight.`,
-        `This topic is a good data-structures lesson because the core objects are not packets; they are byte intervals. Once you see ranges, holes, cumulative edges, and selective blocks, TCP loss recovery becomes much easier to reason about.`,
+        {
+          type: 'quote',
+          text: 'TCP must recover from data that is damaged, lost, duplicated, or delivered out of order by the internet communication system.',
+          attribution: 'RFC 793, "Transmission Control Protocol" (1981), Section 1.5',
+        },
+        'TCP promises applications an ordered, reliable byte stream. The application writes bytes on one end and reads identical bytes in the same order on the other. IP provides none of those guarantees. Packets can be lost, duplicated, delayed, or reordered. A receiver may get bytes 0-999, miss 1000-1999, and then receive 2000-3999. The application cannot read 2000-3999 until the gap is filled.',
+        'Two problems hide inside that contract. The receiver must buffer out-of-order data and release only the contiguous prefix. The sender must learn which bytes arrived so it retransmits only what is missing. Cumulative ACKs handle the first problem partially: "I have everything before byte N." SACK blocks handle the second: "I also have these later ranges." Together, reassembly and SACK turn a lossy packet network into a reliable stream.',
+        {
+          type: 'note',
+          text: 'The core objects here are not packets -- they are byte intervals. Ranges, holes, cumulative edges, and selective blocks are the data structures. Once you see them, TCP loss recovery becomes an interval-merge problem with a congestion-control constraint.',
+        },
       ],
     },
     {
-      heading: 'The naive design and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The naive receiver delivers data in packet arrival order. That breaks TCP's contract. If bytes 2000-2999 arrive before bytes 1000-1999, the application must not see 2000 yet. Ordered delivery is the point of the abstraction. A receiver that exposes out-of-order data would push network disorder into every application protocol built on TCP.`,
-        `Another naive receiver discards out-of-order data. That preserves ordered delivery, but wastes useful work. If the network delivered 2000-3999 successfully, throwing those bytes away forces the sender to retransmit data the receiver already had. On paths with large windows, long round trips, or multiple losses, this can destroy throughput.`,
-        `The naive sender has a matching problem. With only cumulative ACKs, repeated ACK 1000 tells the sender that byte 1000 is still missing, but it says little about what happened after that. The sender may infer loss from duplicate ACKs, yet multiple losses in one window remain ambiguous. Resending everything after 1000 is safe but wasteful. Waiting for timeouts is safe but slow. The wall is missing information: the sender needs to know which later ranges arrived.`,
+        'The simplest receiver design delivers bytes in arrival order and discards anything that arrives out of sequence. If bytes 2000-2999 show up before 1000-1999, throw them away and let the sender retransmit them later. This preserves ordered delivery with zero buffering.',
+        {
+          type: 'diagram',
+          text: 'Approach: discard out-of-order segments\n\n  Sender transmits:  [0-999] [1000-1999] [2000-2999] [3000-3999]\n  Network delivers:  [0-999]     (lost)  [2000-2999] [3000-3999]\n  Receiver keeps:    [0-999]     --         discard     discard\n  Sender must resend:           [1000-1999] [2000-2999] [3000-3999]\n\n  Result: 3 segments retransmitted instead of 1',
+          label: 'Discarding out-of-order data forces the sender to retransmit bytes that already arrived',
+        },
+        'The matching sender design uses only cumulative ACKs. If the receiver says "ACK 1000" three times in a row, the sender infers that 1000 is probably lost and retransmits it. But the sender does not know what happened beyond the hole. Did bytes 2000-3999 arrive? Are there two separate losses? The cumulative ACK cannot express that.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Receiver behavior', 'Sender knowledge', 'Failure mode'],
+          rows: [
+            ['Discard OOO data', 'Drop anything past the hole', 'Cumulative ACK only', 'Retransmits data the receiver already had'],
+            ['Buffer OOO, no SACK', 'Keep later ranges, ACK only the prefix', 'Knows first hole, not later state', 'Multiple losses need one RTT each to discover'],
+            ['Buffer OOO + SACK', 'Keep later ranges, report them in ACK', 'Knows exact holes and received blocks', 'Repair all holes in one RTT (usually)'],
+          ],
+        },
+        'The discard approach works on low-loss, low-latency LANs where retransmission is cheap. It fails on paths with large bandwidth-delay products, wireless loss, or multiple losses per window -- the sender retransmits data the network already delivered successfully.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The wall',
       paragraphs: [
-        `The receiver keeps two things: byte storage and interval metadata. The byte storage holds payload data. The interval metadata records which byte ranges are present. The cumulative ACK is the left edge of the first hole: all bytes before it are contiguous and can be delivered. Any received ranges beyond that hole are out-of-order intervals. SACK blocks report those later intervals back to the sender.`,
-        `When the missing range arrives, the receiver coalesces intervals. If it had 0-999 and 2000-3999, then receives 1000-1999, the separate ranges merge into 0-3999. The cumulative ACK can advance to 4000, and the application can read all newly contiguous bytes. The operation is the same interval merge idea used in memory allocators, calendars, and range indexes, but here it is tied to stream correctness and congestion control.`,
-        `The sender keeps a scoreboard, which is the mirror image of the receiver's interval knowledge. Ranges can be cumulatively ACKed, selectively ACKed, missing, retransmitted, or still in flight. RFC 6675 describes a conservative SACK-based loss recovery approach using variables such as HighACK, HighData, HighRxt, and Pipe. Those names encode a central constraint: SACK improves information, but the sender still has to respect congestion control and estimate how much data remains in the network.`,
+        'The wall is information asymmetry between sender and receiver. The receiver knows exactly which bytes it has. The sender, armed only with cumulative ACKs, knows only the left edge of the first hole.',
+        {
+          type: 'diagram',
+          text: 'Receiver state (known to receiver):\n  [====0-999====]  [????1000-1999????]  [====2000-2999====]  [====3000-3999====]\n   contiguous         MISSING             buffered OOO          buffered OOO\n\nSender state (known to sender via cum ACK alone):\n  [====0-999====]  [????????????????????????????????????????????????????????????????]\n   ACKed               unknown -- could be 1 loss, 2 losses, or reordering',
+          label: 'The sender sees one edge; the receiver sees the full interval map',
+        },
+        'With only cumulative ACKs and three duplicate ACKs, the sender detects one loss per round trip. If two segments in the same window are lost, the sender repairs the first, waits for the new ACK, discovers the second, and repairs that -- two full RTTs for two losses. On a 100ms path with a 10MB window, that stalls 200ms of throughput.',
+        {
+          type: 'note',
+          text: 'RFC 5681 fast retransmit triggers on the third duplicate ACK. That heuristic works for single losses but becomes ambiguous with multiple losses or reordering. The fundamental problem is not the threshold -- it is the information model.',
+        },
       ],
     },
     {
-      heading: 'How the mechanism works',
+      heading: 'How it works',
       paragraphs: [
-        `Assume the sender transmits four 1000-byte segments: 0-999, 1000-1999, 2000-2999, and 3000-3999. The second segment is lost, while the first, third, and fourth arrive. The receiver can deliver 0-999 to the application. It cannot deliver 2000-3999 because the byte stream has a hole. Its cumulative ACK remains 1000 because 1000 is the first missing byte.`,
-        `At the same time, the receiver should not pretend the later bytes are absent. It stores 2000-3999 in the out-of-order buffer and reports that fact using SACK blocks. A SACK option contains one or more block edges describing received non-contiguous data. The sender now knows that 2000-3999 arrived and that 1000-1999 is the likely repair target.`,
-        `On the sender side, the scoreboard marks 0-999 as cumulatively acknowledged, 2000-3999 as SACKed, 1000-1999 as missing or lost according to the recovery algorithm, and later transmitted data as outstanding. The sender can retransmit the hole while avoiding unnecessary retransmission of SACKed data. It also updates Pipe or an equivalent in-flight estimate so repair does not exceed the congestion window.`,
-        `When the retransmitted 1000-1999 segment arrives, the receiver merges 0-999, 1000-1999, and 2000-3999 into one contiguous interval. The cumulative ACK advances to 4000. The application receives a continuous byte stream, even though the network delivered packets out of order and one range required repair.`,
+        'The mechanism has two halves: receiver-side interval management and sender-side scoreboard classification.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Receiver: insert a segment into the out-of-order interval set\nfunction insertSegment(intervals, start, end, data) {\n  // 1. Store payload bytes in the receive buffer\n  buffer.write(data, start);\n  // 2. Add [start, end) to the interval set\n  intervals.add(start, end);\n  // 3. Merge any adjacent or overlapping intervals\n  intervals.coalesce();\n  // 4. If the lowest interval starts at rcv_nxt, deliver to app\n  while (intervals.lowest().start === rcv_nxt) {\n    const block = intervals.removeLowest();\n    deliver(buffer, block.start, block.end);\n    rcv_nxt = block.end;  // advance cumulative ACK\n  }\n  // 5. Remaining intervals become SACK blocks in the next ACK\n}',
+        },
+        'The sender transmits four 1000-byte segments. Segment 1 (bytes 1000-1999) is lost. The receiver delivers 0-999, buffers 2000-3999, sends ACK 1000, and attaches SACK blocks reporting [2000, 4000). The sender now knows the exact hole.',
+        {
+          type: 'diagram',
+          text: 'Sender scoreboard after receiving ACK 1000, SACK [2000-4000):\n\n  Byte range     Mark          Action\n  0-999          cum ACKed     done, forget\n  1000-1999      MISSING       retransmit next\n  2000-2999      SACKed        do not resend\n  3000-3999      SACKed        do not resend\n  4000-4999      in flight     count toward Pipe',
+          label: 'The scoreboard classifies every byte range so the sender retransmits only the hole',
+        },
+        'The sender retransmits 1000-1999 while respecting the congestion window. It updates the Pipe variable -- the estimated bytes in flight -- to avoid flooding the path during recovery. When the retransmitted segment arrives, the receiver merges [0-999], [1000-1999], and [2000-3999] into [0-3999], advances cumulative ACK to 4000, and delivers the contiguous stream to the application.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Sender: RFC 6675 style scoreboard update on SACK arrival\nfunction updateScoreboard(highACK, sackBlocks) {\n  // Mark everything below highACK as done\n  scoreboard.markAcked(0, highACK);\n  // Mark SACK ranges as received (do not retransmit)\n  for (const [left, right] of sackBlocks) {\n    scoreboard.markSacked(left, right);\n  }\n  // Everything between highACK and first SACK block is a hole\n  // IsLost() checks: 3+ SACKed segments above, or enough bytes\n  for (const range of scoreboard.unmarked()) {\n    if (isLost(range)) scoreboard.markLost(range);\n  }\n  // Pipe = in-flight estimate = sent - (acked + sacked + lost)\n  pipe = computePipe(scoreboard);\n}',
+        },
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Reassembly works because TCP's public abstraction and internal bookkeeping are allowed to differ. The application sees only contiguous bytes. The receiver internally keeps non-contiguous ranges so useful data is not wasted. The cumulative ACK preserves the simple stream edge, while SACK blocks reveal extra state without changing what the application observes.`,
-        `SACK works because it increases the sender's information without granting unlimited sending rights. Duplicate ACKs and cumulative ACKs give hints. SACK blocks give concrete ranges. The sender can repair several holes in a window instead of discovering one loss per round trip. But congestion control still governs how much data can be in flight, and recovery algorithms must avoid injecting too much retransmitted data after a loss event.`,
-        `The interval representation is compact. The receiver does not need one record per byte. It can store ranges and merge neighbors. The sender does not need to remember every packet as an isolated object once ranges are classified. This is why interval sets, gap lists, and scoreboards show up repeatedly in transport implementations. They summarize stream state at the right granularity.`,
+        'Reassembly is correct because the receiver separates its public interface from its internal state. The application sees only contiguous bytes -- the stream contract is never violated. Internally, the receiver holds non-contiguous intervals so useful data is preserved. The cumulative ACK edge advances monotonically: once the receiver acknowledges byte N, every byte before N is delivered and will not be requested again.',
+        {
+          type: 'note',
+          text: 'The invariant: at every moment, rcv_nxt equals the left edge of the first gap. All bytes before rcv_nxt have been delivered to the application in order. All buffered bytes after rcv_nxt are waiting for that gap to close.',
+        },
+        'SACK works because it increases the sender\'s information without granting unlimited sending rights. The key constraint is that SACK is feedback, not permission. The sender learns which ranges arrived but still obeys the congestion window. RFC 6675 formalizes this: the sender estimates Pipe (bytes presumed in flight), and only sends new data or retransmissions when Pipe is below cwnd.',
+        {
+          type: 'diagram',
+          text: 'Correctness chain:\n\n  1. Receiver buffers OOO data    -> no useful bytes discarded\n  2. SACK reports buffered ranges  -> sender knows exact holes\n  3. Sender retransmits holes only -> minimal repair traffic\n  4. Pipe estimate respects cwnd   -> repair does not cause congestion\n  5. Interval merge on arrival     -> contiguous prefix grows\n  6. rcv_nxt advances              -> application gets ordered stream',
+          label: 'Each step depends on the one above -- remove any link and the mechanism breaks',
+        },
+        'The interval representation is compact. The receiver does not store per-byte metadata. It stores ranges and merges neighbors. The sender classifies ranges, not individual packets. This is why interval sets, gap lists, and scoreboards appear in every serious transport implementation: they summarize stream state at the right granularity.',
       ],
     },
     {
-      heading: 'Where it is used',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Receiver reassembly is used by every TCP endpoint. The details vary by operating system, but the job is universal: accept segments, validate sequence numbers, trim overlaps, buffer out-of-order data, merge ranges, advance the receive window, and deliver contiguous bytes to sockets. Firewalls, proxies, intrusion detection systems, packet capture tools, and load balancers often need related reassembly logic to interpret streams correctly.`,
-        `SACK scoreboards are used in TCP senders that support selective acknowledgment. They matter most on paths with large bandwidth-delay products, wireless loss, multiple losses in one window, or reordering. Without SACK, a sender can waste round trips rediscovering holes. With SACK, it can focus repair on missing intervals while preserving the congestion-control response to loss.`,
-        `The same pattern appears in other transports and systems. QUIC has stream offsets and ACK ranges. RTP jitter buffers use sequence windows, though their deadlines differ because real-time media may drop late packets. Storage replication systems track log ranges. Download managers track completed byte ranges. The shared idea is simple: when data arrives out of order, maintain intervals rather than pretending order was preserved.`,
+        {
+          type: 'table',
+          headers: ['Operation', 'Time', 'Space', 'What drives the cost'],
+          rows: [
+            ['Receiver: insert segment', 'O(log k)', 'O(k intervals)', 'Binary search over the interval set to find merge point; k = number of gaps'],
+            ['Receiver: merge intervals', 'O(1) amortized', 'Shrinks k', 'Each merge reduces the interval count by 1; at most k merges total'],
+            ['Receiver: deliver prefix', 'O(bytes)', 'Frees buffer', 'Copy contiguous bytes to application socket buffer'],
+            ['Sender: update scoreboard', 'O(s)', 'O(k intervals)', 's = number of SACK blocks per ACK (max 4 with timestamps)'],
+            ['Sender: compute Pipe', 'O(k)', 'O(1)', 'Walk scoreboard ranges to count in-flight bytes'],
+            ['Sender: choose retransmit', 'O(k)', 'O(1)', 'Find first lost range above HighRxt'],
+          ],
+        },
+        'In practice, k (the number of distinct intervals or gaps) is small. RFC 2018 allows up to 4 SACK blocks per TCP option when timestamps are present, and 3 when the D-SACK block is included. Most loss events create 1-3 holes. The scoreboard rarely exceeds a dozen entries even on high-loss paths.',
+        {
+          type: 'note',
+          text: 'Memory cost is dominated by the byte buffer, not the interval metadata. A receiver with a 4MB window allocates 4MB for payload storage. The interval set tracking which ranges are present might use a few hundred bytes. The scoreboard on the sender side is similarly lightweight -- a handful of range entries.',
+        },
+        'Doubling the window size doubles the buffer memory but does not meaningfully change the scoreboard cost. Doubling the loss rate increases k (more holes), which increases scoreboard update time linearly, but k stays far below the number of packets in flight. The real cost is round-trip time: each recovery episode takes at least one RTT regardless of scoreboard efficiency.',
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Where it wins',
       paragraphs: [
-        `The receiver has to bound memory. Out-of-order data consumes buffer space, and a malicious or unlucky peer can create many holes. Implementations need policies for trimming overlaps, limiting queued ranges, handling duplicate segments, selecting which SACK blocks to report when option space is limited, and deciding what to do under receive-buffer pressure. Keeping later bytes is valuable only if the receiver can afford the memory.`,
-        `The sender can also get the scoreboard wrong. If it retransmits SACKed ranges, it wastes bandwidth. If it assumes a retransmission succeeded before evidence arrives, it may stall. If it ignores reordering, it may mark data lost too early. If it treats SACK as permission to send without regard to Pipe or the congestion window, it can worsen congestion. SACK is information, not immunity from loss recovery discipline.`,
-        `Tail loss and ACK loss remain hard. If the last segment in a flight is lost, there may not be enough later data to trigger duplicate ACKs or useful SACK feedback. If ACKs carrying SACK blocks are lost, the sender's view lags the receiver's actual state. Severe reordering can look like loss. Middleboxes and offload features can complicate packet captures. These are reasons transport stacks combine SACK with timers, fast retransmit, recovery algorithms, and careful validation.`,
+        {
+          type: 'table',
+          headers: ['Scenario', 'Without SACK', 'With SACK', 'Why the difference matters'],
+          rows: [
+            ['Single loss in large window', '3 dup ACKs, fast retransmit, 1 RTT', 'Same, but hole is explicit', 'SACK confirms later data arrived; sender skips unnecessary retransmits'],
+            ['Multiple losses in one window', '1 loss discovered per RTT (NewReno)', 'All holes visible in one ACK', 'Saves N-1 RTTs for N losses; critical on high-latency paths'],
+            ['Reordering (not loss)', 'Dup ACKs may trigger false retransmit', 'SACK blocks show data is present', 'Sender can distinguish reordering from loss with D-SACK (RFC 2883)'],
+            ['Wireless with random loss', 'Go-back-N behavior wastes bandwidth', 'Selective repair of lost segments', '10x throughput improvement measured on lossy satellite links'],
+          ],
+        },
+        'Every modern TCP stack enables SACK by default. Linux, Windows, macOS, FreeBSD, and iOS all negotiate SACK in the SYN/SYN-ACK handshake. Disabling SACK is a performance regression on any path with nontrivial loss or reordering.',
+        {
+          type: 'bullets',
+          items: [
+            'Long-haul WAN links: 100ms+ RTT means each wasted round trip costs real throughput. SACK avoids the one-loss-per-RTT ceiling of NewReno.',
+            'Data center networks: even at sub-millisecond RTT, incast patterns cause multiple losses per window. SACK lets the sender repair all holes in one pass.',
+            'Wireless and satellite: random bit errors cause loss unrelated to congestion. SACK isolates the lost segments without penalizing the entire window.',
+            'IDS and packet capture: network security tools (Snort, Suricata, Zeek) perform TCP reassembly to reconstruct application-layer streams from captured packets. The same interval-merge logic applies.',
+            'Download managers and rsync: track which byte ranges of a file have been received, resume from gaps. Same data structure, different transport.',
+          ],
+        },
       ],
     },
     {
-      heading: 'Signals and study next',
+      heading: 'Where it fails',
       paragraphs: [
-        `Operationally, watch out-of-order queue size, number of ranges, receive-buffer pressure, duplicate segments, SACK blocks emitted, retransmitted bytes, spurious retransmissions, recovery episodes, round-trip time, retransmission timeout events, congestion-window changes, and application stalls. A good diagnosis separates receiver memory pressure, path reordering, true loss, ACK loss, and sender recovery policy.`,
-        `Primary sources: RFC 2018, "TCP Selective Acknowledgment Options": https://datatracker.ietf.org/doc/html/rfc2018. RFC 6675, "A Conservative Loss Recovery Algorithm Based on SACK": https://datatracker.ietf.org/doc/html/rfc6675. RFC 5681, "TCP Congestion Control", describes duplicate ACK behavior and fast retransmit context: https://datatracker.ietf.org/doc/html/rfc5681. Study NIC RX Ring & NAPI Poll Case Study, TCP Listen Backlog & Accept Queue Case Study, Sliding Window, TCP: Handshake & Congestion Control, Interval Tree, Ring Buffer, Backpressure & Flow Control, QUIC Transport Streams & Loss Recovery, and Message Queue next.`,
+        {
+          type: 'bullets',
+          items: [
+            'Tail loss: if the last segment in a flight is lost, there are no later packets to trigger duplicate ACKs or generate SACK blocks. The sender falls back to the retransmission timeout (RTO), which is typically 200ms-1s. SACK cannot help when there is no feedback.',
+            'ACK loss: if the ACK carrying SACK blocks is itself lost, the sender never learns about the received ranges. It may retransmit data the receiver already has.',
+            'SACK option space: TCP options share 40 bytes. With timestamps (10 bytes) and SACK permitted (2 bytes in SYN), only 28 bytes remain for SACK blocks. Each block is 8 bytes (left edge + right edge), so at most 3-4 blocks per ACK. Complex loss patterns with many small holes cannot be fully reported.',
+            'Buffer memory: out-of-order data consumes receive buffer. A receiver under memory pressure may discard buffered data, which is allowed by the spec. The sender must handle the case where a previously SACKed range is later reported missing (reneging). Most implementations avoid reneging, but the sender cannot assume it.',
+            'Middlebox interference: some firewalls, NATs, and load balancers strip SACK options or fail to forward them. The connection silently falls back to cumulative-ACK-only recovery, losing the information advantage.',
+            'Scoreboard complexity: implementing RFC 6675 correctly is nontrivial. Bugs in scoreboard maintenance -- marking data lost too early, failing to update HighRxt, miscounting Pipe -- cause spurious retransmissions or stalls. Linux has fixed dozens of such bugs over two decades.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'SACK is information, not immunity. It improves the sender\'s model of the network but does not replace congestion control, retransmission timers, or recovery state machines. Every real TCP stack combines SACK with fast retransmit, proportional rate reduction (PRR), and RTO as the last resort.',
+        },
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['RFC 793 (1981)', 'Original TCP specification: sequence numbers, ACKs, retransmission, reassembly'],
+            ['RFC 2018 (1996)', 'SACK option format: block encoding, negotiation, receiver/sender behavior'],
+            ['RFC 2883 (2000)', 'D-SACK: using SACK blocks to report duplicate segments, distinguishing reordering from loss'],
+            ['RFC 5681 (2009)', 'TCP congestion control: slow start, congestion avoidance, fast retransmit, fast recovery'],
+            ['RFC 6675 (2012)', 'Conservative SACK-based loss recovery: HighACK, HighData, HighRxt, Pipe, IsLost()'],
+            ['Linux net/ipv4/tcp_input.c', 'Production scoreboard implementation: tcp_sacktag_write_queue(), tcp_mark_head_lost()'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Sliding Window and Interval Tree to understand the range-based data structures underlying both receiver reassembly and sender scoreboards.',
+            'Companion: study TCP: Handshake & Congestion Control to see how SACK recovery interacts with cwnd reduction, PRR, and the RTO fallback.',
+            'Extension: study QUIC Transport Streams & Loss Recovery to see how QUIC redesigns the same ideas with per-stream offsets, explicit packet numbers (no ambiguity), and ACK frames that can carry many more ranges than TCP SACK options.',
+            'Case study: study NIC RX Ring & NAPI Poll to see where reassembly starts -- the kernel pulls packets from the NIC ring buffer and feeds them into the TCP input path where out-of-order handling begins.',
+            'Related patterns: Ring Buffer, Backpressure & Flow Control, Message Queue, TCP Listen Backlog & Accept Queue.',
+          ],
+        },
       ],
     },
   ],
 };
+

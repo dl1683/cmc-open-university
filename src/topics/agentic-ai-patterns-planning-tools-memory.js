@@ -1,4 +1,4 @@
-// Agentic AI patterns: a control-loop lesson for planning, tool use, memory,
+﻿// Agentic AI patterns: a control-loop lesson for planning, tool use, memory,
 // evaluation, and durable orchestration.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -218,6 +218,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Agentic AI Patterns: Planning, Tools, Memory. How production agentic systems combine planners, tool calls, observations, memory, evaluators, and workflow boundaries..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'What agentic means',
       paragraphs: [
         `Agentic AI is not a magic product category. It is a system pattern where a model is allowed to choose actions, observe the results, update state, and continue toward a goal. The useful definition is operational: an agent is a controlled loop over planning, tool use, observation, memory, evaluation, and stopping. The loop may last two turns or many hours, but the engineering problem is the same.`,
@@ -225,7 +234,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why one prompt fails',
+      heading: 'Where it fails',
       paragraphs: [
         `The obvious approach is to write a larger prompt with all instructions, examples, and context included. That works when the task is self-contained. It breaks when the answer depends on live files, search results, database state, user permissions, API responses, intermediate errors, or side effects that do not exist until the system acts. A single prompt cannot know what a compiler error will say before code is run, what a website will return before it is opened, or which customer record needs review before retrieval happens.`,
         `Long prompts also hide state. The model may forget the original objective, confuse old observations with current ones, over-trust hostile text retrieved from a page, or continue spending after the task is already solved. Agentic design makes the hidden loop explicit. Each step has a state, an action, an observation, and a decision about whether to stop. That is ordinary systems engineering applied to model behavior.`,
@@ -260,7 +269,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Memory discipline',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Memory should be scoped by decision. Short-term working memory keeps the current task coherent. Episodic memory stores prior attempts, outcomes, and mistakes. Semantic memory stores reusable facts and preferences. A durable workflow history stores approvals and side effects. Retrieval should answer a concrete question: what past information should change the next action? If the answer is "nothing," the memory should stay out of the prompt.`,
         `Transcript dumping is the common failure. It inflates context, repeats stale facts, and lets unrelated text steer the model. A better memory system stores source, timestamp, ownership, confidence, privacy scope, and invalidation rules. It also separates user-provided instructions from retrieved documents, because tool outputs and web pages can contain hostile text. Agent Memory & Context Engineering Case Study is the natural next topic for that layer.`,
@@ -281,7 +290,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         `Goal drift happens when the loop starts solving a nearby task because the latest observation is more salient than the original objective. Context poisoning happens when retrieved text or tool output contains instructions the model should not follow. Runaway loops happen when there is no budget or stop condition. Tool misuse happens when action schemas are vague or permission checks are missing. False confidence happens when an evaluator checks formatting but not correctness.`,
         `Multi-agent systems add coordination failures. Specialized agents can duplicate work, disagree without resolution, hide assumptions, or pass summaries that lose critical evidence. More agents do not automatically mean more intelligence; they often mean more state synchronization. Use multi-agent patterns when roles are genuinely different and outputs can be independently checked. Otherwise, one well-instrumented loop is easier to reason about.`,
@@ -301,5 +310,123 @@ export const article = {
         `Study Agent Model Router & Context Handoff Ledger, Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Contract Net Agent Task Allocation, RAG Pipeline, Multi-Index RAG, Constrained Decoding, Deep Research Agent Architecture Case Study, Agent Memory & Context Engineering Case Study, Temporal Workflow Case Study, Code World Models Case Study, Abstract Agent Operation Graph, the agent-portability audit module, Execution-as-a-Service Verifier Economy Case Study, AlphaEvolve Case Study, Distributed Tracing, Saga Pattern, Idempotency & Exactly-Once Delivery, and Prompt Injection Threat Model next.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'How it works',
+      paragraphs: [
+        "Describe the mechanism as a sequence of state transitions, not as a story.",
+        "Each step should say what changes, what stays true, and why the move is legal.",
+        "The animation should look like this section made concrete.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Agentic AI Patterns: Planning, Tools, Memory moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

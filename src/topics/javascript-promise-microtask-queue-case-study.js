@@ -1,4 +1,4 @@
-// Promise jobs and browser microtasks: queue ordering, checkpoints, starvation,
+﻿// Promise jobs and browser microtasks: queue ordering, checkpoints, starvation,
 // unhandled rejection reporting, and when to yield to tasks or frames.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -234,6 +234,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Promise Microtask Queue. A JavaScript runtime case study: Promise reactions, queueMicrotask, microtask checkpoints, render starvation, unhandled rejection reporting, and safe yielding..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'JavaScript needs a way to finish same-turn cleanup after the current call stack but before timers, input callbacks, or rendering observe the next state. Promise reactions, queueMicrotask callbacks, MutationObserver delivery, and some platform cleanup use the microtask queue for that follow-up lane.',
@@ -250,7 +259,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The invariant is simple: after the stack empties, the browser keeps running the oldest queued microtask until the microtask queue is empty. If a running microtask queues another microtask, that new job joins the same drain before the next task.',
         'That rule makes same-turn state reliable, but it also makes starvation possible. Total cost is the sum of every microtask in the checkpoint, not the cost of one callback. Long chains need an explicit yield through a task, requestAnimationFrame, scheduler.postTask where available, or a worker.',
@@ -267,7 +276,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'Watch the task, stack, and microtask queue as separate lanes. Synchronous code runs first. Promise reactions wait until the stack unwinds. The timer may already be ready, but it cannot run until the checkpoint drains.',
         'The starvation scene is the important one. Nothing in it is a single giant callback. The freeze comes from the invariant being obeyed too well: each microtask refills the queue before the browser can advance to a task or render opportunity.',
@@ -284,7 +293,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is responsiveness risk. Microtasks have priority over tasks and rendering, so a long chain can block the very browser work that users care about. The code may be split into many small callbacks and still create one large checkpoint.',
         'There is also observability complexity. A trace may show one task containing many promise reactions rather than one obvious long function. Debugging requires distinguishing a long callback from a self-refilling microtask chain.',
@@ -293,7 +302,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Use microtasks for short consistency work: promise continuation, cleanup after a synchronous mutation batch, internal framework flushes, and APIs that must run after the current stack but before outside observers see another task.',
         'A data grid can use a microtask to settle one batch boundary, then schedule the next visible slice as a task or frame callback. That keeps state coherent without hiding all progress behind the checkpoint.',
@@ -302,7 +311,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Microtasks fail as a background-work scheduler. Applying 20,000 row updates by queuing one microtask per row can freeze the page because input and paint wait behind the same never-empty checkpoint. CPU-heavy work belongs in bounded tasks or a worker; visual DOM writes belong near requestAnimationFrame.',
         'Async code is not automatically nonblocking. An async function resumes through promise jobs, and expensive JavaScript inside that continuation still occupies the main thread. Unhandled rejection timing is another reason to think of the checkpoint as a platform phase, not only queue trivia.',
@@ -315,5 +324,78 @@ export const article = {
         'Primary sources: MDN microtask guide at https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide, MDN queueMicrotask at https://developer.mozilla.org/en-US/docs/Web/API/Window/queueMicrotask, and the HTML Standard event loop processing model at https://html.spec.whatwg.org/multipage/webappapis.html. Study The Event Loop, Queue, Stack, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, Async Context Propagation, How a Browser Paints a Page, Web Workers, Browser Message Channels & Broadcast Coordination, Backpressure & Flow Control, and React Fiber Scheduler Case Study next.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Promise Microtask Queue moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

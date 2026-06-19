@@ -1,4 +1,4 @@
-// Incident causal candidate graph: assemble service topology, SLO symptoms,
+﻿// Incident causal candidate graph: assemble service topology, SLO symptoms,
 // traces, logs, deployments, and feature flags into ranked root-cause evidence.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -222,6 +222,15 @@ export const article = {
   ],
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Incident Causal Candidate Graph Case Study. Model incidents as evidence graphs: symptoms, dependencies, traces, deploys, flags, blast radius, and ranked root-cause candidates with auditable uncertainty..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `An incident causal candidate graph exists because modern incidents rarely arrive as one clean alert with one obvious cause. A user-visible SLI burns. Dozens of services, dashboards, traces, logs, deploys, feature flags, queues, and databases move at the same time. Responders need a way to assemble evidence quickly without pretending that early evidence is proof.`,
@@ -237,7 +246,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `The core insight is to model root cause as a ranked hypothesis with evidence, not as a label emitted by a model. The graph can connect a user-facing SLI to affected endpoints, endpoints to services, services to dependencies, traces to slow spans, log templates to error bursts, deploys to changed code, flags to exposed cohorts, and mitigations to recovery. Each connection carries type, time, source, confidence, and evidence links.`,
         `That structure lets the ranker stay explainable. A candidate rises because it is close to the symptom in topology, appears on affected trace paths, changed before the burn started, matches the blast radius, or improves when mitigated. A candidate falls because recovery did not happen after the mitigation, the trace concentration moved elsewhere, or counterevidence shows unaffected traffic crossed the same component.`,
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works (2)',
       paragraphs: [
         `The candidate-graph view proves that incidents are assembled from heterogeneous evidence. The dependency path from user SLI to checkout to database explains blast radius. The deploy and flag nodes explain plausible recent changes. The trace node ties evidence to real affected requests. None of those edges alone proves causality. Together they define a ranked search space for responders.`,
         `The ranking view proves that scores should move as evidence arrives. A deploy can start as the top candidate because it changed before the burn and appears on slow traces. If rollback fixes p99 latency and error rate, the graph records recovery evidence and the deploy candidate strengthens. If rollback changes nothing, the deploy score should fall and database, queue, or flag candidates should rise. The graph earns trust by changing its mind.`,
@@ -265,21 +274,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The main cost is integration. The graph needs service ownership, dependency topology, trace links, log templates, deployment metadata, flag audit trails, SLO burn rates, resource metrics, queue metrics, database wait signals, and incident actions. OpenTelemetry semantic conventions help by standardizing names across traces, metrics, logs, and resources, but most organizations still have gaps and local naming drift.`,
         `The ranker must also be calibrated. Useful metrics include top-k candidate hit rate after postmortem review, false-leader rate, time to first useful candidate, evidence-link coverage, manual override rate, missing-topology discoveries, and time saved during response. A graph that is fast but confidently wrong is worse than a dashboard. A graph that shows uncertainty and missing evidence can still be useful.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `This pattern wins in microservice environments where topology is large and ownership is distributed. It helps on-call engineers narrow the search space, incident commanders explain why a mitigation is being tried, and postmortem authors preserve the evidence trail. It is especially useful when a symptom crosses several layers, such as edge errors caused by checkout timeouts caused by database pool starvation caused by a feature-flagged query path.`,
         `It also wins for AIOps systems that need auditability. A black-box root-cause model may be hard to trust during a high-stakes outage. A candidate graph can expose the actual supporting edges and let humans override the ranking. The system can learn from closed incidents without removing the responder's judgment during live response.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The largest failure is false certainty. A top-ranked candidate is still a candidate until mitigation, code evidence, data evidence, or postmortem analysis confirms it. Another failure is stale topology. If the service graph misses a hidden shared dependency, the ranker can split one incident into several unrelated problems or miss the actual bottleneck.`,
         `Action bias is also dangerous. Rollbacks and flag disables are attractive because they are concrete, but they can cause collateral damage or distract from a saturated shared dependency. Sampling bias can hide rare paths. Log-template grouping can merge different errors. Security and privacy rules may limit how much trace or user data can be stored in the evidence graph. The graph should show these weaknesses instead of burying them under a score.`,
@@ -291,5 +300,78 @@ export const article = {
         `Study AIOps Incident Response for the broader workflow, Alert Correlation Fingerprint Index for grouping symptoms, Distributed Tracing for request-path evidence, Metric Exemplars Trace Correlation for joining metrics to traces, Causal Graphs for formal causal language, Feature Flag Control Plane for change evidence, SLO Error Budget Burn Rate Alert for symptom-first paging, and Runbook Automation Approval Ledger for safe mitigation actions. Then compare this graph with ordinary dashboard triage and ask what evidence each method preserves or loses.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Incident Causal Candidate Graph Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

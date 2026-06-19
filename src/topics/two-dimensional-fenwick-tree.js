@@ -212,104 +212,130 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. The rectangle-sum view shows how the nested Fenwick walk updates and queries a dense 2D grid. The compressed sparse BIT view shows how offline coordinate compression shrinks a huge grid into per-bucket arrays. Switch between them using the dropdown.',
+        'Active (highlighted) nodes are the current step in the walk. Found nodes are stored summaries the algorithm has accumulated. Compare nodes mark the inclusion-exclusion pieces being subtracted or added back.',
+        'Watch the direction of the walk. During an update, both x and y move upward (adding lowbit) because every larger bucket that contains the point must be repaired. During a prefix query, both move downward (subtracting lowbit) because the query decomposes its rectangle into stored, disjoint buckets.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A one-dimensional Fenwick tree is built for a simple bargain: point updates and prefix sums on an ordered line, both in logarithmic time. Many real counting problems are still prefix-sum problems, but the order has two coordinates instead of one.',
-        'Examples show up everywhere: count events by time and severity, points by x and y coordinate, orders by price and timestamp, or players by rating and rank. The query is often rectangular: how much mass lies between x1 and x2 and between y1 and y2?',
-        'A 2D Fenwick tree exists for dynamic rectangular aggregates. It keeps the prefix-sum idea, but the prefix is now a rectangle from the origin to (x, y). Rectangle queries then come from inclusion-exclusion over four such prefixes.',
+        'A 1D Fenwick tree (Fenwick, 1994) gives O(log n) point updates and prefix sums on a line. Many counting problems live on a line: cumulative frequency, running totals, inversion counts. But real data often has two ordered axes. Count events by time and severity. Count points inside a bounding box. Sum order revenue between two price ranges and two date ranges.',
+        'The query shape is a rectangle: how much total value lies between x1..x2 and y1..y2? A 1D Fenwick tree cannot answer this because it only partitions one axis. You need a structure that partitions both axes and still supports fast point updates.',
+        'A 2D Fenwick tree extends the 1D idea by nesting one Fenwick walk inside another. The prefix becomes a rectangle from the origin to (x, y), and any arbitrary rectangle query reduces to four prefix queries via inclusion-exclusion.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'For a fixed grid, a 2D prefix-sum table is beautiful. Build it once, and any rectangle sum is O(1). The problem is updates. Changing one cell affects every prefix table entry southeast of that cell, so a single update can cost O(nm).',
-        'For a dynamic grid, the simplest alternative is to scan the requested rectangle and add the cells. That handles updates easily, but a large rectangle is expensive. If the grid is 10000 by 10000, a single query can touch millions of cells.',
-        'A map from coordinate pair to value helps memory for sparse points, but it does not solve range queries. Hash maps destroy order. Prefix sums need rank order: all x values up to X and all y values up to Y.',
+        'For a fixed grid, build a 2D prefix-sum table. Precompute every prefix rectangle in O(nm), then answer any rectangle query in O(1) using the standard four-corner formula. This is clean, fast, and well-known.',
+        'The problem is updates. Changing one cell invalidates every prefix-sum entry whose rectangle contains that cell. Recomputing the table costs O(nm). If updates are frequent, the prefix table is too expensive to maintain.',
+        'The brute-force alternative is scanning. Loop over every cell in the queried rectangle and add them up. Updates are O(1), but a single query on a 10,000 x 10,000 grid can touch 100 million cells. Neither extreme -- cheap queries with expensive updates, or cheap updates with expensive queries -- works when both operations are common.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The first wall is update/query tension. Static prefix tables make queries cheap and updates expensive. Scanning makes updates cheap and queries expensive. A 2D Fenwick tree splits the difference by updating and querying only logarithmically many rectangular summaries.',
-        'The second wall is memory. A dense 2D Fenwick tree uses O(nm) storage. That is fine for a board game and impossible when coordinates are timestamps, IDs, map tiles, or values up to billions.',
-        'The third wall is compression. You can compress coordinates only if you preserve sorted order. Replacing y coordinates with arbitrary hash buckets breaks the meaning of "all points with y <= Y." A compressed Fenwick tree must still behave like an ordered prefix structure.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Nest the Fenwick invariant. The outer Fenwick walk partitions the x axis into power-of-two-aligned ranges. Inside each visited x bucket, an inner Fenwick tree partitions the y axis. A point update adds its value to every stored rectangle summary that contains that point.',
-        'A prefix query prefix(x, y) walks downward through the x buckets that partition [1..x]. For each such x bucket, it walks downward through the y buckets that partition [1..y]. The sum of those disjoint stored rectangles is the desired prefix rectangle.',
-        'A general rectangle is just four prefixes: sum(x1..x2, y1..y2) = prefix(x2,y2) - prefix(x1-1,y2) - prefix(x2,y1-1) + prefix(x1-1,y1-1).',
-      ],
-    },
-    {
-      heading: 'Reading the rectangle-sum view',
-      paragraphs: [
-        'In the rectangle-sum view, do not read highlighted cells as individual data points. Read them as summaries. Each highlighted Fenwick bucket owns a small axis-aligned rectangle whose size is determined by lowbit on x and lowbit on y.',
-        'During an update, the walk moves upward in x and upward in y because every larger bucket that contains the point must be repaired. During a prefix query, the walk moves downward because it is decomposing the requested rectangle into stored disjoint buckets.',
-        'For a non-origin rectangle, watch the four prefix calls. The large prefix includes too much area. The two subtractions remove the left and bottom strips. The final addition restores the lower-left corner that was subtracted twice.',
-      ],
-    },
-    {
-      heading: 'Reading the compressed sparse BIT view',
-      paragraphs: [
-        'In the compressed view, the outer x buckets still exist, but each x bucket stores only the y coordinates that can ever be updated inside that bucket. That is why compressed 2D BITs are usually built from an offline list of updates.',
-        'For each planned update (x, y), simulate the outer update walk xi = x; xi <= n; xi += lowbit(xi). Append y to the coordinate list for every visited xi. After all planned updates are known, sort and deduplicate each list, then allocate a small inner Fenwick tree for that bucket.',
-        'At runtime, an update uses binary search inside each bucket to find the compressed y index. A query uses upper_bound to include all stored y coordinates <= y. The structure is sparse, but every local list remains sorted, so prefix semantics are preserved.',
+        'Static prefix tables and brute-force scanning sit at opposite ends of the update/query tradeoff. There is no middle ground without a smarter decomposition. The wall is that a single update must propagate to enough stored summaries to cover future queries, but not to all of them.',
+        'A second wall appears with scale. A dense n x m array is fine for small grids but impossible when coordinates are timestamps (up to 10^9), user IDs, or GPS positions. The grid cannot be materialized.',
+        'A third wall is order. Hash maps can store sparse points, but they destroy sorted order. Prefix sums require rank order -- "all y values up to Y" -- and hashing makes that meaningless. Any compression scheme must preserve sorted rank or the prefix algebra breaks.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a dense tree, update(x, y, delta) runs two Fenwick loops. The outer loop visits xi = x, x + lowbit(x), and so on. The inner loop visits yi = y, y + lowbit(y), and so on. Each tree[xi][yi] receives delta because its covered rectangle contains (x, y).',
-        'prefix(x, y) reverses both loops. It visits xi = x, x - lowbit(x), and so on. For each xi, it visits yi = y, y - lowbit(y), and so on. These buckets tile the prefix rectangle without overlap.',
-        'For compressed trees, the same loop structure stays in place. Only the physical y index changes from a dense coordinate to a rank inside that x bucket. The algorithm is still a Fenwick tree inside a Fenwick tree.',
+        'Nest the 1D Fenwick structure. The outer dimension walks the x axis using lowbit (the lowest set bit of the index). At each visited x bucket, an independent inner Fenwick tree walks the y axis the same way. Each (x-bucket, y-bucket) pair stores a partial rectangle sum.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Point update: add delta at (x, y)\nfunction update(tree, x, y, delta, N, M) {\n  for (let i = x; i <= N; i += i & (-i))\n    for (let j = y; j <= M; j += j & (-j))\n      tree[i][j] += delta;\n}\n\n// Prefix query: sum of rectangle (1,1)..(x,y)\nfunction query(tree, x, y) {\n  let sum = 0;\n  for (let i = x; i > 0; i -= i & (-i))\n    for (let j = y; j > 0; j -= j & (-j))\n      sum += tree[i][j];\n  return sum;\n}\n\n// Rectangle query via inclusion-exclusion\nfunction rectQuery(tree, x1, y1, x2, y2) {\n  return query(tree, x2, y2)\n       - query(tree, x1 - 1, y2)\n       - query(tree, x2, y1 - 1)\n       + query(tree, x1 - 1, y1 - 1);\n}',
+        },
+        'The update walks upward in both dimensions: i += i & (-i) advances to the next x bucket that must include this point, and the inner loop does the same for y. The query walks downward in both: i -= i & (-i) strips the lowest set bit, collecting stored partial sums.',
+        'For a rectangle query (x1, y1) to (x2, y2), compute four prefix queries and combine them. prefix(x2, y2) covers the entire upper-left region including the target rectangle. Subtracting prefix(x1-1, y2) removes the strip left of the target. Subtracting prefix(x2, y1-1) removes the strip below. Adding back prefix(x1-1, y1-1) corrects the lower-left corner that was subtracted twice.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The 1D Fenwick invariant says every prefix can be decomposed into O(log n) stored ranges. In two dimensions, apply that invariant twice. The x walk decomposes [1..x] into x ranges. Each inner y walk decomposes [1..y] into y ranges. Their Cartesian products form the stored rectangles.',
-        'Inclusion-exclusion works because rectangle sums are additive. prefix(x2,y2) includes the target rectangle plus two unwanted strips and the lower-left outside corner. Subtracting the strips removes the extra area, but the corner is removed twice, so it must be added back once.',
-        'Compression works only because sorted rank preserves prefix order. The compressed index of y is not its value; it is the number of known y coordinates in that bucket that are <= y. That is exactly what a prefix query needs.',
+        'The 1D Fenwick invariant guarantees that any prefix [1..x] decomposes into O(log n) non-overlapping stored ranges. In 2D, apply this twice. The x walk splits [1..x] into O(log n) x-ranges. For each x-range, the y walk splits [1..y] into O(log m) y-ranges. The Cartesian products of these ranges form O(log n * log m) disjoint rectangles that tile the prefix rectangle exactly.',
+        'Inclusion-exclusion works because sums are additive. The four-corner formula is the same identity used for 2D prefix-sum tables, just applied to the prefix function of the Fenwick tree instead of a flat array.',
+        {
+          type: 'diagram',
+          label: '2D responsible cells for point (3, 5) in an 8x8 grid',
+          text: 'y  8 |  .  .  .  .  .  .  .  .\n   7 |  .  .  .  .  .  .  .  .\n   6 |  .  .  [4,6] .  .  .  [8,6]\n   5 |  .  .  [4,5] .  .  .  [8,5]\n   4 |  .  .  [4,4] .  .  .  [8,4]\n   3 |  .  .  .  .  .  .  .  .\n   2 |  .  .  .  .  .  .  .  .\n   1 |  .  .  .  .  .  .  .  .\n      1  2  3  4  5  6  7  8  -> x\n\n   x walk from 3: 3 -> 4 (3+1) -> 8 (4+4)\n   y walk from 5: 5 -> 6 (5+1) -> 8 (6+2) [shown: 4-6 range]\n   Each [xi,yi] cell stores a partial sum updated by (3,5)',
+        },
+        'Coordinate compression preserves correctness because it maintains sorted rank. If a bucket stores y values {2, 7, 15}, the compressed indices are {1, 2, 3}. A prefix query for y <= 10 maps via binary search to compressed index 2, which includes exactly the original values <= 10. Order is preserved, so prefix semantics are preserved.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Suppose updates add 5 at (2, 3), add 7 at (4, 1), and add 2 at (5, 4). Query the rectangle x = 2..4 and y = 1..3. The answer should include the first two updates and exclude the third, so the result is 12.',
-        'The 2D BIT computes that as prefix(4,3) - prefix(1,3) - prefix(4,0) + prefix(1,0). The last two terms are zero in this example. prefix(4,3) includes both (2,3) and (4,1), while prefix(1,3) removes anything with x <= 1. The answer is 12.',
-        'Now imagine the real coordinates are timestamps and prices: (1700000002, 30500), (1700000100, 30100), and (1700000200, 40400). A dense grid is impossible. Offline compression keeps only the y values that updates can contribute to each visited x bucket, while range queries still use sorted rank and inclusion-exclusion.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'A dense 2D Fenwick tree uses O(nm) memory. Each point update and prefix query costs O(log n * log m). A rectangle query uses four prefix queries, so it is still O(log n * log m) with a larger constant.',
-        'A compressed sparse 2D BIT usually uses O(K log n) stored y entries for K planned update points, before deduplication. It adds preprocessing, binary searches inside buckets, and more complicated code, but it can turn an impossible dense grid into a practical structure.',
-        'The main tradeoff is online flexibility. If a new update arrives at a y coordinate that was not included in a bucket during preprocessing, that bucket has no slot for it. You then need dynamic inner trees, maps of Fenwick nodes, rebuilding, or a different data structure.',
+        {
+          type: 'table',
+          headers: ['Structure', 'Build', 'Point update', 'Rect query', 'Memory'],
+          rows: [
+            ['2D prefix sum', 'O(nm)', 'O(nm) rebuild', 'O(1)', 'O(nm)'],
+            ['2D Fenwick tree', 'O(nm log n log m)', 'O(log n * log m)', 'O(log n * log m)', 'O(nm)'],
+            ['2D segment tree', 'O(nm)', 'O(log n * log m)', 'O(log n * log m)', 'O(nm) to O(nm * 4)'],
+            ['Compressed 2D BIT', 'O(K log^2 n)', 'O(log n * log K)', 'O(log n * log K)', 'O(K log n)'],
+          ],
+        },
+        'For an n x m dense grid, each point update and prefix query touches O(log n * log m) cells. A rectangle query calls prefix four times, so the constant is 4x but the asymptotic cost is the same. On a 1024 x 1024 grid, each operation touches at most 10 * 10 = 100 stored cells.',
+        'Doubling one dimension adds one step to that dimension\'s walk. Doubling both dimensions adds one step to each, so operations go from roughly log^2(n) to (log(n)+1)^2 -- a small increase. The structure scales gracefully on moderate grids.',
+        {
+          type: 'note',
+          text: 'The compressed variant trades O(nm) memory for O(K log n) where K is the number of update points. The cost is an offline preprocessing pass and a binary search per inner-tree access. This is worth it only when K is much smaller than nm.',
+        },
       ],
     },
     {
       heading: 'Where it wins',
       paragraphs: [
-        'It wins for dynamic rectangle sums, offline rectangle counting, dominance queries, inversion-like counting in two dimensions, sparse point sets on huge coordinate ranges, and sweep-line pipelines where one dimension is time or event order.',
-        'It is especially strong when the aggregate is additive: count, sum, frequency, weight, or any group-like value where subtraction makes inclusion-exclusion possible.',
+        'Competitive programming problems that ask "count points in a rectangle" or "sum values in a sub-grid" with interleaved updates are the textbook use case. Problems like counting inversions in 2D, dominance queries (how many points have both x <= X and y <= Y), and sweep-line rectangle counting all reduce to 2D BIT operations.',
+        'Offline analytics on sparse, high-cardinality dimensions benefit from the compressed variant. Imagine counting orders by (timestamp, price) where both axes span billions but only thousands of orders exist. A compressed 2D BIT uses memory proportional to the number of orders, not the coordinate range.',
+        {
+          type: 'bullets',
+          items: [
+            'Dynamic rectangle sums on moderate grids (up to ~4000 x 4000 in competitive programming)',
+            'Offline 2D counting and frequency queries with coordinate compression',
+            '2D inversion counting and dominance pair counting',
+            'Sweep-line problems where one axis is event order and the other is a value range',
+            'Additive aggregates: count, sum, frequency, weight -- anything where subtraction enables inclusion-exclusion',
+          ],
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It does not answer nearest-neighbor, overlap candidate generation, or geometric collision queries. It aggregates rectangles; it does not discover nearby objects. Spatial hash grids, R-trees, quadtrees, k-d trees, and BVHs solve different geometric problems.',
-        'It also struggles with non-additive aggregates. Rectangle maximum with point updates needs a different structure because inclusion-exclusion does not work for max. Range assignment or rectangle updates require extensions or a 2D segment tree/lazy structure.',
-        'Finally, it can be the wrong engineering choice when dimensions are small enough for a prefix table, or when query volume is low enough that a sorted list plus batching is simpler.',
+        'It cannot answer non-additive queries. Rectangle maximum, rectangle minimum, and rectangle median do not support inclusion-exclusion. If you subtract prefix(x1-1, y2) from prefix(x2, y2), the max of the difference is not the max of the target rectangle. These queries need a 2D segment tree with merge-sort trees or persistent structures.',
+        'It does not handle rectangle updates (adding delta to every cell in a sub-grid). The 1D BIT supports range updates via difference arrays, but the 2D extension is tricky and rarely cleaner than a 2D segment tree with lazy propagation.',
+        'It is not a spatial index. Nearest-neighbor queries, range searches returning individual points, collision detection, and overlap queries belong to k-d trees, R-trees, quadtrees, or spatial hash grids. A 2D BIT aggregates; it does not enumerate.',
+        'For purely static data with no updates, a 2D prefix-sum table is simpler, faster (O(1) per query), and uses the same memory. The Fenwick tree only earns its complexity when updates actually happen.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study the 1D Fenwick Tree first, then coordinate compression, prefix sums, Segment Tree, Range Tree, and sweep-line algorithms. The useful mental model is simple: every point update repairs all stored rectangles that contain the point; every prefix query decomposes its rectangle into stored rectangles.',
+        {
+          type: 'quote',
+          text: 'A new method of updating cumulative frequency tables is presented that is based on a tree structure imposed on the sequence of cumulative frequencies.',
+          attribution: 'Peter Fenwick, "A New Data Structure for Cumulative Frequency Tables," Software: Practice and Experience, 1994',
+        },
+        'The 2D extension appears in competitive programming literature and Topcoder/Codeforces editorials rather than a single foundational paper. The construction is a direct nesting of Fenwick\'s original 1D idea.',
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: 1D Fenwick Tree (BIT) -- understand lowbit, prefix decomposition, and the update/query duality before adding a second dimension',
+            'Prerequisite: 2D prefix sums -- the static baseline that the Fenwick tree makes dynamic',
+            'Extension: coordinate compression -- required for the sparse variant; study independently for sweep-line and offline problems',
+            'Extension: 2D segment tree -- handles non-additive aggregates and lazy propagation at higher implementation cost',
+            'Alternative: merge-sort tree -- answers rectangle rank/select queries that BITs cannot',
+            'Practice: Codeforces 869E, SPOJ MATSUM, USACO Platinum rectangle-counting problems',
+          ],
+        },
       ],
     },
   ],

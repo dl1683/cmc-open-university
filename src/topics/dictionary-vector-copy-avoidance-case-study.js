@@ -1,4 +1,4 @@
-// Dictionary vectors for copy avoidance: base vectors, index buffers, shared
+﻿// Dictionary vectors for copy avoidance: base vectors, index buffers, shared
 // selections, join fanout, and nested dictionary peeling.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -190,6 +190,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Dictionary Vector Copy Avoidance. How columnar engines represent filtered, sorted, or joined output as indices into a shared base vector instead of copying repeated values..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Dictionary vectors exist because query operators often reorder, filter, or repeat rows without changing the underlying values. Copying wide strings, nested objects, maps, arrays, or repeated join payloads into a new flat vector can dominate execution time even when the logical operation is simple.',
@@ -243,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Dictionary vectors win in joins with fanout, filtered wide columns, sorted views, unnests, repeated constants, and engines that can pass encoded vectors between operators.',
         'They are especially useful when several output columns share the same index buffer.',
@@ -258,7 +267,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A hash join probes a build table and finds multiple matches for some probe rows. Instead of copying every probe-side string, JSON object, and nested list for each emitted match, the engine builds an index buffer such as [0, 0, 2, 3, 3, 3] and wraps the probe columns. Output rows repeat logically while storage stays shared.',
         'Now add an expression after the join, such as upper(customer_name). If customer_name is a probe-side column and the dictionary repeats probe row 3 three times, the engine can compute upper(customer_name) once for base row 3 and preserve the dictionary wrapper. That avoids repeating the same string transformation across fanout.',
@@ -279,5 +288,56 @@ export const article = {
         'Study Selection Vector Filter Pipeline, Late Materialization Columnar Scan, DuckDB Vectorized Execution Case Study, Velox Unified Execution Engine Case Study, Apache Arrow Columnar Memory Case Study, Parquet Columnar Format Case Study, and SQL Join Algorithms Primer next.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for dictionary-vector-copy-avoidance-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

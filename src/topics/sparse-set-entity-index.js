@@ -1,4 +1,4 @@
-// Sparse set: O(1) membership plus dense iteration for entity-component pools.
+﻿// Sparse set: O(1) membership plus dense iteration for entity-component pools.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
@@ -222,6 +222,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Sparse Set Entity Index. Keep a sparse entity-id array pointing into dense packed arrays, so membership is O(1), iteration is cache-friendly, and removal is swap-with-last..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Entity-component systems need two operations that pull storage in opposite directions. Gameplay code asks, "does entity 42 have Velocity?" Render, physics, and AI loops ask, "scan every entity with this component."',
@@ -238,7 +247,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core layout',
+      heading: 'The core insight',
       paragraphs: [
         'A sparse set has at least two arrays. `denseEntities` stores the entity ids that are present, packed from row 0 to row `size - 1`. `sparse` is indexed by entity id and stores the row where that entity should appear in `denseEntities`.',
         'A component pool usually adds `denseValues` beside `denseEntities`. Row `i` in `denseValues` is the component value for entity `denseEntities[i]`. The dense side is the iteration order; the sparse side is only an index into that order.',
@@ -270,7 +279,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works (2)',
       paragraphs: [
         'In the dense-sparse mapping view, follow the query entity into the sparse array and then back into the dense entity row. The highlighted dense confirmation is the safety check that stops stale sparse entries from pretending to be membership.',
         'When the animation switches to dense iteration, the sparse side fades into a supporting role. The scan walks only packed entity and value rows. That state change is the performance win: absence has left the loop.',
@@ -286,7 +295,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Sparse sets win for single-component pools, optional components, tags, dirty sets, selection sets, visibility sets, and other collections where membership changes often and iteration must stay packed.',
         'They are strong when systems can iterate one dense pool and probe a few others. A movement system can scan Position or Velocity and skip entities that lack the companion component without building a global table of every component combination.',
@@ -302,7 +311,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'The classic bug is forgetting to update the moved entity sparse entry during removal. The dense array still looks compact, but the next contains check for the moved entity points at the wrong row.',
         'Another bug is trusting `sparse[e]` without checking `denseEntities[row] === e`. Uninitialized memory, stale rows, and recycled ids can all produce false membership.',
@@ -310,11 +319,75 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Sources: EnTT Entity Component System wiki at https://github.com/skypjack/entt/wiki/Entity-Component-System, EnTT sparse set implementation at https://github.com/skypjack/entt/blob/master/src/entt/entity/sparse_set.hpp, Bevy ComponentSparseSet docs at https://docs.rs/bevy/latest/bevy/ecs/storage/struct.ComponentSparseSet.html, and LLVM SparseSet source at https://llvm.org/doxygen/SparseSet_8h_source.html.',
         'Study Generational Arena Slot Map for safe entity handles, Archetype ECS Column Store for the contrasting storage model, Roaring Bitmaps for compressed set membership, Hash Table for sparse-key lookup, and Packed Memory Array for order-preserving packed storage.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Sparse Set Entity Index moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

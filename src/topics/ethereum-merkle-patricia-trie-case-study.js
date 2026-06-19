@@ -217,21 +217,30 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Ethereum Merkle-Patricia Trie Case Study. Ethereum state as an authenticated trie: account/storage keys become nibble paths, nodes hash upward, and compact proofs verify values from a root..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Ethereum needs every block to commit to a huge changing key-value database. Full nodes can store the database. A block header cannot. The header needs one compact value that says, in effect, this is the exact account state after this block.',
         'That value is the state root. It must change when any committed account or storage value changes. It must let a verifier check one account or one storage slot without downloading the whole database. Ethereum uses a modified Merkle-Patricia trie because it combines key-directed lookup, prefix compression, and cryptographic commitments.',
       ],
     },
     {
-      heading: 'The Obvious Approach and the Wall',
+      heading: 'The wall',
       paragraphs: [
         'A normal hash table is good at finding account records, but it does not produce a small proof that a remote answer is honest. A flat Merkle tree is good at committing to a list, but Ethereum state is not just a list. It is a sparse map keyed by account addresses and contract storage slots.',
         'A plain trie gives key paths and prefix sharing, but by itself it is just a data structure, not a cryptographic commitment. The wall is needing all three properties at once: map lookup by key, compact paths for a sparse space, and a root hash that commits to every reachable node.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The core insight',
       paragraphs: [
         'Turn each key into a path of nibbles, where a nibble is half a byte and has 16 possible values. Use branch nodes when paths split. Use extension nodes to compress long shared stretches. Use leaf nodes to hold the final suffix and value. Then encode each node and hash upward until one root digest remains.',
         'The root is deterministic under the same key-value contents and encoding rules. If a value changes, the leaf changes. If the leaf changes, its parent reference changes. That change propagates up the path until the state root changes. A small local update becomes visible in one global commitment.',
@@ -245,7 +254,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
         'Ethereum first uses hashed keys for secure tries, then reads the hash as a sequence of nibbles. A branch node has 16 child positions plus an optional value slot. An extension node stores a shared path segment and points to the next node. A leaf node stores the remaining path suffix and the value. Short embedded nodes and hash references are implementation details, but the idea is the same: parent nodes commit to child nodes.',
         'Accounts live under the global state trie. Contract storage has its own trie, and the account record carries that storage root. Blocks also carry roots for transactions and receipts. These roots let a block header commit to several structured datasets without carrying the datasets themselves.',
@@ -253,35 +262,35 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'Verification is local, but trust is anchored by the root. The verifier does not need the entire state database. It only needs the nodes that sit on the requested path and the root hash from a block header it trusts. If any encoded node, child reference, path segment, or value is tampered with, the recomputed digest chain will not match.',
         'Path compression keeps sparse keys from producing enormous one-child chains. Hashing keeps compressed paths honest. The trie can skip over boring stretches, but it cannot hide what those stretches are because the encoded node is part of the hash commitment.',
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'Suppose a light client wants to check an account balance at a particular block. It obtains the block header through whatever trust path it uses, then asks a full node for a proof for that account key. The full node returns the encoded trie nodes on the hashed key path, ending in the account record or in a proof of absence.',
         'The light client does not trust the full node. It decodes the proof, consumes the account-key nibbles, hashes each node, and compares the final reconstructed root with the state root in the header. If they match, the account value belongs to that state root. If they do not, the proof is wrong or targets a different root.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The Merkle-Patricia trie is a correctness structure first and a performance structure second. It pays for hashing, node encoding, database reads, path decoding, cache pressure, and write amplification. Updating one key rewrites the nodes and hashes along that key path, and real clients spend a lot of engineering effort making that affordable.',
         'Proofs are also not free. They can be large compared with newer authenticated-tree designs, and state growth makes node storage and pruning hard. These costs are why Ethereum research and roadmap work has explored Verkle trees and other commitment schemes for smaller proofs and better state access.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins when a protocol needs a compact commitment to a large mutable map. Block headers can carry roots. Light clients can verify selected accounts or storage slots. Bridges and auditors can check inclusion or absence relative to a trusted header. Indexers can spot-check remote data instead of blindly trusting it.',
         'It also gives the protocol a clean mental model: the root is the fingerprint of the committed state. If two nodes agree on the state root for a block, they agree on the authenticated state contents behind that root, assuming the same trie rules and database availability.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'A proof is only as good as the root. If the verifier accepts a fake or non-canonical header, a perfectly valid proof can still prove the wrong world. Bridges, light clients, and indexers need a separate answer for header trust and consensus finality.',
         'The trie also fails as a simple performance story. It is complex to implement, easy to get wrong at encoding boundaries, and expensive under heavy state growth. It solves authenticated state, not every storage problem.',
@@ -295,10 +304,60 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: ethereum.org Merkle Patricia Trie docs at https://ethereum.org/developers/docs/data-structures-and-encoding/patricia-merkle-trie/, Ethereum yellow paper at https://ethereum.github.io/yellowpaper/paper.pdf, and EthereumJS trie repository at https://github.com/ethereumjs/merkle-patricia-tree. Study Merkle Tree, PATRICIA Trie, Hash Array Mapped Trie (HAMT), Git Internals, and Byzantine Generals next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for ethereum-merkle-patricia-trie-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

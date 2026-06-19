@@ -200,6 +200,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for SameSite Cookies & CSRF. How SameSite cookie policy, Secure, HttpOnly, top-level navigation rules, unsafe methods, CSRF tokens, Origin checks, and session design fit together..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "Cookies are ambient authority. Once a browser has a session cookie, it may attach that cookie to matching requests without asking whether the user intended the action.",
@@ -221,7 +230,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core model',
+      heading: 'The core insight',
       paragraphs: [
         "SameSite is a cookie sending rule. The browser compares the site that set the cookie with the site that initiated the request, then decides whether the cookie may ride along.",
         "`Strict` sends the cookie only in same-site contexts. `Lax` allows same-site requests and limited cross-site top-level navigations with safe methods. `None` allows cross-site sending and must be paired with `Secure`. `HttpOnly`, `Secure`, and `__Host-` scope rules solve different cookie problems; they do not prove user intent by themselves.",
@@ -242,28 +251,28 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs',
+      heading: 'Cost and behavior',
       paragraphs: [
         "The cost of `Strict` is usability. Users who arrive from another site may appear logged out because the cookie is withheld. The cost of `Lax` is weaker protection for safe top-level navigations, so GET must stay read-only.",
         "The cost of `None` is explicit risk. Embedded apps, SSO callbacks, payment frames, and third-party widgets sometimes need cross-site cookies. Those routes need tighter server-side checks because the browser is allowed to send the session.",
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         "SameSite wins for ordinary session-backed web apps where important writes originate from pages on the same site. It is cheap, browser-enforced, and effective before a forged request reaches controller code.",
         "It fails as a complete strategy for SSO, embedded widgets, cross-site APIs, and applications with serious XSS risk. It also fails when developers leave sensitive cookies unset and depend on shifting browser defaults instead of declaring the policy they need.",
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         "SameSite is not an authorization system. It changes whether cookies attach in many cross-site situations, but it does not decide whether a transfer, password change, or admin action is allowed. The server still needs route-level authorization and intent checks.",
         "It also does not solve XSS. If an attacker can run script on the target site, that script may read non-HttpOnly tokens, submit legitimate forms, or act from a same-site context. SameSite reduces one cross-site request shape; it should sit beside XSS prevention, output encoding, CSP, and token design.",
       ],
     },
     {
-      heading: 'Concrete failures',
+      heading: 'Where it fails (2)',
       paragraphs: [
         "A bank that allows `GET /transfer?to=attacker&amount=1000` has no CSRF defense, even with `SameSite=Lax`, because top-level safe-method navigation can still carry cookies. A JSON endpoint with cookies but no token can be attacked if it also accepts simple request shapes or method overrides.",
         "A site that sets `SameSite=None; Secure` for an embedded flow and then reuses the same cookie for account settings has expanded the attack surface. A site with XSS can lose CSRF protection because the injected script can read or submit the same tokens the legitimate page uses.",
@@ -277,14 +286,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'How it works (2)',
       paragraphs: [
         "Declare SameSite explicitly on every sensitive cookie. Keep state-changing routes off GET. Require CSRF tokens or equivalent proof for unsafe methods. Validate Origin or Fetch Metadata where the browser supplies reliable values. Separate cookies used for embedded or federated flows from cookies used for account settings.",
         "Test with real browser flows: direct navigation, cross-site form POST, SSO callback, iframe embed, payment redirect, mobile webview, and logout. Cookie security is easy to reason about incorrectly because one route may need cross-site behavior while another route should reject it completely.",
       ],
     },
     {
-      heading: 'How to choose settings',
+      heading: 'How it works (3)',
       paragraphs: [
         "`Strict` is appropriate for highly sensitive cookies where cross-site entry should not preserve login state. `Lax` is a strong default for normal session cookies because it preserves common navigation while blocking many forged unsafe requests. `None` should be reserved for flows that genuinely need cross-site cookies and should always be paired with `Secure`.",
         "Do not use one cookie policy for every route if the product has mixed needs. Embedded flows, SSO callbacks, account settings, admin actions, and payment redirects may need different cookies or additional state parameters. The safer design is to separate privileges so the cookie that must travel cross-site is not also the cookie that authorizes the most sensitive write.",
@@ -304,5 +313,60 @@ export const article = {
         "Study CORS Preflight Cache to separate response-reading permission from cookie attachment, Fetch Metadata Request Gate for server-side request classification, Storage Access API Third-Party Cookie Gate for embedded sessions, Content Security Policy for XSS reduction, and OAuth PKCE Token Lifecycle Case Study for redirect-state binding.",
       ],
     },
-  ],
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why SameSite Cookies & CSRF moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

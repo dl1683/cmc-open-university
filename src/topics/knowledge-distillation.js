@@ -16,8 +16,8 @@ export const topic = {
 };
 
 const CLASSES = ['cat', 'dog', 'fox', 'car', 'tree'];
-// The big teacher's output for one photo of a cat — note the STRUCTURE:
-// dog and fox get real probability (they look cat-like); car and tree don't.
+// The big teacher\'s output for one photo of a cat — note the STRUCTURE:
+// dog and fox get real probability (they look cat-like); car and tree don\'t.
 const TEACHER = [0.78, 0.13, 0.06, 0.02, 0.01];
 const HARD = [1, 0, 0, 0, 0];
 // An untrained student starts near-uniform.
@@ -77,8 +77,8 @@ export function* run(input) {
         format: pct,
       }),
       highlight: { active: [`e${epoch}`] },
-      explanation: `Epoch ${epoch}: the student's distribution moves toward the target. ${soft
-        ? `It is absorbing the SHAPE: cat dominant, dog second, fox third — the teacher's worldview compressing into a smaller brain.`
+      explanation: `Epoch ${epoch}: the student\'s distribution moves toward the target. ${soft
+        ? `It is absorbing the SHAPE: cat dominant, dog second, fox third — the teacher\'s worldview compressing into a smaller brain.`
         : `It is collapsing toward the one-hot spike — increasingly confident about "cat," learning nothing about what nearly-cat looks like.`}`,
       invariant: 'The student row always sums to 100% — it is still a softmax output.',
     };
@@ -102,80 +102,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Large models are expensive to serve. They may have the accuracy, calibration, or reasoning behavior a team wants, but their latency, memory use, and cost can make them unsuitable for mobile devices, browsers, embedded systems, or high-throughput production endpoints.',
-        'Knowledge distillation exists to transfer some of a large teacher model into a smaller student model. The student is not just trained on the original answer key. It is trained to imitate the teacher behavior that made the larger model useful.',
+        'Each row is a probability distribution over five classes: cat, dog, fox, car, tree. The teacher row shows a large model\'s softmax output for one cat image. The numbers add to 100%.',
+        'The target row shows what the student trains against. Toggle the control to switch between soft labels (the teacher\'s full distribution) and hard labels (one-hot: 100% cat, 0% everything else). The difference between those two rows is the entire point of distillation.',
+        'Epoch rows track the student\'s distribution as training progresses. With soft labels, watch the student preserve the teacher\'s ranking among wrong classes: dog > fox > car > tree. With hard labels, the student collapses toward a single spike. The shape difference in the final comparison row is the dark knowledge the hard-label student never received.',
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious compression tools are pruning, quantization, and smaller architectures. Those can help a lot, but they mostly ask how to make the same model cheaper or how to train a small model from the same dataset.',
-        'The wall is that the dataset often contains only hard labels or final answers. A hard label says "cat" and says nothing about why dog is a more reasonable mistake than tree. A smaller model trained only on hard labels has to rediscover that structure from examples it may not have enough capacity or data to absorb.',
+        'Large models are accurate but expensive to serve. A 7-billion-parameter teacher may need datacenter GPUs, cost dollars per thousand inferences, and add hundreds of milliseconds of latency. Mobile apps, browser tools, embedded devices, and high-throughput production endpoints cannot afford that.',
+        'The goal is to get a model 2-10x smaller that preserves most of the teacher\'s accuracy. Hinton, Vinyals, and Dean (2015) proposed knowledge distillation: instead of training the small model on the original labeled dataset alone, train it to imitate the teacher\'s full output distribution. The teacher\'s probability assignments over all classes carry structure that the ground-truth label discards.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Train a small model directly on the labeled dataset. The labels say "cat" or "dog" -- hard targets, one class gets probability 1, everything else gets 0. Standard cross-entropy training.',
+        'This works when the small model has enough capacity and the dataset is large enough. For well-separated classes with abundant data, a compact architecture can learn the decision boundaries on its own.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Hard labels erase inter-class relationships. The label [1, 0, 0, 0, 0] for a cat image says nothing about the fact that a cat looks more like a dog than like a car. A digit "8" looks somewhat like a "3" and a "6", but the hard label [0,0,0,0,0,0,0,0,1,0] treats every wrong class as equally wrong.',
+        'A large model can rediscover those relationships from raw pixels because it has the capacity to build rich internal representations. A small model has fewer parameters, shallower layers, and narrower hidden dimensions. It needs more guidance per training example to learn the same structure -- guidance that hard labels do not provide.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The teacher probability distribution contains information that the one-hot label discards. If the correct class is cat, a strong teacher may assign some probability to dog and fox, and almost none to car or tree. That pattern tells the student which alternatives are semantically close.',
-        'Hinton, Vinyals, and Dean called this dark knowledge: the useful structure in the non-winning probabilities. Distillation turns that structure into a training target for the student.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'The first row is the teacher distribution for one cat image. Do not read only the largest cell. The smaller dog and fox probabilities are the lesson: they show which wrong answers the teacher considers plausible.',
-        'Use the control to compare soft labels with hard labels. In the soft-label path, the student learns a shaped distribution: cat high, dog next, fox next, unrelated classes near zero. In the hard-label path, the student is pushed toward a spike. It learns the answer but loses the teacher ranking among mistakes.',
-        'The epoch rows are not meant to be a full optimizer. They show the direction of training. With soft targets the student moves toward the teacher worldview; with hard labels it moves toward certainty without the teacher nuance.',
+        'The teacher\'s softmax output is not just a prediction; it is a map of the neighborhood. When the teacher says 78% cat, 13% dog, 6% fox, 2% car, 1% tree, it is encoding that dogs and foxes share visual features with cats while cars and trees do not. Hinton called this dark knowledge: the useful information hiding in the non-winning probabilities.',
+        'To make the dark knowledge more visible, both teacher and student logits are divided by a temperature T > 1 before the softmax. At T = 1 the distribution is peaked and the small probabilities are nearly invisible. At T = 3 or higher, the distribution spreads out and the relative ranking among wrong classes becomes a clear training signal.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'First choose or train a teacher. Then run training examples through the teacher and capture logits, probabilities, generated answers, hidden states, attention relations, or other signals depending on the distillation recipe. The student is trained with gradient descent to match those teacher signals.',
-        'For classification, the classic loss matches softened teacher probabilities. Softmax temperature matters: a temperature greater than 1 spreads probability mass so non-winning classes carry visible signal. Many implementations combine the distillation loss with the original hard-label loss so the student learns both the teacher distribution and the ground-truth class.',
-        'Distillation is not limited to final logits. Feature distillation matches hidden representations. TinyBERT and MiniLM distill transformer internals. Sequence-level distillation trains a language model on teacher-generated outputs. Reasoning distillation can train smaller models on traces or final answers produced by a stronger teacher, but those traces still need filtering and evaluation.',
+        'Train or select a teacher model. Run all training examples through the teacher and record the logits (pre-softmax values). For each example, compute two softmax outputs from those logits: one at T = 1 (the standard prediction) and one at a raised temperature T, typically 3 to 20.',
+        'The student trains with a combined loss. The first term is the standard cross-entropy between the student\'s T = 1 output and the hard label. The second term is the KL divergence between the student\'s softened output (at temperature T) and the teacher\'s softened output (at the same T). The total loss is: L = (1 - alpha) * CE_hard + alpha * T^2 * KL_soft. The T^2 factor compensates for the reduced gradient magnitude that comes from spreading probability mass.',
+        'Typical hyperparameters: T between 3 and 20, alpha between 0.1 and 0.9. Higher T exposes more dark knowledge but makes the distribution flatter, so the student needs enough capacity to exploit the signal. Alpha controls how much the student listens to the teacher versus the ground truth.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'A hard label has one bit of semantic shape: the winner. A teacher distribution has a neighborhood. It can say that a tabby cat is closer to dog and fox than to car, or that two possible translations are both plausible while a third is ungrammatical. The student sees more information per example.',
-        'The student also benefits from the teacher smoothing away some dataset noise. If the original label is brittle or underspecified, the teacher distribution can be a better target than a rigid one-hot answer. That is not magic. It works only when the teacher is actually better calibrated or more knowledgeable for the task.',
-        'Capacity still matters. A tiny student cannot inherit every skill from a huge teacher. Distillation is a compression method, not a proof that the smaller model can represent the whole teacher.',
+        'Each soft label carries more information per training example than a hard label. A hard label provides one bit of class identity: the winner. A soft distribution provides a ranking, a measure of similarity between classes, and an estimate of the teacher\'s uncertainty. The student extracts more learning signal from the same dataset without needing more examples.',
+        'The teacher also acts as a regularizer. Its soft outputs smooth over noisy or ambiguous labels in the original dataset. When the ground truth is "cat" but the image is borderline, the teacher might say 60% cat, 30% dog -- a more honest target than 100% cat. The student trained on that honest target generalizes better on ambiguous inputs.',
+        'There is a limit. Distillation is compression, not magic. A very small student cannot absorb everything a very large teacher knows. The capacity gap sets a floor on how much accuracy is lost.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The one-time cost is running the teacher on every training example to generate soft labels. For a dataset of N examples, this is N forward passes through the large model. Once stored, the soft labels are reused across all student training runs.',
+        'Student training itself is standard gradient descent -- same cost as training any model of that size, just with a richer loss function. No architectural changes to the student are required.',
+        'The payoff is at inference. The student is typically 2-10x smaller than the teacher. DistilBERT (Sanh et al. 2019) has 66 million parameters versus BERT\'s 110 million: 40% smaller, 60% faster, and retains 97% of BERT\'s accuracy on GLUE benchmarks. Stack quantization on top of a distilled student and the compression multiplies.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'DistilBERT (2019): 60% of BERT\'s size, 97% of its accuracy, fast enough for on-device NLP. TinyBERT (Jiao et al. 2019) extends distillation to transformer internals -- attention matrices and hidden states -- for even smaller students. MiniLM (Wang et al. 2020) distills self-attention relations specifically.',
+        'MobileNet and EfficientNet families use distillation to train compact vision models for phones and edge devices. Google uses distillation in search ranking to deploy ensemble-quality relevance scoring at single-model cost.',
+        'In LLM pipelines, distillation takes the form of training smaller models on outputs generated by a frontier model -- the teacher produces reasoning traces, the student learns from them. DeepSeek-R1 distills a strong reasoning teacher into smaller Qwen and Llama models.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The teacher must be good. Distilling a biased, miscalibrated, or hallucinating teacher transfers those flaws to the student. Garbage in, compressed garbage out.',
+        'The capacity gap matters. A student with 50x fewer parameters than the teacher cannot absorb the full distribution of teacher behavior. It may retain average benchmark accuracy while losing tail behavior, rare-class performance, or calibration under distribution shift.',
+        'Task-specific distillation does not transfer well. A student distilled for sentiment classification does not inherit the teacher\'s ability on question answering. Each deployment task typically needs its own distillation run.',
+        'Quiet failure is the biggest risk. The student looks good on common cases -- the same ones that dominate benchmarks -- while silently dropping the rare but important behaviors that justified using the teacher in the first place. Evaluate on the deployment workload, not just the headline metric.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'In the animation, the teacher sees a cat and predicts 78 percent cat, 13 percent dog, 6 percent fox, 2 percent car, and 1 percent tree. The hard label is simply 100 percent cat. Both targets agree on the winner, but they teach different lessons.',
-        'A student trained on the hard label is rewarded for moving all probability mass to cat. A student trained on the teacher distribution is rewarded for learning the ranking cat > dog > fox > car > tree. That ranking can improve generalization on ambiguous images because the student has learned a local map of the class space, not just the answer for one example.',
-        'The same pattern appears in language models. A teacher answer, critique, preference ranking, or reasoning trace can expose structure that the original dataset did not contain. The student may become cheaper to serve while preserving enough of the teacher behavior to be useful.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The student is cheaper at inference, but distillation adds training cost. Generating teacher logits, hidden states, synthetic answers, or reasoning traces can be expensive, especially when the teacher is a frontier-scale model or an ensemble.',
-        'Storage can also matter. Full probability distributions over large vocabularies are expensive to save, so systems may store logits for selected tokens, generate data on the fly, or distill from sampled outputs instead of full distributions.',
-        'The biggest tradeoff is fidelity versus efficiency. A smaller student may preserve average benchmark score while losing calibration, tail behavior, rare skills, refusal boundaries, or robustness under distribution shift. Compression should be measured on the deployment workload, not only on a headline benchmark.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Distillation wins when the teacher is strong, the student has enough capacity, the training data covers the deployment distribution, and the target behavior is smooth enough to imitate. It is common in search ranking, vision ensembles, speech models, on-device NLP, and LLM instruction pipelines.',
-        'It fails when the teacher is wrong, biased, hallucinated, miscalibrated, or strong only on examples unlike the deployment workload. It can also fail quietly: the student may look good on easy cases while losing the rare behavior that justified the teacher in the first place.',
-        'It pairs well with other efficiency tools. Quantization changes numeric precision. Structured Pruning and N:M Sparsity change weight layout. LoRA Fine-Tuning adapts a model cheaply. Speculative Decoding uses a small model to draft tokens for a larger one. Distillation is different: it trains a cheaper model to imitate a more expensive source of behavior.',
+        'Suppose the teacher produces logits [5.0, 3.0, 1.0] for a three-class problem (classes A, B, C) where A is correct.',
+        'At T = 1: softmax([5, 3, 1]) = [0.84, 0.11, 0.04]. Almost all mass on A. The ranking B > C is visible but faint -- only 7 percentage points apart. This is close to a hard label.',
+        'At T = 3: softmax([5/3, 3/3, 1/3]) = softmax([1.67, 1.0, 0.33]) = [0.45, 0.30, 0.25]. Now the dark knowledge is exposed: B gets 30%, C gets 25%. The student can clearly see that B is more similar to A than C is.',
+        'The student trains against [0.45, 0.30, 0.25] (the KL divergence term) and against [1, 0, 0] (the cross-entropy term). The combined loss teaches the student both the correct answer and the inter-class structure. At inference, the student runs at T = 1 -- normal softmax, no temperature scaling needed.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'The canonical source is Hinton, Vinyals, and Dean, Distilling the Knowledge in a Neural Network: https://arxiv.org/abs/1503.02531. DistilBERT is the clean NLP reference for shrinking BERT while preserving most benchmark quality: https://arxiv.org/abs/1910.01108. TinyBERT extends distillation across transformer layers and attention structures: https://arxiv.org/abs/1909.10351.',
-        'MiniLM focuses on distilling self-attention relation knowledge for smaller language models: https://arxiv.org/abs/2002.10957. DeepSeek-R1 makes a modern reasoning-model version visible by distilling samples from a stronger reasoning teacher into smaller Qwen and Llama based models: https://github.com/deepseek-ai/DeepSeek-R1.',
-        'Study Softmax & Temperature for softened targets, Neural Network Forward Pass for logits and hidden states, and Gradient Descent for the student update. Then compare Quantization, Structured Pruning and N:M Sparsity, LoRA Fine-Tuning, Speculative Decoding, and Early-Exit Transformer Layer Skipping as complementary efficiency tools.',
+        'Hinton, Vinyals, and Dean, Distilling the Knowledge in a Neural Network (2015): https://arxiv.org/abs/1503.02531 -- the founding paper that named dark knowledge and introduced temperature-scaled soft targets. Sanh et al., DistilBERT (2019): https://arxiv.org/abs/1910.01108 -- the clearest NLP case study. Jiao et al., TinyBERT (2019): https://arxiv.org/abs/1909.10351 -- extends distillation to attention matrices and hidden layers.',
+        'Prerequisites: Softmax and Temperature (the T parameter that controls soft target entropy), Cross-Entropy Loss (the hard-label objective), Gradient Descent (the student update rule). Extensions: Transfer Learning (related idea of reusing learned representations), Model Quantization (reduce numeric precision for further compression), Structured Pruning (remove weights for complementary compression), Speculative Decoding (use a small model to draft tokens for a larger one).',
       ],
     },
   ],

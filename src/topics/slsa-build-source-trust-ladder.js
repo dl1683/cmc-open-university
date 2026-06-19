@@ -1,4 +1,4 @@
-// SLSA trust ladder: build/source levels as a data structure for deciding
+﻿// SLSA trust ladder: build/source levels as a data structure for deciding
 // which software artifact, source revision, build platform, and attestation to trust.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -234,6 +234,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for SLSA Build & Source Trust Ladder. A supply-chain security primer: organize source controls, build provenance, trusted platforms, verification summaries, and policy expectations into levels..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'SLSA exists to answer a narrow supply-chain question: why should a consumer trust that this software artifact came from the expected source, through the expected build process, on a trustworthy platform? It does not prove that the software is bug-free. It does not replace vulnerability scanning, sandboxing, code review, threat modeling, or runtime monitoring. It raises confidence in the integrity of the path from source revision to built artifact.',
@@ -249,7 +258,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that supply-chain trust is a graph join, not a vibes check. The artifact digest joins to build provenance through the subject field. The build provenance joins to the source repository and source revision. Source verification summaries join to the same revision. Signatures and attestations join claims to trust roots. Expectations join the actual claims to policy. The final result should be allow, warn, or deny with reasons.',
         'SLSA levels are useful because they describe the strength of the evidence, not because they replace policy. A consumer still needs concrete expectations: which source repository is allowed, which named references are acceptable, which build platform can produce artifacts, which build type is expected, which external parameters are allowed, and which minimum levels are required for this environment.',
@@ -296,14 +305,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Higher levels cost engineering effort. Hosted builders require migration from local release scripts. Hardened builders restrict some patterns developers may rely on, such as privileged steps or persistent build environments. Source controls require administrative discipline and careful exception handling. Verification gates can block urgent releases if expectations are too narrow or evidence systems are down.',
         'Those costs are why the ladder is useful. Teams can set different minimums for prototypes, internal tools, customer-facing services, and high-risk infrastructure. The mistake is treating SLSA as a single badge. It is better to use levels as a risk-based policy input: stronger claims where the blast radius is large, softer gates where speed matters and exposure is lower.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'SLSA wins when artifact integrity matters across organizational boundaries. Open-source package consumers can reject packages that lack expected provenance. Platform teams can prevent production from running images built on laptops. Regulated environments can retain evidence for audits. Incident responders can ask which artifacts came from a compromised builder, key, source branch, or release process.',
         'It also wins as a data structure for security operations. The artifact, builder, source revision, attestation, trust root, and policy decision form a graph that can be queried during incidents. That is much more useful than a wiki page saying the release process is trusted.',
@@ -317,18 +326,100 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'How it works',
       paragraphs: [
         'Track artifacts without provenance, unsigned or unauthentic provenance, unknown issuers, subject mismatches, unexpected builders, unapproved parameters, source-summary gaps, minimum-level failures, verifier latency, cache staleness, manual overrides, and policy drift. Run negative tests that try to deploy unsigned artifacts, wrong-digest attestations, fork-built images, unapproved builders, and low-level provenance.',
         'A supply-chain program is working when the gate denies the right failures with reasons humans can act on. A denial should tell a release engineer whether to rebuild on the approved platform, fix source controls, add missing provenance, update policy, or investigate a real compromise.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: the SLSA v1.2 specification at https://slsa.dev/spec/v1.2/, Build requirements at https://slsa.dev/spec/v1.2/build-requirements, Source requirements at https://slsa.dev/spec/v1.2/source-requirements, build provenance at https://slsa.dev/spec/v1.2/provenance, and verification summary attestations at https://slsa.dev/spec/v1.2/verification_summary.',
         'Study Software Supply-Chain Provenance Graph, Sigstore Keyless Signing and Transparency, TUF Update Metadata Case Study, Kubernetes Admission Policy Gate, OPA/Rego Policy Decision Graph, Reproducible Builds, dependency lockfiles, SBOMs, and runtime sandboxing next. These topics separate questions that are often mixed together: who signed, what was built, where it came from, how it was built, and whether it is safe to run.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why SLSA Build & Source Trust Ladder moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -180,6 +180,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Trace Context & Baggage Propagation. How traceparent, tracestate, and baggage headers move trace identity and bounded business context through services and async hops..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A modern request rarely stays inside one process. A checkout call may pass through a gateway, an order service, a payment service, an inventory service, a queue, and a notification worker. If each process logs only its own local request id, the failure looks like disconnected noise.',
@@ -187,7 +196,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to generate a new request id in every service and search logs by timestamp when something breaks. That works for a single process. It falls apart when retries, queues, parallel calls, and async consumers spread one user action across many machines.',
         'The wall is causality. Time order is not enough to tell which payment call belonged to which checkout attempt, and service-local ids cannot describe parent-child relationships across network boundaries. A trace needs a portable identity and a standard way to carry it.',
@@ -215,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How it works across carriers',
+      heading: 'How it works',
       paragraphs: [
         'HTTP uses headers. RPC systems usually use metadata. Queues use message attributes or envelope fields. In-process async hops use async context propagation rather than network headers. The carrier changes, but the job is the same: move context from the current unit of work into the next one.',
         'A broken carrier creates a broken trace. If a queue producer forgets to write trace metadata, the consumer starts a new root trace. If an HTTP client strips traceparent, the downstream service looks unrelated. If async context is lost before injection, the wrong parent can be sent.',
@@ -229,14 +238,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is plumbing. Every HTTP client, RPC client, message producer, message consumer, framework middleware, worker, and instrumentation layer must participate. One missing propagator can split a trace at the exact place where the incident is happening.',
         'There is also operational cost. Headers and metadata consume bytes. Baggage requires allowlists and limits. Trace sampling decisions need to be honored consistently. Interoperability improves when teams use standard propagators instead of custom header names.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Trace context wins when debugging latency, retries, fan-out, queue delay, partial failure, and cross-service ownership problems. It lets teams move from "the payment service was slow around 10:03" to "this checkout trace waited 820 ms on inventory, retried payment twice, and then timed out in notification enqueue."',
         'Baggage wins when a small piece of business context must be attached consistently to traces and selected logs: tenant tier, deployment ring, region, experiment cohort, or product surface. It removes repeated lookup work and keeps observability dimensions consistent.',
@@ -250,7 +259,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked case study',
+      heading: 'Worked example',
       paragraphs: [
         'A checkout request enters the gateway with no incoming trace headers. The gateway creates a traceparent, starts a root span, and adds only allowed baggage: tenant_tier=gold and region=us-east. It calls the order service with traceparent, tracestate, and baggage in HTTP headers.',
         'The order service extracts the context, starts a child span, logs tenant_tier, and calls inventory and payments in parallel. Inventory uses RPC metadata. Payments uses HTTP headers. Both inject the updated context before making their own downstream calls. Later, the order service publishes a notification message with trace context in message attributes, so the consumer can attach its work to the original checkout trace.',
@@ -272,5 +281,55 @@ export const article = {
         'Study Distributed Tracing for span trees, Async Context Propagation for in-process JavaScript context, OpenTelemetry Collector Case Study for pipeline handling, Message Queue for async carriers, Metric Label Cardinality Control for baggage-to-metric risk, and Metric Exemplars Trace Correlation for metric-to-trace jumps next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for trace-context-baggage-propagation-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

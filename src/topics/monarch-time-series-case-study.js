@@ -1,4 +1,4 @@
-// Monarch case study: regional in-memory time-series ingestion and querying
+﻿// Monarch case study: regional in-memory time-series ingestion and querying
 // with global query/configuration planes for planet-scale monitoring.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -218,7 +218,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approaches and their limits',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first naive approach is one global metrics database. Every task sends every sample to one logical place, and every query reads from that place. That sounds simple, but it creates a global ingestion bottleneck and a global failure boundary. Monitoring data is too high-volume and too operationally important for one central pipe to be the only path.',
         'The second naive approach is fully regional monitoring with no global query model. That keeps ingestion local, but it makes fleet-wide debugging hard. If an incident spans regions, engineers need a way to ask one question across the system without manually stitching dashboards together.',
@@ -242,7 +242,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         'Monarch-style systems support dashboards, alerting, SLOs, capacity planning, release monitoring, incident response, fleet-wide operational analytics, and automated remediation. The same core questions appear in Prometheus, M3, OpenTelemetry metrics, cloud monitoring products, and internal telemetry platforms.',
         'The design connects directly to tracing and logs. Metrics tell you rates, levels, and distributions. Traces show paths through a system. Logs preserve local events. During an incident, metrics often provide the first signal: error rate rose, p99 latency changed, queue depth is climbing, or a region stopped reporting. Monarch is about making those signals queryable at fleet scale.',
@@ -250,7 +250,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and failure modes',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main pressures are ingestion rate, memory footprint, label cardinality, query fanout, retention, regional failures, and alert correctness. A single accidental high-cardinality label can create millions of series. A query that fans out across too many labels or regions can become expensive exactly when engineers need it most.',
         'Alerting adds another failure mode. An alert based on stale data can page people incorrectly or miss a real incident. A global alert must distinguish zero errors from no samples. It must handle delayed samples, missing regions, rollouts, and label changes. Alert semantics are part of the database contract.',
@@ -258,21 +258,21 @@ export const article = {
       ],
     },
     {
-      heading: 'A worked cardinality example',
+      heading: 'Worked example',
       paragraphs: [
         'Suppose a service exports request_latency_ms with labels service, region, endpoint, status, and build. That might create a manageable number of series. If a developer adds user_id as a label, the same metric can explode into millions of unique series. The measurements may be technically valid, but the monitoring system becomes slower, more expensive, and harder to query.',
         'The right design treats label choice as schema design. High-cardinality identifiers may belong in traces or logs, not metrics. Metrics should preserve the dimensions needed for aggregation and alerting. This is the central educational point: labels are not comments on the data; they are the index.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'How it works',
       paragraphs: [
         'A Monarch-like platform should track samples per second, active series, new series creation rate, label cardinality by dimension, query fanout, query latency, alert evaluation lag, missing-sample rates, memory pressure, and retention cost. These metrics show whether the observability system itself is healthy.',
         'The platform also needs governance signals. Which teams create the most series? Which labels drive cardinality? Which dashboards run the most expensive queries? Monitoring systems are often treated as background plumbing, but they need product management and schema review because their misuse can create real production risk.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Monarch is a monitoring database built around regional ingestion, global query, schema discipline, and label-indexed time series. The architecture exists because monitoring data must be fresh, queryable, and reliable during failure.',
         'The deep lesson is that observability systems have data structures too. Metric names, label sets, time windows, histograms, query fanout, and alert state are design choices. If those choices are weak, the dashboard may be pretty but the evidence will be poor.',
@@ -283,10 +283,88 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: VLDB paper at https://www.vldb.org/pvldb/vol13/p3181-adams.pdf and Google Research page at https://research.google/pubs/monarch-googles-planet-scale-in-memory-time-series-database/. Study Dapper Tracing Case Study, t-digest Quantile Sketch, Google Dataflow Model Case Study, Backpressure & Flow Control, and Load Shedding & Graceful Degradation next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for monarch-time-series-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

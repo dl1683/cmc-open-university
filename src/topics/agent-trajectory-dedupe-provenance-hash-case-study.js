@@ -1,4 +1,4 @@
-// Coding-agent trajectory dedupe: normalize operations, fingerprint behavior,
+﻿// Coding-agent trajectory dedupe: normalize operations, fingerprint behavior,
 // and keep provenance hashes so train/eval splits cannot silently leak.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -254,7 +254,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Agent Trajectory Dedupe & Provenance Hash. A training-data hygiene case study for coding agents: fingerprint near-duplicate rollouts, preserve provenance, and block train/eval leakage..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Coding-agent factories can produce thousands of successful rollouts without producing thousands of independent lessons. One agent uses `grep`, another uses `rg`, another opens the file directly, but all three find the same failing assertion, apply the same patch hunk, and pass the same test. If the dataset counts those as three unrelated successes, training sees an overweighted pattern and evaluation becomes easier than it looks.',
         'Duplication is not limited to exact copies. A benchmark may include mirrored repositories, generated mutations, repeated issue templates, similar tests, or the same fix idea expressed with different line numbers. A model can learn the ritual around a family of tasks, then appear to generalize on a held-out item that is really a sibling of its training data.',
@@ -303,7 +312,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Over-deduplication removes useful diversity. Two repairs may share the sequence read file -> edit hunk -> run test while requiring different reasoning. A threshold that is too aggressive can collapse hard cases into easy families and starve training of variation.',
         'Under-deduplication is often worse for public claims. Duplicates can flood training, make loss curves look better, and leak into evaluation. The model may learn a repeated patch ritual rather than a general debugging skill. Benchmark results then measure memorized family exposure instead of generalization.',
@@ -312,7 +321,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This structure wins when verified trajectories are expensive. If each example requires a pinned environment, agent rollout, oracle run, and proof record, the dataset cannot afford to waste capacity on repeated siblings. Dedupe lets the sampler keep one canonical example, downweight a repeated family, and still preserve all aliases for audit.',
         'It also wins when benchmark claims matter. A result is more credible when the dataset can show that train and eval families were separated by provenance roots, not just by exact transcript strings. If a reviewer asks whether a held-out task was a duplicate of training data, the split ledger has an answer.',
@@ -328,7 +337,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A factory generates four successful Python bug-fix trajectories. Trace A searches with `grep`, reads `parser.py`, adds a guard for an empty token list, and passes `test_empty_input`. Trace B uses `rg`, opens the same function, applies the same guard with slightly different formatting, and passes the same test. Trace C comes from a mirrored repository generated from the same mutation template. Trace D edits a different parser in another project and also adds an empty-input guard, but the failing condition and test are different.',
         'Exact diff matching catches neither A and B nor the mirror relation in C. A behavior-aware deduper sees that A and B share operation shingles, patch fingerprint, and oracle fingerprint, so it merges them. It assigns C to the same split family because the provenance root points to the same synthetic mutation. It tags D as a conceptual neighbor but keeps it as a separate case because the repository, oracle, and patch context differ.',
@@ -342,5 +351,56 @@ export const article = {
         'The deeper lesson is that dataset identity is a systems problem. You need stable keys, normalized behavior, provenance roots, split ledgers, and review policy. Without them, more rollouts can make the dataset look larger while making the evidence weaker.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for agent-trajectory-dedupe-provenance-hash-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

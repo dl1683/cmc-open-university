@@ -207,6 +207,24 @@ Before implementing a topic, write these first:
 
 If the animation cannot show the invariant, redesign the animation.
 
+### Market-Report-Aligned Editorial Rule
+
+This section system follows the same default writing hierarchy we use in Market
+Reports:
+
+1. `WRITING_SYSTEM.md` here defines technical depth, proof structure, and course
+   coverage.
+2. `PROSE_SIMPLICITY.md` in Market Reports defines sentence discipline.
+3. Keep craft for rare emphasis points only.
+
+For every topic page:
+
+- Information quality is the first filter.
+- Plain clarity is the second.
+- Decorative style is the exception.
+
+If this stack breaks, the text is wrong for students.
+
 Examples:
 
 - Binary search should show the eliminated range, not only the midpoint.
@@ -298,6 +316,27 @@ Use primary sources where possible:
 
 Study notes should not become citation dumps. Sources should support claims,
 not replace explanation.
+
+## Required Topic Shape
+
+Every study note should eventually have these sections, with canonical headings:
+
+- Why this exists
+- The obvious approach
+- The wall
+- The core insight
+- How it works
+- Why it works
+- Cost and complexity
+- Real-world uses
+- Where it fails
+- Worked example
+- Sources and study next
+- How to read the animation
+
+Use `How to read the animation` at the beginning of the article to connect the
+visual to the claim set. It should define active/visited/found state semantics and
+show one specific inference rule that is safe.
 
 ## Prose Standard
 

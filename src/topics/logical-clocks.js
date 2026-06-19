@@ -1,4 +1,4 @@
-// Clocks in distributed systems: wall clocks LIE across machines, so
+﻿// Clocks in distributed systems: wall clocks LIE across machines, so
 // either build order from causality (Lamport, vector clocks) or buy
 // hardware truth and wait out its error bars (Spanner's TrueTime).
 
@@ -26,7 +26,7 @@ function* wallClocksLie() {
       ],
       columns: [{ id: 'event', label: 'event' }, { id: 'stamp', label: 'wall-clock stamp' }],
       values: [[1, 2], [3, 4], [5, 6]],
-      format: (v) => ['', 'S1: user sets name = "Ana"', '10:00:00.100 (S1 clock, 80ms fast)', 'S2: user FIXES it to "Anna"', '10:00:00.050 (S2 clock, correct)', 'keeps the "later" stamp…', '"Ana" wins — the CORRECTION is silently dropped ⚠'][v],
+      format: (v) => ['', 'S1: user sets name = "Ana"', '10:00:00.100 (S1 clock, 80ms fast)', 'S2: user FIXES it to "Anna"', '10:00:00.050 (S2 clock, correct)', 'keeps the "later" stamp…', '"Ana" wins — the CORRECTION is silently dropped âš '][v],
     }),
     highlight: { removed: ['lww:stamp'] },
     explanation: 'Read the table in real order first: "Ana" is written, then the user corrects it to "Anna." Now read the timestamps: the first server is 80ms fast, so last-write-wins keeps the older value. The bug is not a crash or a lost packet; it is a merge rule trusting clocks more than causality.',
@@ -91,7 +91,7 @@ function* logicalAndTrue() {
     }),
     highlight: { found: ['d'] },
     explanation: 'Lamport clocks make the arrows countable. Tick for local events, and on receive jump to max(local, message) + 1. In the diagram, B carries 2 to P2, so D becomes 3. The guarantee is one-way: causally earlier means a smaller clock. The reverse is false; a larger number may be causal order or just an arbitrary tie-break over concurrent work.',
-    invariant: 'Lamport: happens-before ⇒ smaller clock. The reverse implication does not hold — concurrency is invisible.',
+    invariant: 'Lamport: happens-before â‡’ smaller clock. The reverse implication does not hold — concurrency is invisible.',
   };
 
   yield {
@@ -104,11 +104,11 @@ function* logicalAndTrue() {
       ],
       columns: [{ id: 'vsX', label: 'vs X?' }, { id: 'vsZ', label: 'vs Z?' }],
       values: [[0, 1], [2, 3], [4, 0]],
-      format: (v) => ['—', 'CONCURRENT: [2,0] vs [0,1] — each wins one slot', 'X → Y: [2,0] ≤ [3,1] componentwise', 'Z → Y: [0,1] ≤ [3,1]', 'CONCURRENT (symmetric)'][v],
+      format: (v) => ['—', 'CONCURRENT: [2,0] vs [0,1] — each wins one slot', 'X â†’ Y: [2,0] â‰¤ [3,1] componentwise', 'Z â†’ Y: [0,1] â‰¤ [3,1]', 'CONCURRENT (symmetric)'][v],
     }),
     highlight: { compare: ['v1:vsZ'], found: ['v2:vsX'] },
     explanation: 'Vector clocks keep one counter per participant, so comparison can distinguish "before" from "unrelated." If every slot in X is less than or equal to Y, X happened before Y. If each vector wins in some slot, as [2,0] and [0,1] do, the writes are concurrent and need an application merge instead of a silent overwrite.',
-    invariant: 'Vector ≤ in every slot ⇔ happens-before; mutual non-domination ⇔ concurrent. Cost: one counter per participant.',
+    invariant: 'Vector â‰¤ in every slot â‡” happens-before; mutual non-domination â‡” concurrent. Cost: one counter per participant.',
   };
 
   yield {
@@ -122,7 +122,7 @@ function* logicalAndTrue() {
       ],
       columns: [{ id: 'what', label: '' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'GPS receivers + atomic clocks in every datacenter', 'now() returns an INTERVAL [earliest, latest], ε ≈ 1–7ms wide', 'hold each commit until its interval has fully passed (~ε)', 'timestamps become globally TRUE — snapshot reads need no coordination'][v],
+      format: (v) => ['', 'GPS receivers + atomic clocks in every datacenter', 'now() returns an INTERVAL [earliest, latest], ε â‰ˆ 1–7ms wide', 'hold each commit until its interval has fully passed (~ε)', 'timestamps become globally TRUE — snapshot reads need no coordination'][v],
     }),
     highlight: { active: ['wait:what'], found: ['payoff:what'] },
     explanation: 'TrueTime is the expensive alternative: keep a bounded uncertainty interval and wait until it has passed before exposing a commit. The animation highlights commit-wait because that is the trick. Spanner does not pretend clocks are perfect; it pays hardware and latency so a timestamp becomes globally unambiguous after the wait.',
@@ -158,6 +158,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Clocks & Ordering: Lamport to TrueTime. Wall clocks lie across machines — order events by causality instead, or buy atomic truth and wait out its error bars..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Distributed systems constantly need to answer ordering questions: which write wins, which log entry is newer, which replica has missed an update, whether two changes conflict, and whether a read is allowed to see a write. On one machine, a local clock and a local sequence number often feel enough. Across machines, they are not.',
@@ -174,7 +183,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is that causality is a partial order. An event can be known to happen before another event if it occurs earlier on the same process, sends a message that the other event receives, or is connected by a chain of those facts. Events with no causal path between them are concurrent.',
         'Concurrent does not mean simultaneous. It means the system has no causal evidence that one event should come before the other. That distinction matters because a merge policy, conflict detector, database timestamp, or trace analysis tool should not invent evidence it does not have.',
@@ -191,7 +200,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'How it works (2)',
       paragraphs: [
         'The wall-clock view proves that timestamp order and real event order can diverge. The correction loses because the first server is fast. The bug is not a crash or packet loss. It is a merge rule trusting clock time more than causality.',
         'The happens-before graph proves the replacement invariant: arrows create defensible order; no arrow means concurrency. If A sends a message that eventually affects E, A happens before E. If A and C have no path between them, neither should be treated as causally first without an application rule.',
@@ -207,7 +216,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Lamport clocks are compact and cheap, but they hide concurrency. If you use them to pick a winner for concurrent writes, you may drop a conflict users expected to merge. They are best when monotonic progress or deterministic ordering matters more than conflict visibility.',
         'Vector clocks expose concurrency, but the stamp grows with participants and needs pruning rules for churn, replicas that disappear, and dynamic membership. Version vectors and dotted version vectors exist because production systems need more careful metadata management than a classroom vector.',
@@ -215,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Lamport-style counters appear in consensus terms, leader epochs, idempotency tokens, log sequence numbers, and any protocol that needs monotonic progress without trusting wall time.',
         'Vector clocks and version vectors appear in eventually consistent storage, conflict detection, anti-entropy, and CRDT sync. They are useful when concurrent edits should be surfaced or merged instead of silently overwritten.',
@@ -223,7 +232,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The common failure mode is overclaiming what a timestamp means. A timestamp can be a display hint, a causal token, a conflict detector, or a serialization point. Treating one kind as another is how systems lose writes while all checks pass.',
         'Wall clocks fail when used as the only correctness signal for concurrent writes. Lamport clocks fail when teams assume a total order means causal truth. Vector clocks fail operationally when metadata growth and membership churn are ignored. TrueTime-like designs fail when the system cannot actually bound uncertainty or tolerate commit-wait.',
@@ -236,5 +245,78 @@ export const article = {
         'Study Raft Leader Election for Lamport-like terms, CRDTs for merge rules that use causal metadata, Transaction Isolation Levels for snapshot semantics, Sharding & Partitioning for cross-shard read problems, and Distributed Tracing for the difference between timestamp order and request causality.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Clocks & Ordering: Lamport to TrueTime moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

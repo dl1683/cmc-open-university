@@ -1,4 +1,4 @@
-// Accessibility-tree action targeting: use roles, names, states, bounding boxes,
+﻿// Accessibility-tree action targeting: use roles, names, states, bounding boxes,
 // and candidate ranking to ground browser-agent actions.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -215,6 +215,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Accessibility Tree Action Target Case Study. A browser-agent grounding case study: accessibility snapshots, role/name/state trees, visible candidates, bounding boxes, locator ranking, and target verification..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `A browser agent has to turn language into a safe UI action. A user says "book the trip," "click Search," or "enter the email address," and the agent must choose one target among many visible and hidden interface elements. Pixels alone are a weak representation for that job. A button, link, disabled control, decorative icon, input placeholder, and menu item can look similar in a screenshot while having very different browser semantics.`,
@@ -223,7 +232,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why the obvious approaches fail',
+      heading: 'Where it fails',
       paragraphs: [
         `The simplest baseline sends a screenshot to a model and asks for click coordinates. That can work on small static pages where the target is visually obvious. It fails on dense forms, admin tools, custom controls, repeated buttons, sticky headers, hidden overlays, and responsive layouts. Coordinates also age badly: a re-render, scroll, font load, or viewport change can move the target before the click lands.`,
         `The next baseline sends raw HTML. That gives more structure, but modern web pages can contain thousands of nodes, generated class names, hidden templates, framework wrappers, portals, Shadow DOM, duplicate text, and elements that are not action targets. Raw DOM is too much structure in the wrong shape. It describes implementation details, not necessarily the user-perceived control.`,
@@ -231,7 +240,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight and data model',
+      heading: 'The core insight',
       paragraphs: [
         `The useful unit is a candidate row. A row can store accessible role, accessible name, state, hierarchy, nearby text, visibility, enabled or disabled status, selected or expanded state, bounding box, viewport membership, locator, screenshot crop, source snapshot ID, and risk annotations. This joins semantic evidence to mechanical actionability.`,
         `Role answers what kind of thing the element is: button, link, textbox, checkbox, menu item, heading, dialog, table cell, and so on. Name answers how the user or assistive technology would identify it: Search, Email, Continue, Billing address. State answers whether it is disabled, checked, selected, expanded, pressed, hidden, required, invalid, or otherwise constrained. Geometry answers where it is and whether a click or input can physically reach it.`,
@@ -239,7 +248,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The core insight (2)',
       paragraphs: [
         `The browser first renders the page and builds an accessibility tree. The runtime snapshots that tree, joins it with bounding boxes and visibility information, and turns it into candidate rows. It then filters candidates by the instruction. A request to "click Search" should prefer visible enabled buttons or links named Search, not hidden templates, disabled controls, or unrelated text nodes.`,
         `Ranking blends semantic and spatial signals. Exact accessible-name matches are strong, but synonyms, nearby labels, parent regions, form context, and task history also matter. If the user asks for "billing ZIP code," the best candidate may be a textbox named "ZIP" inside a Billing address region, not the first textbox named ZIP on the page. If the instruction is the next step in a checkout flow, trajectory can help distinguish the correct Continue button from a newsletter modal.`,
@@ -263,7 +272,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         `The accessibility tree can be wrong, incomplete, or misleading. Broken ARIA can assign the wrong role. Duplicate accessible names can make two controls indistinguishable. Custom widgets can expose only a generic container. Canvas applications may provide little meaningful tree structure. Virtualized lists may omit offscreen options until the page scrolls. Localization can change labels while the task instruction remains in another language.`,
         `Candidate ranking can also fail when the target is defined visually rather than semantically. Instructions such as "click the red warning icon," "drag the left handle," or "choose the largest chart bar" require visual grounding. The accessibility tree may still help locate the chart region or toolbar, but it cannot replace vision when color, shape, or spatial comparison is the essence of the task.`,
@@ -271,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational and implementation guidance',
+      heading: 'How it works',
       paragraphs: [
         `Generate candidates in the runtime, not in the model. Use browser APIs, accessibility snapshots, locators, and bounding boxes to produce a bounded set of options. Include enough fields for ranking, but avoid dumping the entire page when a filtered table would do. For most tasks, viewport-visible actionable roles should be considered before hidden or purely structural nodes.`,
         `Prefer durable locators over coordinates when possible. A coordinate can be the last-mile action point, but the candidate should carry a locator that can be re-resolved and checked. Playwright-style role and name locators are valuable because they align with user-perceived semantics. When the locator cannot represent the target, keep the screenshot crop and geometry as explicit fallback evidence.`,
@@ -279,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         `This pattern matters in browser-use agents, end-to-end test generation, robotic process automation, accessibility auditing, form filling, data entry, booking flows, support dashboards, and enterprise admin software. These domains punish wrong clicks. A mistaken target can submit a form, delete data, purchase the wrong item, leak information, or leave the system in an unknown state.`,
         `It also matters for evaluation. A benchmark that only checks whether an agent eventually completes a task can hide how often it clicked irrelevant elements, relied on brittle coordinates, or recovered by luck. Candidate-based targeting gives evaluators more inspectable traces: what the agent saw, which candidates were considered, why one was selected, what verification passed, and what changed after the action.`,
@@ -287,7 +296,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete failures',
+      heading: 'Where it fails (3)',
       paragraphs: [
         `A page with two buttons named Submit can send the agent to the wrong form unless parent region, nearby labels, form ownership, and bounding boxes are part of ranking. A disabled Submit button can be the best semantic match and still fail the actionability check. A hidden Submit in a template can match raw DOM text but should never be a candidate for a visible click.`,
         `A custom dropdown often requires a two-step state machine. Before opening, the accessibility tree may expose only the collapsed combobox or button. After opening, the options become visible candidates. An agent that searches for the option before opening the control may conclude the target is missing. The repair policy should know that some targets appear only after an intermediate action.`,
@@ -301,5 +310,87 @@ export const article = {
         `Study Browser Actionability Auto-Wait Case Study for visibility, stability, and enabled checks. Study DOM Event Propagation & Path for what happens after a click. Study Browser Rendering for how pixels and boxes appear. Study Virtual DOM Reconciliation for stale candidate failures. Study Computer-Use Agent Runtime Loop Case Study for observe-act-repair loops. Study Information Retrieval and Ranking if you want the scoring model behind candidate selection.`,
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Accessibility Tree Action Target Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

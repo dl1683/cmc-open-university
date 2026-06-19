@@ -87,56 +87,6 @@ export function* run(input) {
   };
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        `Git is not a tool for storing diffs. It is a *content-addressed Merkle DAG*: a directed acyclic graph where every piece of data — files, folders, commits — is named by the cryptographic hash of its contents. A blob is file contents; a tree is a folder (a list of filenames pointing to hashes); a commit is a snapshot (root tree + parent commit + metadata), all hashed together. Because identical content always hashes to the same name, two commits sharing a README automatically share the same blob object in storage.`,
-        `This design was revolutionary. When Linus Torvalds designed git in 2005, most version-control systems stored diffs — the changes between versions. Git stores snapshots (complete project states), yet because of content addressing, a snapshot costs about as much as a diff. Today, docker image layers, Nix packages, IPFS, and blockchain systems use the same pattern.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `When you commit, git builds four kinds of objects. First, it reads your working files and creates a blob for each — a SHA-1 hash of the file contents (40 hex digits in modern git, though git is migrating to SHA-256). Then it creates trees: the root tree is a table of filenames mapping to blob hashes and subtree hashes, and each folder becomes a tree. The root tree itself gets hashed — that hash is a cryptographic commitment to the *entire project state*, just like a Merkle tree root. Finally, the commit object contains the root tree hash, the parent commit hash, your author info, and a message, all hashed together to produce the commit ID.`,
-        `Because of content addressing, editing one file creates only four new objects: the new blob, and three new trees (src/ folder, root). The unchanged README blob is shared between both commits — git diff literally walks the tree hashes downward, skipping anything identical without reading bytes. Pushing a 1-byte change is fast because git computes which object hashes the remote already has (hash set-difference), and sends only the new ones. Branches are not metaphors; a branch is a 41-byte text file containing a commit hash.`,
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        `Read the graph as immutable sharing. Commit 1 and commit 2 are full snapshots, but unchanged objects keep the same hash and are reused. The animation is not showing git storing a textual diff; it is showing a Merkle DAG where equal content collapses to the same object.`,
-        `The obvious beginner model is "a branch copies my project." The better model is "a branch points at a commit." Checkout materializes objects into the working tree, diff walks hashes until it finds changed subtrees, and push sends only object IDs the remote does not already have.`,
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        `Content-addressed storage with hashing costs CPU (SHA-1 / SHA-256 is fast but not free) and initial setup time, but the payoffs are profound. Storage is deduplicated automatically — identical files across commits are one object. Diffing is logarithmic in project history because you descend only changed tree nodes, with exponential pruning. Corruption is detectable: any bit change in stored objects produces a different hash, so git fsck can audit object integrity. Force-pushing creates new commits rather than mutating old ones, preserving history traceability; this is a feature, not a bug, because it prevents tampering. The tradeoff is that git history is append-only: you cannot truly edit the past without invalidating all descendant commit hashes.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `Git manages nearly every software project, making it the most-used version-control system. Beyond source code, the same hash-named-immutable-objects pattern powers container images (docker layers are content-addressed), package managers (Nix stores packages by their derivation hash), distributed file systems (IPFS uses content hashing), and blockchains. Kubernetes uses git as a source of truth (GitOps). The pattern also underpins databases with write-ahead logs and snapshot isolation, where prior versions are kept immutable and new snapshots reference unchanged parts. Anywhere you need to merge, deduplicate, or prove integrity, content addressing is the right tool.`,
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        `The biggest myth is that git stores diffs, making it space-efficient. It does not; it stores snapshots. The efficiency comes from hashing and deduplication, which is a different beast. A second misconception is that commit hashes are random or unstable — they are *deterministic derivations* from content. If two people commit the same code from the same parent, they get the same commit hash. Force-pushing is often feared as "losing history," but it does not erase anything: the old commits are orphaned (unreachable from any branch), not deleted, and git reflog can recover them. Finally, many users misunderstand branching as creating new storage; a branch is just a label (41 bytes) pointing to a commit. Switching branches does not clone; it rewrites your working directory to match the commit tree.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary references: Git's object model in Pro Git at https://git-scm.com/book/en/v2/Git-Internals-Git-Objects, git repository layout at https://git-scm.com/docs/gitrepository-layout, and Git's hash transition notes at https://git-scm.com/docs/hash-function-transition. To deepen your understanding, explore Merkle Tree to see the mathematical structure underlying git's integrity commitments. Hash Table explains blob lookup. Graph BFS and Topological Sort explain commit traversal. Content-Addressed Merkle DAG Object Store generalizes Git's object model into a reusable storage pattern. Content-Defined Chunking & Dedup explains when byte-range boundaries replace Git's file/tree boundaries. Transparency Log Witnessing Case Study and Software Supply Chain Provenance Graph show how signed roots, attestations, and audit logs extend Git's integrity story into release security.`,
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

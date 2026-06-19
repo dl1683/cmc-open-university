@@ -209,6 +209,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for ClickHouse MergeTree Case Study. MergeTree as the analytical storage lesson: inserts create sorted immutable parts, sparse marks skip granules, and background merges reshape data..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `Analytical databases are asked to ingest huge append streams and then filter, group, and aggregate billions of rows. The common query is not "find one row by id." It is "scan a time range, read a few columns, skip most tenants, and aggregate fast."`,
@@ -217,7 +226,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious approach is to put every row behind a dense index. That feels precise because every key can point to an exact row. It is also the wrong default for many analytic scans. The index can become large, row-oriented, and expensive to maintain while the query still needs to read compressed column ranges.`,
         `The opposite obvious approach is to append files and scan them later. That keeps ingest simple but moves pain to read time. If the data is not clustered by common predicates, the query has to touch too many files, too many row groups, or too many unrelated values.`,
@@ -225,7 +234,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The core insight',
       paragraphs: [
         `MergeTree trades row-level precision for scan-level advantage. Sort rows by the ORDER BY key, store them in immutable columnar parts, and index only granule boundaries. The sparse index does not identify every row. It narrows the set of granules that may contain matching rows.`,
         `The invariant is conservative skipping. A granule can be skipped only when the engine can prove from the sorted order and metadata that it cannot contain a match. A granule that might contain a match must be read and filtered exactly inside the column data.`,
@@ -233,7 +242,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         `An insert block is sorted by the table ORDER BY expression and written as a new data part. A part is self-contained: column data, marks, primary-index entries, metadata, and checksums live together. Old rows are not rewritten in place for a normal insert.`,
         `A part is divided into granules. For each granule, the primary index stores key values around the granule boundary, and marks store offsets into compressed column streams. During a SELECT, ClickHouse uses predicates on primary-key and partition expressions to find mark ranges that may match.`,
@@ -249,7 +258,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works (2)',
       paragraphs: [
         `The parts-and-granules view shows the first big idea: an insert becomes a sorted immutable part, not an in-place row update. The part contains column files, marks, index entries, metadata, and checksums. That self-contained unit is the thing ClickHouse later reads, merges, moves, or drops.`,
         `The sparse-index view shows the second idea: the WHERE predicate narrows the scan to candidate granules. A skipped granule is a range-level proof from sorted order. A read granule is still only a maybe. The row filter inside the selected columns decides the final result.`,
@@ -265,7 +274,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Read cost depends on how well ORDER BY matches the predicate, how many parts must be checked, how many columns are read, compression ratio, granule size, and predicate selectivity. A perfect key can skip most data. A bad key turns the same query into a wider scan.`,
         `Write cost includes sorting insert blocks, creating part files, writing marks and metadata, and later paying for merges. Tiny inserts are dangerous because they create many small parts. Merges reduce part count and improve locality, but they add write amplification and can compete with queries for disk bandwidth.`,
@@ -273,7 +282,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and where it fails',
+      heading: 'Real-world uses',
       paragraphs: [
         `MergeTree wins on append-heavy analytics: observability events, clickstreams, product metrics, security logs, ad analytics, time-series-like facts, and dashboards that filter on dimensions aligned with ORDER BY. It is built for scanning compressed columns quickly and skipping chunks of sorted data.`,
         `It fails when the workload is really OLTP: high-concurrency point updates, row-by-row transactions, uniqueness enforcement by primary key, and many small random writes. It also fails when most queries filter on columns unrelated to physical order.`,
@@ -281,7 +290,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The first trap is thinking ClickHouse primary keys enforce uniqueness. They define sparse index order. Duplicate primary-key values can exist unless a specific engine or workflow gives different semantics.`,
         `The second trap is tiny continuous inserts. Each small insert creates part metadata and later merge pressure. Once part count gets high, queries must consider more pieces and background work grows. Batching is not a micro-optimization; it is part of the storage design.`,
@@ -289,7 +298,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'How it works (3)',
       paragraphs: [
         `Design ORDER BY from real queries, not from entity modeling habits. Put the most common high-selectivity range and equality filters early when that matches the workload. Keep the key narrow enough to stay cheap. Remember that the table can have duplicate key values.`,
         `Batch inserts so the engine creates fewer, healthier parts. Watch part counts, merge backlog, disk bandwidth, mutation queues, selected marks, read rows versus result rows, and memory used by primary indexes. Those metrics tell you whether the storage layout is helping or whether queries are brute-forcing through compressed data.`,
@@ -297,11 +306,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Useful ClickHouse docs include the MergeTree engine page, primary indexes, sparse primary index guide, data parts, partitions, projections, and data-skipping indexes. Read them with the table layout in mind: part, granule, mark, column stream, sparse index, merge.`,
         `Study next by role: LSM Tree for immutable sorted runs and compaction, RocksDB LSM Case Study for write amplification, Parquet Columnar Format for column chunks and statistics, Database Indexing for dense index contrast, Prometheus TSDB for another time-series storage design, and Apache Pinot Star-Tree Index for a different analytic acceleration pattern.`,
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why ClickHouse MergeTree Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

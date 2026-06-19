@@ -211,6 +211,15 @@ export const article = {
   ],
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Consistency Distillation Few-Step Diffusion Case Study. A case study for making diffusion fast: teacher trajectories, consistency targets, progressive halving, one-step and two-step sampling, quality gaps, and deployment gates..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Diffusion models produce strong images, audio, and video because they denoise gradually. The cost is latency: a sampler may need dozens or hundreds of model evaluations before it reaches a clean sample.',
@@ -218,7 +227,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The baseline approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The baseline diffusion sampler starts from noise and applies many small denoising updates. Each update is conservative. The model only has to repair a little uncertainty at a time, which is why the final sample can be high quality.',
         'A reasonable speed hack is to skip steps or use a shorter hand-tuned schedule. That helps until the jumps become too large. Then details wash out, conditioning weakens, and artifacts appear because the model was trained for a slower trajectory.',
@@ -232,7 +241,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'How it works',
       paragraphs: [
         'Progressive distillation trains a shorter sampler from a longer deterministic teacher. A 64-step teacher trains a 32-step student. That student can become the teacher for 16 steps, then 8, then 4. Each round halves the step budget while trying to keep the student on the teacher trajectory.',
         'Consistency models use a related target. Points from the same probability-flow trajectory should map to the same clean sample. The model learns a function that sends noisy states at different times back toward the same x0 endpoint.',
@@ -240,7 +249,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The point is not merely to remove sampler steps. The point is to teach a student model that far-apart noisy states on the same trajectory should agree about the same clean sample. Once that agreement is learned, inference can take larger jumps without asking the model to invent the path from scratch.',
         'This turns a slow iterative process into a learned shortcut. The shortcut is useful only when it preserves the behavior users care about: prompt adherence, structure, identity, safety, and artifact quality.',
@@ -262,7 +271,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Few-step diffusion wins when users need fast approximations more than perfect final samples. Preview images, interactive editing, rapid design exploration, and low-latency media generation can route many requests through a distilled sampler.',
         'It also wins when a product can tier quality. A fast model can produce candidates, a slower route can refine selected results, and the full teacher can handle expensive final assets or high-risk prompts.',
@@ -277,7 +286,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         'A media editor can use a two-step consistency model for thumbnails, a four-step model for controlled edits, and the original teacher for final hero images. The router sends unsafe prompts to policy handling before spending GPU time and sends high-risk quality requests to the slower sampler.',
         'The dashboard should track sampler choice, p50 and p99 latency, GPU cost, human preference, artifact categories, fallback rate, and route-specific failures. If the fast model is excellent for previews but weak for final text rendering, the product narrows the route instead of calling the method a failure.',
@@ -301,11 +310,53 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Consistency Models at https://arxiv.org/abs/2303.01469, Progressive Distillation at https://arxiv.org/abs/2202.00512, and OpenAI sCM discussion at https://openai.com/index/simplifying-stabilizing-and-scaling-continuous-time-consistency-models/.',
         'Study Diffusion Models first, then Knowledge Distillation, Benchmark Variance Model Selection, Diffusion LLM Serving Scheduler, and any topic on inference routing or quality evaluation. The useful next question is not whether a sampler is fast; it is which requests can safely use the fast route.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for consistency-distillation-few-step-diffusion-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

@@ -1,4 +1,4 @@
-// DNS resolution: how "www.example.com" becomes an IP address — a walk
+﻿// DNS resolution: how "www.example.com" becomes an IP address — a walk
 // down a planetary tree of name servers, made instant by caches with
 // expiry timers at every layer. The internet's original distributed system.
 
@@ -8,7 +8,7 @@ export const topic = {
   id: 'dns-resolution',
   title: 'How DNS Works',
   category: 'Systems',
-  summary: 'Root → TLD → authoritative: the hierarchical lookup behind every URL, and the caches that skip it.',
+  summary: 'Root, TLD, authoritative: the hierarchical lookup behind every URL, and the caches that skip it.',
   controls: [
     { id: 'cache', label: 'Resolver cache', type: 'select', options: ['cold (full walk)', 'warm (cached)'], defaultValue: 'cold (full walk)' },
   ],
@@ -97,6 +97,14 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation traces a recursive resolver walking the DNS hierarchy for www.example.com. Five nodes represent the actors: your browser, the recursive resolver, a root server, a .com TLD server, and the authoritative nameserver for example.com. Edges show the query path the resolver follows.',
+        'Active (highlighted) nodes and edges show the current query hop. Visited markers mean a server has already answered and referred the resolver downward. Found markers mean the final IP address has been returned and cached.',
+        'Toggle between cold and warm cache to see the difference. A cold run walks root, TLD, and authoritative servers in sequence. A warm run returns from the resolver cache in one hop. Watch how many round trips each path costs, and notice that the resolver does the walking so the browser does not have to.',
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `DNS exists because humans want stable names and networks route to changing addresses. A browser can remember www.example.com, but TCP needs an IP address. A service owner may move servers, add a CDN, rotate mail providers, split traffic by region, or recover from an outage without asking every user to edit a local file. The name has to stay useful while the infrastructure behind it changes.`,
@@ -105,7 +113,7 @@ export const article = {
       ],
     },
     {
-      heading: `The naive approach`,
+      heading: `The obvious approach`,
       paragraphs: [
         `The naive approach is a central table from names to addresses. It is attractive because lookup is simple: send the name to the table, get back the address, connect. It also gives one place to edit when a record changes. For a small private network, that can be enough.`,
         `The wall is ownership and scale. A central table has to know every domain, accept updates from every owner, handle global query traffic, and avoid becoming a single operational and political bottleneck. Local copies make reads faster, but then freshness becomes hard. If every machine holds a stale file, a domain change does not become visible until every copy is updated.`,
@@ -129,7 +137,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual is proving`,
+      heading: `How it works`,
       paragraphs: [
         `The cold path proves that DNS resolution is a chain of delegated questions, not one lookup in one global table. The user asks the recursive resolver. The resolver asks the root for a direction, then the TLD for a narrower direction, then the authoritative server for the final record. Each step removes a large part of the name space from consideration because authority narrows as the resolver walks downward.`,
         `The warm-cache path proves why DNS can survive global volume. The recursive resolver returns a still-valid answer in one local hop, so the upper layers stay quiet. The TTL frame proves the tradeoff: a cached answer is useful because it avoids repeated work, and risky because it may keep an old address alive until the freshness budget expires.`,
@@ -145,7 +153,7 @@ export const article = {
       ],
     },
     {
-      heading: `Cost and tradeoffs`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `A cold recursive lookup costs several network round trips before the application can connect. That can dominate page startup when the resolver is far away, the network is lossy, or DNSSEC validation adds work. A warm resolver hit is close to O(1) from the client point of view: one request to a nearby resolver and one response back.`,
         `The space cost is cache state across browsers, operating systems, recursive resolvers, and sometimes application runtimes. That state is worth keeping because popular names repeat constantly. LRU Cache explains the capacity pressure; Cache Invalidation & Versioning explains the freshness pressure. DNS adds TTL because invalidation messages to every resolver on the Internet are not realistic.`,
@@ -161,7 +169,7 @@ export const article = {
       ],
     },
     {
-      heading: `Failure modes and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `DNS changes are not globally instant. Different users can see different answers because their recursive resolvers cached different records at different times, because authoritative servers steer by geography, or because one resolver is validating DNSSEC and another is not. "It works for me" is normal evidence in DNS debugging, not a contradiction.`,
         `The common failure is asking the wrong layer. A stale browser cache, policy-filtered recursive resolver, broken delegation, unavailable authoritative server, DNSSEC validation failure, and application outage can all look like "the site is down." Good debugging follows the chain: local cache, resolver, referral path, authoritative answer, validation, then application connection.`,
@@ -175,5 +183,40 @@ export const article = {
         `Study Trie (Prefix Tree) for the name-tree shape, LRU Cache for resolver storage pressure, Cache Invalidation & Versioning for TTL tradeoffs, DNS Negative Cache & NXDOMAIN for absence caching, and DNS Serve-Stale Resolver Cache for resilience when authoritative refresh fails. Then follow CDN Request Flow, Load Balancer, Consistent Hashing, and TCP: Handshake & Congestion Control to see what happens after the name becomes an address.`,
       ],
     },
-  ],
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A central name table works until ownership, scale, or staleness breaks it. Ownership fails first: a single authority must accept updates from every domain operator on Earth, decide conflicts, and stay available globally. No organization can run that table without becoming a political and operational bottleneck.',
+        'Scale compounds the problem. Billions of queries per second hit DNS. A single server cannot absorb that load, and replicating the full table to every edge means every copy must stay synchronized as records change. Broadcasting queries is worse: most servers cannot answer most questions, so the network drowns in irrelevant traffic.',
+        'Staleness is the final wall. Local copies of a flat file go stale silently. A domain owner changes an address, but clients keep connecting to the old one until every copy updates. Without an explicit freshness contract, there is no way to know whether a cached answer is still valid. DNS solves all three problems with one structure: a delegation tree that distributes authority, plus TTL-bound caches that distribute load without requiring invalidation broadcasts.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Trace the full cold resolution of www.example.com from a browser with an empty cache. The name reads right to left as a path through the delegation tree: root (the trailing dot), then com, then example.com, then the www host record.',
+        'Step 1: The browser asks the OS stub resolver for www.example.com. The stub has no cached answer and forwards the query to the configured recursive resolver (say, 8.8.8.8). Step 2: The recursive resolver has a cold cache. It knows the addresses of the 13 root server clusters (hardcoded in a hints file). It sends a query for www.example.com to one of them, say a.root-servers.net.',
+        'Step 3: The root server does not know www.example.com. It sees the rightmost label is com, so it returns a referral: "Try the .com TLD servers," along with the NS records and glue A records for those servers. Step 4: The resolver sends the same query to a .com TLD server, say a.gtld-servers.net. The TLD server does not know the host either. It returns a referral to the authoritative nameservers for example.com, typically ns1.example.com and ns2.example.com, with their glue addresses.',
+        'Step 5: The resolver sends the query to ns1.example.com. This server owns the zone file for example.com. It finds the A record for www.example.com and returns 93.184.216.34 with a TTL of, say, 3600 seconds. Step 6: The resolver caches this answer and the referral chain. It returns 93.184.216.34 to the stub resolver, which returns it to the browser. The browser can now open a TCP connection to that address.',
+        'Total cost: four network round trips (stub to resolver, resolver to root, resolver to TLD, resolver to authoritative). If a second user behind the same resolver asks for www.example.com within the next 3600 seconds, the resolver answers from cache in one round trip. The referral to .com TLD servers is also cached, so a later query for any .com domain skips the root entirely.',
+      ],
+    },
+    {
+      heading: 'Recursive vs iterative resolution',
+      paragraphs: [
+        'DNS supports two query modes. In recursive mode, the client asks one resolver to do all the work and return the final answer. The resolver chases referrals on the client\'s behalf. In iterative mode, each server returns a referral and the querying party must follow it. Most clients use recursive mode against a recursive resolver. The recursive resolver itself uses iterative mode against root, TLD, and authoritative servers.',
+        'The split matters for security and load. A recursive resolver accepts the burden of chasing the full chain, which means it can cache intermediate results for many clients. Authoritative servers only answer their own zone and never chase referrals for anyone. If an authoritative server accepted recursive queries from the public internet, it could be used as a traffic amplifier in reflection attacks.',
+        'Some resolvers offer a hybrid: they accept recursive queries from trusted clients (e.g., users on the same network) and refuse recursion for everyone else. This is why "open resolver" is a security concern. An open recursive resolver will chase any query for any client, making it useful for amplification and cache poisoning.',
+      ],
+    },
+    {
+      heading: 'Caching, TTL, and negative caching',
+      paragraphs: [
+        'Caching is what makes DNS feasible at global scale. Without it, every page load would require multiple round trips through the hierarchy. The TTL (time to live) on each record is the domain owner\'s contract with resolvers: "you may reuse this answer for this many seconds." After TTL expires, the resolver should re-query the authoritative server before treating the cached answer as current.',
+        'TTL is a product decision, not a cosmetic field. A CDN serving millions of users might set a TTL of 60 seconds so it can steer traffic quickly during incidents. A rarely-changing corporate domain might set 86400 seconds (one day) to minimize authoritative load. Before a planned migration, operators lower the TTL well in advance so old cached answers drain before the address change.',
+        'Negative caching stores the absence of a record. When a resolver learns that a name does not exist (NXDOMAIN) or that a specific record type is missing (NODATA), it caches that negative answer for the duration of the SOA minimum TTL. This prevents typos and dead links from repeatedly hitting authoritative servers. RFC 2308 defines the rules. Without negative caching, a popular broken link could generate sustained query floods to authoritative infrastructure.',
+      ],
+    },
+],
 };
+

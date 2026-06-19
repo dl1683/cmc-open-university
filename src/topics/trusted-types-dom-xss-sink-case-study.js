@@ -164,7 +164,16 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Trusted Types DOM XSS Sink Guard. How Trusted Types, CSP enforcement, named policies, sanitizers, DOM XSS sinks, report-only rollout, and legacy adapters fit together..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Trusted Types exists because DOM XSS often happens after the server has already returned a page. Modern JavaScript reads data from comments, CMS fields, markdown previews, search results, URL parameters, API responses, extensions, analytics snippets, and vendor widgets. If one of those strings is written into a dangerous DOM sink, the browser may parse it as markup or scriptable content.',
         'The underlying problem is type collapse. Safe markup, unsafe markup, user text, template output, and attacker-controlled fragments are all JavaScript strings unless the application creates a stronger boundary. A sink such as `innerHTML` cannot tell whether the value came from a reviewed sanitizer or from an untrusted comment field.',
@@ -172,7 +181,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Baseline And The Wall',
+      heading: 'The wall',
       paragraphs: [
         'The baseline defense is context-aware output handling. Escape text before inserting it into HTML. Sanitize HTML if the feature truly allows selected tags. Validate URLs before assigning them to loader or navigation sinks. Keep CSP nonces and hashes for script execution control. These practices still matter.',
         'The wall is coverage. Large frontends have old components, helper wrappers, feature flags, WYSIWYG editors, markdown renderers, test-only shortcuts, template libraries, third-party packages, and rare error paths. A security review can fix ninety-nine sink writes and still miss the one that takes attacker-controlled input.',
@@ -180,7 +189,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core Insight And Invariant',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to treat dangerous DOM sinks as capability boundaries. A raw string should not have the capability to become executable or parseable DOM content. Only a reviewed policy should be able to mint the typed value that crosses the boundary.',
         'The invariant is simple: protected sinks should receive trusted values, not arbitrary strings. For HTML sinks, that usually means `TrustedHTML`. For script-related sinks, it may mean `TrustedScript` or `TrustedScriptURL`. The exact type depends on the sink family, but the principle is the same.',
@@ -188,7 +197,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How The Visual Model Teaches It',
+      heading: 'How it works',
       paragraphs: [
         'The sink-guard view separates the unsafe flow from the intended flow. The unsafe flow is raw input moving directly into a sink. With enforcement disabled, the browser accepts it. With enforcement enabled, the CSP gate stops it before the sink can parse it as DOM.',
         'The intended flow takes a longer path on purpose. Raw input goes to a named policy. The policy applies the right transformation for the target context, such as HTML sanitization, template escaping, or URL allowlist validation. The policy returns a trusted value, and only that value crosses into the sink.',
@@ -196,7 +205,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works (2)',
       paragraphs: [
         'A site enables Trusted Types through Content Security Policy. `require-trusted-types-for` tells the browser to require trusted values for protected DOM XSS sink functions. In report-only mode, violations are reported while the page continues. In enforcement mode, the browser blocks the raw-string assignment.',
         'Application code creates policies through the Trusted Types API. A policy has a name and factory functions such as `createHTML`. A good `createHTML` implementation does not merely wrap a string. It sanitizes, escapes, templates, or validates according to the context, then returns a typed value.',
@@ -204,7 +213,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'It works because the browser sees the final dangerous operation. A code search can miss wrapper functions. A review checklist can be stale. A framework helper can hide an assignment. The browser still knows that a string is being assigned to a protected sink.',
         'It also works as a ratchet. Report-only mode builds the map of existing violations. Enforcement turns the map into a guardrail. After that point, a new raw sink write fails early instead of becoming quiet security debt.',
@@ -212,7 +221,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete Example',
+      heading: 'Worked example',
       paragraphs: [
         'Consider a CMS preview surface. Authors can write markdown with a small allowlist of HTML tags. Before Trusted Types, the renderer converts markdown to a string and assigns it to `preview.innerHTML`. If the renderer or sanitizer misses an event-handler attribute, URL edge case, or parser trick, the sink accepts the string.',
         'With Trusted Types enforcement, `preview.innerHTML = htmlString` fails. The preview code must call a policy such as `cmsHTML`. That policy runs the selected sanitizer with a narrow allowlist, strips scriptable attributes, validates links, and returns `TrustedHTML`.',
@@ -220,7 +229,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs And Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main cost is migration. Old applications may have hundreds of sink writes. Some are safe but untyped. Some are unsafe. Some come from dependencies. Some only run in rare feature modes. Report-only CSP, violation grouping, source maps, and owner routing are usually needed before enforcement is practical.',
         'The second cost is developer ergonomics. If safe rendering requires awkward boilerplate, engineers will ask for broad policies or default bypasses. A serious rollout provides narrow helpers for common patterns: render text, render sanitized CMS HTML, render template output, validate script URLs, and isolate third-party previews.',
@@ -228,7 +237,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'It wins in large client-side applications with dynamic rendering: CMS previews, markdown editors, email builders, dashboards, design tools, admin panels, browser extensions, documentation tools, and analytics consoles. These products often mix user-authored content, generated markup, and frequent DOM mutation.',
         'It also wins in organizations with many frontend teams. A platform security team can define allowed policies and safe helpers once, then use browser enforcement to make the rule consistent across product surfaces.',
@@ -236,7 +245,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'It fails if the policy is a bypass. A policy that returns raw input is not a sanitizer. A policy that uses a weak sanitizer still produces weak trusted values. Trusted Types controls the boundary; it does not prove that the transformation inside the policy is correct.',
         'It fails if policy creation is uncontrolled. If every package can create its own allowed policy, the type system becomes ceremony. Restrict policy names and review the code that creates them.',
@@ -244,7 +253,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'How it works (3)',
       paragraphs: [
         'Start with report-only mode and collect violations by URL, component, sink, stack trace, and owner. Do not jump straight to enforcement on a large legacy app unless the breakage is acceptable. The first artifact should be an inventory: which sinks exist, who owns them, and what kind of fix each one needs.',
         'Design policies narrowly. A CMS policy is different from a markdown policy, and both are different from a script URL policy. Prefer named policies tied to product surfaces or rendering contracts, not generic names such as "safe" or "bypass".',
@@ -252,11 +261,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Study Content Security Policy Nonce and Hash Policy next, because Trusted Types usually sits beside script-src controls. Then study Subresource Integrity Hash Manifest for supply-chain loading, Cross-Origin Isolation for browser process boundaries, SameSite Cookies and CSRF for request authority, and Capability Security and Attenuation for the broader idea of typed authority.',
         'Primary references are MDN on `require-trusted-types-for`, MDN on the Trusted Types API, MDN on the `trusted-types` CSP directive, and the W3C Trusted Types specification. Read them with the sink boundary in mind: the feature is strongest when policy creation is rare, reviewed, and tied to real sanitization.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Trusted Types DOM XSS Sink Guard moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

@@ -73,80 +73,109 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The highlighted range is the current window [left..right]. The active (bright) cell is the element the right pointer just absorbed. A removed cell is one the left pointer just expelled. Found marks the longest legal window discovered so far.',
+        'The animation shows the expand-contract variant: grow the right boundary, then shrink the left boundary until the sum invariant holds. The same structural discipline — two pointers that only move forward — powers every sliding window algorithm, including the monotonic-deque maximum described below.',
+        'Watch the left pointer: it never retreats. That forward-only movement is both the reason the algorithm is O(n) and the visual proof that no element is processed more than twice.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Many array and string questions ask about a contiguous stretch: the longest interval under a budget, the smallest interval covering a set of characters, the number of events in the last minute, or the current chunk of unacknowledged bytes. The hard part is not visiting the input. The hard part is that there are many possible intervals hiding in one input.',
-        'An array with n items has n choices for a start and, for each start, many choices for an end. That gives n * (n + 1) / 2 contiguous ranges. At 10 items, that is 55 ranges. At 100,000 items, it is about five billion. The sliding-window pattern exists for the cases where those ranges overlap so much that testing them separately wastes the structure of the problem.',
+        'Many problems ask the same shaped question: what is the best, largest, smallest, or aggregate value in every contiguous subarray of size k? Stock analysts want the rolling maximum over the last 30 days. Network monitors want the peak throughput in every 5-second window. LeetCode 239 asks for the maximum of every subarray of size k directly.',
+        'An array of n elements has n-k+1 windows of size k. Each window contains k elements. Answering the question for all windows by scanning each one independently costs O(nk). When k is small that is fine. When k is in the thousands — 30-day rolling max on minute-resolution data, or a TCP window over a long buffer — the redundant work dominates.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The direct solution is honest: try every start index, extend the end index, compute the range value, and keep the best legal answer. If the code recomputes each sum from scratch, it can drift toward O(n^3). Prefix sums fix the repeated summing and make each range score O(1), but they still leave O(n^2) candidate ranges to inspect.',
-        'That baseline is not foolish. It handles negative numbers, arbitrary scoring rules, and many small inputs. It also gives a useful correctness reference when building tests. Its wall is that it treats two nearly identical windows as unrelated facts. The range [2..8] and the range [3..8] differ by one removed value, yet the brute-force search has no live state that remembers this relationship.',
+        'For each window position i, scan elements i through i+k-1 and find the maximum. That inner scan costs O(k) per window, and there are n-k+1 windows, so the total is O(nk). For n = 100,000 and k = 1,000, that is roughly 100 million comparisons.',
+        'Most of those comparisons are wasted. Consecutive windows overlap by k-1 elements. Sliding the window one step right removes one element on the left, adds one on the right, and keeps k-1 elements unchanged. Re-scanning all k elements ignores that overlap entirely.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall appears when the answer condition is local to a moving interval but the search keeps restarting. For a non-negative sum budget, every larger right edge can only increase or preserve the sum while the left edge stays fixed. Once a start index is too expensive for the current right edge, extending farther right will not make that same start legal again.',
-        'Brute force ignores that monotonic fact. It checks ranges that are already impossible, then checks their longer versions too. The missing piece is an invariant that says which starts have been permanently ruled out and which current interval still deserves attention.',
+        'Running sums dodge this waste easily: subtract the departing element, add the arriving one. But maximum does not compose the same way. When the current maximum leaves the window, you cannot recover the new maximum from the old one without looking at the remaining elements. A running sum is reversible; a running max is not.',
+        'That asymmetry is the wall. You need a structure that tracks not just the current maximum but also who takes over when the maximum departs. The answer is a monotonic deque — a double-ended queue that maintains candidates in decreasing order of value, with stale indices automatically expiring from the front.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'A sliding window keeps one live interval [left..right]. The right boundary only moves forward to include new input. The left boundary only moves forward to repair a broken invariant. For the sum-budget example, the invariant is simple: after repair, the current window sum is at most the limit.',
-        'The reason this works is monotonicity. With non-negative values, adding a value on the right cannot reduce the sum, and removing a value on the left cannot increase it. If the window is over budget, the only repair that can help is advancing left. If the window is legal, advancing left would only make it shorter, so the algorithm should first consider it as a candidate answer.',
+        'If a newer element is larger than an older element, the older element can never be the maximum of any future window. It is in the same window or an earlier one, and it is smaller. It will never matter again.',
+        'This means we can maintain a deque of candidate indices sorted by decreasing value. When a new element arrives, we pop every element from the back of the deque that is smaller — they are permanently obsolete. Then we push the new index onto the back. The front of the deque is always the maximum of the current window. When the front index falls outside the window, we pop it.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The loop has three phases for each right index. First, add values[right] to the running state. Second, while the invariant is broken, subtract values[left] and advance left. Third, after the invariant is legal, compare the current window against the best answer seen so far.',
-        'The order matters. Recording the best window before repair can accept an illegal range. Repairing before adding the right value misses the new candidate ending at right. Moving left backward would destroy the accounting argument. The pattern is small because the boundaries are disciplined: grow, repair, record.',
+        'Initialize an empty deque. For each index i from 0 to n-1: (1) Remove indices from the front of the deque while they are outside the window, i.e., less than i-k+1. (2) Remove indices from the back of the deque while the value at those indices is less than or equal to values[i] — those candidates are now obsolete. (3) Push i onto the back. (4) If i >= k-1 (the first full window is ready), the front of the deque is the index of the current window maximum; record values[deque.front].',
+        'Each element enters the deque exactly once (pushed in step 3) and leaves at most once (popped in step 1 or step 2). Across all n iterations, the total number of push and pop operations is at most 2n. The per-element cost is amortized O(1), and the entire pass is O(n).',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'For a fixed right boundary, the repair loop stops at the earliest start that makes the window legal. Every discarded start was removed only while the range ending at this same right boundary was over budget. Because the values are non-negative, any earlier start would include at least those removed values and would also be over budget.',
-        'That means the repaired window is the longest legal window ending at the current right boundary. The algorithm checks that best ending-at-right candidate for every right boundary. The global longest legal window must end somewhere, so it is considered when that right boundary is processed.',
+        'The deque maintains two invariants simultaneously. First, every index in the deque is within the current window — step 1 enforces this by expiring indices that have slid out. Second, the values at those indices are in strictly decreasing order — step 2 enforces this by popping anything the new element dominates.',
+        'Together these invariants guarantee that the front of the deque is always the index of the largest value in the current window. The correctness argument is an exchange argument: any candidate that was popped in step 2 is smaller than the element that replaced it, and that replacement lives at least as long in the window (its index is newer). So the popped element could never beat the replacement in any future window. Nothing useful is lost.',
+        'The amortized O(1) claim follows from a simple accounting argument. Each of the n elements is pushed onto the deque exactly once. Each element is popped at most once — either from the front (expiry) or from the back (dominated). The total number of operations across the entire loop is at most 2n, regardless of k.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The highlighted range is not just a moving selection. It is the current proof obligation. When the right edge enters a value, the sum may become illegal. When the left edge removes values, the visual is showing exactly which starts have become impossible for the current right edge.',
-        'The record highlight should appear only after the budget is legal again. That is the bug check built into the visual. A correct sliding-window implementation never celebrates a range whose invariant is broken, and it never sends the left boundary backward to retry discarded starts.',
+        'Time: O(n). Each element enters and leaves the deque at most once, giving at most 2n deque operations total. Doubling n doubles the work. Compare this to the O(nk) brute force: at n = 100,000 and k = 1,000, the deque approach does roughly 200,000 operations versus 100,000,000.',
+        'Space: O(k). The deque never holds more than k indices because all indices in the deque lie within the current window of size k. In practice the deque is often much smaller — a long increasing run purges all previous candidates, leaving a single entry.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The time cost is O(n) when adding a right value, removing a left value, and testing the invariant are O(1) or amortized O(1). The nested while loop does not make the algorithm quadratic because left advances at most n times total. Each element enters once through right and leaves at most once through left. When the input doubles, the boundary movements roughly double; they do not multiply into all pairs of starts and ends.',
-        'Space depends on the window state. A sum budget needs O(1) extra space. A substring-without-repeats window may need a hash map from character to last position. A recent-event window may need a queue of timestamps. The algorithmic shape stays the same, but the state structure must support fast add, fast remove, and fast legality checks.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Sliding windows win when the answer is contiguous and the legality rule can be repaired by moving one boundary forward. Longest subarray with sum at most K over non-negative values is the clean example. Longest substring without repeating characters uses the same boundary discipline with a map instead of a sum.',
-        'Systems use the same idea because time and byte ranges naturally expire from the left. A rate limiter keeps recent request timestamps, drops entries older than the window, and counts the survivors. TCP tracks a window of unacknowledged bytes. Compression schemes such as LZ77 search within a bounded history window rather than the whole past.',
+        'Sliding window maximum (LeetCode 239) is the canonical problem, but the pattern appears whenever a rolling extreme must be tracked efficiently. Network monitoring systems compute peak throughput over the last N sampling intervals. Stock trading platforms track rolling highs and lows for candlestick charts and stop-loss triggers.',
+        'The same deque trick powers sliding window minimum (just flip the comparison), which appears in distance transform algorithms in image processing and in computing the minimum cost over rolling time horizons in dynamic programming optimizations.',
+        'Broader sliding window patterns — not just max — appear in TCP congestion control (a window of unacknowledged bytes that expands and contracts), moving averages in signal processing, rate limiters that count events in a time window, and streaming aggregation in data pipelines.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The pattern fails when the invariant is not monotonic. Negative numbers break the simple sum-budget rule because adding a later negative value can make an over-budget start legal again. In that case, discarding the start early loses a possible answer. Prefix sums with a balanced tree, a monotonic deque, or binary search on the answer may fit better.',
-        'It also fails for non-contiguous choices, global constraints, and order-sensitive scoring rules that cannot be updated when one value leaves. Median inside a moving interval needs heaps or another order-statistics structure. A best subsequence problem is usually dynamic programming, not a window.',
+        'The monotonic deque solves max and min but not every aggregate. Sliding window median requires two heaps or a balanced order-statistics tree — the deque\'s value-ordering trick does not generalize to the middle element. Sliding window mode needs a frequency map with a max-frequency tracker.',
+        'Variable-size windows — where k is not fixed but determined by a constraint — need the expand-contract pattern shown in the animation rather than a fixed-size deque pass. The deque still helps inside a variable window (track the current max while boundaries shift), but the window resizing logic is separate.',
+        'Non-contiguous selections (subsequences rather than subarrays) break the window model entirely. If the elements you choose do not need to be adjacent, sliding window is the wrong tool — dynamic programming or greedy algorithms are usually needed instead.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Two Pointers for the boundary-movement family that sliding window belongs to. Study Queue and Deque for timestamp windows and monotonic-window variants. Study Hash Table for distinct-character and frequency-window state. Study Prefix Sums for cases where ranges are still useful but monotonic repair is not available.',
-        'Then connect the idea to systems topics. Rate Limiter (Token Bucket) shows budgeted request flow. TCP Congestion shows a network window over bytes in flight. Backpressure shows the larger control pattern: keep a bounded live region, advance it when downstream capacity appears, and avoid rescanning work that the invariant has already ruled out.',
+        'Array [1, 3, -1, -3, 5, 3, 6, 7], k = 3. Walk through each position tracking the deque contents (shown as values, stored as indices):',
+        'i=0, value 1: deque empty, push 0. Deque: [1]. Window not full yet.',
+        'i=1, value 3: 3 > 1, pop index 0 from back. Push 1. Deque: [3]. Window not full yet.',
+        'i=2, value -1: -1 < 3, keep. Push 2. Deque: [3, -1]. First full window [1,3,-1]. Front = index 1, value 3. Output: 3.',
+        'i=3, value -3: Front index 1 is still in window [1..3]. -3 < -1, keep. Push 3. Deque: [3, -1, -3]. Window [3,-1,-3]. Front = index 1, value 3. Output: 3.',
+        'i=4, value 5: Front index 1 is outside window [2..4], pop it. Back has -3 < 5, pop. Back has -1 < 5, pop. Push 4. Deque: [5]. Window [-1,-3,5]. Front = index 4, value 5. Output: 5.',
+        'i=5, value 3: 3 < 5, keep. Push 5. Deque: [5, 3]. Window [-3,5,3]. Front = index 4, value 5. Output: 5.',
+        'i=6, value 6: Back has 3 < 6, pop. Back has 5 < 6, pop. Push 6. Deque: [6]. Window [5,3,6]. Front = index 6, value 6. Output: 6.',
+        'i=7, value 7: Back has 6 < 7, pop. Push 7. Deque: [7]. Window [3,6,7]. Front = index 7, value 7. Output: 7.',
+        'Final output: [3, 3, 5, 5, 6, 7]. Total deque operations: 8 pushes + 7 pops = 15, which is less than 2n = 16. Brute force would scan 6 windows x 3 elements = 18 comparisons.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The deque-based O(n) sliding window maximum is widely attributed to the competitive programming community; a clear description appears in Adamchik and Flood. LeetCode problem 239 (Sliding Window Maximum) is the standard reference problem.',
+        {
+          type: 'bullets',
+          items: [
+            'Deque: the underlying data structure — a double-ended queue supporting O(1) push and pop at both ends.',
+            'Monotonic Stack: the same "pop dominated elements" idea applied to problems like next-greater-element and largest rectangle in histogram.',
+            'Two Pointers: the parent technique — sliding window is a special case where both pointers move in the same direction.',
+            'Queue: the simpler FIFO structure that the deque generalizes.',
+            'Ring Buffer: a fixed-size circular array often used to implement sliding windows in systems code.',
+            'Dynamic Programming: for problems where the optimal answer is non-contiguous or the window invariant is not monotonic — Kadane\'s algorithm (maximum subarray sum with negatives) is the nearest relative.',
+          ],
+        },
       ],
     },
   ],

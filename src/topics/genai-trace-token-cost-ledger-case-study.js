@@ -1,4 +1,4 @@
-// GenAI observability: trace spans need model, token, cache, tool, eval,
+﻿// GenAI observability: trace spans need model, token, cache, tool, eval,
 // safety, and cost fields to explain LLM incidents.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -360,6 +360,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for GenAI Trace Token Cost Ledger. A GenAI observability case study: span trees, model/version fields, token usage, cache hits, tool calls, evaluations, safety verdicts, cost, redaction, and tail sampling..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A normal web trace can say that POST /chat took 1.1 seconds. That is not enough for a GenAI incident. The request may have routed across models, expanded a prompt with retrieval, missed a prompt cache, called tools, retried a tool, streamed an answer, run a judge, passed through safety policy, and produced a billable token row. One opaque HTTP span cannot explain that path.',
@@ -374,7 +383,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it breaks',
+      heading: 'Where it fails',
       paragraphs: [
         'A single token total hides the economics. Input tokens, cached input tokens, output tokens, reasoning tokens where exposed, tool schemas, retrieval chunks, and judge calls can have different latency and cost behavior. A total of 8,000 tokens does not say whether the problem was a long prompt, a verbose answer, a cache miss, or a tool loop.',
         'Raw logging creates the opposite problem. Full prompts, full outputs, tool arguments, tenant identifiers, and evaluator rationales may contain private or regulated data. They are also poor metric labels because they create extreme cardinality. Bad GenAI observability can be both unsafe and hard to query.',
@@ -382,7 +391,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core data structure is a span tree plus a joinable token-cost row. The span tree preserves causality: gateway, router, retrieval, model call, tool call, evaluator, safety policy, cost accounting, and export. The token-cost row preserves economics: model, price id, input tokens, cached input tokens, output tokens, tool overhead, evaluator spend, latency, and accepted-answer state.',
         'The key invariant is that fields used to change behavior must also be fields used to explain behavior. If the router reads tenant tier, model policy, prompt version, or cache state, the trace should expose a bounded representation of those fields. If a rollout gate can send traffic to model v2, the trace must say which model was requested and which model was served.',
@@ -405,7 +414,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Detailed GenAI tracing costs storage, collector CPU, schema work, privacy review, and developer discipline. It can also slow incident response if every service invents its own field names. The answer is not to record everything. The answer is to record the fields that explain behavior in bounded, documented forms.',
         'The hardest tradeoff is content. Full prompts and outputs are useful during debugging, but they may contain personal data, secrets, customer records, or regulated information. Many systems should store hashes, ids, redacted snippets, or sampled content under policy rather than raw text by default. Content capture should have an owner, a retention rule, and an access model.',
@@ -413,7 +422,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'This pattern wins for agent cost spikes, model rollout regressions, cache misses, tool-call loops, safety denies, evaluator drift, tenant policy disputes, and billing investigations. It is strongest when product teams need to join quality, latency, cost, and release state for the same request.',
         'A coding assistant example shows the value. The ordinary trace says the request took 1.1 seconds. The GenAI ledger says model v2 was selected by a canary route, the prompt hash missed cache because the tool schema version changed, retrieval returned 18 chunks, the formatter tool retried once, the judge ran twice, and the final answer was accepted. The fix points to prompt-layout and tool-schema rollout, not a vague complaint about model speed.',
@@ -421,7 +430,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'The pattern fails when teams dump full prompts and outputs into always-on spans, use raw tenant ids or prompt text as labels, aggregate cost without model and cache context, or let evaluator rationales and tool arguments bypass redaction. Those choices create risk without reliable insight.',
         'It also fails when the trace schema is not tied to behavior. Recording a model name is not enough if the route id, prompt version, cache-key version, and policy version are missing. Recording token totals is not enough if cached tokens and evaluator spend are invisible. The ledger must match the decisions the system actually makes.',
@@ -436,7 +445,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'Imagine an agentic research product with a sudden cost increase. The old dashboard shows request count is stable and median latency is only slightly higher. Without a ledger, the team argues about whether the model got slower, users submitted longer prompts, or retrieval expanded context.',
         'The GenAI trace ledger answers the question directly. It shows that a canary route moved 20 percent of traffic to a larger model, prompt cache hit rate dropped because the system prompt version changed, and evaluator retries doubled for one task class. Output tokens stayed mostly flat, but cached input savings disappeared and judge spend rose. The incident is a rollout and cache-key problem, not organic usage growth.',
@@ -444,11 +453,75 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary references include the OpenTelemetry GenAI semantic-convention registry at https://github.com/open-telemetry/semantic-conventions/blob/main/docs/registry/attributes/gen-ai.md and the OpenTelemetry GenAI events documentation at https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/. Use them as a schema starting point, then adapt field retention and redaction to the product risk model.',
         'Study distributed tracing, trace context propagation, the OpenTelemetry Collector, tail sampling, metric exemplars, PII redaction pipelines, model rollout ledgers, prompt cache-key canonicalization, response-cache safety, serving admission control, LLM unit economics, and AI audit evidence packets. The larger lesson is that AI observability is not separate from systems observability. It is distributed tracing with model, token, cache, evaluation, safety, and cost fields made first-class.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why GenAI Trace Token Cost Ledger moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

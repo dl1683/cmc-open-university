@@ -1,4 +1,4 @@
-// AI audit evidence packets: risk registers, technical files, eval proof,
+﻿// AI audit evidence packets: risk registers, technical files, eval proof,
 // monitoring signals, incident records, and corrective-action loops.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -312,6 +312,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for AI Audit Evidence Packet Case Study. Turn AI governance into a data structure: risk register, technical file, eval proofs, monitoring, incidents, and corrective actions..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'An AI audit evidence packet exists because AI risk is easy to describe and hard to inspect. A team can say that a model is fair, safe, monitored, and human-reviewed, but a reviewer needs to know which release, which data, which eval suite, which slices, which controls, which incident queue, and which owner support that claim. Without that trail, governance becomes memory plus meetings.',
@@ -319,7 +328,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The reasonable first attempt is a folder of governance artifacts: a model card, an eval spreadsheet, a data sheet, a risk register, a monitoring dashboard, and an incident tracker. Each document has value. A model card can explain purpose. An eval report can show measurements. A dashboard can expose drift. A ticket queue can track fixes.',
         'The wall appears when someone asks a release-specific question. Why was model version 23 allowed into hiring triage on May 14? Which protected-slice failures were still open? Which data source changed? Which complaints later proved the assumption wrong? Separate documents answer fragments. They do not preserve the join between claim, artifact, owner, version, decision, and live outcome.',
@@ -333,7 +342,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the packet works',
+      heading: 'How it works',
       paragraphs: [
         'Start with scope. The intended-use record says what the system is for, what it must not be used for, who depends on it, and what decision it influences. That scope feeds the risk register. A chatbot that drafts marketing copy, a medical triage model, and a resume-ranking assistant should not share the same risk rows just because all three use machine learning.',
         'Next attach evidence to every risk. Data lineage says where training, evaluation, retrieval, and feedback data came from. The model record names the architecture, checkpoint, prompt or policy version, retrieval index, dependency versions, and release hash. The eval ledger stores cases, slices, scorers, scorecards, seeds, thresholds, and human-audit samples. Controls record guardrails, human review, fallback paths, policy checks, and release approvals.',
@@ -341,7 +350,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works (2)',
       paragraphs: [
         'The graph view shows the main invariant: auditable means traceable from claim to evidence. The use node is not decoration. It determines which risks matter. The risk, data, model, eval, and control nodes are not independent documents. Their edges show whether a reviewer can move from a product claim to the artifacts that would prove or weaken it.',
         'The matrix views show why an audit packet needs indexes. A reviewer cannot sample vague prose. They need rows with artifact names, proof pointers, owners, versions, source systems, and freshness dates. The plot adds the operational test: if open risks rise while fixes lag, the packet is documenting exposure rather than controlling it.',
@@ -362,14 +371,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is maintenance. Evidence pointers rot, owners change teams, eval suites drift away from real use, and monitoring can collect more data than anyone reviews. A good packet needs schema discipline, access control, retention rules, tamper-evident logs, privacy boundaries, and enough automation that updates happen during normal engineering work.',
         'There is also a product tradeoff. If the gate is too heavy, teams route around it. If it is too light, it approves systems on averages and promises. The packet should focus on decisions with real risk: release approval, model replacement, data refresh, threshold change, incident closure, and vendor acceptance. Low-risk experiments can use a lighter version of the same structure.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Evidence packets are useful for high-impact domains such as hiring, credit, medical triage, education, public benefits, legal research, safety tooling, and enterprise agents that act across sensitive data. They also help internal platform teams because model releases, guardrail changes, eval regressions, feature flags, and incidents all become part of one operational record.',
         'They are especially useful when third parties sample evidence. A vendor review, regulator, security team, procurement team, or customer auditor should not need private tribal knowledge. They should be able to pick a claim, sample a proof, check its version, and see whether later monitoring changed the risk decision.',
@@ -388,5 +397,78 @@ export const article = {
         'Study LLM Evaluation Harnesses for reproducible eval ledgers, Human Evaluation Labeling Queue for reviewer workflows, LLM Judge Calibration and Drift Monitor for score reliability, LLM Guardrail Policy Engine for control evidence, Prompt Injection Threat Model for adversarial risk, Training-Serving Skew Replay Diff for release replay, Benchmark Variance and Model Selection for uncertainty, Data Leakage and Contamination for data evidence, PII Redaction Token Span Pipeline for privacy controls, Claim Graph Source Ledger for provenance, Distributed Tracing for runtime evidence, Feature Flag Control Plane for gated releases, SLO Error Budget Burn Rate Alert for live monitoring, OPA Rego Policy Decision Graph for policy checks, Software Supply Chain Provenance Graph for dependency evidence, and AIOps Incident Response for corrective-action loops.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why AI Audit Evidence Packet Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -228,6 +228,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Propensity Score Overlap Diagnostics. Estimate treatment propensity, bin or weight units, and inspect overlap so observational causal estimates do not extrapolate outside support..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'In an observational study, people do not receive treatment by coin flip. Sicker patients are more likely to get a care program. Heavy users are more likely to receive a discount. High-risk accounts are more likely to get a retention call. A raw treated-versus-control comparison mixes the effect of the treatment with the reasons the treatment was assigned.',
@@ -235,7 +244,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to fit an outcome model with a treatment column and call the coefficient the treatment effect. That is tempting because it looks like ordinary prediction work: add covariates, add treatment, report the treatment term.',
         'The wall is common support. If treated units live in a covariate region where there are no comparable controls, the model is guessing what would have happened under control. If propensity scores are near 0 or 1, inverse-propensity weights can let one or two unusual rows dominate the estimate. A more flexible model does not solve that; it can make the lack of overlap easier to hide.',
@@ -271,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main statistical cost is variance. Extreme weights make the estimate sensitive to a small number of units, so confidence intervals widen and small data errors matter more. The main design cost is scope. Trimming non-overlap often improves credibility, but the estimand becomes the effect for the overlap population, not the effect for everyone.',
         'There is also a modeling tradeoff. A score model must be good enough to balance confounders, but not judged only by treatment-prediction accuracy. A model that perfectly separates treated from control units is a warning sign for causal estimation, not a victory.',
@@ -280,7 +289,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Propensity diagnostics are useful when treatment is observational, the analyst has rich pre-treatment covariates, and there is real overlap between treated and control groups. They are especially helpful in healthcare, education, pricing, marketing, policy evaluation, and product experiments where randomization was absent or incomplete.',
         'They work best as part of a full design report: causal graph, covariate list, score model, overlap plot, trimming rule, balance table, weight summary, and sensitivity checks. The diagnostics are the evidence that the comparison was constructed rather than merely asserted.',
@@ -294,7 +303,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked case study',
+      heading: 'Worked example',
       paragraphs: [
         'A hospital wants to estimate whether a nurse outreach program reduces 30-day readmissions. The treated patients are older, have higher risk scores, and used more care before enrollment. The raw readmission rate is lower for treated patients, but that number is not interpretable because program staff selected patients deliberately.',
         'The team estimates propensity from age, prior admissions, diagnosis group, risk score, region, and pre-treatment utilization. The overlap table shows that the lowest-risk controls and highest-risk treated patients have no good counterparts, so those bands are trimmed. The estimand is now the effect for patients who could plausibly have been in either group.',
@@ -308,5 +317,55 @@ export const article = {
         'Study Causal Graphs, Doubly Robust Estimation, Importance Sampling, Instrumental Variables, and Causal Forest Uplift Policy next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for propensity-score-overlap-diagnostics-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

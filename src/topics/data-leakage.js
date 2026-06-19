@@ -1,4 +1,4 @@
-// Data leakage: the answer key hiding inside the exam. Four ways the label
+﻿// Data leakage: the answer key hiding inside the exam. Four ways the label
 // sneaks into training, the too-good-to-be-true fingerprints that betray it,
 // and the splitting discipline that keeps evaluations honest.
 
@@ -23,11 +23,11 @@ function* fourLeaks() {
         { id: 'age', label: 'patient age' },
         { id: 'fever', label: 'fever on admission' },
         { id: 'cough', label: 'cough severity' },
-        { id: 'abx', label: 'took_antibiotics ⚠' },
+        { id: 'abx', label: 'took_antibiotics âš ' },
       ],
       columns: [{ id: 'imp', label: 'feature importance' }, { id: 'when', label: 'known when?' }],
       values: [[0.02, 1], [0.01, 1], [0.01, 1], [0.96, 2]],
-      format: (v) => (v === 1 ? 'at prediction time ✓' : v === 2 ? 'AFTER diagnosis ✗' : `${(v * 100).toFixed(0)}%`),
+      format: (v) => (v === 1 ? 'at prediction time âœ“' : v === 2 ? 'AFTER diagnosis âœ—' : `${(v * 100).toFixed(0)}%`),
     }),
     highlight: { removed: ['abx:imp', 'abx:when'] },
     explanation: 'Task: predict pneumonia from intake data. The model scores a jaw-dropping AUC of 0.99 — and one feature carries 96% of the importance: took_antibiotics. Look at WHEN that feature gets its value: doctors prescribe antibiotics AFTER diagnosing pneumonia. The feature is the label\'s shadow — the model learned "patients treated for pneumonia have pneumonia," a tautology that scores brilliantly in training and is worthless at prediction time, when the prescription hasn\'t happened yet. TARGET LEAKAGE: any feature whose value is set by, after, or because of the outcome. The 0.99 was never skill; it was the answer key stapled to the exam.',
@@ -44,7 +44,7 @@ function* fourLeaks() {
       ],
       columns: [{ id: 'where', label: 'landed in' }],
       values: [[1], [2], [1]],
-      format: (v) => ['', 'TRAINING set', 'TEST set ⚠'][v],
+      format: (v) => ['', 'TRAINING set', 'TEST set âš '][v],
     }),
     highlight: { removed: ['flip:where'], compare: ['orig:where', 'crop:where'] },
     explanation: 'Leak 2 is quieter: AUGMENT a dataset (flips, crops, paraphrases), THEN split randomly — and near-copies of the same photo land on both sides of the wall. The test set now contains questions the model literally memorized the answers to, just mirrored. The same accident happens with duplicate web pages, the same patient\'s multiple visits, or near-identical log entries. The grade inflates, sometimes massively — and Cross-Validation\'s machinery runs perfectly while measuring nothing, because the violation happened BEFORE the split. Rule: deduplicate and group FIRST, augment INSIDE the training side only, split at the entity level (patient, user, document — not row).',
@@ -63,10 +63,10 @@ function* fourLeaks() {
       ],
       columns: [{ id: 'role', label: 'random split assigned' }],
       values: [[1], [2], [1], [1], [1]],
-      format: (v) => ['', 'train', 'TEST ⚠ — model saw Wed–Fri'][v],
+      format: (v) => ['', 'train', 'TEST âš  — model saw Wed–Fri'][v],
     }),
     highlight: { removed: ['tue:role'], visited: ['wed:role', 'thu:role', 'fri:role'] },
-    explanation: 'Leak 3 — TEMPORAL: split time-series data randomly and the model trains on Wednesday-through-Friday to "predict" Tuesday — it has seen the future it is being graded on. Stock models are the famous victims, but the subtle version bites everyone: a rolling average computed over the WHOLE series before splitting injects future values into past rows; a "customer lifetime spend" feature summarizes purchases that hadn\'t happened yet. Every feature must be computable from strictly-before-the-timestamp data, and the split must be past → future, full stop. (Cross-Validation\'s leakage warning, sharpened: for time, the fold boundary is an arrow, not a wall.)',
+    explanation: 'Leak 3 — TEMPORAL: split time-series data randomly and the model trains on Wednesday-through-Friday to "predict" Tuesday — it has seen the future it is being graded on. Stock models are the famous victims, but the subtle version bites everyone: a rolling average computed over the WHOLE series before splitting injects future values into past rows; a "customer lifetime spend" feature summarizes purchases that hadn\'t happened yet. Every feature must be computable from strictly-before-the-timestamp data, and the split must be past â†’ future, full stop. (Cross-Validation\'s leakage warning, sharpened: for time, the fold boundary is an arrow, not a wall.)',
     invariant: 'Temporal data splits along the arrow of time: everything in training strictly precedes everything in test.',
   };
 
@@ -151,6 +151,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Data Leakage & Contamination. The answer key inside the exam: target leaks, split contamination, time travel, and benchmark pollution — and how to catch them..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Data leakage is the evaluation bug that rewards you for being wrong. Information that will not be available at prediction time sneaks into training, validation, or test data. The model scores beautifully because the answer key is already present in the exam. Then the same model fails in production, where the answer key is gone.`,
@@ -165,7 +174,7 @@ export const article = {
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `The core insight is that every prediction has a knowledge boundary. At prediction time, some facts are allowed and some are not. A lab result returned tomorrow is not allowed for a prediction made today. A treatment chosen after diagnosis is not allowed as a feature for diagnosis. A duplicate of the test image is not allowed in training. A benchmark answer copied into pretraining is not allowed to count as reasoning skill.`,
         `Leakage prevention is mostly ordering. Deduplicate before splitting. Group by entity before splitting. Split time-series data by time. Fit preprocessing only inside the training side of each fold. Generate augmentations only from training examples. Seal the test set. Audit every feature with the same sentence: would this exact value exist, unchanged, at the moment the model must predict?`,
@@ -186,7 +195,7 @@ export const article = {
       ],
     },
     {
-      heading: `Time travel`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Temporal leakage happens when the model trains on the future or when features are computed using future values. A random split over time-series rows can train on Friday and test on Tuesday. A rolling average computed over the full series can leak tomorrow into yesterday. A customer lifetime spend feature can include purchases made after the prediction date.`,
         `The fix is to respect the arrow of time. Training data must precede validation data for forecasting and production-like prediction. Feature computation must use only data available before the prediction timestamp. Cross-validation for temporal tasks should use forward-chaining or blocked folds, not a random shuffle that treats time as decoration.`,
@@ -200,7 +209,7 @@ export const article = {
       ],
     },
     {
-      heading: `What the visual proves`,
+      heading: `How it works`,
       paragraphs: [
         `The four leak matrices prove that contamination crosses boundaries. In target leakage, the label crosses into a feature. In split contamination, the same example crosses the train-test wall. In time travel, future information crosses into the past. In benchmark contamination, the test crosses into the training crawl. Each case has a different surface, but the same shape: information appears where it should be impossible.`,
         `The defense visual proves that the order of operations is a correctness property. Deduplicate and group first. Split second. Fit preprocessing inside the training data only. Audit timestamps before trusting features. Seal the test set. If those steps happen out of order, a model can pass every unit test while the experiment itself is invalid.`,
@@ -214,14 +223,14 @@ export const article = {
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: `Cost and behavior (2)`,
       paragraphs: [
         `Leak prevention costs engineering discipline more than raw compute. You need dataset versioning, feature definitions with availability times, split manifests, entity ids, reproducible preprocessing pipelines, and review habits that ask data questions before model questions. That work feels slow until it prevents a false launch decision.`,
         `There are tradeoffs. Grouped splits can reduce the amount of training data. Time-based splits can make validation harder because the future distribution may drift. Private test sets are harder to share and compare. Strict decontamination can remove useful public examples. These costs are real, but they are smaller than optimizing against an invalid exam.`,
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `Do not delete every strong feature just because it is strong. Some signals are genuinely predictive. The audit question is whether the value is legally available, not whether it is useful. Also do not trust a clean training script if the upstream data snapshot was contaminated. Leakage often lives in joins, labels, ETL timing, augmentation, deduplication, or benchmark collection.`,
         `A sealed validation set can also wear out. If the team repeatedly peeks, retunes, and chooses models based on the same holdout, that holdout becomes part of the training process. Use nested validation, fresh holdouts, or final test sets with limited access. The longer a benchmark is public, the more suspicious its score should become without contamination controls.`,
@@ -234,5 +243,96 @@ export const article = {
         `Then study Influence: Which Training Data Did This? for forensic example tracing, Saliency Maps and Feature Attribution for suspect-feature ablations, Membership Inference Shadow Model Case Study for train-set participation leakage, LLM Training Data Extraction for memorized text, PII Redaction Token Span Pipeline for sensitive-field removal, and A/B Testing and p-values for the online experiment that may become the first honest test.`,
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Data Leakage & Contamination moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -216,6 +216,15 @@ export const article = {
   ],
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for AC Power Flow Newton-Raphson Jacobian Case Study. A grid-solver case study: slack/PV/PQ bus types, voltage magnitude and angle state, active/reactive mismatches, sparse Jacobian blocks, Newton steps, convergence gates, and contingency replay..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A power grid operator needs a steady-state operating point before asking harder questions. Given a network model, generator settings, loads, transformer taps, and shunts, what are the voltage magnitudes and voltage angles at every bus? Are active and reactive power balanced? Are voltages within limits? Will a proposed outage or dispatch change leave the system in a plausible state?',
@@ -248,7 +257,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the solver works',
+      heading: 'How it works',
       paragraphs: [
         'A typical run starts by assembling or loading Y-bus, the complex bus-admittance matrix. It prepares specified net injections and bus-type lists. It chooses an initial voltage vector, often a flat start for a new case or a warm start from a nearby solved case. The slack angle sets the reference frame; all other angles are relative to it.',
         'At each iteration, the solver computes calculated bus injections from the current complex voltages and Y-bus. It subtracts calculated injections from specified injections to form the mismatch vector. For a standard polar Newton method, active-power mismatches are included for PV and PQ buses, while reactive-power mismatches are included for PQ buses. The slack bus is not solved as an unknown.',
@@ -264,7 +273,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked case',
+      heading: 'Worked example',
       paragraphs: [
         'Imagine a contingency tool studying a line outage. The base case has already solved. The tool removes one branch from the topology, rebuilds or updates Y-bus, and uses the base-case voltages as a warm start. It then runs Newton iterations on the changed network. Each iteration records mismatch norm, step norm, bus-type changes, factorization status, and stopping reason.',
         'If the run converges, downstream checks can inspect bus voltages, branch flows, generator reactive outputs, and thermal violations. If it does not converge, the result should not be a vague red badge. The trace should point to candidate causes: islanding after the outage, an impossible load pocket, a bad initial guess, a generator hitting reactive limits, an ill-conditioned Jacobian, or invalid model data.',
@@ -280,7 +289,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Non-convergence is evidence. It can mean the physical study case has no feasible operating point under the assumptions. It can also mean the model is wrong. Islanding, isolated buses, disconnected load pockets, impossible reactive requirements, bad transformer data, inconsistent generator limits, stale topology, and poor initialization can all surface as a failing Newton loop.',
         'A singular or nearly singular Jacobian is a strong warning. It may point to an island without a reference, a voltage-collapse-adjacent condition, or a modeling error. Large oscillating steps suggest that the local linear model is not guiding the solver toward a solution. Repeated PV-to-PQ switching can show reactive-limit stress or bad limit settings.',
@@ -296,18 +305,60 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         'AC power flow is the steady-state engine behind many grid tools. Operators use it to evaluate base cases and contingencies. Planners use it to study upgrades and transfer limits. Market and reliability tools use it as a foundation for more constrained optimization. State estimation uses related equations to reconcile measurements with a network model.',
         'It is the wrong tool for fast electromechanical transients, protection dynamics, harmonics, electromagnetic transients, and any study where the steady-state phasor model is not enough. It is also too detailed for some high-level screening tasks where a DC approximation is acceptable and the missing reactive or voltage detail does not affect the decision.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MATPOWER manual at https://matpower.org/docs/MATPOWER-manual-8.0.pdf, MATPOWER AC power flow documentation at https://matpower.app/manual/matpower/ACPowerFlow.html, and the MATPOWER `newtonpf` reference at https://matpower.org/docs/ref/matpower5.0/newtonpf.html.',
         'Study Power Grid Bus Admittance Sparse Matrix before this topic if Y-bus is unfamiliar. Study CSC Column Sparse Matrix for sparse storage, Sherman-Morrison Rank-One Update for low-rank update intuition, SCADA State Estimation for measurement reconciliation, Sparse Format Selection Compiler Lowering for sparse-kernel tradeoffs, and Distribution Feeder Outage Restoration Switching for a downstream operational workflow.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for ac-power-flow-newton-raphson-jacobian-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

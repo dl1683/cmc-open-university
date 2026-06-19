@@ -84,21 +84,30 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Frame 1 shows one content vector rotated to six positions. Every arrow has the same length; only the angle changes. That is the RoPE invariant: rotation encodes position without changing the content's magnitude.",
+        "Frame 2 is the payoff. Look at the dot-product column: pairs with the same positional offset (m - n) produce the same score. The highlighted cells share offset 2; the unhighlighted cell has offset 3 and a different score. This is how attention sees relative distance through rotation.",
+        "Frame 3 shows two dimension pairs rotating at different speeds. The fast pair separates nearby positions clearly; the slow pair changes gradually, keeping distant positions distinguishable. Real models use many such pairs across the embedding width.",
+        "Frame 4 summarizes why RoPE became the default: relative offsets, norm preservation, and compatibility with KV caching during autoregressive decoding.",
+      ],
+    },
+    {
+      heading: `Why this exists`,
       paragraphs: [
         `RoPE, short for rotary position embedding, encodes position by rotating query and key vectors instead of adding a separate position vector to token embeddings. Su et al. introduced it in the 2021 RoFormer paper, and it became common in Llama, Mistral, Qwen, and many other decoder models because it gives attention a natural notion of relative distance while preserving vector norms.`,
         `The contrast with Positional Encoding is the key. A sinusoidal input encoding adds numbers to the embedding before the model starts. Rotary encoding waits until Attention Mechanism forms Q and K, then rotates each 2D dimension pair by an angle proportional to token position. Content stays in the vector components; position enters as phase. The dot product between a rotated query and rotated key then depends on their relative offset in a mathematically clean way.`,
       ],
     },
     {
-      heading: `The obvious wall`,
+      heading: `The wall`,
       paragraphs: [
         `Absolute position tables can work inside the context length they were trained on, but they do not make relative distance natural to attention. A decoder often needs to know that one token is nearby, another is 200 tokens back, and another is thousands of tokens back.`,
         `Adding position once at the input also separates order from the query-key comparison where attention actually decides relevance. RoPE moves position into that comparison directly by rotating Q and K.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `Each row is the same content vector seen at a different position. The length should stay fixed; only the angle changes. In the dot-product table, pairs with the same offset share the same positional geometry, which is the invariant RoPE gives attention. The frequency-pair frame is the long-context warning: fast pairs preserve local order, slow pairs carry longer offsets, and scaling these pairs changes what the model can distinguish.`,
       ],
@@ -112,7 +121,7 @@ export const article = {
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `RoPE adds O(Ld) work to rotate queries and keys for L tokens and width d, small beside O(L^2 d) attention prefill and O(Ld) per-token cached attention. Implementations precompute sin and cos tables and use fused elementwise operations, so they do not call trigonometric functions in the inner loop. It adds no learned position parameters. The cache cost is indirect: keys must be stored after the correct rotation, and long-context scaling changes the frequency schedule that produced those rotations.`,
       ],
@@ -124,7 +133,7 @@ export const article = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `Do not say RoPE makes a model length-infinite. Frequencies can wrap, training may never teach the model to use far-away evidence, and attention kernels still pay for long contexts. Do not say it erases absolute position either; the model can still infer absolute-ish cues through boundaries, prompts, and layer interactions. And do not describe it as simple addition. Rotary encoding is an operator applied to Q and K, so it changes attention code, cache contents, and long-context scaling knobs.`,
         `Another misconception is that all RoPE scaling recipes are interchangeable. Position interpolation, NTK-aware scaling, and YaRN move different parts of the frequency ladder and can trade local precision for long-range stability. A model can pass short benchmarks after scaling while losing retrieval accuracy at 64K tokens, so evaluation must include long-context tasks, not just perplexity near the training length. Lost in the Middle: Long-Context Failure Modes is the evaluation companion to the rotation math.`,
@@ -160,5 +169,19 @@ export const article = {
         `Primary sources: RoFormer/RoPE at https://arxiv.org/abs/2104.09864, Llama 2's use of RoPE in long-context decoder models at https://arxiv.org/abs/2307.09288, YaRN at https://arxiv.org/abs/2309.00071, and the original Transformer position baseline at https://arxiv.org/abs/1706.03762. Start with Positional Encoding for the original sinusoidal frequency ladder. Then read Attention Mechanism to see where Q and K are born, Multi-Head Attention to see how every head gets its own rotated subspace, and KV Cache to understand why rotated keys are stored during decoding. Lost in the Middle: Long-Context Failure Modes explains why long-context behavior still needs position-swept evaluation after the math works. The Transformer Block shows where the rotated attention output fits in the larger layer. If the rotation math feels abstract, Eigenvalues & Eigenvectors gives the linear-algebra foundation.`,
       ],
     },
-  ],
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Absolute position embeddings assign each position a fixed vector, either learned (GPT-2) or computed from sine/cosine waves (original Transformer). They work well inside the training length, but attention never sees relative distance directly. A query at position 100 and a key at position 92 get unrelated position vectors; the model must learn from data that "offset 8" matters. This is fragile outside the trained range and makes extrapolation to longer contexts unreliable.',
+        'Sinusoidal encodings partially address this because their structure encodes relative shifts, but they add position to the input embedding once, before any attention layer. RoPE moves position into the attention computation itself, where the decision about relevance is actually made.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'RoPE works because 2D rotation is norm-preserving and the dot product of two rotated vectors depends only on their angle difference. If a query at position m is rotated by m*theta and a key at position n is rotated by n*theta, the positional part of their dot product depends on (m-n)*theta -- the relative offset, not the absolute positions. This is a mathematical identity of rotation matrices, not a learned approximation.',
+        'The invariant is: same content vectors at equal relative offset produce equal positional contribution to the attention score, regardless of where they sit in the sequence. This means the model can generalize position-dependent patterns across the context window. The multi-frequency design (fast and slow rotation pairs) gives attention a ruler with both fine and coarse resolution, so nearby tokens are sharply distinguished while distant tokens remain separable.',
+      ],
+    },
+],
 };

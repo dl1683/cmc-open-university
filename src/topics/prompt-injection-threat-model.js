@@ -1,4 +1,4 @@
-// Prompt injection threat model: the LLM sees one context stream, while the
+﻿// Prompt injection threat model: the LLM sees one context stream, while the
 // application must enforce trust boundaries around data, tools, and secrets.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -256,21 +256,21 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious defense is to tell the model to ignore hostile instructions. That can reduce casual failures, but it is not a security boundary. The model still sees trusted and untrusted text in the same context and still has to decide which words to obey.',
         'The wall is that prompt text has no parameterized-query equivalent. A database can distinguish SQL code from a bound string parameter. Current LLM applications usually ask one model to interpret instructions and data together. That means the realistic target is not perfect prevention inside the prompt. The target is smaller blast radius, better isolation, stronger gates, and rerunnable evidence when something goes wrong.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to treat the model as an untrusted reasoner, not as the authority boundary. It can propose, summarize, classify, and draft actions, but deterministic systems should decide what text enters context, what private data is exposed, what tools can run, and whether a proposed side effect is authorized.',
         'This is a confused-deputy problem. The attacker may not have direct access to the privileged tool. Instead, the attacker places text in a web page, issue comment, email, PDF, ticket, or tool response. The application retrieves that content. The model interprets it. If the model then leaks private context or invokes a tool, the attacker has borrowed the application authority.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'Direct injection arrives from the user message itself. Indirect injection arrives from content the application reads on the user behalf: a retrieved page, document, calendar invite, repository file, log line, database cell, or API response. Stored injection waits in durable data until a later run consumes it.',
         'A typical failure path has five steps. First, the app collects trusted policy and untrusted content. Second, it builds one model context. Third, the model treats hostile data as an instruction or allows it to reshape priorities. Fourth, the model emits a tool call, answer, or hidden-state decision. Fifth, the surrounding application trusts that output too much.',
@@ -285,14 +285,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Real-world uses',
       paragraphs: [
         'The threat matters most when a model reads untrusted text and has access to private data or external systems. Enterprise RAG over Slack, Drive, GitHub, tickets, legal documents, and email is exposed to indirect injection. Coding agents are exposed through repository files, issue comments, logs, dependency output, and test failures. Browser agents are exposed through pages they visit. Customer-support agents are exposed through attachments and prior conversation history.',
         'The defensive counterpart connects to existing system design topics. RAG should apply authorization before retrieval, not after generation. Constrained decoding can make tool calls parseable, not safe. Zanzibar-style authorization computes permissions outside the model. Taint analysis tracks untrusted sources toward sensitive sinks. Distributed tracing preserves the evidence chain from retrieved text to tool side effect.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'The first failure mode is overclaiming. Prompt injection is not "solved" by a better prompt, a hidden policy, or a deny list. Attackers can rephrase, encode, translate, split instructions across sources, or exploit tool observations that look normal.',
         'The second failure mode is treating validation as authorization. A JSON tool call can be valid and still be forbidden. A cited answer can quote real text and still violate confidentiality. A clean malware scan can miss a social instruction. Security checks must ask what authority is being exercised, not only whether output has the right shape.',
@@ -307,25 +307,107 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and tradeoff',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Good defenses add friction. Narrower retrieval can miss helpful context. Approval gates slow automation. Tool scopes require product work. Logs and traces need storage, redaction, and access control. These costs are real, so they should be tied to concrete authority: private data exposure, money movement, account mutation, code execution, external communication, or policy decisions.',
         'The tradeoff is that a looser system is cheaper only until it fails. A customer-support bot that can draft a reply may tolerate lighter controls. An agent that can refund orders, send email, read internal documents, or modify repositories needs stronger gates because prompt injection turns ordinary content into an attempted control channel.',
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'How to read the animation',
       paragraphs: [
         'The attack-surface graph shows the boundary collapse. The app has different trust levels, but the model sees one context stream. The dangerous edge is not just untrusted text entering the prompt; it is untrusted text influencing a privileged tool, secret, or decision.',
         'The defense graph shows where controls belong. Retrieval controls decide what enters context. Output controls decide what leaves the model. Tool gates decide what can change the world. The model can help explain or propose, but the gate must ignore model enthusiasm when policy says no.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary and official sources: OWASP LLM01:2025 Prompt Injection at https://genai.owasp.org/llmrisk/llm01-prompt-injection/, OWASP Top 10 for LLM Applications at https://owasp.org/www-project-top-10-for-large-language-model-applications/, NIST Adversarial Machine Learning taxonomy at https://csrc.nist.gov/pubs/ai/100/2/e2025/final, Not what you have signed up for at https://arxiv.org/abs/2302.12173, and Prompt Injection attack against LLM-integrated Applications at https://arxiv.org/abs/2306.05499.',
         'Study Agent Tool Permission Lattice, Seccomp BPF Sandbox Policy, Taint Analysis Source-to-Sink Case Study, Data-Flow Worklist Analysis, Agentic AI Patterns: Planning, Tools, Memory, RAG Pipeline, Constrained Decoding, Zanzibar Authorization Case Study, Capability Security and Attenuation, OPA Rego Policy Decision Graph, and Distributed Tracing next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Prompt Injection Threat Model moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

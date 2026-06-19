@@ -1,4 +1,4 @@
-// Case study: Meta's Code World Model. The reusable idea is execution
+﻿// Case study: Meta's Code World Model. The reusable idea is execution
 // grounding: train on state transitions, not only static code text.
 
 import { matrixState, InputError } from '../core/state.js';
@@ -222,6 +222,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Code World Models Case Study. Meta CWM as a systems lesson: execution traces improve code reasoning, but portability and verification become the real moat..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this idea exists',
       paragraphs: [
         `Code World Models exist because code is not only text. Source files have syntax, names, style, imports, and comments, but running code also has state: variables change, lists mutate, stack frames open and close, exceptions fire, tests pass or fail, and files on disk are edited. A model trained only on static text can learn many surface regularities while missing the machine that the text controls.`,
@@ -229,7 +238,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The text-only baseline',
+      heading: 'The obvious approach',
       paragraphs: [
         `The obvious way to train a code model is to collect repositories, diffs, issues, solutions, and documentation, then predict the next token or patch. That baseline is useful. It teaches syntax, idioms, library usage, and common repair shapes. It is also incomplete. A static diff may show that a line changed, but not which runtime state made the old line fail.`,
         `Text-only learning struggles with aliasing, mutation, loop invariants, exceptions, concurrency, and hidden test behavior because those facts are not always visible in local text. The model can infer some of them from patterns, but it is learning around the execution process rather than from it directly.`,
@@ -260,32 +269,32 @@ export const article = {
       heading: 'Agent trajectories',
       paragraphs: [
         `An agent trajectory is a higher-level execution record. It includes the model reading files, forming a hypothesis, running tests, seeing errors, editing code, and checking whether the result works. This matters because real software engineering is not only line-by-line execution. It is search under uncertainty.`,
-        `The agent must decide which file to inspect, which command to run, which failing test matters, how large an edit should be, when to backtrack, and when the evidence is sufficient. Execution grounding improves the model's local predictions, but planning still needs search, scoring, budget allocation, and verification. Tree search and process reward models fit naturally around this loop.`,
+        `The agent must decide which file to inspect, which command to run, which failing test matters, how large an edit should be, when to backtrack, and when the evidence is sufficient. Execution grounding improves the model\'s local predictions, but planning still needs search, scoring, budget allocation, and verification. Tree search and process reward models fit naturally around this loop.`,
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         `The first visual proves the difference between three training signals. Static code text teaches files, diffs, syntax, and style. Execution traces add before-and-after state. Agent trajectories add tool policy and verifier feedback. The highlighted trace row is the point: state transitions expose facts that static tokens only imply.`,
         `The second visual proves that portability is not automatic. A learned behavior can depend on the execution interface, shell, edit grammar, language, timeout, or verifier. The third visual proves the reusable pattern: define the state space, build an executor, build an oracle, collect verified transitions, then train or search over them.`,
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `Execution-grounded data is expensive. It requires runnable environments, instrumentation, storage for traces, replayable task definitions, and verification. Dependencies rot. Containers drift. Tests can be flaky. Hidden oracles may not be available. Recording too much state can be costly or unsafe. Recording too little state can remove the very signal the method needs.`,
         `There is also a modeling tradeoff. Traces make local state changes clearer, but they can bias a model toward the environments that were instrumented. A model trained heavily on Python interpreter traces may still struggle with Rust ownership, Java concurrency, browser APIs, build systems, or distributed services unless those worlds are represented with their own states and oracles.`,
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `The idea wins where execution is crisp and verification is cheap. Debugging, unit-test repair, small migrations, compiler errors, runtime exceptions, type errors, and benchmark-driven optimization all produce concrete feedback. A coding agent can run a command, observe a failure, make a patch, and verify the result.`,
         `The same pattern can transfer outside code when the domain has state plus action plus oracle. Financial simulations have portfolio state and backtests. Robotics simulators have physical state and task success checks. Some legal or compliance workflows have document state and review rules. The more objective the oracle, the stronger the training signal.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         `The main failure mode is benchmark-environment overfit. The model may learn the rituals of one benchmark instead of the abstract operation. It may learn that a certain command usually appears before success, that a certain patch shape fits a dataset, or that a particular test suite is enough even when real users need more evidence.`,
         `Another failure is trace incompleteness. If the recorded state misses external services, timing, randomness, permissions, file-system state, or hidden tests, the transition is only partly true. A third failure is benchmark optimism. Reported coding-agent scores are full-stack measurements: model, tools, prompts, retries, verifier, timeout, and dataset all matter.`,
@@ -301,8 +310,86 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Primary sources: CWM: An Open-Weights LLM for Research on Code Generation with World Models at https://arxiv.org/abs/2510.02387 and Meta AI's publication page at https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/. Study Verified Agent Trajectory Store, Execution Trace State Diff Case Study, Dynamic Scratchpad Execution Trace Case Study, Agent Trajectory Dedupe & Provenance Hash, Abstract Agent Operation Graph, Agent Interface Portability Audit, Tree of Thoughts Search Case Study, Monte Carlo Tree Search & UCT Primer, Process Reward Models & Verifier Search, Git Internals, Distributed Tracing, Write-Ahead Log, Evolutionary Search, and AlphaEvolve Case Study.`,
+        `Primary sources: CWM: An Open-Weights LLM for Research on Code Generation with World Models at https://arxiv.org/abs/2510.02387 and Meta AI\'s publication page at https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/. Study Verified Agent Trajectory Store, Execution Trace State Diff Case Study, Dynamic Scratchpad Execution Trace Case Study, Agent Trajectory Dedupe & Provenance Hash, Abstract Agent Operation Graph, Agent Interface Portability Audit, Tree of Thoughts Search Case Study, Monte Carlo Tree Search & UCT Primer, Process Reward Models & Verifier Search, Git Internals, Distributed Tracing, Write-Ahead Log, Evolutionary Search, and AlphaEvolve Case Study.`,
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for code-world-models-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

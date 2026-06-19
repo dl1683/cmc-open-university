@@ -255,6 +255,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Rust Borrow Checker Ownership Trace. A domain-trace case study for code world models: Rust requires ownership, borrow, lifetime, and drop transitions, not just variable values..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         `A normal program trace records variable values, function calls, branches, and outputs. That is useful for many languages, but it is not enough for Rust. The central fact in a Rust program is often not the current text inside a String or the integer inside a vector. It is who owns the value, whether ownership has moved, which references are active, which access is being requested, where lifetimes end, and when destructors run.`,
@@ -262,7 +271,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive design',
+      heading: 'The obvious approach',
       paragraphs: [
         `The naive approach is to reuse a dynamic-language trace. Show that s contains "hello", show that v contains three elements, show that a function was called, and show the returned value. This feels natural because debuggers and teaching tools often present execution as a changing table of locals. For Python or JavaScript examples, that table may explain most beginner mistakes.`,
         `Rust needs another layer. After let t = s, the old place s may no longer be usable because ownership moved to t, even if the heap value itself still exists. During let r = &t, the owner t still exists, but mutation through t may be restricted while the shared loan is active. During let m = &mut t, other reads and writes may be restricted because the mutable borrow requires exclusivity. A value table alone cannot explain these rules.`,
@@ -277,7 +286,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `The core insight is to trace Rust as a system of places and loans. A place is a local, field, dereference, index, or path that can hold or refer to a value. Ownership state says which place owns a value or whether that place has been moved from. A loan records that a place has been borrowed, whether the loan is shared or mutable, and which region describes how long the loan remains relevant. An access request records a read, write, move, or borrow attempt.`,
         `The result is a loan ledger. When the program asks for &mut x, the ledger can say whether x has active shared loans. When the program reads s after moving it into t, the ledger can say that s is moved and no longer initialized for use. When a reference would outlive its referent, the ledger can show the region mismatch. When a destructor runs, the ledger can show which value is being dropped and which borrows must have ended first.`,
@@ -285,18 +294,18 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         `A useful ownership trace starts with binding. When code creates let s = String::from("hi"), the trace records that place s owns a heap value and is initialized. When code executes let t = s, the trace records a move from s to t. The heap allocation did not need to be copied, but the owner place changed. Unless the type implements Copy, the old place s is now unusable for ordinary reads.`,
         `Borrowing adds loans. A shared borrow &t creates a shared loan from place t with a region beginning at the borrow expression and ending at the last use inferred by the compiler. During that region, reads through shared references are allowed, and more shared borrows may be allowed, but mutation through t is restricted. A mutable borrow &mut t creates an exclusive loan. During that region, the borrower may mutate, but other conflicting access to t is rejected.`,
         `Access checking compares a request with the active ledger. A read request asks whether the place is initialized and whether any active mutable loan forbids reading through that path. A write request asks whether the place is initialized and whether active shared or mutable loans conflict. A move request asks whether the place may be moved and whether loans prevent moving. A drop point asks whether it is legal to destroy the value and run destructors.`,
-        `The compiler implementation uses MIR, Rust's mid-level intermediate representation, for flow-sensitive checks. A teaching trace does not need to expose every compiler detail, but it should preserve the same kinds of facts: places, initialization, moves, borrow kinds, regions, access kinds, and drop order. That is the minimal state needed to explain borrow-checker behavior faithfully.`,
+        `The compiler implementation uses MIR, Rust\'s mid-level intermediate representation, for flow-sensitive checks. A teaching trace does not need to expose every compiler detail, but it should preserve the same kinds of facts: places, initialization, moves, borrow kinds, regions, access kinds, and drop order. That is the minimal state needed to explain borrow-checker behavior faithfully.`,
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The trace works because Rust's safety rules are structured around a small set of state transitions. Binding initializes a place. Moving transfers ownership and may deinitialize the old place. Shared borrowing adds a read-only loan over a region. Mutable borrowing adds an exclusive loan over a region. Access requests are allowed or rejected by comparing the request with the current owner and loan state. Scope exits and explicit drops run cleanup when ownership permits it.`,
+        `The trace works because Rust\'s safety rules are structured around a small set of state transitions. Binding initializes a place. Moving transfers ownership and may deinitialize the old place. Shared borrowing adds a read-only loan over a region. Mutable borrowing adds an exclusive loan over a region. Access requests are allowed or rejected by comparing the request with the current owner and loan state. Scope exits and explicit drops run cleanup when ownership permits it.`,
         `The central invariant is that mutation requires exclusivity and references must not outlive the values they point to. Shared aliases may coexist when they only read. A mutable reference requires that no conflicting shared or mutable loan is active. A moved-from place cannot be read as if it still owned the value. A reference cannot be returned if its region would extend beyond the referent. The ledger turns each of those principles into data.`,
         `This is valuable for code world models because it gives repairs a causal target. A patch is not merely labeled "accepted by rustc." It can be labeled as shortening a shared-loan region, removing a move, borrowing a field instead of the whole struct, cloning intentionally, using reborrowing correctly, or moving a destructor boundary. Those are reusable program concepts.`,
       ],
@@ -305,7 +314,7 @@ export const article = {
       heading: 'Worked example',
       paragraphs: [
         `Consider a small function with a String named x. The code creates r1 = &x and r2 = &x, then prints both references. After that, it asks for m = &mut x and pushes more text. With non-lexical lifetimes, this can be legal if the last uses of r1 and r2 occur before the mutable borrow. The shared loans end at their last use, so the mutable loan request sees no active shared conflict.`,
-        `Now move the println! that uses r1 after the mutable borrow. The value table still says x is the same String, but the loan ledger changes. r1's shared loan remains active when the program requests &mut x. The checker sees an exclusive mutable request while a shared loan is live, so it rejects the program. The trace explains the exact conflict: place x, active loan kind shared, requested access mutable borrow, verdict reject.`,
+        `Now move the println! that uses r1 after the mutable borrow. The value table still says x is the same String, but the loan ledger changes. r1\'s shared loan remains active when the program requests &mut x. The checker sees an exclusive mutable request while a shared loan is live, so it rejects the program. The trace explains the exact conflict: place x, active loan kind shared, requested access mutable borrow, verdict reject.`,
         `A repair can be represented precisely. Move the last shared-reference use before the mutable borrow, clone a value when ownership transfer is intended, create a narrower inner scope, borrow disjoint fields when the language can prove they are separate, or change a function signature so it returns owned data instead of a dangling reference. Each repair changes a specific ledger entry rather than just silencing an error.`,
       ],
     },
@@ -318,7 +327,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The cost is compiler integration. A faithful trace needs to map source spans to MIR places, inferred regions, borrow kinds, move paths, and diagnostics. That information exists in the compiler pipeline, but exposing it in a stable teaching or benchmark format is work. If a trace is built from surface syntax alone, it will miss non-lexical lifetime behavior, reborrows, autoderef, closure captures, and drop order.`,
         `The schema also has to choose the right level of detail. Too little detail collapses shared and mutable references into a vague "reference" label and teaches the wrong model. Too much internal compiler detail can overwhelm learners and make benchmark artifacts brittle. The useful middle layer names the semantic facts that affect the verdict while hiding compiler implementation noise that is not needed for the lesson.`,
@@ -326,7 +335,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Ownership traces win in compiler education. They let a learner see why moving a line changes a lifetime, why a borrow of one field may be allowed while a borrow of the whole struct is not, and why a value can be unavailable after a move. The explanation becomes a state transition, not an incantation.`,
         `They also win in automated repair and benchmark analysis. If an agent proposes a patch for a borrow-checker error, the evaluation can ask what changed in the ledger. Did the patch shorten a region, remove a conflicting access, add an intentional clone, use ownership transfer, or hide the problem behind unsafe code? That makes the benchmark more honest than checking whether the final compiler command returned success.`,
@@ -348,5 +357,55 @@ export const article = {
         `Study Code World Models Case Study, Execution Trace State Diff Case Study, JVM Happens-Before Execution Trace, Financial Contract Lifecycle Event Model, Static Single Assignment & Phi Nodes, Abstract Interpretation Interval Domain, Hazard Pointers & Epoch Reclamation, WebAssembly Linear Memory Case Study, and Software Supply Chain Provenance Graph next. The follow-up exercise is to take one borrow-checker diagnostic and rewrite it as a ledger: before state, requested access, active conflicts, and after state if repaired.`,
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for rust-borrow-checker-ownership-trace-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

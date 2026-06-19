@@ -342,6 +342,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Sparse Autoencoder Feature Dictionary Case Study. Turn dense transformer activations into sparse, indexable feature IDs for interpretability, evidence browsing, causal tests, and cautious activation steering..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A transformer activation is easy for the model to use and hard for a human to inspect. A residual-stream vector may contain thousands of floating-point values, and a single direction in that space can mix syntax, topic, sentiment, refusal behavior, factual associations, and artifacts from the training distribution.',
@@ -349,7 +358,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'The wall',
       paragraphs: [
         'The obvious approach is to inspect individual neurons, run PCA, or look for directions that correlate with a concept. Those tools are useful, but they hit the same wall: neural networks can represent many more useful features than they have clean, one-feature-per-neuron axes.',
         'This is the superposition problem. If useful features are sparse, a model can pack them into overlapping directions. One neuron can respond to several unrelated patterns, and one real concept can be split across many units. A dashboard of raw neurons can therefore look interpretable while still hiding the mechanism.',
@@ -363,7 +372,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
         'In the dictionary-learning view, follow the activation through three representations: dense residual stream, sparse feature code, and reconstructed activation. The sparse middle row is the interpretability interface. It is what lets a system ask which feature IDs fired on a token.',
         'In the feature-audit view, do not treat the label node as the conclusion. The label is a guess made from top examples. The serious evidence comes later: held-out examples, specificity checks, ablations, steering experiments, and benchmark deltas.',
@@ -379,7 +388,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why it works when it works',
+      heading: 'Why it works',
       paragraphs: [
         'The method relies on sparsity in the underlying computation. If a feature is present only in a minority of contexts, a sparse basis can separate it more cleanly than the original neuron basis. The decoder vector then gives a direction in activation space, while the sparse activation value says how strongly that feature appeared.',
         'Reconstruction keeps the dictionary honest. If the SAE cannot rebuild activations well enough, the feature code may be an attractive story that no longer preserves what the model was using. Sparsity keeps the dictionary usable. If every feature fires all the time, browsing feature IDs is no better than browsing dense activations.',
@@ -387,7 +396,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete case study',
+      heading: 'Worked example',
       paragraphs: [
         'Anthropic made the superposition problem concrete with Toy Models of Superposition, then used sparse dictionary learning in Towards Monosemanticity to find more interpretable features in a small transformer. The later Scaling Monosemanticity work applied the same idea to Claude 3 Sonnet and reported millions of feature candidates, including features that appeared to correspond to topics, entities, code patterns, and behavior-related concepts.',
         'The lesson is not that every feature label is true. The lesson is that the unit of analysis can move from raw neurons to sparse learned features, and those features can be put through an evidence pipeline. Top examples suggest a label. Held-out examples test the label. Ablations and steering test causal involvement. Capability and safety evaluations test the side effects.',
@@ -395,7 +404,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Training SAEs is compute-heavy because it requires large activation datasets, high-dimensional dictionary matrices, repeated reconstruction passes, and careful sweeps over sparsity. Serving the base model just to collect activations can be a major part of the bill.',
         'The analysis workload is also large. A dictionary with millions of features needs storage, search, top-example retrieval, feature-label generation, human or model-assisted review, causal tests, privacy review, and versioning. Without that infrastructure, the dictionary is hard to trust and easy to overinterpret.',
@@ -403,7 +412,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
         'SAEs win when the goal is to make internal activations searchable and testable. They are useful for finding recurring concepts, building feature browsers, comparing prompts, studying model internals, and designing cautious activation interventions.',
         'They fail when a team treats labels as mechanisms, ignores reconstruction error, cherry-picks top examples, or evaluates steering on one prompt class. They also struggle with feature splitting, dead latents, correlated features, layer drift, and features that mean different things in different contexts.',
@@ -412,11 +421,70 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Toy Models of Superposition at https://arxiv.org/abs/2209.10652 and https://transformer-circuits.pub/2022/toy_model/index.html; Towards Monosemanticity at https://transformer-circuits.pub/2023/monosemantic-features; Scaling Monosemanticity at https://transformer-circuits.pub/2024/scaling-monosemanticity; Sparse Crosscoders at https://transformer-circuits.pub/2024/crosscoders/index.html; and refusal feature steering at https://arxiv.org/abs/2411.11296.',
         'Study Variational Autoencoders for the encoder-decoder pattern, PCA for basis changes, Feature Hashing Signed Projection Primer for sparse feature IDs, Embeddings & Similarity for representation geometry, Saliency Maps & Feature Attribution for causal humility, Multi-Head Attention for routing versus explanation, and Benchmark Variance & Model Selection before trusting behavioral deltas.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for sparse-autoencoder-feature-dictionary-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

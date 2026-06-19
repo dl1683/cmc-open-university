@@ -1,4 +1,4 @@
-// Cross-origin isolation: COOP separates browsing context groups, COEP requires
+﻿// Cross-origin isolation: COOP separates browsing context groups, COEP requires
 // explicit resource opt-in, and CORP/CORS make subresource embedding auditable.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -168,6 +168,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Cross-Origin Isolation: COOP, COEP & CORP. How COOP, COEP, CORS, CORP, credentialless loading, opener isolation, subresource audits, workers, and SharedArrayBuffer gating fit together..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'What Cross-Origin Isolation Is',
       paragraphs: [
         'Cross-origin isolation is a browser-enforced document state. A page reaches that state only when its opener relationships and embedded resources satisfy stricter cross-origin rules. The result is exposed through `window.crossOriginIsolated` and similar worker properties.',
@@ -175,7 +184,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Real Problem',
+      heading: 'Why this exists',
       paragraphs: [
         'The tempting fix is to add one header to the HTML response or to adjust only the worker that wants SharedArrayBuffer. That fails because isolation is not a property of one script. It is the state of the whole document, its browsing context group, and every resource edge the document depends on.',
         'A single analytics tag, CDN image, WASM file, font, iframe, worker script, payment popup, or legacy vendor response can keep the page out of the isolated state. The migration is therefore a dependency audit, not a header toggle.',
@@ -191,7 +200,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How The Mechanism Works',
+      heading: 'How it works',
       paragraphs: [
         'A page that wants the strict path usually sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` or `credentialless`. The browser then evaluates the document in two directions: which top-level windows it can share state with, and which resources it is allowed to embed.',
         'The opener check decides whether the document remains connected to cross-origin windows through `window.opener` and the browsing context group. The embedder check walks the resource graph. Same-origin resources generally pass. Cross-origin resources need a CORS grant, a CORP grant, same-origin hosting through a proxy or asset move, or a credentialless-compatible path.',
@@ -207,7 +216,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         'The invariant is fail closed. A page does not become isolated because most resources are configured correctly. Every required edge has to satisfy the contract, and the browser withholds powerful APIs if the contract is incomplete or blocked by policy.',
         'This works because it joins two checks that are often confused. COOP reduces risky opener relationships at the browsing context level. COEP forces embedded cross-origin resources to be explicit instead of opaque ambient dependencies. Together they give the browser evidence that the document can safely receive APIs that were restricted after Spectre-class attacks.',
@@ -215,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The main cost is operational. Every embedded resource becomes part of a policy ledger: who owns it, which origin serves it, whether it needs credentials, whether it can send CORS, whether it can send CORP, and whether it is allowed on the isolated surface.',
         '`require-corp` is strict and predictable, but it can break resources whose owners cannot or will not set headers. `credentialless` can improve compatibility for some no-cors resources, but those requests omit credentials, so any resource depending on cookies, HTTP authentication, or personalized responses may change behavior.',
@@ -223,14 +232,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Cross-origin isolation is worth the migration on pages where shared memory or stronger isolation changes the product: browser IDEs, local compilers, media encoders, scientific notebooks, simulation tools, CAD-like web apps, ML inference demos, and worker-heavy WASM pipelines.',
         'It is also useful as an architecture forcing function. Sensitive tools can become cleaner when ads, broad analytics, opaque widgets, and unrelated iframes are kept out of the execution surface that handles high-performance or security-sensitive work.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'It fails when the page depends on uncontrolled third parties. Ad stacks, old analytics tags, opaque cross-origin iframes, partner-hosted widgets, and CDN resources without header control can block isolation or force awkward workarounds.',
         'It also fails as a substitute for other browser defenses. Cross-origin isolation does not validate input, prevent XSS, replace CSP, make cookies safe, enforce Fetch Metadata, or guarantee that every same-origin application is mutually safe. It narrows a specific set of opener and embedder risks so powerful APIs can be exposed under stricter conditions.',
@@ -245,11 +254,89 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary references: MDN Cross-Origin-Opener-Policy at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Opener-Policy, MDN Cross-Origin-Embedder-Policy at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy, MDN Cross-Origin-Resource-Policy at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Resource-Policy, MDN `crossOriginIsolated` at https://developer.mozilla.org/en-US/docs/Web/API/Window/crossOriginIsolated, WHATWG Fetch at https://fetch.spec.whatwg.org/, and HTML cross-origin embedder policy text at https://html.spec.whatwg.org/dev/browsers.html.',
         'Study SharedArrayBuffer & Atomics Wait/Notify, CORS Preflight Cache, Subresource Integrity Hash Manifest, CSP Nonce & Hash Policy, Trusted Types DOM XSS Sink Guard, Fetch Metadata Request Gate, and Service Worker Navigation Preload next.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is the smallest idea that changes what can be proven.",
+        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
+        "Everything else in the topic should serve this one sentence.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for cross-origin-isolation-coop-coep-corp-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

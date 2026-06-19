@@ -1,4 +1,4 @@
-// Skip lists: a sorted linked list with express lanes. Coin flips build the
+﻿// Skip lists: a sorted linked list with express lanes. Coin flips build the
 // lanes, greedy descent searches them — binary-search speed, linked-list
 // simplicity. Redis sorted sets run on exactly this.
 
@@ -29,7 +29,7 @@ function buildGraph(levels) {
   const xOf = (v) => VALUES.indexOf(v) * 1.15 + 1.6;
   for (const [level, vals] of Object.entries(levels)) {
     const y = (2 - Number(level)) * 2.6 + 1;
-    nodes.push({ id: `h${level}`, label: '−∞', x: 0.3, y, note: `L${level}` });
+    nodes.push({ id: `h${level}`, label: 'âˆ’âˆž', x: 0.3, y, note: `L${level}` });
     const lane = ['HEAD', ...vals];
     lane.slice(1).forEach((v, i) => {
       nodes.push({ id: `n${v}_${level}`, label: String(v), x: xOf(v), y });
@@ -37,7 +37,7 @@ function buildGraph(levels) {
       edges.push({ id: `e${level}_${v}`, from: fromId, to: `n${v}_${level}` });
     });
   }
-  // down-links between a value's appearances on adjacent levels
+  // down-links between a value\'s appearances on adjacent levels
   for (const [level, vals] of Object.entries(levels)) {
     const below = levels[Number(level) - 1];
     if (!below) continue;
@@ -83,14 +83,14 @@ export function* run(input) {
         highlight: { active: [nodeId()], visited: path.slice(0, -1) },
         explanation: next === target
           ? `Level ${level}: the next node is ${next} — equal to the target!`
-          : `Level ${level}: the next node is ${next} ≤ ${target}, so ride this lane forward. One hop here skips ${level === 0 ? 'no one' : `every unpromoted node beneath it`}.`,
+          : `Level ${level}: the next node is ${next} â‰¤ ${target}, so ride this lane forward. One hop here skips ${level === 0 ? 'no one' : `every unpromoted node beneath it`}.`,
         invariant: 'The target, if present, is always at or to the right of the current node.',
       };
       if (next === target) {
         yield {
           state: snapshot(),
           highlight: { found: [nodeId()], visited: path.slice(0, -1) },
-          explanation: `Found ${target} after ${comparisons} comparisons — versus up to ${VALUES.indexOf(target) + 1} in a plain sorted list. Expected search cost is O(log n), delivered not by careful rebalancing (compare the Binary Search Tree's fragility) but by PROBABILITY: the coin flips keep the lanes balanced on average, with no rotation code at all.`,
+          explanation: `Found ${target} after ${comparisons} comparisons — versus up to ${VALUES.indexOf(target) + 1} in a plain sorted list. Expected search cost is O(log n), delivered not by careful rebalancing (compare the Binary Search Tree\'s fragility) but by PROBABILITY: the coin flips keep the lanes balanced on average, with no rotation code at all.`,
         };
         return;
       }
@@ -118,69 +118,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A skip list is a Linked List with probabilistic express lanes. Every value appears on the bottom level in sorted order. Then coin flips promote some values to higher levels: with probability 1/2 a node appears one level up, with probability 1/4 two levels up, and so on. The top is sparse, the bottom is complete. The demo shows exactly that shape with eight values, a -infinity sentinel at each level, and promoted nodes such as 7, 19, and 42 acting as shortcuts.`,
-        `William Pugh introduced skip lists in 1990 as a simpler alternative to balanced trees. The structure chases the same goal as Binary Search and Binary Search Tree lookup: discard large parts of the search space quickly. The difference is maintenance. AVL Tree Rotations enforce balance by pointer surgery; a skip list gets expected balance from random promotion. No rotations, no color rules, just forward pointers and levels.`,
-        `The obvious starting point is a sorted linked list. It keeps insertion local, but search still walks one pointer at a time because a node knows only its next neighbor. The wall is missing reach: sorted order is present, yet the structure has no way to jump over a block of impossible values. Skip lists add just enough extra reach to make ordered pointer search behave like range halving.`,
+        'Three horizontal lanes sit on screen. Level 0 (bottom) holds all eight values in sorted order. Level 1 holds a promoted subset. Level 2 holds an even sparser subset. Each lane starts at a head sentinel marked -∞.',
+        'Forward pointers connect consecutive nodes on the same lane. Vertical pointers link copies of the same value across levels. The highlighted node is the current search position. Visited nodes mark the path already taken. Found marks the target.',
+        'The search always moves in two directions: right along a lane while the next value does not overshoot, and down one level when the next value is too large or the lane ends. The path never moves left. Each rightward hop on a high lane skips every unpromoted node below it. Each drop refines position on a denser lane.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Balanced binary search trees (AVL, red-black) deliver O(log n) search, insert, and delete. The cost is implementation complexity. AVL trees have four rotation cases. Red-black trees track node colors and enforce uncle-grandparent constraints. Deletion in either structure is notoriously error-prone. Making either thread-safe is harder still, because a single rotation can touch a grandparent, parent, and child simultaneously.',
+        'William Pugh introduced the skip list in 1990 as a probabilistic alternative. The goal: O(log n) expected time for search, insert, and delete, with no rotations, no color rules, and no global restructuring. The mechanism: stack express lanes of decreasing density on top of a sorted linked list, and let coin flips decide which values appear on which lanes.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'A sorted linked list handles insertion and deletion cleanly. Find the predecessor, splice in or out. No restructuring. The code is short and hard to get wrong.',
+        'Search is O(n). Each node knows only its immediate successor, so finding a value means walking forward one comparison at a time. A million sorted records still cost up to a million comparisons. The sorted order is present but unexploitable.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Binary search needs random access to the middle element. A linked list provides only sequential access. There is no way to jump over a block of values known to be too small.',
+        'Balanced trees solve this by branching: each node splits the search space, and a height or color invariant keeps the tree shallow. But maintaining that invariant after every mutation is the source of all the rotation complexity. The skip list asks: what if balance came from randomness instead of invariant enforcement?',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Add a vertical dimension. Every value lives on level 0. On insertion, flip a fair coin repeatedly: each heads promotes the value one level higher. With promotion probability p = 1/2, level 1 holds roughly half the values, level 2 roughly a quarter, level k roughly n/2^k. The top levels are sparse express lanes; the bottom is the complete sorted list.',
+        'Searching from the top down mimics binary search. Each drop from a sparse lane to a denser one roughly halves the remaining search window, just as each comparison in binary search halves the remaining array. The difference: no insert ever moves an existing node. The new value is spliced into each promoted level, and that is the entire mutation. Randomness replaces the balance invariant.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Search starts at the highest lane. If the next value is less than or equal to the target, move right. If the next value would overshoot, drop down one level at the same position. You never move left. In the visualization, searching for 31 rides across coarse lanes, drops when a lane would overshoot, and finally lands on the bottom level only when the range is narrow. Searching for absent 30 proves absence when the bottom-level next value has passed the target.`,
-        `The correctness argument is the same at every level. When the next node is still at or below the target, moving right cannot skip the answer because all earlier nodes are smaller. When the next node overshoots, every later node on that lane overshoots too, so the only possible place left is below the current position. The invariant is: if the key exists, it is never to the left of the current tower.`,
-        `Insertion first finds the predecessor path, inserts the node on level 0, flips coins for its height, and splices it into each promoted lane. Deletion uses the same predecessor path and removes the node from every level. The expected number of forward pointers per item is constant: with promotion probability p = 1/2, the expected tower height is 1/(1-p) = 2 levels. That is why total space is expected O(n), not O(n log n).`,
+        'Search: start at the head sentinel on the highest level. Compare the next node on the current lane to the target. If the next value is at most the target, move right. If it overshoots or the lane ends, drop down one level. Repeat until the target is found or level 0 is exhausted.',
+        'Insert: run the search but record the predecessor at every level (the last node visited before each drop). Splice the new value into level 0 after its predecessor. Flip coins for height. For each promoted level, splice the value into that lane using the recorded predecessor. The predecessor array is critical: without it, you would re-search from the top for every promoted level.',
+        'Delete: find the value at each level and unlink it. Update the predecessor pointers at every lane where the value appears. If the top lane becomes empty, reduce the maximum level.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Why it works',
       paragraphs: [
-        `Follow the search as a repeated decision: move right while the next express-lane value is still safe, then drop when the next value would overshoot. The animation is not magic randomness; it is ordered search with a sparse set of shortcut pointers.`,
-        `The important invariant is that the target, if it exists, is never to the left of the current tower. Each right move proves everything skipped is too small. Each drop keeps the same lower bound and switches to a denser lane. That is why a linked structure can imitate binary-search-style narrowing without array indexing.`,
+        'Correctness follows from a descent invariant: at every step, the target (if present) is at or to the right of the current position. Moving right is safe because every skipped node is smaller. Dropping down is safe because the next node on the current lane is larger than the target, and so are all nodes beyond it. If level 0 is exhausted without a match, the value is absent.',
+        'The expected search cost is O(log n). Pugh\'s backward analysis traces the search path in reverse from the found node. At each step, the reverse path either climbs up (probability p, the node was promoted) or moves left (probability 1 - p). The expected number of left moves before climbing is (1 - p)/p. With O(log_{1/p} n) expected levels, the total expected moves are (1/p) * log_{1/p} n. For p = 1/2 this is 2 log_2 n. For p = 1/4 (Redis), it is (4/3) log_4 n, which is about (2/3) log_2 n comparisons per level but with more levels.',
+        'No mutation touches a distant node. Splicing into each promoted level updates only the immediate predecessor. This locality makes lock-free concurrency straightforward: each splice is a single compare-and-swap, with no rotation reaching up to a grandparent.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Search, insert, and delete are expected O(log n). The absolute worst case is O(n), because random choices could leave too few useful express lanes or create awkward towers. That possibility is usually acceptable because the probability falls exponentially with height. Space is expected O(n). Big-O Growth Rates helps explain the bargain: a logarithmic search path with constant expected pointer overhead is close to a balanced tree's performance, but the code is often shorter and friendlier to concurrent updates.`,
-        `When n doubles, the expected height grows by about one level, so searches add only a small number of pointer hops. The hidden tax is pointer chasing: each hop may touch a separately allocated node. A sorted array wins on cache locality and exact random access; a skip list wins when ordered updates and range scans must stay simple.`,
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        `Keep a predecessor array during search. Insertion and deletion need the last node before the target at every level, not just the bottom-level predecessor. That array is the local proof that every level can be spliced without searching again.`,
-        `Choose promotion probability and maximum level deliberately. Probability 1/2 is easy and common, but other choices trade pointer count against search height. The maximum level should be high enough for expected data size and fixed enough that sentinels and arrays stay simple.`,
-        `Use a clear ordering rule for duplicate scores or equal keys. Redis sorted sets order by score and member, not score alone, because range queries and rank queries need a total order. A skip list without a total order becomes ambiguous at exactly the point users ask for pagination or deletion.`,
-      ],
-    },
-    {
-      heading: 'Testing it',
-      paragraphs: [
-        `Compare every operation against a sorted array or balanced-tree reference. After random inserts and deletes, search, lower_bound, range iteration, and rank should match the reference exactly. Then repeat with deterministic promotion heights so failures are reproducible.`,
-        `Test the boundary cases: empty list, one element, deleting the tallest tower, deleting the first and last values, duplicate ordering, absent searches, and promotion to the maximum level. Pointer structures often fail at the edges, not in the happy middle of the list.`,
+        'Search, insert, and delete: expected O(log n). The worst case is O(n) if every coin flip produces tails and all nodes sit on level 0. The probability of this for n nodes is (1 - p)^n, which for p = 1/2 and n = 1000 is roughly 10^{-301}. Practitioners ignore it.',
+        'Space: expected O(n). Each node appears on 1 + p + p^2 + ... = 1/(1 - p) levels on average. For p = 1/2 that is 2 levels per node, so about 2n total forward pointers. For p = 1/4 it is 4/3 levels per node. Lower p saves space at the cost of slightly longer search paths.',
+        'Doubling n adds one expected level, which adds a small constant number of pointer hops. The hidden cost is cache behavior: each hop chases a pointer to a separately allocated node. A sorted array with binary search wins on cache lines. A skip list wins when the data changes often and you need sorted iteration, range scans, or concurrent mutation.',
+        'Versus a balanced BST: same expected time, similar space. The BST guarantees O(log n) worst case; the skip list only expects it. The skip list trades that guarantee for simpler code and easier concurrency.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Redis sorted sets combine a Hash Table for direct member lookup with a skip list for ordered score ranges and leaderboards. LevelDB uses a skip-list memtable before flushing sorted data into LSM Trees (How Cassandra Writes). Java's ConcurrentSkipListMap is a standard-library example where predictable sorted maps and concurrent access matter. HNSW (Vector Search at Scale) borrows the same hierarchy idea for approximate nearest-neighbor search: sparse upper layers navigate broadly, dense lower layers refine locally.`,
-        `Complete Redis case study: Redis Sorted Set Dict & Skiplist shows why a sorted set needs two access paths at once. The hash table answers "what is this member's score?" quickly, while the skip list keeps members ordered by score so ZRANGE, ZREVRANGE, rank, and score-window queries can start near the target and then traverse forward. That is why the sorted-set page is not just "a skip list"; it is a dual data structure. Complete LevelDB case study: the memtable accepts writes in memory, keeps keys sorted for reads and iteration, and later flushes that sorted order into SSTables for the LSM Tree. The skip list is the mutable front door before immutable storage takes over.`,
+        'Redis sorted sets (ZSET) pair a hash table for O(1) member-to-score lookup with a skip list for ordered operations. ZRANGEBYSCORE, ZREVRANGE, and ZRANK all ride the skip list\'s lanes. Redis uses p = 1/4 and a maximum of 32 levels, enough for billions of members.',
+        'LevelDB and RocksDB use a skip-list memtable as the mutable write buffer in their LSM-tree architecture. Incoming writes land in the skip list, which keeps keys sorted for efficient reads and range scans. When the memtable fills, it flushes to an immutable SSTable on disk. The skip list is the fast, mutable front door.',
+        'Java\'s ConcurrentSkipListMap provides a standard-library concurrent sorted map. Herlihy, Lev, Luchangco, and Shavit (2006) proved a lock-free concurrent skip list correct. No balanced-tree equivalent achieves comparable simplicity. Apache Lucene also uses skip lists in its postings format to jump over blocks of document IDs during query evaluation.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        `The main misconception is that randomness means unreliability. Skip lists are probabilistic, but their expected behavior is mathematically tight and easy to test. Another mistake is saying they are always faster than trees. They can be simpler and more concurrent, but cache layout, allocator behavior, and key distribution decide real performance. A practical pitfall is level bookkeeping: insertion needs the predecessor at every level, and off-by-one errors silently lose nodes. The sentinel head shown as -infinity in the demo is not decoration; it keeps every lane's search loop uniform.`,
+        'No worst-case guarantee. Deterministic skip lists (Munro, Papadakis, Sedgewick, 1992) restore the guarantee but lose the simplicity that justified choosing a skip list in the first place. If your application needs hard O(log n), use a balanced BST.',
+        'Cache-unfriendly. Each forward pointer hop may land on a different cache line. B-trees and sorted arrays pack many keys per line. For read-heavy workloads on static data, a sorted array with binary search dominates.',
+        'Space overhead. With p = 1/2, total forward pointers are about 2n versus n for a BST. With p = 1/4 the overhead drops to (4/3)n, but lanes become less effective.',
+        'Implementation trap: the predecessor array. Insertion must record the predecessor at every level during search, not just at level 0. Off-by-one errors in this array silently lose nodes from upper lanes. The head sentinel (the -∞ column in the animation) is not decoration; it guarantees every lane has a uniform entry point.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Primary sources: William Pugh, "Skip Lists: A Probabilistic Alternative to Balanced Trees" at https://15721.courses.cs.cmu.edu/spring2018/papers/08-oltpindexes1/pugh-skiplists-cacm1990.pdf and ACM DOI https://dl.acm.org/doi/10.1145/78973.78977. Systems references: Redis sorted-set docs at https://redis.io/docs/latest/develop/data-types/sorted-sets/ and LevelDB skip-list implementation at https://github.com/google/leveldb/blob/main/db/skiplist.h.`,
-        `Read Linked List for the pointer foundation, then Binary Search for the range-halving intuition. Compare Skip List with Binary Search Tree and AVL Tree Rotations to see probabilistic balance versus deterministic repair. For systems context, study Redis Sorted Set Dict & Skiplist, LSM Trees (How Cassandra Writes), Hash Table, and HNSW (Vector Search at Scale). For integer predecessor search, compare with van Emde Boas Tree and X-Fast & Y-Fast Tries. For the math tradeoff, revisit Big-O Growth Rates and ask why expected O(log n) is often good enough.`,
+        'Insert 3, 7, 12, 5 into an empty skip list with p = 1/2.',
+        'Insert 3: place on L0. Flip: tails. Height 1. State: L0: head → 3.',
+        'Insert 7: 7 > 3, so place after 3 on L0. Flip: heads, promote to L1. Flip: heads, promote to L2. Flip: tails. Height 3. State: L0: head → 3 → 7. L1: head → 7. L2: head → 7.',
+        'Insert 12: 12 > 7, so place after 7 on L0. Flip: heads, promote to L1 after 7. Flip: tails. Height 2. State: L0: head → 3 → 7 → 12. L1: head → 7 → 12. L2: head → 7.',
+        'Insert 5: search for position. L2 head: next is 7, which overshoots 5, drop to L1. L1 head: next is 7, overshoots, drop to L0. L0 head: next is 3, 3 ≤ 5, move right. Next is 7, 7 > 5, so 5 goes between 3 and 7. Flip: tails. Height 1. State: L0: head → 3 → 5 → 7 → 12. L1: head → 7 → 12. L2: head → 7.',
+        'Search for 5: L2 head, next is 7, overshoots, drop to L1. L1 head, next is 7, overshoots, drop to L0. L0 head, next is 3, 3 ≤ 5, move right. Next is 5, found. Total: 3 comparisons (7, 7, 3 then match). A plain sorted list would check 3, 5 and find it in 2 comparisons here, but as the list grows the express lanes increasingly dominate: with n = 1000 sorted values, the skip list expects about 20 comparisons versus 1000 worst case for scanning.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'William Pugh, "Skip Lists: A Probabilistic Alternative to Balanced Trees," Communications of the ACM, 1990. Herlihy, Lev, Luchangco, and Shavit, "A Provably Correct Scalable Concurrent Skip List," 2006. Redis sorted-set internals: redis.io/docs/latest/develop/data-types/sorted-sets/. LevelDB skip-list source: github.com/google/leveldb/blob/main/db/skiplist.h.',
+        'Prerequisites: Linked List (pointer traversal, splice mechanics), Binary Search (range-halving intuition that descent mirrors), basic probability (coin flips, geometric distribution for promotion heights).',
+        'Extensions: Binary Search Tree and AVL Tree for deterministic balance. Red-Black Tree for the other major balanced alternative. Treap for another randomized sorted structure. B-Tree for the disk-friendly contrast. For systems context: Redis sorted sets for the dual hash-plus-skip-list design, and LSM Trees for how skip-list memtables feed into on-disk storage.',
       ],
     },
   ],
 };
+
+

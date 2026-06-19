@@ -237,6 +237,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Roaring Bitmaps. Compressed integer sets: split values into chunks, pick array/bitmap/run containers, and intersect at machine speed..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         `Many production queries reduce to set algebra over integer ids: users in a cohort, documents matching a term, rows with a flag, accounts eligible for an experiment. The query engine needs to intersect, union, and subtract these sets many times before it touches the full records.`,
@@ -258,7 +267,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core layout',
+      heading: 'The core insight',
       paragraphs: [
         `Split each 32-bit integer into a high 16-bit key and a low 16-bit value. The high key chooses a chunk. The chunk stores only low values from 0 to 65,535.`,
         `Each occupied chunk chooses its own container. Sparse chunks use sorted arrays of 16-bit lows. Dense chunks use a fixed 65,536-bit bitmap. Run-like chunks use intervals. The invariant is simple: the directory maps each high key to one exact representation of the lows present in that chunk.`,
@@ -273,14 +282,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         `Suppose one bitmap stores users in the United States and another stores users who paid in the last 30 days. Querying paid US users is an intersection. Chunks whose high keys appear in only one set are skipped. Chunks present in both sets are intersected locally.`,
         `A sparse city-level chunk may merge two tiny arrays. A dense active-user chunk may AND 1024 64-bit words. A chunk from a sequential import may intersect two runs. The query gets one exact result while each region uses the representation that matches its local data.`,
       ],
     },
     {
-      heading: 'Why it is correct',
+      heading: 'Why it works',
       paragraphs: [
         `The high bits partition the integer universe into disjoint chunks. No integer belongs to two chunks, and no operation on one chunk can affect another chunk. That makes set algebra decomposable by high key.`,
         `Inside a chunk, every container represents the same mathematical object: a set of low 16-bit values. Array merge, bitmap word operations, and run interval operations are exact implementations of set algebra on that low-value universe. Combining the exact per-chunk results gives the exact global result.`,
@@ -310,7 +319,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Roaring fits column indexes, search posting lists, feature-store cohorts, fraud rules, eligibility filters, and experiment platforms. These systems often run the same pattern: build many candidate id sets, combine them with AND, OR, and AND-NOT, then fetch only the surviving records.`,
         `It is strongest when ids are clustered enough for compression but irregular enough that a single bitset would waste memory. It also works well in distributed analytics because intermediate sets can stay compressed while moving between stages.`,
@@ -329,5 +338,60 @@ export const article = {
         `Study Bloom Filter to contrast exact compressed sets with probabilistic membership. Study Hash Table for exact lookup without sorted set algebra. Study Database Indexing for bitmap-index query plans, Inverted Index for posting-list intersections, and A/B Testing & p-values for cohort analytics where these id sets often appear.`,
       ],
     },
-  ],
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Roaring Bitmaps moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

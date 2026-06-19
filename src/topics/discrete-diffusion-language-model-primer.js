@@ -228,81 +228,164 @@ export function* run(input) {
   else throw new InputError('Pick a discrete diffusion language-model view.');
 }
 
-const discreteDiffusionArticleSections = [
-  {
-    heading: 'Why This Exists',
-    paragraphs: [
-      'Autoregressive language models generate one token after another. That gives a clean probability rule: the next token depends on the prefix, and the KV cache makes repeated prefix reuse efficient. The cost is order. A left-to-right model cannot naturally fill three missing spans at once, revise the middle of a sentence without rebuilding later context, or spend one model call on several easy positions. Discrete diffusion language models explore a different schedule. They start from corrupted text, usually a buffer full of mask tokens, and learn to reverse the corruption. The goal is not to replace every autoregressive decoder immediately. The goal is to make language generation a refinement process over slots, so the model can use bidirectional context and reveal positions in an order chosen by uncertainty rather than by index.',
-    ],
-  },
-  {
-    heading: 'The Obvious Approach',
-    paragraphs: [
-      'The obvious approach is to keep using the autoregressive recipe. If you need text, ask for token 1, append it, ask for token 2, and continue. That is hard to beat for streaming chat because the serving path is mature and every generated token extends the cache. Another reasonable first attempt is a BERT-style masked language model: hide some words and train the model to recover them. That works well for representation learning and infilling tasks, but it is not automatically a full generative sampler. A masked model can score missing tokens; a diffusion language model also needs a forward corruption schedule, a reverse denoising objective, and a sampling policy that decides which predictions become part of the next state.',
-    ],
-  },
-  {
-    heading: 'The Wall',
-    paragraphs: [
-      'The wall is consistency. Predicting many masked positions in parallel is tempting, but language tokens are not independent pixels. A choice in slot 2 can change what belongs in slot 5. If the sampler commits too aggressively, later denoising steps inherit a bad context and may spend work repairing it. If the sampler commits too cautiously, it loses the hoped-for parallelism and becomes an expensive iterative decoder. Serving adds another wall. Autoregressive decoding has a simple cache because each new token only extends the prefix. A masked diffusion sampler repeatedly revisits a buffer whose visible positions can be anywhere. The state is a token array plus a mask bitset, a time or noise level, per-position logits, confidence scores, and rules for carrying or remasking positions.',
-    ],
-  },
-  {
-    heading: 'Core Insight',
-    paragraphs: [
-      'The core insight is to treat language generation as denoising a discrete state. The forward process is fixed: choose a noise level and replace some tokens with a mask or other corrupted state. The reverse model learns to predict clean tokens from the partially visible sequence and the current noise level. During sampling, the system does not have to reveal the next leftmost token. It can reveal the positions whose predictions are easiest, keep difficult positions masked, and run another denoising pass with more context. The important invariant is that visible tokens are the sampler\'s current claims about the final sequence. The confidence gate is therefore not a UI detail. It is the control system that decides when a claim is stable enough to carry forward.',
-    ],
-  },
-  {
-    heading: 'How It Works',
-    paragraphs: [
-      'Training begins with clean text x0. For a sampled timestep, the forward process masks a fraction of positions according to a schedule. The Transformer receives the corrupted sequence, often with a time embedding or noise-level signal, and predicts the original token distribution at masked positions. Sampling runs the process backward. Start with a prompt and a buffer of masked slots. Run the denoiser to produce logits for every slot. Convert logits into confidence scores, such as top-token probability or margin over the runner-up. Commit high-confidence positions, carry already visible positions forward, and leave low-confidence positions masked. Some samplers also remask guesses that later look inconsistent. Stop when the mask bitset is empty, the step budget is exhausted, or a quality gate says the sequence is stable enough.',
-    ],
-  },
-  {
-    heading: 'What The Visual Proves',
-    paragraphs: [
-      'The mask-corruption matrix shows that the forward process is not learned. It is a controlled way to create partial-context training examples at many noise levels. The graph view turns the sampler into a state machine: prompt, mask buffer, time, denoiser, logits, confidence gate, commit path, and remask path. The reverse-step plot shows the schedule the learner should remember. Generation gradually trades masked positions for visible tokens, but the order does not need to be left to right. The confidence ledger proves the central engineering problem. Positions 1, 3, and 5 can be safe to reveal while positions 2, 4, and 6 remain masked. The visual is not claiming that parallel token prediction is always faster. It is showing the condition under which it can be useful: safe parallel commitment.',
-    ],
-  },
-  {
-    heading: 'Why It Works',
-    paragraphs: [
-      'The method works when the learned reverse distribution can use visible context to reduce uncertainty at the remaining masked slots. A committed token is useful because it becomes evidence for later predictions. A remasked token is useful because the sampler admits that an earlier guess should not constrain the rest of the sequence. The invariant is consistency between the visible buffer and the final text the model is trying to approach. Confidence gating protects that invariant by delaying positions whose logits are flat or whose top choices conflict with visible context. This is the language analogue of image diffusion in one narrow sense: the model repeatedly maps a noisy state toward a cleaner state. The difference is that language is discrete, so the sampler must decide when a categorical choice is stable enough to become state.',
-    ],
-  },
-  {
-    heading: 'Cost And Tradeoffs',
-    paragraphs: [
-      'The main cost is reverse steps. If a sampler needs twenty denoising passes to produce a sequence that an autoregressive model would emit in twenty token steps, the win depends on how many tokens each pass resolves, how well batches run, and whether the serving stack avoids wasted recomputation. Cache design is harder because the visible set changes by position, not by appending to a prefix. Quality also depends on the confidence rule. A low threshold gives more parallelism and more risk. A high threshold preserves consistency but may behave like slow serial decoding. The useful metrics are steps per output, committed tokens per step, remask count, rejected positions, p50 and p99 latency, and quality by task slice. Tokens per second alone hides the repair loop.',
-    ],
-  },
-  {
-    heading: 'Where It Wins',
-    paragraphs: [
-      'Discrete diffusion is most natural when the task is not pure left-to-right continuation. Infilling, constrained editing, code repair, noncontiguous blanks, and bidirectional revision all benefit from a model that can condition on both sides of a gap. It is also a useful research path for inference scaling because it exposes a different compute schedule: repeated wide passes instead of a long chain of single-token steps. In a batch setting, the sampler may resolve many easy slots across many requests at once. It can also expose controllable knobs that autoregressive decoding hides, such as the number of reverse steps, the mask schedule, the confidence threshold, and the remasking policy. Those knobs are useful only if they are measured against quality, not just latency.',
-    ],
-  },
-  {
-    heading: 'Where It Fails',
-    paragraphs: [
-      'The method is the wrong tool when the production constraint is simple streaming latency and the autoregressive cache already dominates. It can also fail when dependencies are tight, such as mathematical derivations, code syntax, or long-range narrative commitments where an early wrong token poisons many later choices. Weak confidence gates make the system brittle; overly conservative gates make it slow. A BERT-style masked objective is not enough by itself, because generation needs a reverse-process semantics and a sampler. Claims about speed should be treated carefully until they include the number of model evaluations, hardware utilization, cache behavior, repair steps, and quality regressions. The field is moving quickly, so paper results should be read as evidence for a design family, not as proof that every masked sampler is production-ready.',
-    ],
-  },
-  {
-    heading: 'Study Next',
-    paragraphs: [
-      'Study Diffusion Models first for the forward/reverse-process pattern, then Tokenization BPE because every discrete sampler operates over token ids rather than words. Softmax & Temperature explains how logits become categorical choices, and Constrained Decoding explains why a sampler may need legality checks beyond confidence. KV Cache shows why autoregressive serving is so efficient and why diffusion-style serving needs different state. Block Diffusion LLM Denoising is the natural extension after this primer because it studies denoising at chunk granularity. The primary papers listed on this page are also worth reading: LLaDA for a large language diffusion model, Score Entropy Discrete Diffusion for a discrete diffusion objective, and Masked Diffusion Language Models for a practical masked-denoising family.',
-    ],
-  },
-];
-
 export const article = {
   references: [
-    { title: 'Large Language Diffusion Models', url: 'https://arxiv.org/abs/2502.09992' },
-    { title: 'LLaDA Project Page', url: 'https://ml-gsai.github.io/LLaDA-demo/' },
-    { title: 'Score Entropy Discrete Diffusion', url: 'https://arxiv.org/abs/2310.16834' },
-    { title: 'Simple and Effective Masked Diffusion Language Models', url: 'https://s-sahoo.com/mdlm/' },
+    { title: 'Structured Denoising Diffusion Models in Discrete State-Spaces (D3PM)', url: 'https://arxiv.org/abs/2107.03006' },
+    { title: 'Simple and Effective Masked Diffusion Language Models (MDLM)', url: 'https://arxiv.org/abs/2406.07524' },
+    { title: 'Large Language Diffusion Models (LLaDA)', url: 'https://arxiv.org/abs/2502.09992' },
+    { title: 'Score Entropy Discrete Diffusion (SEDD)', url: 'https://arxiv.org/abs/2310.16834' },
   ],
-  sections: discreteDiffusionArticleSections,
+  sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The mask-corruption view shows the forward process. A clean sentence starts on the left. Each column moves rightward in time, and tokens are replaced by [M] (mask) according to a noise schedule. Watch which positions vanish first and which survive longest -- that is the schedule at work, not randomness in the animation.',
+        'The parallel-denoise view shows the reverse process. A fully masked buffer appears at step 0. Each column reveals tokens the model commits at that step. Active highlights mark positions being committed now. Found highlights mark positions that remain masked because confidence is too low. The confidence ledger makes the gate explicit: margin scores determine who gets committed and who waits.',
+        'The graph view connects the two. Follow the edges from prompt and mask buffer through the Transformer denoiser to logits, then through the confidence gate to either commit or remask. That loop is the entire sampler. Every frame in both views corresponds to one pass through this graph.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Autoregressive language models generate one token at a time, left to right. The probability factorization is clean: each token conditions on the prefix, and the KV cache makes reuse efficient. But the order is rigid. An autoregressive model cannot naturally fill three scattered blanks at once, revise the middle of a paragraph without regenerating everything after it, or spend a single forward pass resolving several easy positions while deferring hard ones.',
+        'Discrete diffusion language models attack that rigidity. Instead of committing tokens in index order, they start from a corrupted sequence -- typically all mask tokens -- and learn to reverse the corruption. The reverse model sees bidirectional context (tokens on both sides of a gap) and can reveal positions in any order, chosen by confidence rather than by position. The goal is not to replace autoregressive decoding everywhere. It is to open a different generation contract: refinement over slots, where parallelism and flexible ordering are first-class.',
+        {
+          type: 'quote',
+          text: 'Autoregressive models choose WHICH token next. Discrete diffusion models choose WHERE to commit next.',
+          attribution: 'The core shift in generation contract',
+        },
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to keep using autoregressive generation. If you need text, predict token 1, append it, predict token 2, continue. The serving path is mature, the KV cache is well understood, and streaming output is trivial because every new token extends the sequence. For chat and long-form continuation, this is hard to beat.',
+        'A second obvious attempt is a BERT-style masked language model: hide 15% of tokens, train the model to recover them, done. That works well for learning representations and for single-shot infilling, but it is not automatically a generative sampler. BERT can score candidates for masked positions. It does not define a forward corruption schedule, a reverse denoising objective over many noise levels, or a sampling policy that decides which predictions become permanent state. The gap between "predict masked tokens" and "generate arbitrary text from scratch" is where discrete diffusion lives.',
+        'A third attempt is continuous diffusion applied to language. Map each token to an embedding, run Gaussian noise forward and reverse, then round the denoised embedding back to the nearest token. This works in principle but introduces a lossy rounding step. Every reverse pass produces a continuous vector that must snap to a discrete vocabulary entry, and small errors in embedding space can map to entirely wrong tokens. Discrete diffusion avoids this by staying in token space throughout.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The first wall is token dependency. Predicting many masked positions in parallel is tempting, but language tokens are not independent pixels. A commitment at position 2 can change what belongs at position 5. If the sampler commits too aggressively, later denoising steps inherit contradictory context and spend work repairing it. If it commits too cautiously, it loses the hoped-for parallelism and becomes an expensive iterative decoder that is slower than autoregressive generation.',
+        'The second wall is serving infrastructure. Autoregressive decoding has a simple cache: each new token appends to the prefix, and the KV cache grows monotonically. A masked diffusion sampler revisits a buffer whose visible positions can appear anywhere. The mask pattern changes every step. There is no simple append-only cache, so either the full sequence is recomputed each step or a more complex cache invalidation scheme is needed.',
+        'The third wall is the gap between training and sampling. During training, the model sees partially corrupted text and predicts the original tokens. During sampling, it sees its own previous predictions -- which may be wrong -- and must build on them anyway. This train-sample mismatch is analogous to exposure bias in autoregressive models, but the geometry is different: errors can appear at any position, not just at the end of a growing prefix.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The framework has two halves: a fixed forward process that corrupts text, and a learned reverse process that recovers it. Austin et al. (2021) formalized this as D3PM -- Discrete Denoising Diffusion Probabilistic Models. The forward process is a Markov chain over a discrete state space (the token vocabulary plus a special absorbing state). At each timestep, each token independently transitions according to a noise matrix Q_t. The absorbing-state variant sets one column of Q_t to push every token toward [MASK] with increasing probability as t grows. By the final timestep, nearly every position is [MASK].',
+        {
+          type: 'diagram',
+          label: 'Forward corruption and reverse denoising on a token sequence',
+          text: [
+            'FORWARD (fixed, not learned):',
+            '',
+            '  t=0        t=0.3       t=0.6       t=1.0',
+            '  The        The         [M]         [M]',
+            '  model  --> [M]     --> [M]     --> [M]',
+            '  fills      fills       fills       [M]',
+            '  many       [M]         [M]         [M]',
+            '  slots      slots       [M]         [M]',
+            '  well       [M]         [M]         [M]',
+            '',
+            'REVERSE (learned Transformer):',
+            '',
+            '  t=1.0      step 1      step 2      step 3',
+            '  [M]        [M]         The         The',
+            '  [M]    --> [M]     --> model   --> model',
+            '  [M]        fills       fills       fills',
+            '  [M]        [M]         [M]         many',
+            '  [M]        slots       slots       slots',
+            '  [M]        [M]         [M]         well',
+            '',
+            '  (high-confidence positions committed first)',
+          ].join('\n'),
+        },
+        'Training works as follows. Take a clean sequence x_0. Sample a timestep t. Apply the forward noise matrix to produce x_t, where some tokens are replaced by [MASK] (in absorbing-state diffusion) or by random vocabulary tokens (in multinomial diffusion). Feed x_t and t into a Transformer. The model predicts the distribution over original tokens at every masked position. The loss is cross-entropy between the predicted distribution and the true x_0 tokens, summed over masked positions. This is structurally identical to BERT masked language modeling, but the key difference is that the mask rate varies with t, covering the full range from lightly corrupted to fully masked.',
+        'Sampling starts from a fully masked buffer. At each reverse step, the Transformer predicts token distributions for all masked positions. A confidence gate -- typically top-token probability or margin between the top two candidates -- decides which positions to commit. High-confidence positions become visible tokens in the buffer. Low-confidence positions stay masked for another round. Some samplers (MDLM, Sahoo et al. 2024) also support remasking: a committed token can be returned to [MASK] if later context makes it look inconsistent. The process terminates when the mask set is empty or the step budget runs out.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The method works because each committed token provides bidirectional evidence for the remaining masked positions. In an autoregressive model, position 5 can only see positions 1-4. In a masked diffusion model, position 5 sees every currently visible position -- including positions 6, 7, 8 if they were committed in an earlier step. This bidirectional conditioning means the model has strictly more information when predicting hard positions, which is exactly when more information matters most.',
+        'The confidence gate is what makes parallel commitment safe. Without it, committing all predictions simultaneously would be rolling a die at every position and hoping the results are jointly coherent. The gate converts parallel prediction into selective commitment: easy positions (function words, determiners, predictable tokens) get locked in early, providing scaffolding for harder positions (rare nouns, ambiguous verbs, long-range dependencies) in later steps. The invariant is that visible tokens at any step represent the sampler\'s best current belief about the final sequence, and the gate ensures that belief only solidifies when confidence warrants it.',
+        {
+          type: 'note',
+          text: 'The connection to BERT is real but incomplete. BERT trains with a fixed 15% mask rate and no notion of timesteps. Discrete diffusion trains across all mask rates (0% to 100%) so the model learns to denoise from any corruption level. BERT predicts independently per position. Discrete diffusion adds a multi-step sampling loop with a confidence gate. BERT is a snapshot of the training objective; discrete diffusion is the full generative framework built on top of it.',
+        },
+        'D3PM further justifies the framework by deriving a variational lower bound on the data log-likelihood, analogous to the ELBO in continuous diffusion. The forward and reverse Markov chains define a latent-variable model, and the training loss is a tractable bound on the negative log-likelihood. This gives discrete diffusion a principled probabilistic footing, not just a heuristic masking recipe.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The dominant cost is the number of reverse steps times the cost of one Transformer forward pass. If the sampler takes T steps and each pass costs the same as one autoregressive step, the total compute is T times the sequence length (because all positions are processed each step, not just the new one). Autoregressive generation costs N forward passes for N tokens, but each pass only attends to the growing prefix. Discrete diffusion costs T full-sequence passes, where T is typically 10-256 steps.',
+        {
+          type: 'table',
+          headers: ['Property', 'Autoregressive', 'Continuous diffusion', 'Discrete diffusion', 'Masked LM (BERT)'],
+          rows: [
+            ['State space', 'Discrete tokens', 'Continuous embeddings', 'Discrete tokens', 'Discrete tokens'],
+            ['Generation order', 'Left to right', 'All positions (continuous)', 'Any order (by confidence)', 'Single-shot (not generative)'],
+            ['Context direction', 'Prefix only (causal)', 'Bidirectional', 'Bidirectional', 'Bidirectional'],
+            ['Forward process', 'N/A', 'Gaussian noise on embeddings', 'Token masking or multinomial noise', 'Fixed 15% masking'],
+            ['Reverse steps', '1 per token (N total)', '~50-1000 denoising steps', '~10-256 denoising steps', 'N/A'],
+            ['KV cache', 'Simple append-only', 'Recompute each step', 'Recompute or invalidate per step', 'Single pass'],
+            ['Rounding needed', 'No', 'Yes (embedding to token)', 'No (stays discrete)', 'No'],
+            ['Natural infilling', 'No (needs special tokens)', 'Yes', 'Yes', 'Yes (but single-shot)'],
+          ],
+        },
+        'The confidence threshold creates a throughput-quality tradeoff. A low threshold commits more tokens per step, reducing total steps but risking inconsistency. A high threshold preserves quality but may need nearly as many steps as there are tokens, losing the parallelism advantage. The useful metrics are: steps per output sequence, tokens committed per step, remask count, and quality on the target task. Tokens per second alone hides the repair loop.',
+        'Memory cost per step is roughly the same as one autoregressive forward pass (the full model processes the full sequence). But the total memory over sampling is higher because there is no simple KV cache to amortize past computation. Some recent work (MDLM, LLaDA) explores caching strategies for masked diffusion, but the infrastructure is less mature than autoregressive serving stacks.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Discrete diffusion is strongest when the task is not pure left-to-right continuation. Infilling -- filling in blanks where context exists on both sides -- is the most natural fit. Code repair, constrained editing, template completion with scattered slots, and bidirectional revision all benefit from a model that conditions on both sides of every gap rather than only on the prefix.',
+        'It also wins when flexible generation order matters. A discrete diffusion model can commit easy tokens first and defer ambiguous positions, which is a form of adaptive computation allocation. If some tokens in a sentence are nearly determined by context (articles, prepositions, closing brackets) while others require real deliberation (technical nouns, numerical values), the model can resolve the easy ones in bulk and focus remaining steps on the hard ones.',
+        'The research angle is inference-time compute scaling. Autoregressive models scale inference compute by generating more tokens (chain-of-thought, best-of-N sampling). Discrete diffusion models scale by adding more denoising steps, remasking and re-predicting, or running the confidence gate at different thresholds. These are structurally different knobs, and early results (LLaDA, MDLM) suggest they can improve quality in ways that autoregressive scaling does not.',
+        {
+          type: 'note',
+          text: 'D3PM defines three noise types: absorbing (tokens go to [MASK]), uniform multinomial (tokens jump to random vocabulary entries), and discretized Gaussian (tokens shift to nearby entries in an ordered vocabulary). Absorbing-state diffusion dominates in practice because the [MASK] token cleanly separates "unknown" from "committed," making the confidence gate straightforward. Multinomial noise is harder to work with because a corrupted token looks like a real token, and the model must learn to distrust its own input.',
+        },
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The method is the wrong tool when the production constraint is streaming latency and the autoregressive KV cache already dominates. A user watching tokens appear one by one in a chat interface does not benefit from parallel slot commitment -- the bottleneck is model speed, not generation order. Discrete diffusion adds complexity (mask scheduling, confidence gating, multi-step sampling) without improving the user-visible metric.',
+        'It also fails when token dependencies are tight and sequential. Mathematical derivations, formal proofs, code with strict syntax constraints, and long-range narrative arcs all have the property that an early wrong token poisons many later positions. The confidence gate can delay commitment, but it cannot fix the fundamental problem: some sequences have a natural causal order, and ignoring that order makes the prediction task harder, not easier.',
+        'Weak confidence gates make the system brittle. If the gate commits too early, the visible buffer accumulates errors that later steps cannot repair. If the gate is too conservative, the sampler degenerates into a slow serial decoder that is worse than autoregressive generation because it lacks the efficient KV cache. Tuning the gate threshold, remasking policy, and step budget per task is nontrivial engineering work that the autoregressive path avoids entirely.',
+        'Finally, the infrastructure gap is real. Autoregressive serving has years of engineering behind KV caches, speculative decoding, quantization-aware serving, and batching strategies. Discrete diffusion serving is young. Claims about speed advantages should be read carefully: check whether they report wall-clock time including all denoising steps, whether quality is measured on the same benchmarks, and whether the comparison accounts for the maturity difference in serving stacks.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Austin et al. 2021, "Structured Denoising Diffusion Models in Discrete State-Spaces" (D3PM) -- the foundational paper defining forward transition matrices (absorbing, uniform, discretized Gaussian) and the variational bound for discrete diffusion.',
+            'Sahoo et al. 2024, "Simple and Effective Masked Diffusion Language Models" (MDLM) -- simplifies D3PM for language with absorbing-state masking, shows competitive perplexity with efficient training.',
+            'Nie et al. 2025, "Large Language Diffusion Models" (LLaDA) -- scales discrete diffusion to large language model sizes, demonstrating that the approach can compete with autoregressive models at scale.',
+            'Lou et al. 2024, "Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution" (SEDD) -- formulates discrete diffusion through score entropy, providing an alternative training objective.',
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Diffusion Models -- the continuous forward/reverse framework. Understand Gaussian diffusion before studying the discrete variant.',
+            'Prerequisite: Tokenization (BPE) -- every discrete diffusion model operates over token IDs, not raw text. The vocabulary defines the state space.',
+            'Prerequisite: Softmax and Temperature -- how logits become categorical distributions and how temperature controls the sharpness of predictions at each denoising step.',
+            'Extension: Block Diffusion LLM Denoising -- denoising at chunk granularity rather than individual tokens, bridging discrete diffusion and autoregressive generation.',
+            'Extension: KV Cache -- why autoregressive serving is fast and why discrete diffusion serving needs different state management.',
+            'Extension: Constrained Decoding -- why a sampler may need legality checks beyond confidence, especially for structured outputs like code or JSON.',
+          ],
+        },
+      ],
+    },
+  ],
 };

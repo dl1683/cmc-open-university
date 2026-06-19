@@ -1,4 +1,4 @@
-// PostgreSQL WAL checkpoint and crash recovery: checkpoints bound replay,
+﻿// PostgreSQL WAL checkpoint and crash recovery: checkpoints bound replay,
 // page LSNs avoid duplicate redo, and dirty buffers determine recovery work.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -166,7 +166,7 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'Why this exists',
       paragraphs: [
         'PostgreSQL cannot make every commit wait until every changed heap page, index page, visibility map page, and metadata page has reached its final place on disk. That would turn many small transactions into scattered synchronous writes and would make commit latency depend on the slowest dirty page.',
         'At the same time, a committed transaction must survive a crash. Shared buffers vanish on restart, data files can be behind the last commit, and the server still has to reconstruct a consistent database before accepting traffic. WAL and checkpoints are the mechanism that separates fast durable commit from slower data-file writeback.',
@@ -190,7 +190,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation Meaning',
+      heading: 'How to read the animation',
       paragraphs: [
         'In the checkpoint cycle view, the WAL path and the dirty-buffer path diverge. Commit durability follows the WAL flush. Data-file freshness follows later buffer writes. The checkpoint node summarizes those streams into a new recovery starting point.',
         'In the crash replay view, shared buffers disappear and the durable artifacts remain: WAL, checkpoint control state, and data pages with page LSNs. The useful question at each step is not "was this page dirty before the crash?" but "does this durable page already include the WAL record being considered?"',
@@ -241,7 +241,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it fits',
+      heading: 'Real-world uses',
       paragraphs: [
         'WAL plus checkpoints is a strong fit for transactional storage engines where many small logical changes touch a smaller set of physical pages. The log gives durable ordering, while delayed page writes let the system batch, reorder, and smooth I/O.',
         'It is not the whole story for replication lag, point-in-time recovery policy, logical decoding, backup strategy, or corruption detection. Those build on WAL but add their own metadata, retention, and verification rules.',
@@ -249,7 +249,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'An order service commits thousands of transactions per second. WAL records are appended and flushed in commit batches. Heap pages and index pages become dirty in shared buffers, and many of those pages receive several updates before a checkpointer writes them to disk.',
         'Power fails after commit records are durable but before every changed page is in its relation file. On restart, PostgreSQL reads checkpoint metadata, starts from the redo pointer, scans WAL, compares page LSNs, reapplies missing changes, skips changes already reflected on disk, and opens only after the data files reach a consistent state.',
@@ -262,5 +262,96 @@ export const article = {
         'Study Write-Ahead Log (WAL), Readahead & Dirty Writeback, PostgreSQL Streaming Replication, PostgreSQL Buffer Pool Clock Sweep, Transaction Savepoint Stack, and MVCC Internals & VACUUM next.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "List the failure modes and the conditions that trigger them.",
+        "Most methods have at least one silent failure mode; expose the silent ones.",
+        "A method without explicit failure conditions is an invitation for misuse.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why PostgreSQL WAL Checkpoint & Recovery moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

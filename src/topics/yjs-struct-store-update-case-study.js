@@ -1,4 +1,4 @@
-// Yjs internals: struct store, client clocks, state vectors, delete sets,
+﻿// Yjs internals: struct store, client clocks, state vectors, delete sets,
 // compressed updates, and provider-agnostic sync.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -237,6 +237,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Yjs Struct Store & Updates. A Yjs implementation case study: Item structs, client clocks, shared types, delete sets, state vectors, binary updates, and provider-agnostic sync..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Yjs exists to make collaborative local-first data structures practical in real applications. A user can type into a shared text document, go offline, reconnect, receive remote edits, and converge without one central server deciding a single global order for every operation.',
@@ -244,7 +253,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
         'The obvious sync shortcut is to send the whole document after each change. That is simple, but it wastes bandwidth, makes offline merge hard, and gives storage servers too much responsibility. Another shortcut is to invent an app-specific patch format. That often works until concurrent edits, duplicate delivery, and reconnect gaps appear.',
         'Collaborative editing needs updates that survive retries, reordering, partial delivery, and storage compaction. A patch that means insert this character at current index five is fragile because current index five can change on another replica. Yjs uses identities and struct relationships instead of trusting transient positions.',
@@ -279,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works',
       paragraphs: [
         'The struct-store view follows the hidden path behind a friendly editor operation: shared type to item structs, item structs to the store, store to state vector and delete set, and those summaries into an update. The point is that the merge state is more structured than visible text.',
         'The update-sync view shows the provider boundary. Providers can persist, relay, batch, merge, and rebroadcast updates, but they should not replace the CRDT rules with their own ordering semantics. The update format and struct store carry the convergence contract.',
@@ -295,7 +304,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is metadata and lifecycle complexity. Client ids, clocks, origins, delete ranges, state vectors, update blobs, snapshots, awareness messages, and provider protocol details all exist because concurrent local editing is harder than last-write-wins storage.',
         'Binary updates keep the overhead manageable, but not free. Large documents need compaction strategies. Long-lived rooms need storage policies. Multi-version clients need an update-format plan. Offline peers need a path back to consistency without forcing every server to hold infinite history.',
@@ -303,7 +312,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Yjs wins in collaborative editors, shared whiteboards, local-first note tools, multiplayer interface state, design tools, and apps that need offline edits to merge later. The same document model can move over different providers because the important unit is the update, not a transport-specific command.',
         'It is also strong when the server should be simpler than the collaboration logic. A provider can authenticate a room, persist update bytes, answer state-vector diffs, and broadcast messages. It does not have to be the single authority that rewrites every document operation into one total order.',
@@ -311,7 +320,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         'Yjs convergence does not solve authorization. A structurally valid update can still be malicious or sent by the wrong user. Access control must happen before updates enter a document room, and applications may need audit logs or moderation rules above the CRDT layer.',
         'Other failures come from deleting history too aggressively, mixing incompatible update formats, trusting provider delivery order, failing to snapshot large histories, or confusing awareness presence with durable document state. Presence can be ephemeral. Document updates are the durable merge input.',
@@ -325,5 +334,74 @@ export const article = {
         'Study Sequence CRDTs for Collaborative Text, Delta-State CRDT Anti-Entropy Case Study, Local-First Sync Engine Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, and Automerge Change Graph and Columnar Storage next.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for yjs-struct-store-update-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

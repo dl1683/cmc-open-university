@@ -1,4 +1,4 @@
-// Eigenvectors: most directions get rotated when a matrix hits them — a
+﻿// Eigenvectors: most directions get rotated when a matrix hits them — a
 // special few only get STRETCHED. Those directions are the matrix's
 // skeleton, and half of applied math is the art of finding them.
 
@@ -16,7 +16,7 @@ export const topic = {
 };
 
 // A = [[2,1],[1,2]] — symmetric, eigenvalues 3 and 1,
-// eigenvectors along (1,1) and (1,−1).
+// eigenvectors along (1,1) and (1,âˆ’1).
 const A = [[2, 1], [1, 2]];
 const apply = ([x, y]) => [A[0][0] * x + A[0][1] * y, A[1][0] * x + A[1][1] * y];
 const norm = ([x, y]) => Math.hypot(x, y);
@@ -36,7 +36,7 @@ function* directions() {
       ],
     }),
     highlight: { visited: ['e1', 'e2'], compare: ['Ae1', 'Ae2'] },
-    explanation: 'Take the matrix A = [[2,1],[1,2]] and feed it vectors. The x-axis vector (1,0) comes out as (2,1) — longer AND swung upward. The y-axis vector (0,1) comes out as (1,2) — swung the other way. This is what matrices DO: every direction gets some mix of stretching and turning, and SVD & Low-Rank Approximation showed the anatomy (rotate · stretch · rotate). The question this page asks is sharper: is there any direction the matrix refuses to turn — a vector that comes back pointing exactly where it pointed?',
+    explanation: 'Take the matrix A = [[2,1],[1,2]] and feed it vectors. The x-axis vector (1,0) comes out as (2,1) — longer AND swung upward. The y-axis vector (0,1) comes out as (1,2) — swung the other way. This is what matrices DO: every direction gets some mix of stretching and turning, and SVD & Low-Rank Approximation showed the anatomy (rotate Â· stretch Â· rotate). The question this page asks is sharper: is there any direction the matrix refuses to turn — a vector that comes back pointing exactly where it pointed?',
   };
 
   const e1 = unit([1, 1]);
@@ -47,12 +47,12 @@ function* directions() {
       vectors: [
         vec('eig1', 'v along (1,1)', e1),
         vec('Aeig1', 'Av = 3v — same direction!', apply(e1)),
-        vec('eig2', 'v along (1,−1)', e2),
+        vec('eig2', 'v along (1,âˆ’1)', e2),
         vec('Aeig2', 'Av = 1v — untouched', apply(e2)),
       ],
     }),
     highlight: { found: ['eig1', 'Aeig1'], compare: ['eig2', 'Aeig2'] },
-    explanation: 'Yes — two of them. The diagonal direction (1,1) comes back as exactly 3× itself: no turn, pure stretch. The anti-diagonal (1,−1) comes back as 1× itself — utterly ignored. These are the EIGENVECTORS (German "eigen": own, characteristic — the matrix\'s OWN directions), and the stretch factors 3 and 1 are the EIGENVALUES: Av = λv. Along these axes the matrix is just multiplication by a number — all its complexity is which directions it owns and how hard it stretches each. That pair of facts is the matrix\'s skeleton.',
+    explanation: 'Yes — two of them. The diagonal direction (1,1) comes back as exactly 3Ã— itself: no turn, pure stretch. The anti-diagonal (1,âˆ’1) comes back as 1Ã— itself — utterly ignored. These are the EIGENVECTORS (German "eigen": own, characteristic — the matrix\'s OWN directions), and the stretch factors 3 and 1 are the EIGENVALUES: Av = λv. Along these axes the matrix is just multiplication by a number — all its complexity is which directions it owns and how hard it stretches each. That pair of facts is the matrix\'s skeleton.',
     invariant: 'Av = λv: along an eigenvector, a matrix acts as a single number.',
   };
 
@@ -65,28 +65,28 @@ function* directions() {
   yield {
     state: plotState({
       axes: AXES,
-      vectors: path.map((p, k) => vec(`it${k}`, k === 0 ? 'start (1,0)' : `after ×A ${k}: ${p.angle.toFixed(1)}°`, [p.v[0] * (1 + k * 0.12), p.v[1] * (1 + k * 0.12)])),
+      vectors: path.map((p, k) => vec(`it${k}`, k === 0 ? 'start (1,0)' : `after Ã—A ${k}: ${p.angle.toFixed(1)}°`, [p.v[0] * (1 + k * 0.12), p.v[1] * (1 + k * 0.12)])),
     }),
     highlight: { visited: ['it0', 'it1', 'it2'], found: ['it5'] },
-    explanation: `How do you FIND the skeleton? The dumbest possible idea works: pick any vector and just keep applying A (re-normalizing so it doesn't blow up). Watch the fan — computed live: starting flat at 0°, one application swings to ${path[1].angle.toFixed(1)}°, then ${path[2].angle.toFixed(1)}°, ${path[3].angle.toFixed(1)}°, ${path[4].angle.toFixed(1)}°… homing in on the 45° eigenvector like a compass needle. This is POWER ITERATION — the same loop SVD & Low-Rank Approximation used to peel singular layers, and (spoiler for the next view) the same loop that ranks the web.`,
+    explanation: `How do you FIND the skeleton? The dumbest possible idea works: pick any vector and just keep applying A (re-normalizing so it doesn\'t blow up). Watch the fan — computed live: starting flat at 0°, one application swings to ${path[1].angle.toFixed(1)}°, then ${path[2].angle.toFixed(1)}°, ${path[3].angle.toFixed(1)}°, ${path[4].angle.toFixed(1)}°… homing in on the 45° eigenvector like a compass needle. This is POWER ITERATION — the same loop SVD & Low-Rank Approximation used to peel singular layers, and (spoiler for the next view) the same loop that ranks the web.`,
   };
 
   yield {
     state: matrixState({
       title: 'Why repetition finds the dominant direction',
       rows: [
-        { id: 'decomp', label: 'any v = a·e₁ + b·e₂' },
+        { id: 'decomp', label: 'any v = aÂ·eâ‚ + bÂ·eâ‚‚' },
         { id: 'once', label: 'apply A once' },
         { id: 'ntimes', label: 'apply A n times' },
         { id: 'limit', label: 'n = 10' },
       ],
       columns: [{ id: 'what', label: '' }],
       values: [[1], [2], [3], [4]],
-      format: (v2) => ['', 'every vector is a recipe of eigen-directions', 'A·v = 3a·e₁ + 1b·e₂ — each ingredient scales by ITS λ', 'Aⁿv = 3ⁿa·e₁ + 1ⁿb·e₂', '3¹⁰ = 59,049 vs 1¹⁰ = 1 — e₁ drowns out everything'][v2],
+      format: (v2) => ['', 'every vector is a recipe of eigen-directions', 'AÂ·v = 3aÂ·eâ‚ + 1bÂ·eâ‚‚ — each ingredient scales by ITS λ', 'Aⁿv = 3ⁿaÂ·eâ‚ + 1ⁿbÂ·eâ‚‚', '3Â¹⁰ = 59,049 vs 1Â¹⁰ = 1 — eâ‚ drowns out everything'][v2],
     }),
     highlight: { found: ['limit:what'] },
-    explanation: 'The why, in one decomposition: write the starting vector as a mix of the eigen-directions, and each application of A multiplies every ingredient by its own eigenvalue. After n rounds the components stand in ratio λ₁ⁿ : λ₂ⁿ — here 3ⁿ to 1ⁿ — so the dominant eigenvector\'s share grows EXPONENTIALLY and everything else becomes rounding error. Convergence speed is set by the ratio λ₂/λ₁ (the spectral gap): a big gap snaps in a few iterations, a narrow one crawls. You have already lived this theorem twice: it is why Vanishing & Exploding Gradients compounds (a network layer applied repeatedly amplifies along its top direction), and it is the engine inside the next view\'s most famous algorithm.',
-    invariant: 'Aⁿv → the dominant eigenvector: components scale as λⁿ, and the largest λ wins exponentially.',
+    explanation: 'The why, in one decomposition: write the starting vector as a mix of the eigen-directions, and each application of A multiplies every ingredient by its own eigenvalue. After n rounds the components stand in ratio λâ‚ⁿ : λâ‚‚ⁿ — here 3ⁿ to 1ⁿ — so the dominant eigenvector\'s share grows EXPONENTIALLY and everything else becomes rounding error. Convergence speed is set by the ratio λâ‚‚/λâ‚ (the spectral gap): a big gap snaps in a few iterations, a narrow one crawls. You have already lived this theorem twice: it is why Vanishing & Exploding Gradients compounds (a network layer applied repeatedly amplifies along its top direction), and it is the engine inside the next view\'s most famous algorithm.',
+    invariant: 'Aⁿv â†’ the dominant eigenvector: components scale as λⁿ, and the largest λ wins exponentially.',
   };
 }
 
@@ -118,10 +118,10 @@ function* fiveFields() {
       ],
       columns: [{ id: 'eig', label: 'the eigen-story' }],
       values: [[1], [2], [3]],
-      format: (v) => ['', 'covariance matrix\'s eigenvectors = the principal axes; eigenvalues = variance along each', 'singular values = √eigenvalues of AᵀA — the same skeleton for non-square matrices', 'a layer\'s top eigenvalue is its amplification factor: >1 compounds, <1 starves'][v],
+      format: (v) => ['', 'covariance matrix\'s eigenvectors = the principal axes; eigenvalues = variance along each', 'singular values = âˆšeigenvalues of Aáµ€A — the same skeleton for non-square matrices', 'a layer\'s top eigenvalue is its amplification factor: >1 compounds, <1 starves'][v],
     }),
     highlight: { compare: ['pcaRow:eig', 'svdRow:eig'] },
-    explanation: 'Fields 2 and 3 — STATISTICS and DEEP LEARNING: PCA: Principal Component Analysis solved a 2×2 eigenproblem on a covariance matrix to find the data\'s natural axes (the eigenvalues WERE the explained variances), and SVD & Low-Rank Approximation generalized the same skeleton to any rectangular matrix. Meanwhile every stability argument on this site is secretly spectral: Vanishing & Exploding Gradients\' narrow corridor is the statement "keep every layer\'s top eigenvalue near 1," and Loss Landscapes & Optimization Geometry\'s sharp-vs-flat minima are described by the Hessian\'s eigenvalues — big λ means a steep, fragile direction.',
+    explanation: 'Fields 2 and 3 — STATISTICS and DEEP LEARNING: PCA: Principal Component Analysis solved a 2Ã—2 eigenproblem on a covariance matrix to find the data\'s natural axes (the eigenvalues WERE the explained variances), and SVD & Low-Rank Approximation generalized the same skeleton to any rectangular matrix. Meanwhile every stability argument on this site is secretly spectral: Vanishing & Exploding Gradients\' narrow corridor is the statement "keep every layer\'s top eigenvalue near 1," and Loss Landscapes & Optimization Geometry\'s sharp-vs-flat minima are described by the Hessian\'s eigenvalues — big λ means a steep, fragile direction.',
   };
 
   yield {
@@ -153,91 +153,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A matrix is a rule for moving vectors. In two dimensions it may stretch, shrink, shear, reflect, or rotate directions. If you only inspect the entries of the matrix, it is hard to see which directions the transformation really cares about.`,
-        `Eigenvectors answer that question. An eigenvector is a nonzero direction that the matrix does not turn. The matrix may stretch it, shrink it, or flip it, but the output stays on the same line. The scale factor is the eigenvalue, written as Av = lambda v.`,
+        'The first view shows four arrows: two input vectors and two outputs after multiplying by A = [[2,1],[1,2]]. Visited arrows are directions that got rotated -- they are not eigenvectors. Found arrows are directions that stayed on their original line -- those are eigenvectors, and their stretch factor is the eigenvalue.',
+        'The power-iteration view shows a fan of arrows. Each arrow is the result of one more multiply-and-normalize step. The fan converges toward 45 degrees because the dominant eigenvalue (3) amplifies its component faster than the subdominant (1). The final arrow, marked found, is the dominant eigenvector.',
+        'The five-fields view shows a table. Each row is the same equation Av = lambda v wearing a different costume: web ranking, statistics, deep learning, graph clustering, physics. Read it as a census of where eigenvectors appear, not as separate algorithms.',
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The first thing most people try is to test the coordinate axes. Feed in (1, 0), feed in (0, 1), and see what comes out. That works for diagonal matrices because each coordinate axis already behaves independently.`,
-        `The wall appears as soon as the matrix mixes coordinates. For A = [[2,1],[1,2]], the x-axis vector becomes (2,1) and the y-axis vector becomes (1,2). Both have turned. The standard axes were convenient for writing the matrix, but they were not the directions the matrix preserves.`,
+        'A matrix is a rule that moves vectors. It may stretch, rotate, shear, or reflect them. Reading the entries of the matrix does not reveal which directions the transformation cares about. Two matrices with different entries can have the same eigenvectors and differ only in how hard they stretch each one.',
+        'Eigenvectors are the directions a matrix refuses to rotate. Along an eigenvector, the matrix acts as multiplication by a single number -- the eigenvalue. The equation is Av = lambda v: input direction equals output direction, scaled by lambda.',
+        'Euler studied these invariant directions for rotations of rigid bodies in the 1750s. Cauchy gave the first general theory of the characteristic equation in 1829, proving that every real symmetric matrix has real eigenvalues. Hilbert extended the idea to infinite-dimensional operators in 1904, opening the door to quantum mechanics and functional analysis. The word "eigen" is German for "own" or "characteristic" -- these are the matrix\'s own directions.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Change basis to the directions the matrix does not turn. Along those directions the matrix stops being a complicated coordinate mixer and becomes ordinary multiplication by a number. For the demo matrix, the diagonal direction (1,1) is stretched by 3, and the anti-diagonal direction (1,-1) is stretched by 1.`,
-        `That is why eigenvectors feel like a matrix's skeleton. They show the axes along which the transformation acts independently. Eigenvalues say how strongly each axis is stretched, damped, or flipped.`,
-        `The practical payoff is compression of explanation. A messy repeated transformation becomes a small list of preferred directions and multipliers. That is why the same equation keeps showing up in ranking, stability, vibration, optimization, and dimensionality reduction.`,
-        `Once you learn to ask for the directions a system preserves, many unrelated problems become easier to compare. A ranking system asks where repeated link flow settles. A mechanical system asks which vibration modes it naturally supports. An optimizer asks which curvature directions are steep enough to destabilize a step.`,
+        'To understand what a matrix does, multiply it by several vectors and look at the outputs. Start with the coordinate axes: feed in (1,0) and (0,1). For a diagonal matrix this works immediately -- each axis stays on its line and the diagonal entries are the eigenvalues.',
+        'For a general matrix, try random directions. Plot input and output arrows side by side. Some outputs land far from their inputs, some land close. With enough samples you might notice a pattern in which directions get rotated less.',
       ],
     },
     {
-      heading: `How the visual model teaches it`,
+      heading: 'The wall',
       paragraphs: [
-        `In the opening frame, compare each input arrow to its output arrow. If the output arrow points somewhere else, that direction is not an eigenvector. If the output arrow lies on the same line, the matrix has preserved the direction and only changed the length.`,
-        `In the power-iteration frame, do not treat the moving arrows as a search over every possible angle. The loop is simpler: multiply by A, normalize so the arrow stays readable, and repeat. The arrow turns toward 45 degrees because the component in the lambda = 3 direction grows faster than the component in the lambda = 1 direction.`,
-        `In the field-summary frames, read each row as the same equation in a different costume. PageRank wants a steady importance vector. PCA wants directions of variance. A Hessian wants directions of curvature. The matrix changes, but the question stays the same: which directions keep coming back?`,
+        'Random vectors get both stretched and rotated, and the mixture obscures the pattern. For A = [[2,1],[1,2]], the x-axis vector (1,0) becomes (2,1) -- longer and swung upward by about 26 degrees. The y-axis vector (0,1) becomes (1,2) -- swung the other way. Neither standard axis survived.',
+        'Trying more random vectors does not help systematically. You need directions that experience only scaling, no rotation. Those directions are not obvious from the matrix entries, and there is no shortcut that avoids solving an equation. The question is: which directions v satisfy Av = lambda v for some scalar lambda?',
       ],
     },
     {
-      heading: `How power iteration works`,
+      heading: 'How it works',
       paragraphs: [
-        `Power iteration finds one dominant eigenvector without solving the full eigenproblem. Start with almost any nonzero vector v. Repeatedly compute A v, then normalize the result. If the matrix has one eigenvalue with largest magnitude and the starting vector has some component in that direction, the normalized vector converges toward that dominant direction.`,
-        `The method works because any starting vector can be written as a mixture of eigen-directions when the matrix has a usable eigenbasis. Each multiplication by A scales each ingredient by its own eigenvalue. After n multiplications, the component with the largest absolute eigenvalue has been multiplied by its eigenvalue n times, so it dominates the mixture.`,
+        'The defining equation Av = lambda v rearranges to (A - lambda I)v = 0. For a nonzero v to exist, the matrix (A - lambda I) must be singular, which means det(A - lambda I) = 0. This is the characteristic equation -- a polynomial of degree n in lambda whose roots are the eigenvalues.',
+        'For A = [[2,1],[1,2]]: det([[2-lambda, 1],[1, 2-lambda]]) = (2-lambda)^2 - 1 = lambda^2 - 4lambda + 3 = (lambda-3)(lambda-1) = 0. The eigenvalues are lambda = 3 and lambda = 1.',
+        'For each eigenvalue, solve (A - lambda I)v = 0 for the eigenvector. For lambda = 3: (A - 3I) = [[-1,1],[1,-1]], so v = (1,1). For lambda = 1: (A - I) = [[1,1],[1,1]], so v = (1,-1). Check: A(1,1) = (3,3) = 3(1,1). A(1,-1) = (1,-1) = 1(1,-1).',
+        'Power iteration finds the dominant eigenvector without solving the polynomial. Start with any nonzero vector, repeatedly multiply by A and normalize. The dominant eigenvalue\'s component grows exponentially relative to all others, so the vector converges to the dominant eigenvector. Each step costs one matrix-vector multiply.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Why it works',
       paragraphs: [
-        `For A = [[2,1],[1,2]], the two eigen-directions are e1 = (1,1) and e2 = (1,-1). A e1 = (3,3), so e1 is scaled by 3. A e2 = (1,-1), so e2 is scaled by 1.`,
-        `The starting vector (1,0) can be written as 0.5(1,1) + 0.5(1,-1). After one multiplication, it becomes 0.5*3(1,1) + 0.5*1(1,-1). After ten multiplications, the ratio between those parts is 3^10 to 1^10. The diagonal component is now 59,049 times larger than the anti-diagonal component before normalization. The visible vector points almost exactly along (1,1).`,
+        'If the matrix has a full set of eigenvectors, any starting vector v decomposes as v = a1*e1 + a2*e2 + ... + an*en, where each ei is an eigenvector. Multiplying by A scales each component by its eigenvalue: Av = lambda1*a1*e1 + lambda2*a2*e2 + ... After k multiplications, the coefficients become lambda1^k*a1, lambda2^k*a2, and so on.',
+        'If |lambda1| > |lambda2| >= ... >= |lambdan|, then lambda1^k dominates all other terms exponentially. After normalization, the vector points along e1. The convergence rate depends on the spectral gap |lambda2/lambda1|: a ratio of 1/3 (as in this demo) means each iteration triples the dominance of e1 over e2. Ten iterations give a ratio of 3^10 = 59,049 to 1.',
+        'Eigenvectors of a symmetric matrix are orthogonal. This is not a coincidence -- it follows from the identity (Av)^T w = v^T (A^T w), which for symmetric A gives lambda_i (v_i^T v_j) = lambda_j (v_i^T v_j). When lambda_i differs from lambda_j, the inner product must be zero.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The correctness argument is a dominance argument. If |lambda1| is larger than every other eigenvalue magnitude, then the lambda1 component grows faster under repeated multiplication. Normalization changes the length, not the direction, so it does not remove the dominance.`,
-        `The spectral gap controls the speed. If |lambda2/lambda1| is small, the second component fades quickly. If the ratio is near 1, convergence is slow. If two eigenvalues tie in magnitude, plain power iteration may not pick a stable unique direction.`,
+        'Finding all eigenvalues of a dense n-by-n matrix via the QR algorithm costs O(n^3) time and O(n^2) space. The characteristic polynomial is never solved directly for n > 4 because root-finding on high-degree polynomials is numerically unstable.',
+        'Power iteration costs O(n^2) per step for a dense matrix (one matrix-vector multiply) or O(nnz) for a sparse matrix with nnz nonzero entries. The number of iterations depends on the spectral gap: a gap of |lambda2/lambda1| = 0.9 needs about 44 iterations for 4 digits of accuracy (since 0.9^44 is approximately 0.01), while a gap of 1/3 needs only 9.',
+        'Lanczos iteration (symmetric) and Arnoldi iteration (general) find the top k eigenvalues in O(k * nnz) time for sparse matrices, making them practical for matrices with millions of rows -- the scale needed for PageRank and spectral graph clustering.',
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Finding all eigenvalues and eigenvectors of a dense n by n matrix with standard direct methods is roughly O(n^3). Power iteration is cheaper when you only need the dominant direction: each step costs one matrix-vector multiply, which is O(n^2) for a dense matrix and O(nnz) for a sparse matrix with nnz stored nonzero entries.`,
-        `The hidden cost is iteration count. A matrix with a large spectral gap may converge in a few steps. A matrix with close top eigenvalues may need many steps. Numerical stability also matters because repeated multiplication can overflow, underflow, or amplify roundoff unless the vector is normalized and the implementation is careful.`,
+        'PCA computes the top k eigenvectors of a data covariance matrix. Each eigenvector is a direction of maximum remaining variance; the eigenvalue is the variance explained. Projecting data onto k eigenvectors compresses n features to k while losing the least information in a squared-error sense.',
+        'Google PageRank is the dominant eigenvector of the web\'s link matrix (with damping). Importance flows along links; power iteration runs until the scores stabilize. The stationary distribution of any ergodic Markov chain is an eigenvector of its transition matrix with eigenvalue 1.',
+        'Quantum mechanics postulates that measurable quantities (energy, momentum, spin) are eigenvalues of Hermitian operators. The hydrogen atom\'s energy levels are eigenvalues of the Hamiltonian. Measurement collapses the state onto the corresponding eigenvector.',
+        'Vibration analysis models a bridge or building as a mass-spring system. The natural frequencies are square roots of the eigenvalues of the stiffness-over-mass matrix. Engineers keep these frequencies away from earthquake or wind frequencies to prevent resonance.',
+        'Eigenfaces (Turk and Pentland, 1991) treated face images as high-dimensional vectors, computed the covariance matrix\'s top eigenvectors, and projected faces onto that basis for recognition. This was PCA applied to pixel space -- each eigenface captures a mode of variation across the training set.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Where it fails',
       paragraphs: [
-        `PageRank uses a steady eigenvector of a link-flow matrix: importance flows through links until repeated updates stop changing the score vector. Markov chains use the same fixed-point idea for long-run probabilities when the chain has the right mixing properties.`,
-        `PCA finds eigenvectors of a covariance matrix. The eigenvectors are directions in feature space, and the eigenvalues measure variance along those directions. Hessian analysis uses eigenvalues as curvature strengths: large positive values mean steep directions, small values mean flat directions, and negative values expose directions that curve downward.`,
+        'Non-symmetric matrices can have complex eigenvalues. A 90-degree rotation matrix [[0,-1],[1,0]] has eigenvalues i and -i -- no real direction stays on its line. Power iteration on such a matrix oscillates instead of converging.',
+        'Degenerate eigenvalues (algebraic multiplicity greater than 1) may not have enough independent eigenvectors. The matrix [[1,1],[0,1]] has eigenvalue 1 with multiplicity 2, but only one eigenvector direction. Such defective matrices cannot be diagonalized; they require Jordan normal form.',
+        'Numerical instability is a practical hazard. Matrices with eigenvalues very close together make the characteristic polynomial ill-conditioned: small changes in entries produce large changes in eigenvalues. The QR algorithm handles this by never forming the characteristic polynomial, but even QR can struggle with near-singular or highly non-normal matrices.',
+        'Eigendecomposition does not exist for all matrices, and even when it does, it may not be the right tool. SVD works for every real matrix (including non-square ones) and decomposes the input-output stretching even when eigenvectors are awkward. For many applications, SVD is the safer default.',
       ],
     },
     {
-      heading: `Where it is not enough`,
+      heading: 'Worked example',
       paragraphs: [
-        `Not every useful matrix has a full set of real eigenvectors. A 90-degree rotation has no real direction that stays on the same line. Non-symmetric matrices can have complex eigenvalues, defective structure, or unstable numerical behavior. In those cases, SVD is often the safer tool because it works for every real matrix and describes input-output stretching even when eigenvectors are awkward.`,
-        `Power iteration is also the wrong tool when you need interior eigenvalues, many eigenvectors, or a guaranteed answer for clustered eigenvalues. Krylov methods, QR iteration, Lanczos, Arnoldi, or SVD-based methods are better fits depending on the matrix and the question.`,
+        'Matrix: A = [[2,1],[1,2]]. Characteristic equation: (2-lambda)^2 - 1 = 0, so lambda^2 - 4lambda + 3 = 0. Roots: lambda = 3 and lambda = 1.',
+        'Eigenvector for lambda = 3: solve (A - 3I)v = 0. A - 3I = [[-1,1],[1,-1]]. First row gives -v1 + v2 = 0, so v = (1,1). Verify: A(1,1) = (2+1, 1+2) = (3,3) = 3(1,1).',
+        'Eigenvector for lambda = 1: solve (A - I)v = 0. A - I = [[1,1],[1,1]]. First row gives v1 + v2 = 0, so v = (1,-1). Verify: A(1,-1) = (2-1, 1-2) = (1,-1) = 1(1,-1).',
+        'Power iteration from v0 = (1,0): decompose as 0.5(1,1) + 0.5(1,-1). After one step: A*v0 = (2,1); normalized: (0.894, 0.447), angle 26.6 degrees. After six steps the angle is within 0.1 degrees of 45 degrees. After ten steps the lambda=3 component is 59,049 times larger than the lambda=1 component before normalization.',
       ],
     },
     {
-      heading: `Failure modes`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Eigenvectors are directions, not single arrows. Multiplying an eigenvector by 2 gives the same eigen-direction, so normalization is a convention, not a mathematical change. Eigenvalues are scale factors, not probabilities or importance scores by themselves.`,
-        `The dominant eigenvalue means largest absolute value. A negative dominant eigenvalue flips the vector each step while still dominating the magnitude. A complex dominant pair can make simple real iteration rotate instead of settling. These are not edge trivia; they determine whether the algorithm visible in the demo is valid for a new matrix.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Matrix Multiplication and Linear Transformations if the geometry still feels slippery. Study SVD and Low-Rank Approximation for the more general stretch-axis story. Study PCA for covariance eigenvectors, PageRank for power iteration at graph scale, and Markov Chains and Steady States for fixed points.`,
-        `Then study Loss Landscapes and Optimization Geometry, The Hessian: Curvature and Newton's Step, Vanishing and Exploding Gradients, and Natural Gradient and Fisher Information to see eigenvalues become the language of optimization stability.`,
+        'Gilbert Strang, "Linear Algebra and Its Applications" (4th ed., 2006) -- chapters 5-6 cover eigenvalues, diagonalization, and positive definite matrices with geometric intuition throughout. Gene Golub and Charles Van Loan, "Matrix Computations" (4th ed., 2013) -- the reference for QR, Lanczos, Arnoldi, and all numerical eigenvalue algorithms. Turk and Pentland, "Eigenfaces for Recognition" (Journal of Cognitive Neuroscience, 1991) -- the canonical application of PCA to face recognition.',
+        'Prerequisite: study Matrix Multiplication and Linear Transformations if matrix-vector products still feel abstract. Extension: study SVD and Low-Rank Approximation for the generalization that works on non-square and non-symmetric matrices. Applications: study PCA for covariance eigenvectors in statistics, PageRank for power iteration at web scale, and Markov Chains and Steady States for eigenvector fixed points. For eigenvalues in optimization: study Loss Landscapes and Optimization Geometry, The Hessian, Vanishing and Exploding Gradients, and Natural Gradient and Fisher Information.',
       ],
     },
   ],
 };
+

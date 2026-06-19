@@ -1,4 +1,4 @@
-// Chain of Draft: concise, high-signal reasoning traces as a token-budget
+﻿// Chain of Draft: concise, high-signal reasoning traces as a token-budget
 // control surface for LLM systems.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -311,6 +311,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Chain of Draft Reasoning Token Budget Case Study. A concise-reasoning case study: replace verbose chain-of-thought traces with compact draft notes, measure token savings, and route hard cases to verifiers or tools..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         "Reasoning prompts often buy accuracy with output tokens. A verbose chain-of-thought answer may help on some tasks, but every extra token adds latency, cost, parsing work, and more surface area for irrelevant prose.",
@@ -327,7 +336,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core state model',
+      heading: 'The core insight',
       paragraphs: [
         'A useful draft record stores task type, extracted facts, operations, updated state, lightweight checks, final answer, route id, token count, confidence, and verifier result. For arithmetic, "20 -> 12; 20-12=8; ans 8" preserves the whole state. For a date task, the record might store offset, weekday, calendar rule, and answer.',
         "For code, the record has to be richer: failing symptom, suspected file, edit intent, compatibility constraint, and required verification. The draft is still compact, but it cannot erase the repo-specific state that makes the patch safe.",
@@ -336,7 +345,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         "A prompt usually gives a few examples of terse intermediate notes and a clear answer separator. The examples teach the model to preserve state without explaining every step in full sentences. A word cap helps, but the real contract is state preservation.",
         "A production router chooses the reasoning mode. Easy tasks can answer directly. Compact reasoning tasks can use Chain of Draft. Ambiguous or high-stakes tasks should route to fuller reasoning, retrieval, calculators, code execution, citation checks, process reward models, or human review.",
@@ -344,15 +353,15 @@ export const article = {
       ],
     },
     {
-      heading: 'Reliability argument',
+      heading: 'Why it works',
       paragraphs: [
-        "The reliability claim is narrow: if the task's necessary state can be represented compactly, and a verifier can check the final answer, then verbose reasoning is often wasted output. The draft keeps the state; the verifier checks the result.",
+        "The reliability claim is narrow: if the task\'s necessary state can be represented compactly, and a verifier can check the final answer, then verbose reasoning is often wasted output. The draft keeps the state; the verifier checks the result.",
         "The invariant is accepted-answer quality at the target risk level. Token savings count only after the answer passes the same quality gate as the baseline. A draft that fails verification should expand, call a tool, or escalate.",
         "This is why Chain of Draft belongs in a routing system rather than a global prompt. It is one tier between direct answers and expensive reasoning modes.",
       ],
     },
     {
-      heading: 'Costs',
+      heading: 'Cost and behavior',
       paragraphs: [
         "The original Chain of Draft paper reports near Chain-of-Thought accuracy on several reasoning tasks while using as little as 7.6 percent of the tokens. The strongest savings appear where the intermediate state is small and structured.",
         "A software-engineering follow-up is the useful caution. Across 300 SWE-bench samples, Chain of Draft variants used fewer tokens than Chain of Thought, with a baseline variant at 55.4 percent of CoT token usage. The savings were smaller because code work needs repository context, compatibility checks, and validation detail.",
@@ -360,7 +369,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Production uses',
+      heading: 'Real-world uses',
       paragraphs: [
         "Chain of Draft is useful for arithmetic, date reasoning, symbolic transformations, simple logic, constrained extraction, and support flows where the state fits in a compact record. It also helps when the system needs a cheap first pass before deciding whether to spend more.",
         'A concrete arithmetic trace can be "given 20, left 12; subtract; ans 8." A concrete date trace can be "start Tue; +3 business; Fri." A concrete code trace should not be that terse; it might be "symptom import fail; file cli.py; guard None; run parser tests."',
@@ -369,7 +378,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         "The main failure is overcompression. The model keeps the arithmetic-looking part and drops the condition, unit, exception, citation, or compatibility constraint that determines correctness.",
         "Another failure is using CoD as a blanket replacement for Chain of Thought. High-stakes legal, medical, financial, or code-modifying workflows need independent checks and often need evidence that cannot be compressed into a few tokens.",
@@ -378,11 +387,71 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Chain of Draft at https://arxiv.org/abs/2502.18600 and the code/data repository at https://github.com/sileix/chain-of-draft. Practical deployment discussion: AWS Chain-of-Draft on Bedrock at https://aws.amazon.com/blogs/machine-learning/move-beyond-chain-of-thought-with-chain-of-draft-on-amazon-bedrock/. Software-engineering caveat: https://arxiv.org/abs/2506.10987. Related training direction: Draft-Thinking at https://arxiv.org/html/2603.00578v1.',
         'Study Self-Consistency Reasoning Vote for sampling-based checks, Tree of Thoughts Search Case Study for broader exploration, Process Reward Models & Verifier Search for step scoring, Verifier-Guided Inference Control Plane Case Study for routing, LLM Inference Cost Stack Case Study for economics, RAG Context Packing Token Budget Case Study for context tradeoffs, LLM Evaluation Harnesses for measurement, Benchmark Variance & Model Selection for slice analysis, and Softmax & Temperature for sampling behavior.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for chain-of-draft-reasoning-token-budget-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

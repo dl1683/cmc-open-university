@@ -1,4 +1,4 @@
-// WebAuthn/passkey credential flow: relying-party challenge, origin and RP ID
+﻿// WebAuthn/passkey credential flow: relying-party challenge, origin and RP ID
 // binding, authenticator data, public-key credential storage, assertions, and counters.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -185,6 +185,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for WebAuthn Passkeys. A public-key login case study: challenge records, RP ID scoping, credential IDs, public keys, authenticator data, signatures, and counters..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Passwords make the server store something attackers can target and make users type a secret into pages that may be fake. Even with hashing and MFA, phishing and credential reuse keep turning login into a shared-secret problem.',
@@ -206,21 +215,21 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The credential is scoped to a relying-party ID and used through the browser. The authenticator signs a fresh challenge together with authenticator data, and the server verifies the signature using the stored public key for that credential ID.',
         'That turns login into a lookup plus a proof of possession. The server can verify the proof, but a server breach does not reveal a secret that can produce future proofs.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         "The registration view shows the permanent record being created. The relying party sends a challenge and policy, the authenticator creates a key pair scoped to the RP ID, and the server stores the credential ID and public key. The server is not storing a secret it can later leak.",
         "The assertion view shows the repeatable login proof. A fresh challenge, origin, RP ID hash, authenticator flags, and signature all have to line up. The interesting part is not that the user unlocked a device; it is that the device signed the right challenge for the right relying party.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How it works (2)',
       paragraphs: [
         'Registration begins when the relying party sends public-key credential creation options: challenge, RP ID, user handle, algorithms, authenticator selection, and timeout. The authenticator creates a key pair and credential ID, then returns attestation data and the public key. The server stores the credential record.',
         'Authentication begins with a new challenge. The browser creates clientDataJSON containing the challenge and origin. The authenticator returns authenticatorData, a signature over authenticatorData plus the client-data hash, and the credential ID. The server finds the public key and validates challenge, origin, RP ID hash, flags, signature, and counter behavior.',
@@ -248,7 +257,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'WebAuthn adds ceremony state, credential records, browser API complexity, recovery flows, device management, and user-experience edge cases. Synced passkeys improve usability but move some trust to the platform account and its recovery process.',
         'The sign counter is useful risk evidence, not a perfect clone oracle. Some authenticators may report zero or behave differently across synced credentials, so services need explicit risk handling instead of a single universal counter rule.',
@@ -256,14 +265,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Passkeys are strong for consumer login, enterprise SSO, admin consoles, payment step-up, and any account where phishing and password reuse are real threats.',
         'They work especially well when the service can support multiple credentials per user, clear recovery, risk-based step-up, and audit logs that distinguish registration, authentication, recovery, and credential removal.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'WebAuthn does not solve authorization after login. The server still owns sessions, resource policy, account recovery, device enrollment, rate limits, abuse detection, and audit.',
         'It is also not frictionless for every environment. Legacy browsers, shared devices, platform-account recovery, lost devices, and account transfer all need product and security design.',
@@ -271,18 +280,82 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A bank enrolls a passkey for a customer account. The server sends a registration challenge for bank.example, the authenticator creates a scoped credential, and the bank stores the public key, credential ID, user handle, RP ID, and counter metadata.',
         'Later, a phishing site cannot get that credential to sign for bank.example because browser and authenticator scoping bind the credential to the real relying party. For a high-risk transfer, the bank requires user verification and a fresh assertion rather than trusting an old session alone.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: W3C WebAuthn Level 3 at https://www.w3.org/TR/webauthn-3/ and FIDO Alliance passkeys overview at https://fidoalliance.org/passkeys/.',
         'Study WebAuthn Passkey Credential Discovery for discoverable credentials and account selectors, JWT Verification and OAuth PKCE Token Lifecycle Case Study for adjacent web identity flows, Hash Table for credential-ID lookup, JSON Parser Stack Case Study for structured browser payloads, and OPA Rego Policy Decision Graph or Zanzibar Authorization Case Study for policy after authentication.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why WebAuthn Passkeys moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

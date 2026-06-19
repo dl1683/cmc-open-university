@@ -233,18 +233,18 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `A main-memory database index has a different bottleneck from a disk index. The data is already in RAM, so the cost shifts to cache misses, unpredictable branches, pointer chasing, and wasted memory. Big-O alone hides those costs.`,
-        `An Adaptive Radix Tree, or ART, is an ordered in-memory index for keys that can be treated as byte strings. It keeps trie-style prefix search and sorted traversal, but it changes each node layout to match that node's fanout.`,
+        `An Adaptive Radix Tree, or ART, is an ordered in-memory index for keys that can be treated as byte strings. It keeps trie-style prefix search and sorted traversal, but it changes each node layout to match that node\'s fanout.`,
       ],
     },
     {
-      heading: `The obvious approach and the wall`,
+      heading: `The wall`,
       paragraphs: [
         `A plain byte trie is the natural baseline. Each level consumes one byte of the key, and a 256-entry child array gives direct access to the next edge. Lookup is simple and ordered traversal is natural.`,
         `The wall is sparsity. Most nodes lack 256 children. Allocating 256 pointers for every node wastes memory and cache. Replacing the array with a small child list saves space, but dense nodes become slow scans. A hash table gives fast exact lookup, but it loses sorted order and prefix scans.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `ART stores keys as byte sequences. Internal nodes represent prefixes. Leaves store full keys or references to records, and a final full-key check protects correctness when prefixes are compressed.`,
         `The adaptive layouts are the core idea. Node4 stores up to 4 children with a tiny key array. Node16 stores up to 16 children and can use SIMD-friendly label checks. Node48 uses a 256-byte index from key byte to child slot, pointing into a compact child array. Node256 uses direct indexing for dense fanout.`,
@@ -252,9 +252,9 @@ export const article = {
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: `How it works`,
       paragraphs: [
-        `Lookup compares the compressed prefix at the current node, consumes the next byte of the key, and finds the matching child using the node's current representation. A sparse node scans a few labels. A dense node uses an indirection table or direct array access.`,
+        `Lookup compares the compressed prefix at the current node, consumes the next byte of the key, and finds the matching child using the node\'s current representation. A sparse node scans a few labels. A dense node uses an indirection table or direct array access.`,
         `Insertion descends to the divergence point. If a compressed prefix no longer matches, the prefix splits and a new branch is inserted. If a node outgrows its layout, ART replaces it with the next larger layout and copies the child set. Deletion can shrink a node or merge a single-child path back into a compressed prefix.`,
         `The logical trie stays the same when a node grows from Node4 to Node16 or shrinks from Node48 to Node16. Only the physical representation changes.`,
       ],
@@ -276,7 +276,7 @@ export const article = {
       ],
     },
     {
-      heading: `Where it wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `ART fits main-memory OLTP indexes, ordered key-value stores, prefix-heavy keys, and systems that need both point lookup and ordered scans. It is especially useful when a hash table is too unordered and a page-oriented B-tree carries unnecessary RAM overhead.`,
         `A concrete example is an in-memory index over URLs or API keys. Many keys share prefixes such as https://, /users/, or api:. Path compression stores those shared bytes once, while adaptive nodes avoid paying for dense arrays at sparse branch points.`,
@@ -286,13 +286,13 @@ export const article = {
     {
       heading: `Where it fails`,
       paragraphs: [
-        `ART isn't automatically better than a B-tree. Disk-resident data, page-level recovery, long scans over cold storage, and mature concurrency control can favor B-tree or B+ tree designs.`,
-        `It also isn't a drop-in replacement for a hash table. If the workload only needs exact lookup and doesn't care about order, prefix queries, or range scans, hashing may be simpler and faster.`,
+        `ART isn\'t automatically better than a B-tree. Disk-resident data, page-level recovery, long scans over cold storage, and mature concurrency control can favor B-tree or B+ tree designs.`,
+        `It also isn\'t a drop-in replacement for a hash table. If the workload only needs exact lookup and doesn\'t care about order, prefix queries, or range scans, hashing may be simpler and faster.`,
         `Text keys bring another limit. ART orders bytes. User-facing text order may need collation, normalization, case folding, or grapheme rules above the raw byte index. Those rules can dominate the clean trie model.`,
       ],
     },
     {
-      heading: `Animation notes`,
+      heading: `How to read the animation`,
       paragraphs: [
         `The node-growth view is about local fanout. Watch how the same logical trie edge map can live inside Node4, Node16, Node48, or Node256 depending on how many children the node has.`,
         `The prefix-compression view is about skipped one-child paths. The compressed prefix saves nodes, but the leaf still needs a full-key check so a prefix match does not become a false positive record lookup.`,
@@ -306,14 +306,14 @@ export const article = {
       ],
     },
     {
-      heading: `Complete case study`,
+      heading: `Worked example`,
       paragraphs: [
         `A main-memory database stores customer records keyed by tenant id plus user id. A hash table can answer exact lookup, but range scans by tenant and ordered pagination need key order. A B-tree works, but its page-oriented layout is not ideal when all nodes live in RAM.`,
         `ART stores the encoded composite key byte by byte. Shared tenant prefixes compress naturally, sparse branch points use small nodes, and dense byte positions grow into larger nodes. The index supports exact lookup, prefix scans for one tenant, and ordered iteration without switching data structures.`,
       ],
     },
     {
-      heading: `Limits and failure modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `Concurrency is a hard part of production ART. Node replacement during growth or shrink must coordinate with readers that may still hold old pointers. Implementations need latching, epoch reclamation, copy-on-write, or another memory-safety strategy.`,
         `Prefix compression can also create subtle bugs around keys that are prefixes of other keys. The leaf/full-key check and terminal marker policy must distinguish "car" from "cart" even when the path shares every byte of the shorter key.`,
@@ -323,6 +323,43 @@ export const article = {
       heading: `Study next`,
       paragraphs: [
         `Primary source: "The Adaptive Radix Tree: ARTful Indexing for Main-Memory Databases" at https://db.in.tum.de/~leis/papers/ART.pdf. Study Trie for the base invariant, B-Trees (How Databases Read) for page-oriented ordered indexes, Hash Table and Cuckoo Hashing for exact lookup alternatives, Database Indexing for query-planner context, and Learned Indexes for another main-memory index design.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Index keys for fast lookup. Hash table: O(1) average but no order — can\'t do range queries or prefix searches. BST/AVL/Red-Black: O(log n) with order, but each comparison examines the entire key. For long keys (URLs, file paths): comparison cost dominates.',
+        'Trie: O(m) lookup for key length m — independent of n. But each node needs space for all possible children (256 for bytes). Sparse nodes waste memory. Radix tree (Patricia trie): compress single-child chains into one node. Saves space but node types vary.',
+        'ART (Adaptive Radix Tree, Leis et al. 2013): radix tree with four node types that adapt to density: Node4 (≤4 children, sorted array), Node16 (≤16, SIMD-searchable array), Node48 (≤48, 256-entry index → 48 child pointers), Node256 (full 256-pointer array). As children are added or removed, nodes grow or shrink between types. Result: space-efficient like a hash table, order-preserving like a tree, O(m) per lookup. Height = key length in bytes, not log(n). Used in: database indexes (HyPer, DuckDB, TigerBeetle), IP routing tables, file system path lookup.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Leis et al. 2013: "The Adaptive Radix Tree: ARTful Indexing for Main-Memory Databases" — the original paper defining Node4/Node16/Node48/Node256 and benchmarking against B-trees and hash tables for main-memory workloads. Morrison 1968: "PATRICIA — Practical Algorithm to Retrieve Information Coded in Alphanumeric" — the original radix tree that ART extends.',
+        'Study next: Trie (the conceptual foundation — ART is a trie with adaptive node sizing), B-Tree (disk-oriented ordered alternative — contrast with ART\'s RAM-oriented design), Hash Table (unordered O(1) alternative — wins when order and prefix queries are unnecessary), Red-Black Tree (comparison-based ordered alternative — O(log n) key comparisons vs. ART\'s O(m) byte walks), SIMD (Node16 search uses SIMD instructions to compare 16 bytes in parallel).',
+      ],
+    },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Insert keys: "app", "apple", "application", "apt". After "app": root→a→p→p (leaf). After "apple": the p node gets child l→e (leaf). The "app" prefix is shared. After "application": l node path compression — "le" becomes a prefix node, then e leaf and i→"cation" leaf. After "apt": p node now has 2 children (p and t). It is a Node4 (≤4 children, sorted array [p, t]).',
+            'Search "apple": root→a→p→p→l→e. 5 byte comparisons, found. Search "api": root→a→p→? No i child → not found. 3 byte comparisons. Search cost depends on key length, not on the number of stored keys. 1 million keys or 1 billion keys: same lookup time for the same key.',
+            'Invariant: at depth d, every descendant shares the same first d key bytes (plus any compressed prefix). A child edge labeled b can only lead to keys whose next byte is b.',
+            'Edge case: inserting "app" when "apple" already exists forces a prefix split — the compressed "le" prefix must become a branch node so "app" can terminate as a leaf at the divergence point.',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Node type transitions. Start with Node4 for a node\'s children: keys [l, t]. Add r (for "apr"): [l, r, t]. Add s: [l, r, s, t]. Full! Add u: grow to Node16. Node16 stores 16 keys in a SIMD-friendly array. Lookup: load all 16 keys into a SIMD register, compare against search byte in parallel — one instruction, constant time for up to 16 children.',
+        'At 17 children: grow to Node48. Node48 uses a 256-byte index (one byte per possible child value) pointing into 48 child slots. Index lookup: O(1). At 49 children: grow to Node256. Full 256-pointer array — one pointer per possible byte value. No search needed, direct index.',
+        'Space: Node4 uses 52 bytes. Node256 uses 2048 bytes. Adaptive sizing means sparse nodes (most nodes in practice) use 40x less memory than fixed-256 nodes. Predict the node type at each step, then run the animation to check.',
       ],
     },
   ],

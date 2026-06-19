@@ -1,4 +1,4 @@
-// Agent checkpoint replay ledger: persist graph state, event history, replay
+﻿// Agent checkpoint replay ledger: persist graph state, event history, replay
 // points, forks, and recovery decisions for long-running agent runs.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -206,9 +206,18 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Agent Checkpoint Replay Ledger Case Study. A durable-agent runtime case study: graph-state checkpoints, event histories, replay points, time-travel forks, stores, idempotent side effects, and resume policy..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        "Long-running agents don't behave like a single request. They call tools, wait for people, spend budget over minutes or hours, and may be interrupted by deploys, crashes, rate limits, or user edits. A durable runtime needs a way to continue the same run without guessing what already happened.",
+        "Long-running agents don\'t behave like a single request. They call tools, wait for people, spend budget over minutes or hours, and may be interrupted by deploys, crashes, rate limits, or user edits. A durable runtime needs a way to continue the same run without guessing what already happened.",
         "The reasonable first attempt is to keep a transcript and rerun the agent from the beginning. That works for a short chat. It breaks when the run contains side effects: a refund submitted twice, a ticket updated twice, a browser action repeated under changed page state, or a human approval reused after the facts changed.",
         "The checkpoint replay ledger exists because the runtime state is not the same thing as the conversation text. It records the graph state, event history, pending node, side-effect decisions, model and tool versions, budgets, stores, and trace ids needed to resume or inspect the run.",
       ],
@@ -216,12 +225,12 @@ export const article = {
     {
       heading: 'The wall',
       paragraphs: [
-        "A transcript cannot tell the scheduler which node is safe to run next. It doesn't preserve reducer state, pending interrupts, idempotency keys, cached tool results, model settings, or whether an external API call already committed. Reconstructing those fields from text is a best-effort parser, not a recovery mechanism.",
+        "A transcript cannot tell the scheduler which node is safe to run next. It doesn\'t preserve reducer state, pending interrupts, idempotency keys, cached tool results, model settings, or whether an external API call already committed. Reconstructing those fields from text is a best-effort parser, not a recovery mechanism.",
         "The wall is semantic replay. Pure code can run again. A model call may return a different answer. A tool call may be expensive. A side effect may be irreversible. A human approval may have been correct only for the branch that produced it. The ledger has to classify those cases before it resumes.",
       ],
     },
     {
-      heading: 'Core state model',
+      heading: 'The core insight',
       paragraphs: [
         "The core record is a thread-scoped checkpoint. It stores a thread id, checkpoint id, parent checkpoint id, graph values, current node, next node set, pending interrupts, reducer versions, model and prompt versions, tool-call ids, budget used, and trace span.",
         "The event history stores the facts that make replay safe: node starts and finishes, model outputs, tool results, external request ids, idempotency keys, approval decisions, errors, retries, and compensation actions. Long-term memory lives in a separate store. A user preference or learned fact can outlive a thread; a checkpoint is the execution boundary for one thread.",
@@ -229,7 +238,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         "Before a node runs, the runtime loads the latest committed checkpoint for the thread. The node reads graph values, calls models or tools, emits events, and proposes a state update. The checkpoint write commits the new state and the event facts together, or the runtime treats the node as incomplete.",
         "External side effects need a ledger entry before they run. The entry carries an idempotency key, destination, payload hash, and replay rule. On resume, the runtime can reuse the recorded result, query the external system, call a compensating action, or stop for a human decision.",
@@ -245,7 +254,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs',
+      heading: 'Cost and behavior',
       paragraphs: [
         "Checkpointing trades runtime work for storage and write latency. Checkpoint after every token and persistence dominates. Checkpoint only at the end and a crash can lose tool outputs, approvals, and expensive model calls. Practical runtimes checkpoint at side-effect boundaries, human waits, handoffs, expensive tool calls, and bounded intervals in long loops.",
         "Event histories grow. Temporal-style systems need history limits and continue-as-new patterns because unbounded replay becomes its own outage. Agent ledgers need the same pressure relief: compact old state, summarize safe history, and keep raw private payloads out of general-purpose traces.",
@@ -253,7 +262,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Production uses',
+      heading: 'Real-world uses',
       paragraphs: [
         "A support agent can pause at a refund approval, survive a worker restart, and resume at the same pending decision. A research agent can fork before source selection and compare two evidence paths. A coding agent can checkpoint before applying a patch, keep the failed test trace, and repair from the same state instead of starting over.",
         "A concrete run might look like this: checkpoint 41 stores the user request and selected policy. Checkpoint 42 records a tool lookup. Checkpoint 43 pauses for approval. The worker crashes. On restart, the runtime loads checkpoint 43, sees a pending human interrupt, and waits for a resume command instead of issuing another lookup or submitting the refund.",
@@ -261,7 +270,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
         "The common mistake is treating memory as a checkpoint. Long-term facts help the agent answer future requests. They do not tell the runtime which node is pending, which side effects have committed, or which approval scope is valid.",
         "Other failures are quieter: unversioned prompts, tool results stored only in logs, forks that reuse stale human approvals, idempotency keys generated after the external call, and checkpoints that include private payloads nobody meant to retain.",
@@ -277,11 +286,71 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: LangGraph persistence at https://docs.langchain.com/oss/python/langgraph/persistence, LangGraph time travel at https://docs.langchain.com/oss/python/langgraph/use-time-travel, Temporal event history at https://docs.temporal.io/workflow-execution/event, Temporal workflow execution at https://docs.temporal.io/workflow-execution, and Temporal OpenAI Agents SDK integration at https://temporal.io/blog/announcing-openai-agents-sdk-integration.',
         'Study Agent Workflow DAG Compiler Case Study for graph structure, Human Approval Interrupt Queue Case Study for pause and resume boundaries, Agent Run Trace Span Tree Case Study for observability, Temporal Workflow Case Study for durable execution, Idempotency & Exactly-Once Delivery for side effects, and Distributed Tracing for cross-service debugging.',
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for agent-checkpoint-replay-ledger-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

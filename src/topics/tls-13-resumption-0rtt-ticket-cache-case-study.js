@@ -164,108 +164,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The resumption view traces ticket lifecycle left to right: a full handshake mints a ticket, the client caches it with scope metadata, a later ClientHello offers the ticket with a PSK binder, and the server verifies and resumes. Active nodes are the current step in that lifecycle. Found nodes are commitments locked in from the previous full handshake.',
+        'The 0-RTT replay view highlights the gap between encryption and replay safety. Follow the early-data path from the client through the server to the application, and watch the anti-replay node. When that node shows "miss," the system has no proof this early data is fresh. The matrix frame maps request types to replay fitness so you can see which operations belong in 0-RTT and which must wait.',
+        'The key state change across both views is not "faster handshake." It is a shift from fresh full authentication to resumed authenticated context, and optionally from post-handshake application data to replayable early data. Each transition trades a guarantee for latency.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A full TLS 1.3 handshake is secure, but repeat connections should not always pay the full latency and certificate-validation cost. Phones roam networks, browsers open many short connections, and edge services reconnect often.',
-        'Resumption lets a later connection reuse authenticated state from an earlier full handshake. 0-RTT goes further by letting selected application data ride on the first flight, but that trades latency for replay risk.',
+        'A full TLS 1.3 handshake is secure, but repeat connections should not always pay the full cost. Phones roam between cell towers and Wi-Fi networks, browsers open many short-lived connections, edge services reconnect frequently after load-balancer resets. Each full handshake costs a round trip, elliptic-curve math, certificate-chain validation, and transcript verification. For a mobile user on a 150ms cellular link, that round trip is felt directly as page-load delay.',
+        'Resumption lets a later connection reuse authenticated state from a recent full handshake, skipping certificate work and reducing CPU on both sides. 0-RTT goes further: selected application data rides on the very first flight, eliminating even the resumed round trip. That trades latency for replay risk, which is why 0-RTT is an application-design question, not just a TLS configuration toggle.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simple answer is to run a full handshake every time. That is easy to reason about because every connection gets fresh negotiation, certificate authentication, ECDHE, and Finished checks.',
-        'For many clients, that is wasteful. The server and client just authenticated each other seconds or minutes ago, yet the next connection repeats much of the same setup work.',
+        'The simple answer is to run a full handshake every time. Fresh negotiation, fresh ECDHE, fresh certificate verification, fresh Finished checks. It is easy to reason about because nothing carries over from a previous connection. Every session starts from zero trust.',
+        'For many clients, that is wasteful. A browser that just authenticated api.example.com three seconds ago should not repeat all of that work for the next request. A phone that reconnects after a network switch already proved its server\'s identity on the previous connection. Repeating the full ceremony every time burns latency and CPU proportional to the number of short connections, which in mobile and edge-heavy architectures is most connections.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The wall',
       paragraphs: [
-        'Blind reuse of old state is unsafe. A ticket offered to the wrong hostname, protocol, cipher context, or privacy scope can link activity or resume the wrong security assumptions.',
-        'Early data has a sharper wall: encryption is not replay prevention. Captured 0-RTT bytes may be replayed, especially when a distributed server fleet does not share anti-replay state perfectly.',
+        'Naive session reuse is unsafe. Carrying forward an old secret without binding it to the new connection lets an attacker replay old ClientHello messages or offer stolen ticket identities. If the ticket has no scope, it could be offered to the wrong hostname, protocol version, or cipher context. If the ticket lives forever, it becomes a long-lived credential that defeats the forward-secrecy properties of the original handshake.',
+        'Early data has a sharper wall. Encryption does not prevent replay. An attacker who captures 0-RTT bytes can re-send them, and if the server has no anti-replay mechanism, or if a distributed edge fleet does not share replay state, the same request can be processed twice. A replayed GET for a static image is harmless. A replayed POST that transfers money, sends an email, or decrements inventory is a bug with real consequences.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'A session ticket is scoped resumable state anchored in a previous authenticated handshake. The binder proves that the client still knows the resumption secret and binds the offer to the new ClientHello.',
-        '0-RTT must be treated as replayable input. TLS can expose anti-replay hooks and let servers reject early data, but the application decides which requests are safe to process before the handshake finishes.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the resumption view, follow the ticket as scoped state from a previous full handshake. The client is not skipping authentication casually; it is proving knowledge of a resumption secret with a binder tied to the new ClientHello.",
-        "In the 0-RTT replay view, separate confidentiality from replay safety. Early data can be encrypted and still be replayable. The highlighted anti-replay window and application gate show where TLS stops being enough and product semantics have to decide whether a repeated request is harmless.",
-        "The important state change is not simply a faster handshake. It is a shift from fresh full authentication to resumed authenticated context, and optionally from post-handshake application data to replayable early data.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A browser connects to `static.example.com`, completes a full TLS 1.3 handshake, and receives a session ticket. Minutes later it reconnects and offers that ticket with a binder. The server verifies the binder, checks ticket age and scope, and resumes without repeating the entire certificate path and key negotiation from scratch.',
-        'Now suppose the browser sends a cacheable asset request as 0-RTT early data. If an attacker replays that request, the server may serve the same image twice. That is usually acceptable. If the same mechanism is used for `POST /transfer-money`, replay can create a second transfer unless the application has its own idempotency key and replay ledger.',
-        'This is why 0-RTT is an application design question, not just a cryptography checkbox. TLS can provide the mechanism and anti-replay hooks. The service owner must decide which operations can tolerate repeated delivery.',
+        'A session ticket is scoped, time-limited resumable state anchored in a previous authenticated handshake. The PSK binder proves the client still knows the resumption secret and binds that proof to the new ClientHello. The binder is a MAC computed over part of the ClientHello using a key derived from the resumption secret, so an attacker who does not know the secret cannot forge a valid binder.',
+        '0-RTT must be treated as replayable input by design. TLS provides anti-replay hooks (the server can track a window of seen tickets or use single-use tickets), but TLS alone cannot decide which application operations are safe to repeat. The insight is that replay safety is an application-layer property, not a transport-layer property. TLS can offer the mechanism and let servers reject early data. The application must classify which endpoints tolerate replay and which must wait for the full handshake to complete.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'After a full TLS 1.3 handshake, the server sends NewSessionTicket. The client stores ticket identity, resumption secret, ticket age metadata, cipher constraints, SNI, ALPN, expiration, and privacy scope.',
-        'On a future connection, the client includes a PSK identity and binder in ClientHello. The server verifies the binder, checks ticket age and policy, and resumes with PSK or PSK plus fresh Diffie-Hellman.',
-        'If early data is enabled, the client may send application bytes immediately. The server can accept, reject, or defer them. A production server also tracks replay windows and limits early data to operations the application marked safe.',
+        'After a full TLS 1.3 handshake completes, the server sends one or more NewSessionTicket messages. Each ticket carries a ticket identity, a ticket age add value (an obfuscator so observers cannot correlate ticket age across connections), the cipher suite, the ALPN, and an encrypted blob of resumption state. The client stores this in a bounded cache indexed by hostname, port, ALPN, and cipher context.',
+        'On the next connection to the same server, the client includes a pre_shared_key extension in ClientHello listing one or more ticket identities with obfuscated ages, plus a binder for each. The server looks up the ticket, verifies the binder, checks ticket age against its policy, and decides whether to resume with PSK alone or PSK plus a fresh ECDHE key exchange. PSK-only resumption skips the ephemeral key exchange, which is faster but loses forward secrecy for the resumed session. PSK+DHE adds a fresh key share, restoring forward secrecy while still skipping certificate verification.',
+        'If early_data is enabled and the ticket supports it, the client sends application bytes immediately after ClientHello, encrypted under early traffic keys derived from the PSK. The server can accept, reject (returning a normal handshake), or silently ignore early data. A production server also maintains anti-replay state: a time window of recently seen ticket identities, or single-use ticket tracking, so replayed 0-RTT data can be detected and rejected.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Resumption is safe only because the ticket is derived from an earlier authenticated connection and verified with a binder on the new ClientHello. The binder stops an attacker from offering arbitrary ticket identities without knowing the PSK.',
-        'Replay-safe 0-RTT works by policy, not by magic. If early data is restricted to cacheable or idempotent operations, a replay should not create a second payment, second login, second inventory update, or second email send.',
-        'PSK plus fresh Diffie-Hellman can also recover forward secrecy properties for the resumed connection, depending on the selected mode. That is different from saying old tickets should live forever. Ticket lifetime, key rotation, and scope still control how much trust is carried forward.',
+        'Resumption is safe because the ticket is derived from an earlier authenticated connection and verified with a binder on the new ClientHello. The binder is a transcript-dependent MAC: it covers the ClientHello up to (but not including) the binder itself, keyed with a binder key derived from the resumption secret. An attacker cannot offer arbitrary ticket identities because forging the binder requires knowledge of the PSK, which was never sent over the wire.',
+        'PSK+DHE restores forward secrecy for the resumed session. Even if the PSK is later compromised, an attacker still needs the ephemeral DH private key to derive the session\'s traffic keys. PSK-only mode trades that property for lower CPU: the resumed session\'s traffic keys depend entirely on the PSK, so compromising the PSK compromises the resumed session. This is why ticket lifetime and key rotation matter: shorter lifetimes bound the exposure window.',
+        '0-RTT replay safety works by policy, not by cryptographic magic. Restricting early data to cacheable or idempotent operations means a replayed request cannot create a second payment, second login, or second inventory mutation. The anti-replay window on the server is a defense-in-depth layer, not the sole guarantee. Systems that rely only on the server-side window without classifying endpoint replay safety are fragile against edge-coordination failures.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Resumption reduces latency and CPU, but it adds ticket-key rotation, cache eviction, scope checks, age checks, and privacy controls. Long-lived tickets can become tracking handles.',
-        '0-RTT saves one round trip on repeat connections, but it adds application review, anti-replay storage, edge coordination, and idempotency design. In many APIs, the safer choice is to resume the channel but disable early data for mutations.',
-        'Distributed edge fleets make the tradeoff sharper. A single server can remember which early-data tickets it has seen. A global CDN must coordinate enough state to reduce replay risk without turning every request into a cross-region dependency. Many systems therefore accept only low-risk early data and rely on application idempotency where mutation is unavoidable.',
+        'Resumption reduces handshake latency and CPU by skipping certificate-chain validation and (in PSK-only mode) elliptic-curve operations. The cost is ticket management: ticket-key rotation, cache eviction, scope enforcement, age validation, and privacy controls. Long-lived tickets can become tracking handles that link a user\'s connections across time, so browsers limit ticket reuse and lifetime.',
+        '0-RTT saves one full round trip on repeat connections. On a 100ms link, that is 100ms of user-visible latency eliminated. The cost is application review (which endpoints are replay-safe?), anti-replay storage (ticket-seen sets or single-use tracking), edge coordination (all servers in a CDN must share enough replay state to avoid accepting the same early data twice), and idempotency design for any mutation endpoint that might receive early data.',
+        'Distributed edge fleets make the tradeoff sharpest. A single server can remember which early-data tickets it has seen in a local hash table. A global CDN must coordinate that state across continents, which either adds cross-region latency to every request (defeating the purpose) or accepts a replay window proportional to synchronization delay. Many production systems resolve this by allowing 0-RTT only for low-risk operations and relying on application-level idempotency keys for mutations.',
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Review ticket scope by hostname, ALPN, cipher context, and privacy boundary. Review ticket lifetime and key rotation. Decide whether tickets are stateful, stateless, or encrypted self-contained handles. Decide what happens when a deployment changes application behavior behind the same endpoint.',
-        'For 0-RTT, classify endpoints explicitly: reject, accept because idempotent, or accept only with an application idempotency key. Log early-data acceptance separately from ordinary request handling so replay investigations can see what was processed before the handshake completed.',
-        'Also review observability. Resumed handshakes, rejected tickets, accepted early data, rejected early data, replay-window hits, and fallback full handshakes should be visible separately. Without that split, a latency improvement can hide a replay-risk increase or a ticket-rotation bug.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Resumption is valuable for mobile clients, browsers, CDNs, HTTP/3, short-lived service connections, and any path where handshake latency is visible.',
-        '0-RTT can fit cacheable GETs, static asset fetches, and carefully designed idempotent requests. It is strongest when the edge fleet shares replay state or the request is harmless if repeated.',
+        'Resumption is valuable anywhere handshake latency is visible: mobile clients on high-latency cellular links, browsers opening parallel connections to CDN edges, HTTP/3 (QUIC) connections that embed TLS 1.3, microservices reconnecting after load-balancer health checks, and IoT devices with constrained CPU that benefit from skipping asymmetric cryptography on repeat connections.',
+        '0-RTT fits cacheable GETs, static asset fetches, DNS-over-HTTPS queries, and carefully designed idempotent API calls. Cloudflare, Fastly, and other CDN providers support 0-RTT for static content and offer configuration to disable it for mutation endpoints. HTTP/3 inherits 0-RTT from TLS 1.3 and adds its own transport-level replay considerations on top.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Do not put payments, login mutations, inventory changes, email sends, or one-time actions in 0-RTT unless the application has its own idempotency key and replay handling.',
-        'Do not treat tickets as forever credentials. Servers should rotate ticket keys, limit ticket lifetime, scope tickets by hostname and ALPN, and fall back to full handshakes when policy or privacy assumptions change.',
-        'It also fails when operators ignore privacy. A ticket can act as a correlatable handle across reconnects if scope and lifetime are too broad. Short lifetimes, careful partitioning, and conservative ticket issuance reduce that tracking surface.',
+        'Do not put payments, login state changes, inventory decrements, email sends, or one-time-use token redemptions in 0-RTT unless the application has its own idempotency key and replay ledger. The replayed request will arrive as a valid, authenticated, encrypted TLS record. TLS cannot tell the server it is a replay. Only the application layer knows whether processing it twice is safe.',
+        'Do not treat tickets as permanent credentials. Servers should rotate ticket-encryption keys on a schedule (hours, not weeks), limit ticket lifetime, scope tickets to hostname and ALPN, and fall back to full handshakes when security policy or cipher requirements change. A ticket encrypted under a key that was rotated out cannot be decrypted, forcing a clean full handshake.',
+        'Privacy is a real concern. A ticket is a correlatable handle: if the same ticket identity appears on two connections from different IP addresses, an observer learns those connections belong to the same client. Short lifetimes, single-use tickets, and careful partitioning reduce the tracking surface. Some browsers limit each ticket to one resumption attempt for this reason.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A mobile app repeatedly connects to api.example.com over HTTP/3. The first visit performs a full TLS 1.3 handshake and receives session tickets. Later visits offer a scoped ticket and resume, reducing latency and certificate-path work during network changes.',
-        'The API allows early data only for cacheable GETs. Login, payment, inventory, and message-send endpoints require normal post-handshake traffic or application idempotency keys. The CDN coordinates ticket-key rotation and anti-replay windows across edge locations.',
+        'A browser connects to static.example.com, completes a full TLS 1.3 handshake (ECDHE with x25519, TLS_AES_128_GCM_SHA256), and receives two NewSessionTicket messages with 3600-second lifetimes. The browser stores both tickets in its cache, indexed by static.example.com:443 with ALPN h2 and the selected cipher suite.',
+        'Three minutes later, the browser reconnects. Its ClientHello includes a pre_shared_key extension offering one ticket identity with an obfuscated age (real age 180 seconds plus the ticket_age_add value from the server). The binder MAC covers the entire ClientHello except the binder field itself. The server decrypts the ticket, verifies the binder, checks that the age is within policy, and resumes with PSK+DHE to preserve forward secrecy. No certificate is sent or verified.',
+        'The browser also sends a cacheable GET /logo.png as 0-RTT early data. The server checks its anti-replay window, finds no previous use of this ticket for 0-RTT, accepts the early data, and serves the image. If an attacker had captured and replayed that 0-RTT flight to a different edge server that also had the ticket key, the second server would serve the same image again. Since the response is a static asset, the replay is harmless. If the request had been POST /transfer, the application would need its own idempotency key to prevent a double transfer.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: RFC 8446 TLS 1.3 at https://www.rfc-editor.org/rfc/rfc8446.',
-        'Study TLS 1.3 Handshake for the full handshake that creates resumable state, QUIC Transport Streams & Loss Recovery and HTTP/3 over QUIC for transport context, CDN Request Flow for multi-edge replay boundaries, and Idempotency, Rate Limiter, and Distributed Tracing for application controls around early data.',
+        'Primary source: RFC 8446 (TLS 1.3), Sections 2.2 (resumption and PSK), 4.2.11 (pre_shared_key extension), 4.6.1 (NewSessionTicket), and 8 (0-RTT and anti-replay) at https://www.rfc-editor.org/rfc/rfc8446.',
+        'Prerequisite: TLS 1.3 Handshake for the full handshake that creates resumable state. Extensions: QUIC Transport Streams & Loss Recovery and HTTP/3 over QUIC for transport-level 0-RTT interactions, CDN Request Flow for multi-edge replay coordination, ACME Order Challenge Certificate Issuance for automating the certificates that full handshakes rely on. Contrasting alternative: mutual TLS (mTLS), where the client also presents a certificate, which changes resumption semantics because the server must decide whether a resumed PSK still represents the same client identity.',
       ],
     },
   ],

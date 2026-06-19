@@ -75,57 +75,6 @@ export function* run(input) {
   };
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        `A URL shortener maps sprawling 200-character URLs (like amazon.com/s?k=best-hammers-2026) into memorable 6-character codes (bit.ly/aB3xYz) that fit in tweets, QR codes, and offline marketing. When someone clicks the short link, the service redirects them instantly to the original. Simple redirect sounds trivial — yet this problem exercises every tool in distributed systems: counters that never collide, database indexes, caching under skewed load, rate limiting, message queues, and consistent sharding.`,
-        `The scale is deceptive. Bit.ly and TinyURL handle hundreds of millions of unique shortened links, but each link is clicked dozens or hundreds of times. That 100:1 read-write ratio means caching is not a luxury — it is the difference between a $10k/month bill and a $100k/month bill.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `Minting a short code: every new URL gets a database ID from a distributed counter. Instead of storing that ID directly (billions of tiny rows blow up storage), encode it in base 62 — 10 digits plus 26 lowercase plus 26 uppercase letters, 62 symbols total. A 7-character code in base 62 yields 62^7 ≈ 3.5 trillion unique codes, enough for centuries at today's growth. Divide the ID by 62 repeatedly; each remainder is one symbol. Counter ranges solve the coordination bottleneck: server A mints IDs 1–1,000,000; server B mints 1,000,001–2,000,000. No locking, no Paxos, no distributed consensus — just pre-allocated ranges.`,
-        `Serving redirects: on every click, do a primary-key lookup in a B-tree index (microseconds for billions of rows) and return a 302 Found response with the original URL. That 302 matters: a 301 Permanent redirect gets cached by browsers, so clicks stop hitting your servers and you lose analytics. A 302 Temporary forces every click through you — that is the business model. Behind a load balancer, an LRU Cache intercepts 90%+ of clicks (zipfian click distribution — a few viral links get all the traffic), so the database sees only 400 reads/sec despite 4,000 total clicks/sec. Each click event streams onto a message queue (Kafka, RabbitMQ) for the analytics system to consume at its own pace, decoupling the redirect latency from analytics computation.`,
-        `Rate limiting: without it, someone scripts a million requests and you get a surprise $50k AWS bill. A token bucket (or leaky bucket) rate limiter sits in front of each shortened link, allowing N clicks/sec and dropping or delaying excess traffic. Sharding: at massive scale, one database table splits across multiple shards using consistent hashing on the short code; hashing ensures that any code always maps to the same shard, avoiding distributed lookups.`,
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        `The first half of the animation is the write path. The service mints an internal numeric ID, encodes it in base 62, stores the mapping, and chooses redirect semantics. The important lesson is identity: a counter plus encoding gives unique short codes without treating the long URL itself as the key.`,
-        `The second half is the read path. A click should hit cache first, fall back to the database only on misses, return a redirect immediately, and push analytics onto a queue. The obvious but wrong design does analytics inline on the redirect request; that puts the slowest part of the product on the latency-critical path.`,
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        `A basic URL shortener in memory (hash table, no persistence, no scale) is 20 lines. A production shortener that survives billions of links, handles 4,000 reads/sec reliably, tracks analytics, recovers from crashes, and never loses a link requires a B-tree database (PostgreSQL, MySQL), a cache layer (Redis running LRU in RAM), a message queue (Kafka or RabbitMQ for click events), a load balancer (nginx, HAProxy), and distributed counter logic (Zookeeper, etcd, or pre-allocated ranges). Operational cost is not zero: memory for the cache, network bandwidth, database replication, monitoring, and on-call alerting. Complexity explodes when you ask harder questions: how do you migrate shards without downtime, handle the cache thundering herd after the database goes down, or age out links that have not been clicked in 5 years?`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `Bit.ly and TinyURL pioneered this in the 2000s for shortening long URLs on Twitter before URLs could be links. Today, link shorteners are everywhere: go.company.com (internal traffic tracking), URL tracking in newsletters (click analytics), QR code campaigns (physical advertising), and affiliate links (Amazon shorteners take a commission). Every large tech company (Google, Facebook, Stripe) has an internal shortener. Short URLs also mask the destination (sec risk: phishing links look legitimate) and let organizations rebrand without breaking old links (bit.ly/report-2024 stays live even if the underlying PDF moves servers).`,
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        `Hashing the URL instead of using a counter is tempting: same input always produces the same short code, so two identical submissions get the same link for free. But when different users shorten identical URLs, they all collide — forcing you into hash-table collision handling with quadratic probing or chaining, same as Hash Table bugs. Counters never collide and encode far more gracefully. Another trap: picking 301 Permanent redirects to reduce server load. This sounds smart (browsers cache the redirect, your database takes fewer hits), but you lose all click analytics and cannot measure campaign success — the entire business case evaporates. 302 costs more but is the right answer. Forgetting rate limiting until traffic spikes is the most common mistake; sudden load hits the cache miss rate hard, the database melts, and you burn through credits while scrambling to add rate limiting. Finally, underestimating the scale of the analytics tail: clicks are not uniformly distributed — a single viral link can spike to 1,000 clicks/sec, overwhelming an unprepared message queue.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Dive into Database Indexing to understand why B-tree lookups on billions of rows are still microseconds. Explore LRU Cache to see how a tiny in-memory layer absorbs 90% of traffic. Study Message Queues to decouple the fast redirect path from the slow analytics pipeline. Learn Consistent Hashing when you add sharding — how to map short codes to database shards without knowing how many shards exist. Finally, Rate Limiter (Token Bucket) is your firewall against abuse: implement it correctly and you sleep well knowing a single malicious user cannot sink your service.`,
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

@@ -157,14 +157,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Lock-Free Queue. The Michael-Scott queue: producers and consumers move head/tail with CAS, helping stalled operations finish..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Concurrent queues are the handoff points inside schedulers, actor runtimes, work pools, networking stacks, telemetry pipelines, and producer-consumer systems. One set of threads produces work. Another set consumes it. The queue has to preserve FIFO order while many participants touch the same head and tail state.',
         'A normal mutex-protected queue is often the right answer. It is small, readable, and easy to test. The Michael-Scott lock-free queue exists for the harder case where a paused lock holder, a slow critical section, or heavy contention should not freeze the entire handoff path. It trades a simple ownership rule for atomic pointer updates and a proof that the shared structure can recover when any one thread stalls.',
       ],
     },
     {
-      heading: 'Naive Baseline and Wall',
+      heading: 'The wall',
       paragraphs: [
         'The baseline queue is a linked list or circular buffer protected by one mutex. Enqueue locks, appends, unlocks. Dequeue locks, removes, unlocks. The proof is clear because one thread owns the whole structure during the mutation. This design also pairs naturally with condition variables when consumers should sleep while the queue is empty.',
         'The wall is the lock owner. If the owner is descheduled inside the critical section, every other thread waits even if the remaining operation is one pointer write. Under high contention, the mutex cache line can bounce across cores. If a lock convoy forms, queue latency starts reflecting scheduler timing more than useful work.',
@@ -172,7 +181,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core Insight and Invariant',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is to make one small pointer change the public truth of each operation. Enqueue publishes a node by changing the observed last node next pointer from null to the new node. Dequeue claims an item by changing head from the old dummy node to the first real node. Those compare-and-swap operations are the moments that make the abstract queue change.',
         'The main invariant is reachability through next pointers. Starting at head and following next links gives the queue contents. Tail is allowed to lag behind the true last node because tail is a performance hint, not the source of truth. If a thread sees a stale tail, it can help advance it and then retry its own operation.',
@@ -180,7 +189,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How the Visual Model Teaches It',
+      heading: 'How it works',
       paragraphs: [
         'The enqueue race view separates the real publication step from the cleanup step. The edge from B to C is the important event: after the successful CAS on B.next, C is reachable from head and is part of the FIFO order. The tail label may still sit on B for a short time, and that is fine because tail is only a shortcut to the append end.',
         'The helping step shows why the structure remains live after a stalled thread. If one producer links C and pauses before moving tail, another producer can notice that B.next is no longer null and move tail forward. The second producer is not stealing work; it is finishing shared maintenance so the next append has a good starting point.',
@@ -188,7 +197,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works (2)',
       paragraphs: [
         'Enqueue allocates a node with next set to null. It reads tail and then reads tail.next. If tail.next is null, the thread tries CAS(tail.next, null, node). Success means the item has been inserted. The thread may then try to swing tail to the new node, but the enqueue has already taken effect.',
         'If tail.next is not null, the observed tail is stale. Another enqueue linked a node but did not finish moving the tail pointer. The current thread tries to advance tail, then loops. This is the helping rule. Every thread that finds shared maintenance left behind has permission to perform it.',
@@ -196,7 +205,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
         'The proof is a linearizability proof. Each operation must appear to take effect at one instant between call and return. For enqueue, that instant is the successful CAS that links the new node into the next chain. For dequeue, it is the successful CAS that advances head from the old dummy to the node being returned.',
         'FIFO order follows from the next chain. Producers can only link a new node at an observed last node whose next is null. Once a node is linked, later nodes appear after it. Consumers remove by advancing head to the first real node, so two consumers cannot return the same item because only one CAS from the same old head can win.',
@@ -211,7 +220,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Worked example',
       paragraphs: [
         'Start with dummy -> A -> B, with head at dummy and tail at B. Producer P wants to enqueue C. It reads tail = B and tail.next = null, then succeeds at CAS(B.next, null, C). At that instant, C is in the queue even if tail still points at B.',
         'Producer Q arrives before P moves tail. Q reads tail = B and sees B.next = C. That tells Q the previous enqueue already published a node and left only tail cleanup behind. Q tries CAS(tail, B, C). If it wins, the shortcut is repaired. If it loses, some other thread repaired it first.',
@@ -219,7 +228,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Memory Management and Ordering',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The algorithm on paper is not the whole implementation. Removed nodes cannot be freed while another thread might still hold a pointer read earlier. In garbage-collected runtimes, the collector provides much of that safety. In C and C++, the queue needs a reclamation discipline such as hazard pointers, epochs, reference counting, or another scheme that delays reuse until readers are done.',
         'ABA is a related hazard. A pointer can hold value X, change to Y, and later hold X again after memory reuse. A CAS that checks only the pointer value might think nothing changed. Tagged pointers, version counters, hazard discipline, or allocation rules can prevent that mistake.',
@@ -227,14 +236,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'A lock-free queue wins when many threads need a shared FIFO and a paused participant should not hold the whole data structure hostage. It fits thread pools, actor mailboxes, runtime schedulers, concurrent collections, packet paths, telemetry ingestion, and handoff points where work must keep flowing under contention.',
         'It is most attractive when operations are short, queue operations are frequent, memory management is under control, and system-wide progress matters more than single-operation fairness. It also helps in environments where blocking inside a runtime or signal-sensitive path is expensive.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         'Lock-free is not a synonym for faster. At low contention, a mutex can win because it does less bookkeeping. A bounded ring buffer can beat a linked queue when capacity is known and cache locality matters. A blocking queue is better when consumers should sleep instead of retrying or polling.',
         'The design also fails when the surrounding engineering is wrong. ABA, premature free, weak memory ordering, publishing a link before publishing a value, or an incorrect empty-queue check can break the proof even if the code uses CAS. The algorithm gives a structure for correctness; it does not forgive unsafe memory management.',
@@ -248,10 +257,73 @@ export const article = {
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Study Linearizability History Checker for the proof method, ABA Tagged Pointer Stack for pointer reuse hazards, Nonblocking Progress Guarantees for lock-free versus wait-free, Hazard Pointers & Epoch Reclamation for memory safety, Futex Wait Queue for blocking contrast, MCS Queue Lock for scalable spinning with mutual exclusion, and Backpressure & Flow Control for systems built around queues.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Lock-Free Queue moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

@@ -197,6 +197,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Linux Page Cache XArray. Linux indexes cached file folios by file offset through an address_space XArray, then tracks clean, dirty, writeback, and reclaim states around it..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why the page cache exists',
       paragraphs: [
         `A general-purpose operating system cannot afford to treat every file read as a fresh trip to storage. Programs reread shared libraries, configuration files, database pages, package indexes, source trees, container layers, and executable text. Even on fast NVMe, storage latency and queueing are much slower than a memory hit. Linux therefore keeps file contents in memory in the page cache, so buffered reads and memory-mapped page faults can often be satisfied by copying from RAM or by mapping an already-resident folio into a process.`,
@@ -204,14 +213,14 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive cache and its wall',
+      heading: 'The wall',
       paragraphs: [
         `The simplest design is a hash table keyed by (file, pageIndex). That is enough to answer one question: do we already have this page? But the kernel routinely asks richer questions. During readahead it wants to walk neighboring cached ranges. During writeback it wants to find dirty folios. During reclaim it wants to distinguish clean, dirty, mapped, under-writeback, and referenced pages. During truncate it may need to remove a range. During huge sparse-file access it must represent high offsets without allocating empty slots for every missing page before them.`,
         `A resizable array also fails. File offsets can be sparse and enormous, so an array indexed directly by page number would waste memory or require copying and remapping as it grows. A linked list preserves order but makes random lookup expensive. A plain hash table gives fast exact lookup but loses ordered traversal and indexed marks. The page cache wants the shape of a huge sparse array, the lookup cost of an index, and the ability to mark and scan special entries. That is the reason Linux uses the XArray in each file mapping rather than a simpler container.`,
       ],
     },
     {
-      heading: 'The core data model',
+      heading: 'The core insight',
       paragraphs: [
         `The central object is the file mapping, represented in the kernel by an address_space. For ordinary file data, the mapping belongs to an inode. Inside that mapping, ` + "`i_pages`" + ` is an XArray from page-sized file indices to cached folios. The key is not merely a byte offset; it is a mapping plus an index derived from the offset. Offset 0 in one file and offset 0 in another file are different cache entries because they live under different mappings.`,
         `The value is a folio, which is the modern Linux abstraction for one or more physically contiguous pages managed as a unit. A folio can be absent, present but not yet uptodate, uptodate and clean, dirty, under writeback, mapped into userspace, locked for I/O, or eligible for reclaim. Those states are as important as the pointer lookup. A cached folio is useful only if the kernel knows whether its bytes are valid, whether storage already has the same contents, and whether anyone can safely drop or reuse the memory.`,
@@ -219,9 +228,9 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanism in the visualizer',
+      heading: 'How it works',
       paragraphs: [
-        `The file-offset lookup path starts outside the cache. A process calls read, or it faults on a memory-mapped file. VFS reaches the file's inode and therefore its address_space. The kernel converts the byte range into folio indices and looks in the mapping's XArray. On a hit, if the folio is uptodate, the kernel can copy bytes to userspace or map the page into the process. On a miss, it allocates a folio, inserts or coordinates insertion, asks the filesystem and block layer to fill it, marks it uptodate after successful I/O, and leaves it indexed for future reads.`,
+        `The file-offset lookup path starts outside the cache. A process calls read, or it faults on a memory-mapped file. VFS reaches the file\'s inode and therefore its address_space. The kernel converts the byte range into folio indices and looks in the mapping\'s XArray. On a hit, if the folio is uptodate, the kernel can copy bytes to userspace or map the page into the process. On a miss, it allocates a folio, inserts or coordinates insertion, asks the filesystem and block layer to fill it, marks it uptodate after successful I/O, and leaves it indexed for future reads.`,
         `The dirty-state path shows why the XArray also needs marks and range walks. A buffered write copies user bytes into a cached folio and marks it dirty. The syscall may return before storage has the new contents. Later, background writeback, memory pressure, fsync, or sync policy finds dirty folios, submits I/O through the filesystem, and marks them clean after completion. Reclaim can then evict unused clean folios. The same mapping therefore supports point lookup for reads, marked scans for writeback, and removal or invalidation for truncation and reclaim.`,
         `The LRU node in the visualizer is deliberately separate from the XArray. The XArray answers "which cached folio belongs to this file offset?" The reclaim machinery answers "which memory should be reclaimed under pressure?" Real page-cache behavior is the combination of both: a folio is indexed by file position, participates in replacement policy, and carries state that determines whether it can be reused immediately.`,
       ],
@@ -235,7 +244,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it works and where it does not',
+      heading: 'Where it fails',
       paragraphs: [
         `The page cache is excellent for shared, repeated, and unpredictable file access. Program startup benefits because executable pages and shared libraries stay warm. Build systems benefit because source files and headers are reread. Search tools benefit because directory and file scans reuse cached data. mmap-heavy applications benefit because file-backed pages can be faulted and shared without each process issuing independent I/O. Buffered writes benefit because the kernel can batch and reorder writeback instead of forcing each small write to storage immediately.`,
         `The same mechanism can be the wrong abstraction for databases, storage engines, and high-throughput systems that already have a buffer manager. A database may want its own replacement policy, checksum discipline, write-ahead log ordering, prefetch strategy, and direct control over fsync. If it uses buffered I/O, it may cache the same data once in the database buffer pool and again in the kernel page cache. Direct I/O is one answer, but it moves responsibility back to the application: alignment, scheduling, caching, and durability become application concerns.`,
@@ -243,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
         `Suppose a process reads 8 KB from a file at offset 1 MB. With 4 KB base pages, that covers two indices in the file mapping. The kernel asks the address_space XArray for those indices. If both folios are present and uptodate, the read is a memory operation. If the first is present and the second is missing, the kernel can return or schedule I/O depending on the path, allocate the missing folio, map the file offset to storage blocks through the filesystem, and fill the folio from the device.`,
         `Now suppose the process overwrites 2 KB in the first folio. The cached folio is modified and marked dirty. A later read of the same range sees the new bytes from memory. The disk may still hold the old bytes until writeback. If memory pressure arrives, reclaim cannot simply drop that dirty folio. If fsync arrives, the kernel must push the dirty data and the metadata needed to make it durable. This is the same object passing through lookup, modification, writeback, and reclaim roles.`,
@@ -253,7 +262,7 @@ export const article = {
       heading: 'Implementation guidance',
       paragraphs: [
         `When you build software on top of the page cache, decide who owns caching policy. A command-line tool, web server, package manager, or build system can usually rely on buffered I/O because the kernel already shares hot file data across processes and reclaims it under memory pressure. A database or log-structured storage engine may need its own buffer pool, checksum path, write ordering, and eviction policy. In that case, buffered I/O can duplicate memory and hide durability boundaries the application wants to control.`,
-        `Choose the I/O mode around invariants, not fashion. Buffered I/O gives simple APIs and a strong default cache. mmap gives convenient shared file-backed memory but turns missing cached folios into page faults and changes where errors surface. Direct I/O can reduce double caching and make latency more explicit, but it makes alignment, batching, prefetch, and writeback the application's problem. The right choice depends on whether the kernel's policy is close enough to the workload's policy.`,
+        `Choose the I/O mode around invariants, not fashion. Buffered I/O gives simple APIs and a strong default cache. mmap gives convenient shared file-backed memory but turns missing cached folios into page faults and changes where errors surface. Direct I/O can reduce double caching and make latency more explicit, but it makes alignment, batching, prefetch, and writeback the application\'s problem. The right choice depends on whether the kernel\'s policy is close enough to the workload\'s policy.`,
         `Be explicit about durability. If the program promises that data survives a crash, the design must include fsync or fdatasync at the correct boundary, and it must account for metadata such as directory entries after rename. The page cache makes writes visible to later reads before they are durable. That is a feature for throughput and a hazard for recovery protocols that confuse visibility with persistence.`,
       ],
     },
@@ -272,5 +281,91 @@ export const article = {
         `Next, study VFS Dentry and Inode Cache for the path from pathname to inode, File Descriptor Table and Open File Description for the path from process handle to file object, Readahead and Dirty Writeback for policy, fsync Rename Crash Consistency for durability, Postgres Buffer Pool Clock Sweep for an application-owned neighbor, SQLite B-Tree Pager for a library-level pager, and Filesystem Extent Tree Delayed Allocation for how logical file offsets eventually become disk placement decisions.`,
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        "Show where this approach appears in products, libraries, or service designs.",
+        "Tie each use case to a workload shape, not a brand name.",
+        "The learner should know exactly when this pattern should be chosen next.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for linux-page-cache-xarray-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

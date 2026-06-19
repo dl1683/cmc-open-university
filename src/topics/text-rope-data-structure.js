@@ -1,4 +1,4 @@
-// Text rope data structure: large strings as balanced concatenation trees.
+﻿// Text rope data structure: large strings as balanced concatenation trees.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
@@ -219,7 +219,7 @@ export const article = {
       ],
     },
     {
-      heading: `The baseline and the wall`,
+      heading: `The wall`,
       paragraphs: [
         `The obvious representation is a flat string or array. It stays compact, cache-friendly, and fast for scanning. That is why most programs should use it for ordinary strings.`,
         `The wall appears when edits are large, frequent, or nonlocal. A flat buffer copies too much for insertion and deletion away from the end. A linked list of chunks avoids large copies but makes indexing, slicing, and line navigation slow because the structure has no way to skip whole regions by length.`,
@@ -228,7 +228,7 @@ export const article = {
       ],
     },
     {
-      heading: `Core data layout`,
+      heading: `The core insight`,
       paragraphs: [
         `Leaves store small flat string chunks. Internal nodes represent concatenation. Each internal node stores enough length metadata, usually the length of the left subtree, to route an index search without scanning every character.`,
         `The invariant is simple: an in-order traversal of the leaves equals the document. The metadata doesn't define a different string. It only caches lengths so operations can skip subtrees.`,
@@ -237,14 +237,14 @@ export const article = {
       ],
     },
     {
-      heading: `Reading the visualization`,
+      heading: `How to read the animation`,
       paragraphs: [
         `The concat-tree view shows the reason a rope is not just a string builder. Concatenation can create a parent node that points at existing left and right texts. The final text order is still the in-order leaf order, but the operation avoids copying both children into a new flat array immediately.`,
         `The split-insert view shows the editor pattern. To insert at position i, find the leaf containing i, split that leaf if needed, attach the inserted chunk, and join the pieces back into a balanced tree. The untouched left and right subtrees do not move. They are only reconnected through new internal nodes and rebalanced when the shape gets unhealthy.`,
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: `How it works`,
       paragraphs: [
         `Index lookup compares the target position with the left-subtree length. If the index is smaller, descend left. If it is larger or equal, subtract the left length and descend right. At a leaf, read inside the flat chunk.`,
         `Concatenation can create one new parent node pointing at two existing ropes. Split descends to the split position, divides a leaf if needed, and returns two ropes. Insert is split at the insertion point, concatenate the inserted text, then concatenate the right side.`,
@@ -262,7 +262,7 @@ export const article = {
       ],
     },
     {
-      heading: `Cost behavior`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `A balanced rope gives O(log n) navigation to a position, plus the cost of touching the leaf chunk. Split, insert, and delete are O(log n) plus the size of the edited chunks and any rebalancing work. Concatenation can be O(1) before rebalancing because it creates a parent node.`,
         `Flattening, saving, searching all text, and full traversal are still O(n). A rope doesn't make reading every character cheaper. It avoids copying untouched text during structural edits.`,
@@ -271,7 +271,7 @@ export const article = {
       ],
     },
     {
-      heading: `Production uses`,
+      heading: `Real-world uses`,
       paragraphs: [
         `Ropes are useful in text editors, compilers, language runtimes, large-string builders, diff tools, log viewers, and systems that need persistent string snapshots. They fit workloads where many operations preserve most of the existing text.`,
         `A concrete build example is generated source output. A flat string builder that repeatedly appends fragments may copy the growing result many times unless it has a special buffer. A rope can store fragments as leaves and stream the final text once.`,
@@ -280,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: `Limits and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `Ropes aren't always better than strings. Flat arrays are faster for small text, simple scanning, and append-only builders with enough spare capacity. Gap buffers can be better for edits near one cursor. Piece tables can be better when undo and original-file preservation dominate.`,
         `Encoding rules matter. Splitting by byte offset can break UTF-8. Splitting by code unit can break surrogate pairs. Splitting by Unicode grapheme cluster is closer to user-visible editing, but it requires extra indexing above the rope.`,
@@ -303,5 +303,41 @@ export const article = {
         `Primary source: Boehm, Atkinson, and Plass, "Ropes: An Alternative to Strings," at https://www.cs.tufts.edu/comp/150FP/archive/hans-boehm/ropes.pdf and https://research.google/pubs/ropes-an-alternative-to-strings/. Study Tree Traversals for the in-order invariant, Splay Tree and Red-Black Tree for balancing, Gap Buffer Text Editor and Piece Table Text Buffer for editor alternatives, Implicit Treap Sequence Editor for split/merge sequences, and Sequence CRDTs, Operational Transformation Collaborative Editing Case Study, and Peritext Rich-Text CRDT Case Study for collaborative text.`,
       ],
     },
-  ],
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Edit text efficiently. String or array: insert at position i requires shifting n minus i characters, so every insert costs O(n). Delete is similarly O(n). For a 1 MB file with rapid typing, that is roughly one million shifts per keystroke.',
+        'Gap buffer (Emacs): maintain a gap at the cursor position. Insert and delete at the gap cost O(1). Move the cursor: O(gap move distance). Good for sequential editing, but cursor jumps are expensive.',
+        'Rope (Boehm et al. 1995): represent the string as a balanced binary tree of chunks. Each leaf holds a short string, typically 512 to 2048 characters. Internal nodes store the total length of their left subtree (weight). Concatenation creates a new root with the two ropes as children, O(log n) with rebalancing. Split at position i walks down the tree using weights to find the split point, breaks into two ropes, O(log n). Insert at position i splits at i, concatenates left plus new string plus right, O(log n). Delete range [i, j] splits at i, splits at j, concatenates left plus right, O(log n).',
+        'Used in: VS Code (piece table, a rope variant), Xi editor (ropes), Zed editor (rope plus CRDT).',
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        'String "Hello, World!" as a rope. Split into leaves: ["Hello", ", ", "Wor", "ld!"]. Tree: root(weight=7) with left(weight=5) pointing to ["Hello", ", "] and right(weight=3) pointing to ["Wor", "ld!"].',
+        'Index 8 (the \'o\' in "World"): root weight is 7, 8 > 7 so go right, adjust index to 8 minus 7 which is 1. Right node weight is 3, 1 < 3 so go left. Leaf "Wor", index 1 gives \'o\'. Found in 3 steps, O(log n).',
+        'Insert "beautiful " at position 7: split at 7 produces left = "Hello, " (leaves ["Hello", ", "]) and right = "World!" (leaves ["Wor", "ld!"]). New rope: concat(left, "beautiful ", right). Result: "Hello, beautiful World!". Three O(log n) operations.',
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Why not just use arrays? For 1000 characters: array insert O(1000), rope insert O(log 1000) which is about 10. Rope is 100x faster. For 1,000,000 characters: array O(10 to the 6), rope O(20). Rope is 50,000x faster. But rope has higher constant factor from tree node overhead and cache misses from pointer chasing. Crossover: ropes win for files larger than roughly 64 KB. Below that, a simple array with gap buffer is often faster.',
+        'Piece table (VS Code): instead of breaking the text into chunks, maintain a table of pieces pointing into two buffers, the original file and an append-only add buffer. Insert: append to add buffer, split one piece, insert new piece, O(log n) with a sorted piece table. No text is ever copied or moved. The original file buffer is read-only, so undo is trivial (remove pieces).',
+        'Memory-mapped I/O: the original buffer can be the mmap of the file, so the editor opens instantly regardless of size.',
+      ],
+    },
+
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Boehm, Atkinson, and Plass 1995, "Ropes: an Alternative to Strings," the original paper from Xerox PARC.',
+        'Study next: B-Tree (balanced tree for disk, similar rebalancing ideas), Segment Tree (tree-based range operations), Splay Tree (self-adjusting tree, used in some rope implementations), Gap Buffer (simpler alternative for sequential editing), CRDT (conflict-free replicated data types, ropes extend to collaborative editing).',
+      ],
+    },
+],
 };
+

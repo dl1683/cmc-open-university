@@ -153,104 +153,112 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Two tables sit side by side: table h1 on the left, table h2 on the right. Each key owns exactly two candidate slots, one in each table, computed by two independent hash functions. Active highlights mark the slots under consideration. Collision highlights show an occupied slot that forces an eviction.',
+        'In the eviction-walk view, watch the chain reaction. A new key lands in its h1 slot and kicks out the resident. The evicted key moves to its alternate slot in the other table. The chain stops when an eviction lands in an empty cell. Found highlights mark keys that have settled into a legal home.',
+        'In the cycle-and-rehash view, the chain keeps going. Every eviction displaces another resident, and the walk never finds an empty slot. When the chain exceeds a threshold, the table declares the current hash functions unworkable and rehashes all keys with new seeds. The final frame shows the same keys in a conflict-free layout.',
+        'The invariant to check at every frame: every stored key sits in one of its two candidate cells. Lookup correctness depends entirely on this property surviving every insertion.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Hash tables are attractive because lookup is supposed to feel constant. Collisions are the tax. If many keys share a bucket, a lookup that should be one address calculation can turn into a chain walk, a probe run, or several cache misses.',
-        'Cuckoo hashing exists for workloads that want a stronger lookup shape: compute two candidate locations, inspect those locations, and stop. It spends more effort during insertion so reads stay short and predictable.',
+        'Standard hash tables promise O(1) expected lookup, but collisions break that promise. A chaining table with a bad hash function or adversarial input can degrade to O(n) -- every key in one bucket, lookup becomes a linked-list scan. Open addressing under high load clusters probes into long runs. The expected case is fast; the worst case is not.',
+        'Pagh and Rodler (2004) asked: can a hash table guarantee O(1) worst-case lookup, not just expected? Cuckoo hashing is their answer. Two hash functions, two tables, two probes per lookup -- always. The table pays for this guarantee during insertion, not during reads.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The normal approach is separate chaining or open addressing. Chaining keeps a list at each bucket. Open addressing probes forward until it finds the key or an empty slot. Both approaches are simple, mutable, and often excellent.',
-        'They also let collision history leak into lookup cost. A miss can scan a long chain or a long probe cluster. Good resizing and good hashing keep that expected cost small, but the lookup path is no longer fixed.',
+        'Chaining: hash each key to a bucket, store collisions in a linked list. Expected lookup is O(1 + alpha) where alpha is the load factor (keys / slots). The chain works, but its length varies. A bucket with 5 collisions costs 5 pointer chases. Adversarial input can put every key in one bucket.',
+        'Open addressing (linear probing, quadratic probing): hash to a slot, scan forward on collision. No linked lists, better cache behavior, but probes cluster under load. A run of 20 occupied slots means the 21st insert scans 20 cells before finding room, and every lookup that hashes into that run pays the same scan cost.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is not asymptotic notation alone. It is latency variance. A hot path that sometimes checks one cell and sometimes walks a cluster is hard to budget in packet processing, caches, and read-heavy indexes.',
-        'Cuckoo hashing attacks that wall by making the table maintain a stronger invariant: every key must live in one of a small number of legal homes. Lookup can then reject every other slot without inspecting it.',
+        'Both chaining and open addressing share the same flaw: lookup cost depends on collision history. A chain might be length 1 or length 50. A probe run might be 1 slot or 30. The expected cost is O(1), but the variance is unbounded in the worst case.',
+        'For most software this variance is tolerable. For network routers processing packets at line rate, hardware caches with fixed cycle budgets, and real-time systems that cannot afford a long tail, variable-time lookup is a design problem. The system needs a hard bound on how many memory accesses a lookup can cost.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Give each key two independent homes. If one home is occupied during insertion, move the resident to its alternate home. That relocation may move another resident, so insertion becomes an eviction walk.',
-        'The key invariant is simple: after insertion succeeds, every stored key is in one of its two homes. Lookup never follows the eviction history. It recomputes the two homes and checks only those cells.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        "In the eviction-walk view, follow the invariant, not the drama. Every key must end in one of its legal homes. An insertion may evict several residents, but each eviction is an attempt to restore that invariant with one more key placed.",
-        "In the cycle-and-rehash view, watch for repetition. If the walk returns to a previous configuration or exceeds a kick limit, the current hash choices are not giving this table enough room. Rehashing changes the graph; resizing lowers density.",
-        "Lookup is intentionally boring. Once insertion succeeds, lookup recomputes two homes and stops. The animation spends time on insertion because that is where the data structure pays for predictable reads.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose key A can live in slots 1 or 9, B in 9 or 4, and C in 4 or 7. If A occupies 9 and B arrives, B can evict A from 9; A moves to 1. If C later evicts B from 4, B can move back to 9. The table is not remembering this walk for lookup. It only preserves the final home invariant.',
-        'A cycle happens when every move sends an evicted key to another occupied slot and the walk cannot find empty space. Production implementations cap the number of kicks so one bad insertion does not block the system indefinitely.',
+        'Give each key exactly two legal homes, one per table. Lookup checks both homes and stops -- two probes, always, regardless of how many keys are stored or how many collisions happened during insertion.',
+        'Insertion enforces this by eviction. If the new key\'s first home is occupied, it kicks the resident out. The displaced key tries its alternate home in the other table. If that is also occupied, another eviction happens. The chain continues until someone lands in an empty slot. The name comes from the cuckoo bird, which lays eggs in other birds\' nests and evicts their young.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For key x, compute h1(x) and h2(x). Lookup checks table1[h1(x)] and table2[h2(x)]. If neither cell holds x, the key is absent. Deletion is the same direct path in reverse: find the key in one legal cell and clear it.',
-        'Insertion tries one legal cell. If that cell is full, x evicts the old resident. The evicted key tries its other legal cell. The walk continues until an empty cell appears. If the walk becomes too long, the implementation rehashes, resizes, or uses a stash or bucketized variant.',
-        'There is a useful graph view. Slots are vertices. Keys are edges between their two candidate slots. A valid table chooses one endpoint for every edge. Dense components and cycles explain why some insertions cannot be placed under the current hash functions.',
+        'Two tables T1 and T2, two hash functions h1 and h2. Each table has m slots.',
+        'Lookup(x): check T1[h1(x)] and T2[h2(x)]. If either cell holds x, return it. If neither does, x is absent. Cost: exactly 2 memory accesses.',
+        'Insert(x): try T1[h1(x)]. If empty, place x and stop. If occupied by y, place x there and evict y. Now insert y into T2[h2(y)]. If that is empty, place y and stop. If occupied by z, evict z and continue the chain. If the chain exceeds a threshold (typically 6 log n kicks), declare failure: the current hash functions have created a cycle. Pick new hash functions and reinsert every key from scratch.',
+        'Delete(x): check T1[h1(x)] and T2[h2(x)]. If either holds x, clear the slot. Cost: O(1), and unlike Bloom filters, deletion is clean -- no false negatives, no counter overflow.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Lookup is correct because insertion preserves the home invariant. A stored key cannot be anywhere except its h1 or h2 cell. If both cells are checked and neither contains the key, no later cell can make the answer change.',
-        'Insertion is a search for a legal orientation of the key-slot graph. Rehashing works because new hash seeds create a different graph. Resizing works because lower density makes it more likely that eviction walks find empty slots.',
+        'The home invariant: after every successful insertion, every stored key occupies one of its two candidate cells. Lookup correctness follows directly -- if x is not in T1[h1(x)] or T2[h2(x)], it cannot be anywhere else in the table.',
+        'Think of the key-slot relationship as a bipartite graph. Slots in T1 are one set of vertices, slots in T2 are the other. Each key is an edge connecting its two candidate slots. A valid table assigns each edge to one of its endpoints (the slot where the key actually lives). Insertion is a search for a valid assignment. A cycle in this cuckoo graph means no valid assignment exists under the current hash functions -- that is when rehashing is needed.',
+        'With truly random hash functions and load factor below 50%, the cuckoo graph is sparse. Cycles are rare: the probability of a rehash on any single insertion is O(1/n). New hash seeds create a different graph, and a sparse random bipartite graph almost always admits a valid assignment.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Lookup is O(1) with two candidate probes in the basic design. Deletion is O(1). Insertion is expected O(1) under the usual random-hashing assumptions and safe load factors, but a single unlucky insert can trigger many evictions or a full rebuild.',
-        'Memory is close to open addressing, though practical designs often use small buckets, fingerprints, a stash, or extra candidate choices to raise load factor and reduce rebuild frequency. The main operational cost is write-side variance.',
-        'Load factor is the practical dial. Higher load uses memory efficiently but makes cycles and long eviction walks more likely. Lower load costs memory but keeps inserts calmer. Bucketized cuckoo hashing changes the tradeoff by allowing each home to hold several candidates.',
+        'Lookup: O(1) worst case. Two probes, always. This is the entire point of the data structure.',
+        'Delete: O(1) worst case. Check two cells, clear the one that holds the key.',
+        'Insert: O(1) amortized. Most insertions place the key directly or after a short eviction chain. Rehashing is O(n) but happens with probability O(1/n) per insert, so the amortized cost stays constant.',
+        'Space: the basic two-table design needs load factor below 50% to keep insertion reliable. That means storing n keys requires at least 2n slots -- worse than chaining (which tolerates alpha > 1) or linear probing (which works well up to 70-80% load). Extensions improve this: d-ary cuckoo hashing (d > 2 hash functions) reaches ~91% load; bucketized cuckoo hashing (b slots per bucket) reaches ~95%.',
+        'What happens when n doubles: lookup stays 2 probes. Insert amortized cost stays O(1). Table must grow to maintain load factor, and regrowth means a full rehash of all keys.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Use independent hash functions or a well-tested scheme for deriving alternate locations. Weakly correlated homes create clusters and cycles earlier than the theory suggests. Track insertion kick counts and rebuild frequency; those metrics reveal when load factor or hash quality is outside the intended regime.',
-        'If misses dominate, the two-probe shape is attractive. If writes dominate or rebuild pauses are unacceptable, ordinary open addressing, Robin Hood hashing, or a different table may be easier to operate. Cuckoo hashing is a read-shape trade, not a universal hash-table upgrade.',
-      ],
-    },
-    {
-      heading: 'Variants',
-      paragraphs: [
-        'Bucketized cuckoo hashing gives each candidate home several slots. That raises practical load factors and reduces rebuilds because an insertion has more room before it must evict. Stashes keep a small overflow area for rare hard cases. More hash choices can also reduce cycles, though each extra choice costs lookup work.',
-        'Cuckoo filters use the same relocation idea with compact fingerprints instead of full keys. They trade exact membership for small space and false positives. Seeing the connection helps learners separate the placement strategy from the exact dictionary semantics.',
-        'Concurrent variants add another layer. Eviction walks mutate several locations, so locks, version counters, or transactional update schemes must preserve the home invariant while readers are checking only a few candidate cells.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Cuckoo-style placement fits systems where lookup latency matters more than perfectly smooth writes: packet-processing tables, read-heavy caches, high-performance hash tables, and membership filters. Cuckoo Filter reuses the placement idea with compact fingerprints for approximate membership.',
-        'The general engineering pattern is worth remembering: make writes repair layout so reads can be tiny. B-Trees, LSM Trees, Roaring Bitmaps, and static filters all spend construction or maintenance work to make later queries cheaper.',
+        'Network hardware (routers, switches, firewalls): packet classification needs to match a flow against a forwarding table in a fixed number of clock cycles. Two parallel memory lookups fit TCAM and SRAM pipelines. Cuckoo hashing gives that deterministic access pattern.',
+        'Cuckoo filters (Fan, Andersen, Kaminsky, Mitzenmacher, 2014): replace Bloom filters for approximate set membership. They store compact fingerprints using cuckoo placement, support deletion (Bloom filters do not without counting), achieve better space efficiency at low false-positive rates, and have better cache locality because each lookup touches 2 buckets instead of k independent bit positions.',
+        'Real-time systems: any context where a lookup must complete within a hard deadline benefits from worst-case O(1). Game engines, embedded systems, and latency-sensitive caches use cuckoo-style tables when the read path cannot tolerate variance.',
+        'High-performance key-value stores: libcuckoo and similar concurrent cuckoo hash tables serve read-heavy workloads where the predictable lookup cost outweighs the more complex insertion path.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The two-probe lookup promise depends on successful placement. If the table is too full or the hash functions create an unlucky component, insertion can cycle. That is why production implementations cap kick counts and treat rebuilds as a normal path.',
-        'Cuckoo hashing is not automatically faster than linear probing. Cache layout, key size, equality cost, hash quality, write rate, load factor, and rebuild tolerance decide the result.',
+        'Space overhead: the basic scheme wastes roughly half of allocated memory. Chaining and linear probing use space more efficiently at moderate load factors. For most software applications, 50% utilization is an unacceptable price for worst-case O(1) lookup.',
+        'Insertion cascades: a single insert can trigger a long eviction chain. If the chain hits a cycle, the entire table must be rehashed -- an O(n) pause. Write-heavy workloads or latency-sensitive write paths suffer from this variance.',
+        'Complexity: Robin Hood hashing gives nearly the same low lookup variance with simpler code, no second table, and no eviction chains. For most software hash tables, Robin Hood or well-tuned linear probing is easier to implement, debug, and maintain.',
+        'Concurrency: eviction chains mutate multiple slots, making lock-free or fine-grained-locking implementations harder than for simpler open-addressing schemes.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'T1 and T2 each have 4 slots (indices 0-3). h1(x) = x mod 4, h2(x) = floor(x / 4) mod 4.',
+        'Insert 5: h1(5) = 1. T1[1] is empty. Place 5 there. T1 = [_, 5, _, _]. T2 = [_, _, _, _].',
+        'Insert 9: h1(9) = 1. T1[1] holds 5 -- collision. Evict 5, place 9: T1[1] = 9. Now insert evicted 5 into T2: h2(5) = 1. T2[1] is empty. Place 5 there. T1 = [_, 9, _, _]. T2 = [_, 5, _, _].',
+        'Insert 13: h1(13) = 1. T1[1] holds 9 -- collision. Evict 9, place 13: T1[1] = 13. Insert evicted 9 into T2: h2(9) = 2. T2[2] is empty. Place 9 there. T1 = [_, 13, _, _]. T2 = [_, 5, 9, _].',
+        'Lookup 5: check T1[h1(5)] = T1[1] = 13, not 5. Check T2[h2(5)] = T2[1] = 5. Found in exactly 2 probes. No chain walk, no probe scan, no matter how many evictions happened during the inserts that built this table.',
+        'Lookup 99: check T1[h1(99)] = T1[3] = empty. Check T2[h2(99)] = T2[0] = empty. Absent, confirmed in 2 probes.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Pagh and Rodler, "Cuckoo Hashing" at https://www.rasmuspagh.net/papers/cuckoo.pdf. Study Hash Table first, then Bloom Filter, Cuckoo Filter, Quotient Filter, Xor Filter, Roaring Bitmaps, and Count-Min Sketch to see how hash-based structures trade memory, exactness, update cost, and lookup predictability.',
+        'Pagh & Rodler 2004, "Cuckoo Hashing" -- the foundational paper proving O(1) worst-case lookup with two hash functions and two tables. Fan, Andersen, Kaminsky & Mitzenmacher 2014, "Cuckoo Filter: Practically Better Than Bloom" -- extends cuckoo placement to approximate membership with deletion support.',
+        {
+          type: 'bullets',
+          items: [
+            'Hash Table -- chaining and open addressing, the baseline that cuckoo hashing improves on.',
+            'Bloom Filter -- trades exactness for space; cuckoo filters are the modern alternative.',
+            'Robin Hood Hashing -- variance reduction within open addressing; simpler than cuckoo hashing for most software.',
+            'Linear Probing -- the simplest open-addressing scheme; good cache behavior but variable-length probe runs.',
+            'Perfect Hashing -- another path to O(1) worst-case lookup, but requires knowing all keys in advance.',
+          ],
+        },
       ],
     },
   ],

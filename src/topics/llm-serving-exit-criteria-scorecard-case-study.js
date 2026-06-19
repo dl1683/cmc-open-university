@@ -1,4 +1,4 @@
-// LLM serving exit criteria: a scorecard that prevents teams from shipping an
+﻿// LLM serving exit criteria: a scorecard that prevents teams from shipping an
 // optimization just because one isolated benchmark improved.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -230,7 +230,16 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for LLM Serving Exit Criteria Scorecard Case Study. A production readiness case study: ship inference optimizations only when utilization, p99, quality, cache, graph capture, acceptance, and rollback gates all hold..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'LLM serving optimization is full of partial wins. Dynamic batching can raise tokens per second while increasing queueing delay. CUDA graph replay can make hot shapes fast while rare shapes fall back unpredictably. Prefix caching can save prefill compute while increasing memory pressure or key-invalidation risk. Quantization can reduce cost while damaging a protected quality slice. Speculative decoding can look fast until acceptance rate falls.',
         'The danger is shipping from the headline metric. A team sees higher throughput, lower average latency, or lower cost per generated token and treats the change as ready. Users experience something broader: time to first token, inter-token latency, p99, answer quality, invalid output rate, availability, routing correctness, and the ability to roll back quickly when a slice breaks.',
@@ -246,7 +255,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core data structure is a multi-gate release packet. Each gate pairs the intended win with the failure mode that could invalidate it. Batching pairs utilization with p99 and queue caps. CUDA graphs pair capture hit rate with eager fallback. Prefix caching pairs hit rate with memory pressure and key correctness. Quantization pairs cost with protected evals. Speculation pairs speedup with acceptance rate and target-only fallback.',
         'The invariant is that an optimization ships only when useful cost improves without violating latency, quality, reliability, or rollback constraints. Useful cost is important: a cheaper generated token is not a win if more answers are rejected, more verifier retries are needed, or more users abandon before the first token.',
@@ -279,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The cost is slower release velocity. Every gate needs instrumentation, thresholds, owners, artifacts, and a way to reproduce failures. Load tests require representative traffic. Quality gates require maintained evals. Canary gates require routing and observability. Rollback gates require engineering work that does not appear in the headline speedup.',
         'The process can also become bureaucratic if every small experiment needs a full production packet. The right response is scaling the gate to the blast radius. A private experiment might need a simple hypothesis, load check, quality check, and flag. A shared inference platform serving many tenants needs the full packet.',
@@ -287,7 +296,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'The pattern wins for shared inference platforms, high-volume chat products, agent systems with tool deadlines, regulated answer domains, and any team operating several levers at once. It is most valuable when a serving change can affect many tenants or when quality failures are more expensive than raw latency failures.',
         'It also wins as organizational memory. Six months after a change shipped, the packet explains which workload mix was tested, which GPU types were covered, which fallback exists, and which metric should page the owner. That matters when the next team changes batching, model version, cache policy, or hardware and accidentally moves outside the original safe region.',
@@ -303,7 +312,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
         'A team enables CUDA graph replay for hot decode shapes. The first synthetic test looks excellent: kernel overhead falls and throughput rises. The scorecard does not ship yet. It asks for capture hit rate by shape, TTFT, inter-token latency, p99 by prompt length, memory overhead, quality deltas, canary behavior, and eager fallback.',
         'The canary exposes the problem. Short prompts on the dominant GPU type improve, but long prompts on a smaller route hit rare dynamic shapes and fall back unpredictably. Overall throughput is up, but p99 for that slice is worse. The scorecard holds the release rather than averaging the failure away.',
@@ -311,11 +320,62 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'The references for this topic point to concrete mechanisms: vLLM prefix caching, vLLM CUDA graphs, Triton dynamic batching, and NVIDIA CUDA Graphs best practices. Read them with the scorecard question in mind: what does this mechanism improve, what slice can it hurt, what metric proves it, and how do you roll it back?',
         'Study CUDA graph shape caches, speculative decoding acceptance ledgers, prompt-cache key canonicalization, SLO-aware request routing, GenAI token cost ledgers, continuous batching, prefix caching, quantization, and benchmark variance next. The recurring lesson is that serving optimization is not a single metric race. It is a release discipline around useful cost, quality, tail latency, and reversibility.',
       ],
     },
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for llm-serving-exit-criteria-scorecard-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

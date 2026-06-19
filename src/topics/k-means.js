@@ -1,4 +1,4 @@
-// K-means clustering: assign each point to its nearest centroid, move each
+﻿// K-means clustering: assign each point to its nearest centroid, move each
 // centroid to the middle of its points, repeat until nothing changes.
 // Unsupervised learning in its purest, most watchable form.
 
@@ -45,7 +45,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: `${DATA.length} unlabeled points — nobody tells the algorithm what the groups are, or even that groups exist. That's UNSUPERVISED learning. We chose k=${k}, dropped ${k} centroids (✚) far apart, and now we loop two moves until nothing changes.`,
+    explanation: `${DATA.length} unlabeled points — nobody tells the algorithm what the groups are, or even that groups exist. That's UNSUPERVISED learning. We chose k=${k}, dropped ${k} centroids (âœš) far apart, and now we loop two moves until nothing changes.`,
   };
 
   for (let round = 1; round <= 8; round += 1) {
@@ -95,67 +95,150 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What K-Means Is`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `K-means is an unsupervised clustering algorithm for grouping vectors into k clusters. Unsupervised means the algorithm is not given labels such as "customer type A" or "defective machine." It receives points in a feature space and tries to summarize them with k centroids. Each point belongs to the cluster represented by its nearest centroid. Each centroid is the mean of the points assigned to it. The loop repeats until assignments stop changing or improvement becomes negligible.`,
-        `The objective is within-cluster sum of squared distances. In plain terms, k-means wants each point to be close to the center of its assigned cluster. That objective makes the algorithm simple, fast, and easy to inspect. It also defines the shape of the answer. K-means prefers compact, roughly spherical clusters under Euclidean distance. It always returns exactly k clusters, even when the data has no real cluster structure or when the true groups are not round.`,
+        "Each frame shows 18 points on a two-feature scatter plot and k centroid markers (stars). Colors encode cluster membership: a point takes the color of the centroid it is currently assigned to. Unassigned points at the start are gray.",
+        "The animation alternates two moves per round. In the ASSIGN frame, every point snaps to the color of its nearest centroid — watch border points that switch color; those are the ones whose assignment changed. In the RECENTER frame, each centroid jumps to the geometric mean of its cluster's members — the star slides to a new position.",
+        "When no point changes color during an assign step, the loop has converged: assignments and centroids agree, and the algorithm stops. Try k=2 and k=4 on the same data to see the algorithm forced to merge or split the three natural blobs.",
       ],
     },
     {
-      heading: `The Obvious Approach And The Wall`,
+      heading: `What K-Means is`,
       paragraphs: [
-        `The obvious approach to clustering is to look at a scatter plot and draw boundaries by hand. That breaks immediately when the data has many dimensions, many points, or no visual display that preserves the important distances. Another obvious approach is to compare every point with every other point and build clusters from pairwise similarity. That can work, but it becomes expensive and may produce structures that are hard to summarize.`,
-        `K-means attacks a narrower problem. Instead of storing all pairwise relationships, it represents each cluster by one centroid. That gives a compact summary: k vectors instead of n points. The wall is that this summary is only appropriate when the mean is a meaningful representative and distance to the mean is a meaningful notion of membership. If the data lives in strange geometry, contains long curved groups, has categorical features, or uses incompatible feature scales, the compact summary can be misleading.`,
+        `K-means is an unsupervised clustering algorithm: it groups n vectors into k clusters without any labels. The algorithm receives points in a feature space and summarizes them with k centroids. Each point belongs to the cluster of its nearest centroid. Each centroid is the mean of its assigned points. The loop repeats until assignments stop changing.`,
+        `The objective is the within-cluster sum of squared distances (WCSS, also called inertia). K-means wants each point close to its cluster center. That objective makes the algorithm simple, fast, and inspectable, but it also constrains the answer: k-means prefers compact, roughly spherical clusters under Euclidean distance. It always returns exactly k clusters, even when the data has fewer real groups or when the true groups are not round.`,
       ],
     },
     {
-      heading: `The Core Insight`,
+      heading: `The obvious approach`,
       paragraphs: [
-        `The core insight is alternating minimization. If the centroids are fixed, the best assignment for each point is obvious: choose the nearest centroid. If the assignments are fixed, the best centroid for each cluster is also obvious: take the coordinate-wise mean of the assigned points. Neither step solves the whole problem globally, but each step improves or preserves the objective while holding the other part fixed.`,
-        `This is why k-means feels mechanical. Assignment creates a Voronoi partition of space: every region belongs to the closest centroid. Recenter moves the centroid to the average of its region's points. The new centroids change the nearest-centroid boundaries, so some points may switch clusters. The loop stops at a fixed point where assignments and centroids agree. That fixed point is usually a local optimum, not a guarantee of the best possible clustering.`,
+        `A reasonable first attempt at clustering is to compute all pairwise distances and group nearby points together. For n points, that requires n*(n-1)/2 distance computations and O(n^2) memory for the distance matrix. With 10,000 points, you store 50 million distances. With 1,000,000 points, you need 500 billion. The approach works for small datasets but becomes physically impossible at scale.`,
+        `A second attempt is exhaustive search: try every possible assignment of n points to k clusters and keep the one with the lowest cost. But the number of possible assignments is k^n. For n=100, k=3, that is 3^100, roughly 5 times 10^47 configurations. Checking one per nanosecond would take longer than the age of the universe. Neither brute-force approach scales.`,
       ],
     },
     {
-      heading: `Mechanism And Data Structures`,
+      heading: `The wall`,
       paragraphs: [
-        `A typical implementation stores the dataset as an n by d matrix: n points, d numeric features. It stores centroids as a k by d matrix. It stores an assignment array of length n, where assignment i is the centroid id currently owning point i. Many implementations also keep a distance buffer or compute distances on the fly. The essential distance calculation is squared Euclidean distance, which avoids a square root because ordering by squared distance is the same as ordering by distance.`,
-        `Initialization matters. Randomly chosen centroids can start too close together, leaving one natural group split and another ignored. K-means++ improves the starting point by choosing the first centroid randomly and then choosing later centroids with probability weighted by squared distance from the nearest existing centroid. The goal is not perfection. It is to spread initial centers so the alternating loop is less likely to get trapped in a poor local optimum. Production runs often use several initializations and keep the result with the lowest objective.`,
-        `One iteration costs O(n * k * d) for distance scoring plus O(n * d) to accumulate new means. If the algorithm takes I iterations, practical cost is O(I * n * k * d). Memory is O(n) for assignments and O(k * d) for centroids, plus the dataset. Mini-batch k-means reduces cost by updating centroids from small random batches, trading some precision for scale. For very large vector collections, approximate nearest-centroid search and distributed aggregation may be used.`,
+        `The wall is that optimal clustering is NP-hard. No known algorithm can guarantee the globally best k-means assignment in polynomial time for arbitrary inputs. Exhaustive search is impossible, pairwise methods are too expensive, and greedy one-shot heuristics have no guarantee of quality.`,
+        `K-means sidesteps this wall with an iterative trick: instead of solving the whole problem at once, it alternates two simple steps that each solve half the problem exactly. Neither step alone finds the global optimum, but each step decreases or preserves the objective. The loop converges to a local optimum that is often good enough, especially with smart initialization.`,
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: `The core insight`,
       paragraphs: [
-        `K-means works well when the mean is a good summary and clusters are separated by Euclidean distance. The mean is the point that minimizes squared distance to members of a cluster, so the recentering step is exactly right for the objective. The nearest-centroid assignment step is also exactly right for the objective when centroids are fixed. Each half-step is simple because the other half is temporarily treated as known.`,
-        `The algorithm also works because it compresses a large dataset into a small set of prototypes. Those prototypes can be inspected, stored, compared, and used for routing. If a centroid summarizes a group of similar customers, colors, documents, images, or embedding vectors, the cluster becomes a useful unit of analysis. The danger is that usefulness comes from the match between geometry and domain meaning, not from the algorithm itself.`,
+        `The core insight is alternating minimization, the same idea behind expectation-maximization (EM). If centroids are fixed, the best assignment for each point is obvious: choose the nearest centroid. If assignments are fixed, the best centroid for each cluster is also obvious: the coordinate-wise mean minimizes squared distance to the assigned points (set the derivative of WCSS to zero and the mean falls out). Neither step solves the full problem, but each step improves or preserves the objective while holding the other half fixed.`,
+        `This is why k-means feels mechanical. The assign step creates a Voronoi partition of space: every region belongs to the closest centroid. The recenter step moves each centroid to the mean of its region's points. New centroids change the nearest-centroid boundaries, so some points may switch clusters. The loop stops at a fixed point where assignments and centroids agree. That fixed point is a local minimum, not necessarily the global optimum.`,
       ],
     },
     {
-      heading: `Evaluation And Operational Signals`,
+      heading: `How it works`,
       paragraphs: [
-        `The basic training signal is inertia, the within-cluster sum of squared distances. It should decrease with each iteration. If it increases, there is an implementation bug. Lower inertia is not automatically better across different k values because adding more clusters almost always lowers distance. Elbow plots look for a point where extra clusters give diminishing returns, but the elbow is a heuristic, not evidence that the chosen k is true.`,
-        `Other signals include silhouette score, cluster size distribution, stability across random seeds, stability across data samples, centroid interpretability, and downstream usefulness. In a customer segmentation task, the question is not only whether clusters are compact. It is whether segments support decisions such as messaging, risk review, product design, or support routing. In vector search, the signal may be recall and latency after routing through centroids. In image compression, the signal may be visual quality for a fixed palette size. Always connect cluster quality to the job the clusters are supposed to do.`,
+        `Store the dataset as an n-by-d matrix (n points, d features), centroids as a k-by-d matrix, and an assignment array of length n. Stuart Lloyd conceived this procedure at Bell Labs in 1957 for pulse-code modulation (published 1982). James MacQueen independently described and named it "k-means" in 1967.`,
+        `Step 1 (assign): for each point, compute the Euclidean distance to every centroid and assign the point to the nearest one. Squared Euclidean distance avoids the square root since ordering by squared distance is the same as ordering by distance. Step 2 (recenter): for each centroid, compute the coordinate-wise mean of all points assigned to it and move the centroid there. Repeat until no point changes assignment.`,
+        `Initialization determines which local minimum the algorithm finds. Randomly chosen centroids can start too close together, leaving one natural group split and another ignored. K-means++ (Arthur and Vassilvitskii, 2007) fixes this: pick the first centroid uniformly at random, then pick each subsequent centroid with probability proportional to the squared distance from the nearest existing centroid. This spreads initial centers apart. The expected WCSS under k-means++ is within O(log k) of optimal. Production systems typically run k-means++ 10 times and keep the result with the lowest cost.`,
       ],
     },
     {
-      heading: `Where It Is Useful`,
+      heading: `Why it works`,
+      paragraphs: [
+        `K-means works because the mean minimizes squared distance to a set of points — so the recenter step is exactly optimal for the WCSS objective when assignments are fixed. The assign step is also exactly optimal when centroids are fixed: moving each point to the nearest centroid cannot increase WCSS. Each half-step is trivially correct because the other half is temporarily treated as constant. This is the same alternating-minimization pattern that drives EM for Gaussian mixture models.`,
+        `The algorithm also works as compression: it replaces n points with k prototypes. Those prototypes can be inspected, stored, compared, and used for routing. A centroid summarizing a group of similar customers, colors, or embedding vectors becomes a useful unit of analysis. The practical value depends on whether Euclidean distance captures meaningful similarity in the domain.`,
+      ],
+    },
+    {
+      heading: `Choosing k`,
+      paragraphs: [
+        `K-means requires k as input and always returns exactly k clusters. Choosing k is the practitioner's responsibility, not the algorithm's. Inertia (WCSS) always decreases as k increases — more centroids means shorter distances — so raw cost cannot select k. Three common approaches help.`,
+        `The elbow method plots WCSS against k. As k grows from 1, WCSS drops steeply at first and then flattens. The "elbow" — the value of k where returns diminish sharply — is a reasonable pick. The elbow is a heuristic; sometimes there is no clear bend. The silhouette score measures how much closer each point is to its own centroid than to the nearest foreign centroid. Values range from -1 to +1; higher is better. The gap statistic compares WCSS to a null reference distribution. Each method offers a different lens; none is definitive.`,
+        `Domain knowledge often matters more than any metric. In customer segmentation, the question is whether the segments support different actions. In image compression, k is the palette size, chosen by quality constraints. In vector search indexes, k controls the recall-latency tradeoff. Connect cluster quality to the job the clusters do.`,
+      ],
+    },
+    {
+      heading: `Real-world uses`,
       paragraphs: [
         `K-means is useful for customer segmentation, color quantization, document exploration, image compression, anomaly screening, feature construction, and coarse routing in vector search. The color-quantization example is especially clear: treat each pixel as a point in RGB space, cluster pixels into k centroids, and replace each pixel by the nearest centroid color. The image now uses only k colors while preserving much of the original structure.`,
         `In retrieval systems, k-means appears in inverted-file vector indexes. A query is compared with coarse centroids, routed to the nearest partitions, and then compared with vectors inside those partitions. This reduces search cost at the price of possible recall loss. In data analysis, k-means can provide a first pass over embeddings before a human inspects representative items from each cluster. It is often a starting point, not the final explanation.`,
       ],
     },
     {
-      heading: `Where It Fails`,
+      heading: `Where it fails`,
       paragraphs: [
         `K-means fails when the assumptions behind its objective are false. It struggles with long curved clusters, rings, nested groups, unequal densities, heavy outliers, and clusters of very different sizes. It is sensitive to feature scaling because Euclidean distance treats a one-unit change in each feature as comparable. A feature measured in dollars can dominate a feature measured in percentages unless data is standardized or transformed. It also does not handle categorical variables directly without a representation that makes distance meaningful.`,
         `High-dimensional spaces create another problem. Distances can become less informative as dimensions grow, especially with sparse text features or noisy embeddings. Dimensionality reduction may help, but it can also distort structure. K-means can also create false confidence because it always returns labels. A dataset with no natural clusters still gets k colored groups. The right response is to compare against baselines, inspect stability, test downstream value, and be willing to conclude that clustering is not supported.`,
       ],
     },
     {
-      heading: `What To Study Next`,
+      heading: `Convergence guarantee`,
       paragraphs: [
-        `Study Euclidean distance, cosine similarity, normalization, and embeddings before trusting cluster geometry. Study PCA and SVD for dimensionality reduction, then t-SNE and UMAP for visualization with the warning that two-dimensional plots are not ground truth. Study Gaussian mixture models for soft probabilistic clusters, DBSCAN and HDBSCAN for density-based clusters, and hierarchical clustering for multiscale structure. For production retrieval, study HNSW and inverted-file indexes to see how clustering becomes a routing data structure rather than only an analysis tool.`,
+        `K-means always converges. The within-cluster sum of squares (WCSS) is bounded below by zero and decreases or stays the same on every step. The assign step cannot increase WCSS because each point moves to a closer centroid or stays put. The recenter step cannot increase WCSS because the mean minimizes squared distance to a fixed set of points (a property provable by setting the derivative to zero). Since there are finitely many possible assignments (k^n), and WCSS strictly decreases whenever an assignment changes, the loop must terminate.`,
+        `Convergence does not mean optimality. The algorithm finds a local minimum that depends on initialization. Running k-means 10 times with different random starts and keeping the lowest-cost result is standard practice. K-means++ (Arthur and Vassilvitskii, 2007) improves initialization by choosing centroids that are spread apart, reducing the chance of a poor local minimum. The expected cost under k-means++ initialization is within O(log k) of optimal.`,
       ],
     },
-  ],
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        "You have n data points and no labels. Nobody told you which points belong together, or even how many groups exist. You need to discover structure — segment customers, compress a color palette, route search queries to the right index partition — but exhaustive search over all possible groupings is combinatorially impossible.",
+        "K-means exists because it replaces that impossible search with a two-step loop that converges in minutes. Stuart Lloyd conceived the algorithm at Bell Labs in 1957 for pulse-code modulation (published 1982). James MacQueen independently described and named it 'k-means' in 1967. The idea is old, simple, and still the default first pass for unsupervised grouping in production systems from ad targeting to vector search indexes.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "One iteration costs O(n * k * d): for each of n points, compute distance to each of k centroids across d dimensions. If the algorithm runs for I iterations, total cost is O(I * n * k * d). In practice, I is typically 10 to 30. Doubling the number of points doubles iteration cost linearly. Doubling k also doubles it. Doubling dimensionality doubles again. Memory is O(n * d) for the dataset plus O(k * d) for centroids plus O(n) for assignments.",
+        "Worked example: 100,000 points, 128 dimensions, k=256, 20 iterations. Per iteration: 100,000 * 256 * 128 = 3.28 billion distance operations. Over 20 iterations: about 65 billion. On a modern CPU doing roughly 10 billion FLOPs per second, that finishes in single-digit seconds. This is why k-means scales to millions of vectors in practice — each operation is a simple multiply-add, highly vectorizable.",
+        "Mini-batch k-means (Sculley, 2010) reduces per-iteration cost by sampling a small batch of points (say 1,000) instead of the full dataset. Each centroid updates as a running mean. Precision drops slightly, but training on 10 million points becomes practical on a laptop. Scikit-learn's MiniBatchKMeans uses this approach.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Six 2D points: A=(1,1), B=(1.5,2), C=(2,1.5), D=(8,8), E=(9,7.5), F=(8.5,9). k=2. Initialize centroids at C1=A=(1,1) and C2=F=(8.5,9) (spread apart, mimicking k-means++).",
+        "Iteration 1 ASSIGN: compute Euclidean distance from each point to each centroid. A to C1: 0, to C2: sqrt(56.25+64)=10.97 -> C1. B to C1: sqrt(0.25+1)=1.12, to C2: sqrt(49+49)=9.90 -> C1. C to C1: sqrt(1+0.25)=1.12, to C2: sqrt(42.25+56.25)=9.92 -> C1. D to C1: sqrt(49+49)=9.90, to C2: sqrt(0.25+1)=1.12 -> C2. E to C1: sqrt(64+42.25)=10.31, to C2: sqrt(0.25+2.25)=1.58 -> C2. F to C1: sqrt(56.25+64)=10.97, to C2: 0 -> C2. Clusters: {A,B,C} and {D,E,F}. 6 points changed assignment.",
+        "Iteration 1 RECENTER: C1 = mean of {(1,1),(1.5,2),(2,1.5)} = (1.5, 1.5). C2 = mean of {(8,8),(9,7.5),(8.5,9)} = (8.5, 8.17).",
+        "Iteration 2 ASSIGN: recompute all distances with new centroids. Every point is still closer to its current centroid than to the other. Zero points changed. CONVERGED in 2 iterations.",
+        "Final WCSS: cluster 1: (1-1.5)^2+(1-1.5)^2 + (1.5-1.5)^2+(2-1.5)^2 + (2-1.5)^2+(1.5-1.5)^2 = 0.25+0.25+0+0.25+0.25+0 = 1.0. Cluster 2: (8-8.5)^2+(8-8.17)^2 + (9-8.5)^2+(7.5-8.17)^2 + (8.5-8.5)^2+(9-8.17)^2 = 0.25+0.03+0.25+0.45+0+0.69 = 1.67. Total WCSS = 2.67. The two natural blobs were recovered exactly.",
+        "Bad initialization test: start both centroids at (1,1) and (1.5,2). Iteration 1 assigns nearly everything to C2. By iteration 3, the algorithm self-corrects to the same two-cluster solution. K-means is robust to bad starts when clusters are well-separated; it is fragile when clusters overlap. K-means++ avoids pathological starts by construction.",
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Frame 1 (initialization): 18 gray points, k colored centroids placed at spread-out positions. Invariant: no assignments yet — cost is undefined. Notice the centroids are far apart; this is the k-means++ idea in miniature.',
+            'Assign frames: each point takes the color of its nearest centroid. The key number is how many points changed cluster. If zero changed, the algorithm will converge on this round. Border points — those equidistant from two centroids — are the ones that flip most often.',
+            'Recenter frames: each centroid slides to the mean of its members. The star markers move. The distance they travel shrinks each round because the assignments are stabilizing. Watch for centroids that barely move — their cluster is already tight.',
+            'Convergence frame: zero points changed. The within-cluster sum of squares has reached a local minimum. With k=3, the three natural blobs are recovered. With k=2, two blobs are merged. With k=4, one blob is split. The algorithm cannot tell you which k is right.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        "Points: (1,1), (1.5,2), (3,4), (5,7), (3.5,5), (4.5,5), (3.5,4.5). k=2. Initial centroids: C1=(1,1), C2=(5,7).",
+        "Assign: (1,1)→C1, (1.5,2)→C1, (3,4)→C2 (dist to C1=√13≈3.6, dist to C2=√13≈3.6 — tie, say C2), (5,7)→C2, (3.5,5)→C2, (4.5,5)→C2, (3.5,4.5)→C2. New C1=(1.25, 1.5). New C2=mean of 5 points≈(3.9, 5.1). Re-assign: now (3,4) is closer to C2 (dist≈1.4) than C1 (dist≈3.2). Converges after about 3 iterations.",
+        "Can you explain why k-means fails on non-convex clusters (e.g., two concentric circles)?",
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          "Lloyd, S.P. (1982). 'Least Squares Quantization in PCM.' IEEE Transactions on Information Theory, 28(2), 129-137. Algorithm conceived at Bell Labs in 1957, published 25 years later. MacQueen, J. (1967). 'Some methods for classification and analysis of multivariate observations.' Proc. 5th Berkeley Symposium — coined the name 'k-means.' Arthur, D. and Vassilvitskii, S. (2007). 'K-means++: The Advantages of Careful Seeding.' SODA — proved O(log k)-competitive initialization. Sculley, D. (2010). 'Web-scale k-means clustering.' WWW — mini-batch variant for large-scale data.",
+          "Prerequisites: Euclidean distance (the measure k-means optimizes), coordinate-wise mean (the operation behind recentering), and basic iteration. If distance metrics are unfamiliar, start there — k-means is only as good as its distance function.",
+          "Density-based alternative: DBSCAN defines clusters as dense regions separated by sparse gaps. It finds arbitrary shapes, handles noise as first-class outliers, and does not require choosing k. Study it when k-means fails on non-convex or unequal-density data.",
+          "Soft clustering: Gaussian mixture models (GMMs) generalize k-means from hard assignment to soft probabilistic membership. Each point gets a probability of belonging to each cluster. GMMs also model cluster shape via covariance matrices, handling elliptical clusters that k-means distorts into spheres.",
+          "Multi-scale structure: hierarchical clustering (agglomerative or divisive) builds a dendrogram of merges or splits so you can pick granularity after the fact, without rerunning the algorithm for each k.",
+          "Dimension reduction before clustering: PCA projects high-dimensional data onto its principal axes, reducing noise and making Euclidean distance more meaningful. t-SNE and UMAP are useful for 2D visualization of cluster output but distort distances too much for clustering directly.",
+          "In production: k-means is the routing layer inside inverted-file (IVF) vector indexes used by FAISS and similar libraries. Understanding how centroid quality affects recall and latency connects this topic directly to search infrastructure.",
+        ],
+      },
+],
 };
+

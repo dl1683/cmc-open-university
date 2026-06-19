@@ -1,4 +1,4 @@
-// Tiered KV-cache offload: keep scarce GPU HBM for active decode while using
+﻿// Tiered KV-cache offload: keep scarce GPU HBM for active decode while using
 // CPU, SSD, and remote stores to preserve reusable prompt state.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -347,7 +347,7 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: `Why this exists`,
       paragraphs: [
         `Transformer inference keeps a key-value cache for every generated context token. That cache is what lets decode attend to earlier tokens without recomputing all previous transformer layers. It is also huge. Long prompts, long conversations, tool traces, and many concurrent users can fill GPU HBM before arithmetic becomes the bottleneck.`,
         `Agentic workloads make the opportunity visible. The system prompt, tool instructions, repository context, policy text, and previous trace prefixes may repeat across turns. Recomputing that prefix every time wastes prefill compute and increases time to first token. Keeping every possible prefix in GPU memory is not possible either, because active decode needs that same HBM.`,
@@ -355,7 +355,7 @@ export const article = {
       ],
     },
     {
-      heading: `The Obvious Approach and the Wall`,
+      heading: `The wall`,
       paragraphs: [
         `The simplest approach is to keep KV cache only on the GPU and evict when memory is full. That is easy to reason about, but it wastes reuse. When a later request repeats a large prefix, the server must run prefill again even if another request just paid for that same computation.`,
         `The second tempting approach is to offload everything that does not fit. That turns a memory problem into a latency problem. CPU RAM, SSD, network storage, and remote cache nodes are slower tiers with their own queues, failures, and tail behavior. If every request blocks on cold storage, the cache can make the service worse while appearing busy.`,
@@ -363,7 +363,7 @@ export const article = {
       ],
     },
     {
-      heading: `Core Invariant`,
+      heading: `The core insight`,
       paragraphs: [
         `The invariant is exact computational equivalence: a loaded KV block must be the same state the model would have produced by prefilling the same token block under the same model contract. The placement can change. The semantics cannot.`,
         `That means the cache key is not just text. It must encode token ids, model identity, tokenizer version, adapter or LoRA identity, position scheme, attention layout, dtype or quantization format, block size, and any tenant or safety boundary that affects reuse. Two prompts that look similar to a person may still be a miss if tokenization, position, or adapter state differs.`,
@@ -371,7 +371,7 @@ export const article = {
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: `How it works`,
       paragraphs: [
         `A request first becomes token blocks. The runtime hashes those blocks into prefix keys and asks the local block table whether they are already resident in GPU memory. If they are, decode can use them directly. If not, the runtime checks slower tiers in order: CPU staging memory, local SSD, remote cache pool, or another configured backend.`,
         `A cold hit must be promoted before attention can read it. A block stored on SSD is loaded into CPU memory, copied into GPU blocks, registered in the local block table, and then used by the model. A remote hit may add network transfer before the CPU and GPU staging steps. This promotion path is why the store must measure time to first token by tier, not just hit rate.`,
@@ -379,7 +379,7 @@ export const article = {
       ],
     },
     {
-      heading: `Animation Notes`,
+      heading: `How to read the animation`,
       paragraphs: [
         `The tier-ladder view starts with a prefix key and shows the hierarchy. HBM is the only tier that directly feeds active attention. CPU is the staging tier. SSD and remote tiers buy capacity and sharing, but they must promote through the path that the engine can actually consume.`,
         `The promote-path view separates blocking gets from asynchronous puts. A get matters to the request in front of the user. A put matters to a future request. The eviction audit then shows the policy question: which blocks deserve scarce HBM, which deserve CPU or SSD, and which should be dropped because they are stale, low value, or unsafe.`,
@@ -421,13 +421,13 @@ export const article = {
       heading: `Implementation Guidance`,
       paragraphs: [
         `Start with a strict key schema and version it. Include model, tokenizer, adapter, position encoding, block size, dtype, quantization, safety boundary, and tenant scope. Make a cache miss the default for any unknown field. A false miss wastes compute; a false hit corrupts inference.`,
-        `Make gets cancellable and bounded. If a request has a tight SLO, waiting for a slow SSD or remote read may be worse than recomputing. The runtime should have a policy for when to stop waiting, fall back to prefill, or serve from a shorter prefix. That policy belongs in code, not in an operator's head during an incident.`,
+        `Make gets cancellable and bounded. If a request has a tight SLO, waiting for a slow SSD or remote read may be worse than recomputing. The runtime should have a policy for when to stop waiting, fall back to prefill, or serve from a shorter prefix. That policy belongs in code, not in an operator\'s head during an incident.`,
         `Make puts asynchronous but observable. A failed background put should not fail the current request, but it should count. Otherwise the system may believe it is preserving reuse while the lower tier is silently dropping state. Track put success, put latency, bytes written, evictions, and cleanup lag.`,
         `Protect the GPU allocator. Promotion should reserve destination blocks before loading from lower tiers. Partial promotions need rollback or cleanup. If the request is cancelled mid-transfer, the store must release HBM, CPU buffers, file handles, and remote references.`,
       ],
     },
     {
-      heading: `Failure Modes`,
+      heading: `Where it fails`,
       paragraphs: [
         `Stale keys are the most dangerous failure. A model update, adapter swap, tokenizer change, position-scaling change, or dtype change can make old KV invalid. The store needs versioned namespaces and refusal rules that prefer recompute over unsafe reuse.`,
         `Tail latency is the most visible failure. A remote cache can look excellent in average latency and still ruin p99 when many requests fetch the same popular prefix or when disk queue depth spikes. Thundering herds need request coalescing, admission control, and prefetch policies.`,
@@ -436,14 +436,14 @@ export const article = {
       ],
     },
     {
-      heading: `Where It Wins`,
+      heading: `Real-world uses`,
       paragraphs: [
         `Tiered KV offload wins in long-context chat, coding agents, customer-support copilots, tool-using agents, retrieval systems with repeated documents, model gateways with shared system prompts, and multi-turn workflows where the same prefix is expensive to prefill repeatedly.`,
         `It is especially useful when the serving stack can combine three ideas: block-based KV management, prefix-aware routing, and tier-aware admission control. The block manager gives reusable units. The router finds locality. The admission policy decides when a cold hit is worth waiting for.`,
       ],
     },
     {
-      heading: `Where It Fails`,
+      heading: `Where it fails`,
       paragraphs: [
         `It fails on mostly unique traffic. If every prompt is new and short, the store becomes overhead. It also fails when lower-tier bandwidth is weak, when routing is random, when keys are incomplete, or when the product SLO cannot tolerate blocking gets.`,
         `It fails when teams confuse offload with transfer fabric. Transfer fabric moves KV between prefill and decode workers or across engine roles. Tiered offload preserves reusable KV across time and memory tiers. A serious serving system may use both, but the design questions are different.`,
@@ -451,11 +451,89 @@ export const article = {
       ],
     },
     {
-      heading: `Study Next`,
+      heading: `Study next`,
       paragraphs: [
         `Study KV Cache Concurrency Capacity Model first to understand why HBM pressure appears. Then read KV Cache, Prefix Caching and RadixAttention, LLM Serving PagedAttention, KV Cache Transfer Fabric Case Study, SLO-Aware LLM Request Router, KV Cache Quantization and Compression, GPU Memory Pool Fragmentation Ledger, Tail Latency, Distributed Tracing, and LLM Unit Economics Ledger Case Study.`,
         `For implementation context, compare the ideas used by vLLM offloading connectors, LMCache local and distributed storage, Ray Serve KV offloading, and NVIDIA Dynamo backends. Focus less on brand names and more on the common contract: exact keys, tiered placement, bounded promotion, observable eviction, and proof that reuse beats recompute for the workload.`,
       ],
     },
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for kv-cache-tiered-offload-store-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };
+

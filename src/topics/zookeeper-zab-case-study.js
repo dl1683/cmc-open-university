@@ -224,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         'The znodes-and-watches view shows a small namespace carrying large coordination meaning. A path such as /app/leader is not just a string. It can encode leadership, membership, configuration, or a lock contender depending on the recipe around it.',
         'The watch view teaches a common misconception. A watch event is not the data. It is a prompt to reread the data. Watches are one-shot, so a correct client receives an event, reads the current znode state, and installs a fresh watch if it still needs future changes.',
@@ -256,7 +256,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked example: leader election',
+      heading: 'Worked example',
       paragraphs: [
         'A standard leader election recipe uses ephemeral sequential znodes under an election path. Each candidate creates a child such as /election/candidate-00000017. The candidate with the lowest sequence number is leader. If that client\'s session expires, its ephemeral znode disappears.',
         'The scalable detail is watch placement. Every non-leader watches the predecessor just before it, not the whole election directory. If the leader disappears, only the next candidate wakes up and checks whether it is now lowest. That avoids a herd effect where every contender stampedes the ensemble on every leadership change.',
@@ -280,7 +280,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'ZooKeeper wins for leader election, membership, small configuration, distributed locks, barriers, and service coordination. It has been used by Hadoop, HBase, Kafka-era broker coordination, Solr, Storm, and many internal platforms.',
         'It is especially useful when clients need a shared ordered namespace rather than a high-throughput data log. The combination of ephemeral nodes, sequential nodes, versions, and watches is small but expressive.',
@@ -294,17 +294,59 @@ export const article = {
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Remember the primitives: znode, session, ephemeral, sequential, version, watch. Each one solves a specific coordination need. The power comes from composing them carefully, not from treating ZooKeeper as magic.',
         'Remember the watch rule: reread after notification. Remember the lock rule: fence external side effects. Remember the scale rule: small coordination state only.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary and official sources: ZooKeeper paper at https://www.usenix.org/legacy/event/atc10/tech/full_papers/Hunt.pdf, Apache Programmer Guide at https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html, and Zab paper at https://classpages.cselabs.umn.edu/Fall-2017/csci8211/Papers/Distributed%20Systems%20Zab-%20High-performance%20broadcast%20for%20primary-backup%20systems.pdf. Study Chubby Lock Service Case Study, Distributed Locks, Leader Replacement, Paxos, Raft Log Replication, Read/Write Quorums, etcd Raft Lease Case Study, and Kafka Log Case Study next.',
       ],
     },
+  
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for zookeeper-zab-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

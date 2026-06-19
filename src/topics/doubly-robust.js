@@ -87,7 +87,7 @@ function* modelPlusCorrection() {
     ], [['how', 'how it estimates'], ['fails', 'how it fails']], [
       ['fit a reward model m(a) to the logs, report Σ p(a)·m(a) — no weights, no noise', 'BIASED wherever the model is wrong, and more data never fixes it: the error is baked in'],
       ['reweight logged rewards by p/q (see Importance Sampling & Off-Policy Estimation)', 'unbiased but high-variance — and explosive when the logger barely covers what p loves'],
-      ['the model\'s calm AND the weights\' honesty', 'this page: combine them so each covers the other\'s failure'],
+      ['the model\'s calm AND the weights\'s honesty', 'this page: combine them so each covers the other\'s failure'],
     ]),
     highlight: { compare: ['dmRow:fails', 'ips:fails'], active: ['dream:how'] },
     explanation: 'Off-policy evaluation offers two tools with opposite temperaments. The DIRECT METHOD fits a model of rewards and simply asks it about the new policy — beautifully low variance, but any systematic model error becomes systematic answer error, forever; you cannot wash bias out with sample size. IPS is the opposite animal: provably unbiased, but it pays in variance, sometimes ruinously. The classic dilemma is choosing which risk to eat. Doubly robust estimation refuses the choice: it runs BOTH, in an arrangement where the model handles the bulk of the answer and the weights audit only what the model got wrong.',
@@ -188,19 +188,28 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Doubly Robust Estimation. Predict with the model, correct the prediction with importance-weighted residuals: unbiased if the model OR the weights are right — stress-tested live both ways..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Doubly robust estimation answers a hard question: can you evaluate a new policy on logged data when the logs came from a different policy? Two classical tools exist — the direct method (fit a reward model, use it to predict) and importance sampling (reweight the logged data). Both fail cleanly: the model is biased when wrong, and importance weights explode when coverage is poor. Doubly robust estimation refuses to choose. It runs both tools at once, arranged so that the estimate is correct if EITHER ingredient is right. Two flawed tools, one honest answer.`,
       ],
     },
     {
-      heading: `Core insight`,
+      heading: `The core insight`,
       paragraphs: [
         `Read the formula as a model answer plus a weighted error audit. The direct-method term predicts what the new policy would get. The residual term asks where the model was wrong on logged samples, then reweights those errors into the new policy's action mix. In the stress tests, the model can be wrong or the weights can be noisy, but DR survives if one side is right enough. The naive baselines are direct method alone and IPS alone. The invariant is the double-safety condition: correct model makes residuals average to zero; correct propensities make the residual audit unbiased for the model's bias. If both model and support fail in the same region, the table's last row is the warning.`,
       ],
     },
     {
-      heading: `The obvious approach and its wall`,
+      heading: `The wall`,
       paragraphs: [
         `The direct method is appealing because it is low variance: fit a reward model, predict rewards for the new policy, and average. Its wall is model bias. If the reward model is wrong where the new policy acts, the estimate can be confidently wrong.`,
         `Inverse propensity scoring is appealing because it can be unbiased with correct propensities and support. Its wall is variance. If the new policy chooses actions that the logger rarely chose, weights become large and a few logged events can dominate the estimate.`,
@@ -215,7 +224,7 @@ export const article = {
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Cost and behavior`,
       paragraphs: [
         `Compute cost: fit one reward model (same as the direct method), compute importance weights (same as importance sampling), run the formula above. The model-fitting step dominates; the audit is a single pass over the logged data. Variance: depends on the product of model error and weight error. If the model explains the rewards well, variance scales with the model's residual variance (usually tiny); if weights are wild, it scales with the residual magnitudes (much smaller than raw rewards). Bias: equals the PRODUCT of (model error) × (weight error) summed over actions. If either ingredient is right, bias is zero; if both are wrong, DR fails gracefully — the bias is smaller than the sum of independent failures.`,
       ],
@@ -234,13 +243,13 @@ export const article = {
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `The most common misunderstanding: "doubly robust means infinitely robust." It does not. The bias is the PRODUCT of model error and weight error; if both are substantially wrong AND correlated (e.g., the model is wrong in regions the logger never explores), DR fails. Robustness is doubled, not infinite — two independent chances to be correct, not a guarantee. Another trap: confusing the audit term with IPS. The audit computes IPS on RESIDUALS (r − m), not on rewards r; this is essential for variance control. A third pitfall: fitting the model on the same logged data you evaluate on. If the model overfits, its residuals become prediction noise on held-out data, and the audit loses its corrective power — always use cross-fitting or separate data.`,
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: `Where it fails (2)`,
       paragraphs: [
         `DR fails when model error and weighting error line up in the same unsupported region. If the logger rarely explored an action and the reward model is also wrong there, the residual audit has no reliable evidence to repair the direct estimate.`,
         `It also cannot fix delayed, censored, or biased rewards by itself. Missing clicks, late conversions, position bias, and selective logging have to be handled in the logging and reward pipeline before the estimator can be trusted.`,
@@ -253,5 +262,87 @@ export const article = {
         `Start with "Importance Sampling & Off-Policy Estimation" to understand IPS and its failure modes — DR exists precisely to patch them. Then read "Contextual Bandit Logged Policy Evaluation Case Study" to see the DR formula embedded in a real logged-policy gate with propensities, support checks, delayed labels, and effective sample size. Read "Propensity Score Overlap Diagnostics" for the balance and common-support checks behind weighting, and "Causal Forest Uplift Policy" for heterogeneous treatment effects. Study "A/B Testing & p-values" to understand when you can run an experiment instead of relying on off-policy estimates. Explore "Gradient Boosting" to see an ensemble method that also learns to correct model predictions.`,
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Doubly Robust Estimation moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

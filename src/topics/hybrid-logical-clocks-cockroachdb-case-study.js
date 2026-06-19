@@ -216,61 +216,6 @@ export function* run(input) {
   else throw new InputError('Pick a hybrid-logical-clock view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'A hybrid logical clock is a timestamp made from two parts: a physical wall-clock component and a logical counter. It behaves like a Lamport clock for causality while staying close enough to wall time to be useful for MVCC versions, debugging, historical reads, and operational reasoning.',
-        'This topic extends Clocks & Ordering, NTP & PTP, Spanner Case Study, MVCC & Vacuum, and Transaction Isolation Levels. Spanner buys bounded uncertainty with TrueTime hardware. CockroachDB-style systems use ordinary clock sync plus HLC timestamps and a configured maximum clock-offset bound.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'An HLC timestamp is a tuple (p, l). The p component is physical time, usually from the local system clock. The l component is a logical counter. On a local event, if the wall clock has moved beyond p, set p to wall time and reset l to zero. If wall time is equal to or behind p, keep p and increment l. This makes the clock monotonic even through same-millisecond bursts and small backward clock adjustments.',
-        'On receiving a message, the node merges the remote timestamp into its local clock. It chooses the maximum physical component among wall time, local p, and remote p, then bumps the logical component so the receive timestamp is greater than both prior timestamps when necessary. That preserves the key logical-clock property: if A causally precedes B, HLC(A) is less than HLC(B).',
-        'Unlike vector clocks, HLCs do not detect concurrency. Two concurrent events will still receive an ordered pair of timestamps. The benefit is compactness and operational usefulness: one timestamp can be stored in every MVCC key, compared cheaply, and read as roughly wall-clock time.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read the hybrid logical clock as two pieces of evidence: physical time for approximate wall-clock order and a logical counter for causality when physical timestamps collide or move backward.',
-        'The animation is about surviving imperfect clocks. HLCs help transactions and replication preserve causal order without pretending that machines share a perfect clock. The practical question is how much uncertainty the database must carry into reads, writes, and refresh logic.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'HLCs need moderate clock synchronization. If clocks drift too far, timestamp ordering can stop matching the real-time assumptions the database relies on. CockroachDB documentation says nodes exchange clock information and can shut down when skew exceeds a configured fraction of the maximum allowed offset. The clock is therefore not trusted blindly; it is continuously policed.',
-        'The other cost is uncertainty handling. A transaction reading a value whose timestamp falls inside its uncertainty interval may need to restart, because the value might have been written before the transaction began even though its timestamp is above the transaction timestamp. Reducing the maximum offset improves this path but requires better clock discipline.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Consider an order transaction that reads inventory in one range and writes an order row in another. The gateway chooses an HLC timestamp and sends requests to range leaseholders. Each request carries the HLC so receivers advance their local clocks. Writes become MVCC versions at HLC timestamps and are replicated through Raft. A later read snapshot can use those timestamps to decide which versions are visible.',
-        'Now add skew. The transaction starts at timestamp 1000 with a maximum offset of 500 ms. A remote range returns a value at timestamp 1200. That value is inside the uncertainty interval [1000, 1500], so the transaction cannot safely assume it was written after the transaction began. The database restarts or pushes the read so the final execution has a coherent timestamp story.',
-        'For historical reads, closed timestamps add another layer. A leaseholder promises not to accept writes at or below a closed timestamp. Followers that have applied the corresponding Raft log prefix can serve reads at or below that timestamp without contacting the leaseholder, trading freshness for latency.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'HLCs do not remove the need for consensus. They order timestamps, but Raft or Paxos still replicates state and transaction protocols still resolve conflicts. HLCs also do not provide TrueTime-style external consistency by themselves; they rely on bounded clock offset plus uncertainty handling. If operators ignore clock discipline, the correctness assumptions weaken.',
-        'Another misconception is that HLCs are just wall-clock timestamps with a suffix. The logical counter is what makes causality survive local clock ties and backward motion. Without that counter, the system falls back into the last-write-wins clock-skew bug from the logical-clocks primer.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: the HLC paper at https://cse.buffalo.edu/tech-reports/2014-04.pdf, CockroachDB transaction-layer docs at https://www.cockroachlabs.com/docs/stable/architecture/transaction-layer, CockroachDB atomic-clock comparison at https://www.cockroachlabs.com/blog/living-without-atomic-clocks/, and CockroachDB clock-management discussion at https://www.cockroachlabs.com/blog/clock-management-cockroachdb/. Study Spanner Case Study, TiKV Percolator Transaction Case Study, MVCC & Vacuum, Raft Log Replication, and NTP & PTP next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {

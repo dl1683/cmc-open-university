@@ -1,4 +1,4 @@
-// Sliding-window attention as a context policy: cap pairwise attention and
+﻿// Sliding-window attention as a context policy: cap pairwise attention and
 // rolling KV state while preserving recent local detail.
 
 import { matrixState, plotState, InputError } from '../core/state.js';
@@ -166,7 +166,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive design and why it breaks',
+      heading: 'Where it fails',
       paragraphs: [
         'The naive answer is full attention forever. That gives every token exact access to every older token, which is appealing for reasoning, quoting, and long dependency chains. The wall is cost. A 4x longer sequence creates roughly 16x more attention pairs during training. During decoding, a long prompt creates a large cache that consumes scarce accelerator memory and limits concurrency. At serving time, the question is not only "can the model read this?" but "how many users can we serve while it reads this?"',
         'Another naive answer is to advertise a large context length without explaining the internal policy. A model may accept a long input while using local attention, compressed memory, grouped attention, sink tokens, retrieval, or other tricks. Those policies are legitimate, but they are not the same as every token having equal direct access to every other token. Educational material should make that distinction clear.',
@@ -174,7 +174,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'How it works',
       paragraphs: [
         'In full causal attention, token i may attend to every token from 0 through i. In sliding-window attention, token i attends only to a bounded recent range, such as the previous w tokens. The attention mask changes from a full lower triangle into a diagonal band. The compute shape changes from roughly n squared token pairs to roughly n times w token pairs, where w is the window size.',
         'During inference, the same idea becomes a rolling cache policy. The system keeps key and value rows for recent tokens and evicts or deprioritizes older rows. Some designs add anchor tokens, attention sinks, recurrent summaries, compressed memory, or retrieval so old information can still influence the model indirectly. A pure local window is the simplest case: old tokens outside the window are not directly visible to new tokens.',
@@ -188,42 +188,7 @@ export const article = {
         'It also works because local attention improves serving economics. Accelerator memory is one of the hardest constraints in LLM inference. A bounded cache lets systems serve longer streams, more concurrent sessions, or lower latency than they could with unbounded exact history. This matters in real products: a context policy is part of capacity planning.',
         'The strongest long-context systems rarely rely on a blind local window alone. They combine local detail with other paths: retrieval for exact old evidence, summaries for durable state, sink tokens for stable attention behavior, global tokens for special positions, or hierarchical processing for documents. Sliding windows are often the cheap recent-memory layer in a larger memory system.',
       ],
-    },
-    {
-      heading: 'Where it works and where it does not',
-      paragraphs: [
-        'Sliding windows fit chat, streaming generation, local code editing, transcript following, and online assistants where recent context dominates. A coding assistant often needs the current file, nearby function, latest compiler error, and recent user instruction more than every terminal line from an hour ago. A streaming summarizer may need exact recent sentences and only compressed older themes.',
-        'They struggle when the answer depends on distant exact evidence. Book-length legal analysis, repository-wide refactors, long proofs, source-cited research, and tasks with definitions far from uses can fail under a pure local window. Lost-in-the-middle failures are a related warning: accepting long input is not the same as reliably using every part of it.',
-        'The right product design often pairs sliding windows with an explicit evidence path. If an old contract clause matters, retrieve it. If an early system instruction matters, pin or summarize it. If a document section must be cited, keep a source ledger. Local attention is cheap memory, not a substitute for deliberate recall.',
-      ],
-    },
-    {
-      heading: 'Evaluation and failure modes',
-      paragraphs: [
-        'A serious evaluation must place important evidence outside the recent window. It should vary distance, distractors, evidence position, and the number of relevant facts. It should test exact quote retrieval, instruction following across long gaps, variable binding, cross-reference resolution, and adversarial cases where the recent context points the wrong way.',
-        'The main failure modes are predictable. The model forgets old facts outside the window. Summaries blur details. Anchors preserve some information but not arbitrary evidence. Retrieval misses the right span. Window boundaries create discontinuities. A benchmark that only measures average next-token loss or short tasks can miss all of this.',
-        'Serving evaluation matters too. A larger window improves recall but consumes more memory and compute. A smaller window improves throughput but loses distant dependencies. The right window is not found by architecture taste; it is found by measuring quality, latency, memory, and cost on the workload that will actually run.',
-      ],
-    },
-    {
-      heading: 'A worked example',
-      paragraphs: [
-        'Suppose a support assistant has a 64k-token conversation but uses a 4k-token local window. The recent turn asks, "Does the exception from the first policy still apply?" If the first policy is outside the window and was never summarized or retrieved, the model has no direct route to the decisive text. It may answer from general knowledge, from the recent discussion, or from a blurred memory of the earlier topic. None of those is a reliable substitute for the actual policy span.',
-        'A better system treats the sliding window as only the recent working set. It pins durable instructions, writes compact state for decisions made earlier, retrieves source passages when the user asks about old policy, and uses the local window for the immediate dialogue around the answer. In that design, the window controls cost without pretending to be the whole memory system.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'Sliding-window attention is a budgeted attention policy. It keeps recent context exact and makes older context depend on some other mechanism: retrieval, summaries, anchors, recurrence, or deliberate omission. That is useful, but it is not the same as full long-context attention.',
-        'The core engineering question is not whether local windows are good or bad. It is which facts must remain exact, how old evidence is recovered, how the system detects missed evidence, and what serving cost the product can afford.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Mistral 7B at https://arxiv.org/abs/2310.06825, Longformer at https://arxiv.org/abs/2004.05150, Attention Is All You Need at https://arxiv.org/abs/1706.03762, and the JAX inference chapter at https://jax-ml.github.io/scaling-book/inference/. Study Attention Mechanism, KV Cache, Grouped-Query Attention, StreamingLLM Attention Sinks, Infini-Attention Compressive Memory, Lost in the Middle, Transformer Layer FLOPs Cost Model, and RAG Pipeline next.',
-      ],
-    },
+    }
   ],
 };
+

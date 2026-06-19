@@ -214,14 +214,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Apache Paimon Streaming Lakehouse Case Study. Apache Paimon as a streaming lakehouse table format: LSM-style primary-key updates, snapshots, changelogs, file indexes, compaction, and batch plus streaming reads..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'A lakehouse table has to look simple to users: a table has rows, columns, snapshots, and queries. The hard part is that real data rarely arrives as clean append-only batches. Operational databases emit CDC streams, users update records, delete events appear late, dimensions change, and materialized views need fresh deltas rather than yesterday morning files.',
         'Apache Paimon addresses this mixed world. It is a table format and storage design for batch and streaming workloads, with primary-key tables, snapshots, changelog reads, file metadata, compaction, and indexing. The educational point is not that Paimon is just another file layout. It is a contract for identity, ordering, visibility, pruning, and cleanup on top of cheaper object or distributed storage.',
       ],
     },
     {
-      heading: 'The naive approaches',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first naive approach is to keep two systems. A streaming database owns fresh state, while a data lake receives periodic dumps for analytics. That keeps ingestion easy, but it splits truth. Dashboards, batch jobs, and stream consumers can disagree because they are reading different physical systems with different delay, retention, and correction behavior.',
         'The second naive approach is to rewrite large analytical files for every update. That keeps one logical table, but it fights the storage medium. Object stores and lake files are good at large immutable writes and large scans. They are poor at tiny random updates. Rewriting a huge file to change one row turns a small business event into expensive write amplification.',
@@ -235,7 +244,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'Paimon brings an LSM-style idea into lakehouse storage. Accept changes in a write-optimized form, publish coherent snapshots so readers have stable table versions, expose changelog reads for incremental consumers, and compact files later so scans do not pay forever for the update pattern. Fresh writes and clean reads are separated in time rather than forced into one immediate layout.',
         'The design works only because the table records enough metadata. Primary keys define row identity. Sequence or ordering fields define which event wins when updates race. Snapshots define visibility for batch readers. File indexes and statistics define what can be skipped. Compaction defines how old write debt is merged into a cleaner read shape.',
@@ -277,21 +286,21 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
         'The LSM table view follows the write-to-read lifecycle. CDC events flow through a stream processor, land in write-friendly storage, become part of a snapshot, receive metadata for pruning, and later pass through compaction. The important transition is from raw change events to table versions that a query engine can reason about.',
         'The changelog lake view focuses on semantics. The key path answers which row is being changed. The sequence path answers which change wins. The log path feeds two readers: snapshot readers that want current state and streaming readers that want deltas. The animation is showing why a lakehouse table format has to be both a storage layout and a change protocol.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Paimon pays for freshness with operational debt. Small files accumulate. Compaction consumes compute and I/O. File indexes take space and must remain consistent with data files. Snapshots and changelog retention need cleanup policies. A table that is easy to write can become expensive to query if compaction falls behind or metadata becomes too large.',
         'The semantic tradeoffs are just as important. Strict ordering may require sequence fields from the source system. Idempotent writes require stable identifiers. Deletes require clear tombstone behavior. Schema evolution must preserve reader expectations. A misconfigured table can look healthy at the storage layer while producing incorrect downstream aggregates.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Paimon is strongest when one table must support frequent updates and analytical reads. CDC ingestion, operational analytics, near-real-time dashboards, slowly changing dimensions, streaming materialized views, and pipelines that need both Flink-style streaming and batch query engines are natural fits.',
         'It is also valuable when teams want to reduce the gap between online and analytical state. Instead of exporting from an operational store into a separate append-only lake, the table format itself understands primary-key updates, snapshots, and incremental reads. That reduces duplicate pipelines, although it does not remove the need for careful data contracts.',
@@ -305,7 +314,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Common failure modes include unstable primary keys, missing sequence fields, duplicate CDC events that are not idempotent, late updates that overwrite newer state, compaction lag, snapshot retention that breaks incremental readers, and consumers that ignore update-before or delete records. Each failure is a violation of the table contract.',
         'Operational monitoring should therefore compare both sides of the table. Check file counts, compaction backlog, snapshot age, changelog lag, failed commits, index health, and query scan volume. Also compare snapshot-derived aggregates with changelog-derived aggregates. If those disagree, the issue is likely semantic, not merely performance.',
@@ -318,5 +327,68 @@ export const article = {
         'For primary references, read the Apache Paimon documentation, especially the sections on primary-key tables, snapshots, changelog reads, file indexes, and compaction. Then build a small example mentally: three updates and one delete for the same key, one snapshot reader, one changelog reader, and one compaction cycle. If you can explain what each consumer sees, the design has become concrete.',
       ],
     },
-  ],
+      {
+      heading: 'Why it works',
+      paragraphs: [
+        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
+        "If there is a nontrivial corner case, name it explicitly.",
+        "When correctness is explicit, readers can transfer the method to new inputs.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Apache Paimon Streaming Lakehouse Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

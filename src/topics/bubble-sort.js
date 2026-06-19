@@ -1,4 +1,4 @@
-// Bubble sort: compare neighbors, swap when out of order.
+﻿// Bubble sort: compare neighbors, swap when out of order.
 // The largest unsorted value "bubbles" to the end on every pass.
 
 import { arrayState, parseNumberList } from '../core/state.js';
@@ -67,76 +67,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why This Exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Bubble sort exists mostly as a teaching algorithm. It is not famous because it is fast. It is famous because it exposes sorting in the smallest possible moving parts: compare two neighbors, swap them if they are inverted, and repeat until no boundary is wrong. Every operation is visible and easy to explain.`,
-        `That makes it a useful first sorting study. It introduces in-place mutation, stability, loop invariants, early exit, best case versus worst case, and quadratic growth without needing recursion or extra data structures. It also gives a clean warning: code can be correct, simple, and still have the wrong performance shape for real input sizes.`,
+        'Two highlighted cells are the pair being compared. When they swap, the larger value slides one slot right. When they stay, the scan advances to the next pair. Each left-to-right sweep is one pass.',
+        'After each pass, a sorted marker appears at the right edge. That position is final and will never be touched again. The sorted boundary grows leftward, one slot per pass, until it swallows the whole array.',
+        'Watch for the early-exit moment: if a full pass completes with zero swaps, every remaining position turns sorted at once. That is bubble sort finishing in O(n) on already-sorted input.',
       ],
     },
     {
-      heading: `The Naive Approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive local-repair idea is straightforward: if two adjacent values are out of order, swap them. Keep sweeping until every adjacent pair is ordered. If every local boundary is correct, the whole array is sorted. This is a valid idea, but it pays for movement in the smallest possible unit: one neighboring exchange.`,
-        `That distance cost is the problem. A tiny value that starts at the far right can move left only one slot each time it is compared with its left neighbor. A large value can drift right across many swaps in one pass, but nothing jumps directly to its final location. Bubble sort teaches that local correctness does not automatically imply global efficiency.`,
+        'Bubble sort is the simplest sorting algorithm to understand and implement. Five lines of code, one idea: compare adjacent elements, swap if they are out of order, repeat. No recursion, no auxiliary storage, no clever data structures.',
+        'Its value is pedagogical. It introduces loop invariants, in-place mutation, stability, best-versus-worst case analysis, and quadratic growth in one small package. It also delivers the most important lesson in algorithm design: correct and simple does not mean fast enough. Every student who learns bubble sort first will understand why merge sort and quicksort exist.',
       ],
     },
     {
-      heading: `The Core Mechanic`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `A pass starts at the left edge and compares positions 0 and 1, then 1 and 2, then 2 and 3, and so on. Whenever the left value is greater than the right value, the algorithm swaps them. The larger value moves one slot to the right. If it keeps meeting smaller neighbors, it keeps moving right.`,
-        `By the end of the first full pass, the largest value in the array must be at the far right. The next pass can stop one position earlier because that last slot is final. After k passes, the k largest values form a sorted suffix. The unsorted region shrinks from right to left.`,
-        `The implementation in this topic keeps a swapped flag. That flag records whether a pass actually changed anything. If a pass makes no swaps, the remaining prefix already has no adjacent inversions, so the algorithm can stop early instead of grinding through the rest of the fixed loop schedule.`,
+        'Scan left to right, comparing each adjacent pair. Swap any pair that is out of order. When the scan finishes, start over. Keep scanning until a full pass produces no swaps.',
+        'This works. Each pass pushes the largest unsorted value to the right end, like a bubble rising to the surface. After n−1 passes, every element is in place. The logic fits in a nested loop and the code reads like pseudocode.',
       ],
     },
     {
-      heading: `What The Visual Proves`,
+      heading: 'The wall',
       paragraphs: [
-        `The visual proves the sorted-suffix invariant. At first, no position is final. After one pass, the rightmost value is final. After two passes, the two rightmost values are final. The highlighted comparison is local, but the pass-level effect is global: the largest remaining value is pushed to the boundary.`,
-        `It also proves the weakness. Watch a small value that starts near the end. It can move left only when it is compared with the value immediately before it, so it may need many separate swaps. Better sorting algorithms avoid paying one adjacent swap per unit of distance. They move values through partitioning, merging, heap structure, or insertion into a known prefix.`,
+        'The cost is O(n\xB2) comparisons, even on average. A reverse-sorted array of 1,000 elements forces roughly 500,000 comparisons and nearly as many swaps. That is the price of local movement: a swap fixes one adjacent inversion but carries no information about how far a value needs to travel.',
+        'Large values move fast. A big element at the left rides the pass all the way to the right in one sweep because it wins every comparison it enters. Small values move slow. A small element at the right can only drift left by one position per pass, because it must wait for the leftward comparison to reach it. These slow movers are called turtles.',
+        'Try [2, 3, 4, 5, 1]. The value 1 sits at the end. Pass 1 moves it to index 3. Pass 2 to index 2. Pass 3 to index 1. Pass 4 to index 0. Four full passes for one misplaced element. This asymmetry means even mostly-sorted arrays hit near-quadratic cost when the displaced elements are small ones far to the right.',
+        'The deeper problem: neighbor swaps are retail. Merge sort moves values across large distances by merging halves. Quicksort partitions around a pivot so every element jumps to the correct side in one step. Bubble sort pays one swap per unit of distance.',
       ],
     },
     {
-      heading: `Why It Works`,
+      heading: 'How it works',
       paragraphs: [
-        `The proof is short. Consider the largest value in the unsorted prefix during a pass. If it is left of a smaller neighbor, it swaps right. If it is already right of that neighbor, it stays ahead of it. No value in the prefix can permanently block it. By the end of the pass, it has reached the final slot of the prefix.`,
-        `Once that slot is final, later passes do not need to touch it. Repeating the argument on the shorter prefix eventually locks every boundary. If a full pass has no swaps, then no adjacent inversion remains. An array with no adjacent inversions is sorted, because any out-of-order pair would imply at least one adjacent inversion along the path between them.`,
+        'The outer loop runs passes numbered 0 through n−1. The inner loop compares adjacent pairs from index 0 up to the current boundary. If values[i] > values[i+1], they swap. After pass k, the last k+1 positions are sorted.',
+        'A boolean flag tracks whether any swap happened during the current pass. If a full pass completes with the flag still false, no adjacent inversion remains and the array is sorted. The algorithm breaks out early instead of grinding through the remaining passes.',
+        'The boundary shrinks by one after each pass because the largest remaining value is guaranteed to have reached its final position. This means pass 0 does n−1 comparisons, pass 1 does n−2, and so on. The total without early exit is n(n−1)/2.',
       ],
     },
     {
-      heading: `Stability And In-Place Work`,
+      heading: 'Why it works',
       paragraphs: [
-        `Bubble sort is in place. It needs only a temporary variable for swapping and a few loop variables, so auxiliary space is O(1). That matters in teaching because the array itself shows the whole state of the algorithm. There is no hidden merge buffer, heap, recursion stack, or queue.`,
-        `It is also stable if the comparison swaps only when left is greater than right. Equal values are not swapped, so their original relative order is preserved. Stability is important when records have multiple fields, such as sorting students by grade while preserving earlier alphabetical order among equal grades. Bubble sort teaches that stability depends on the exact comparison rule, not just the broad algorithm name.`,
+        'Loop invariant: after pass k, the elements in positions n−k−1 through n−1 are in their final sorted positions, and every one of them is greater than or equal to every element before the boundary.',
+        'The invariant holds because the largest value in the unsorted prefix cannot be blocked during a pass. It wins every comparison it enters, so it arrives at the boundary by the end of the sweep. Once placed, later passes do not visit it because the inner loop range shrinks.',
+        'The early-exit argument: if a pass produces zero swaps, no adjacent pair is out of order. An array with no adjacent inversions is fully sorted, because any out-of-order pair a[i] > a[j] with i < j would imply at least one adjacent inversion along the path from i to j.',
       ],
     },
     {
-      heading: `Cost And Complexity`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Worst-case and average-case time are O(n squared). A reverse-sorted array forces about n times n - 1 over 2 comparisons and almost as many swaps. At 10 items, that is fine. At 10,000 items, it becomes roughly 50 million neighbor checks, which is not acceptable for a general-purpose sort.`,
-        `The best case is O(n) only when the implementation keeps a swapped flag and the input is already sorted. Without that flag, even sorted input still goes through the full nested-loop pattern. Space is O(1). The tradeoff is clear: tiny memory, simple code, stable behavior, but far too many comparisons and writes for ordinary large arrays. Writes matter too, especially when swapping large records is expensive.`,
+        'Worst case (reverse sorted): O(n\xB2) comparisons and O(n\xB2) swaps. For n = 100, that is about 4,950 comparisons. For n = 10,000, about 50 million. Doubling the input quadruples the work.',
+        'Average case: O(n\xB2). Random input has about n(n−1)/4 inversions on average, so the swap count halves but the comparison count stays the same.',
+        'Best case (already sorted, with early-exit flag): O(n). One pass, zero swaps, done. Without the flag, even sorted input costs O(n\xB2) because the nested loop runs to completion regardless.',
+        'Space: O(1). Only a temporary variable for swapping and a few loop counters. The entire algorithm state is visible in the array itself.',
+        'Bubble sort is stable: equal elements are never swapped (the comparison uses strict greater-than), so their original relative order is preserved. It is also adaptive when the early-exit optimization is present, meaning its cost depends on how disordered the input is.',
       ],
     },
     {
-      heading: `Where It Wins`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Bubble sort wins as a learning tool. It is useful in classrooms, visualizers, interviews, and debugging exercises because each step has one obvious cause. If the current pair is inverted, swap. If not, continue. The invariant is visible after every pass, so students can practice proving correctness from state changes.`,
-        `It can be acceptable for a handful of values when code size matters more than speed, but even then insertion sort is often better. Insertion sort also handles nearly sorted input well and usually performs fewer writes. Selection sort performs fewer swaps but is not naturally stable. Bubble sort's niche is clarity, not performance.`,
-        `It also works well as a diagnostic contrast. When students see a nearly identical nested-loop shape in a different algorithm, they can ask what state is being preserved, how far elements can move per operation, and whether repeated local work is hiding a larger cost. That habit transfers to more serious algorithms.`,
+        'Teaching. Every step has one obvious cause: if the pair is inverted, swap; if not, advance. The invariant is visible after every pass. Students can practice proving correctness from state transitions before tackling harder algorithms.',
+        'Nearly-sorted data with early termination. If the input has only a few elements out of place, bubble sort can finish in a small number of passes. For a list that is sorted except for one swap at the end, it finishes in two passes.',
+        'Tiny arrays where simplicity outweighs performance. For n < 10, the constant factors of fancier algorithms can cost more than the O(n\xB2) inner loop. Some production sort implementations use insertion sort (not bubble sort) for this case, but bubble sort is not catastrophic at these sizes.',
       ],
     },
     {
-      heading: `Failure Modes`,
+      heading: 'Where it fails',
       paragraphs: [
-        `The biggest misconception is that the early-exit flag makes bubble sort generally practical. It only helps when the input is already sorted or close to sorted. Random input and reverse-sorted input still hit the quadratic wall. Another mistake is forgetting to shrink the unsorted boundary, which repeats comparisons against values already known to be final.`,
-        `Do not confuse in-place with fast. Heap sort is in place and O(n log n), while bubble sort is in place and quadratic. Do not confuse stability with correctness either; a version that swaps equal values still sorts numerically, but it destroys stable ordering. Finally, do not use it as a benchmark for real library sorting, because production sorts are hybrid and heavily optimized.`,
+        'O(n\xB2) makes it impractical for any serious workload. At n = 1,000, you pay roughly 500,000 comparisons. At n = 10,000, roughly 50 million. Obama was right: “I don\'t think bubble sort is the way to go.”',
+        'Even on nearly-sorted data, insertion sort is usually better. Insertion sort shifts elements into a growing sorted prefix and typically does fewer writes, because it moves a value to its correct position in one shift sequence rather than swapping it one slot at a time.',
+        'The turtle problem means bubble sort is not even the best quadratic sort for most inputs. Selection sort does fewer swaps (exactly n−1). Insertion sort adapts better to partially sorted data. Shell sort breaks through the quadratic barrier with gap sequences. There is no realistic scenario where bubble sort is the best choice for performance.',
+        'Do not confuse in-place with fast. Heap sort is in-place and O(n log n). Do not confuse simple with practical. Production sort routines (Timsort, introsort, pdqsort) are hybrid algorithms tuned for real hardware.',
       ],
     },
     {
-      heading: `Study Next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Study Insertion Sort and Selection Sort next to compare the three classic quadratic teaching sorts. They share the same broad O(n squared) worst case but spend their work differently: insertion shifts into a sorted prefix, selection chooses minimum values, and bubble repairs adjacent inversions.`,
-        `Then move to Merge Sort, Quick Sort, and Heap Sort to see how O(n log n) algorithms escape the neighbor-swap wall. Big-O Growth Rates explains why the jump matters. Recursion prepares you for divide-and-conquer sorting. Stability in Sorting connects this page's equal-value rule to real records with multiple keys.`,
+        'Input: [5, 3, 8, 1, 2].',
+        'Pass 1 (compare indices 0–3): Compare 5,3 — swap → [3,5,8,1,2]. Compare 5,8 — no swap. Compare 8,1 — swap → [3,5,1,8,2]. Compare 8,2 — swap → [3,5,1,2,8]. Four comparisons, three swaps. The 8 is now final at index 4.',
+        'Pass 2 (compare indices 0–2): Compare 3,5 — no swap. Compare 5,1 — swap → [3,1,5,2,8]. Compare 5,2 — swap → [3,1,2,5,8]. Three comparisons, two swaps. The 5 is now final at index 3.',
+        'Pass 3 (compare indices 0–1): Compare 3,1 — swap → [1,3,2,5,8]. Compare 3,2 — swap → [1,2,3,5,8]. Two comparisons, two swaps. The 3 is now final at index 2.',
+        'Pass 4 (compare index 0): Compare 1,2 — no swap. One comparison, zero swaps. Early exit: the flag says no swaps happened, so the remaining prefix [1,2] is already sorted.',
+        'Result: [1,2,3,5,8]. Total: 10 comparisons, 7 swaps across 4 passes. Notice the turtle: the value 1 started at index 3 and moved left one position per pass, taking three passes to reach index 0.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Knuth, The Art of Computer Programming, Vol. 3: Sorting and Searching (1998). Knuth calls bubble sort “a method which has little to recommend it, except a catchy name and the fact that it leads to some interesting theoretical problems.” Astrachan, “Bubble Sort: An Archaeological Algorithmic Analysis” (2003), traces the algorithm\'s history and its curious persistence in textbooks despite universal agreement that it is inferior.',
+        'Quadratic comparisons: Insertion Sort (builds a sorted prefix by shifting, usually fewer writes, better on nearly-sorted data) and Selection Sort (finds the minimum each pass, exactly n−1 swaps, but not stable). Comparing all three teaches that algorithms with the same O(n\xB2) label behave very differently in practice.',
+        'Escaping the quadratic wall: Merge Sort (O(n log n), stable, divide-and-conquer), Quick Sort (O(n log n) average, the practical champion), Heap Sort (O(n log n) worst case, in-place). Big-O Growth Rates explains why the jump from n\xB2 to n log n matters so much at scale.',
       ],
     },
   ],
 };
+

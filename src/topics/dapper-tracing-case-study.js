@@ -1,4 +1,4 @@
-// Dapper case study: propagate trace context through common RPC libraries,
+﻿// Dapper case study: propagate trace context through common RPC libraries,
 // sample enough requests to keep overhead low, then reconstruct distributed
 // latency from span trees.
 
@@ -212,7 +212,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The naive approach and why it fails',
+      heading: 'Where it fails',
       paragraphs: [
         'The naive approach is to ask every team to log enough information to reconstruct request paths later. That fails because logs are local, schemas drift, identifiers are inconsistent, and asynchronous work breaks the chain. Even if every service logs a request ID, that ID has to survive RPC boundaries, queue handoffs, retries, thread pools, fanout, and background work. One missing propagation edge can make the trace look clean while hiding the slowest part of the request.',
         'Another naive approach is to trace everything in full detail. That fails on cost. A high-traffic fleet cannot afford to store every span, every attribute, and every event for every request forever. Tracing consumes CPU, memory, network bandwidth, collector capacity, storage, index budget, and human attention. A system that is too expensive gets sampled away, disabled, or ignored during normal operation, which means it is absent when the incident arrives.',
@@ -220,7 +220,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The core model: traces and spans',
+      heading: 'The core insight',
       paragraphs: [
         'A trace is the record of one request path. A span is one timed operation inside that path. A root span begins near the entry point. Child spans represent internal calls, storage requests, queue operations, or other units of work. Each span carries a trace ID, a span ID, a parent reference, timing information, and a bounded set of annotations or attributes.',
         'Trace context is the key mechanism. When a frontend calls a backend, the trace ID and parent span context travel with the RPC. When the backend calls storage, it creates another child span and propagates the same trace. Collectors later reconstruct the tree or directed acyclic graph from emitted span records. The resulting view lets engineers see critical path latency, fanout, retries, dependency edges, and error locations.',
@@ -228,7 +228,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Sampling is part of the algorithm',
+      heading: 'How it works',
       paragraphs: [
         'Sampling is not an afterthought. It is the reason tracing can exist in production. Head sampling decides near the start of a request whether to keep the trace. That is cheap, but it may miss rare failures because the decision happens before the request becomes interesting. Tail sampling waits until more information is known, such as latency or error status, then keeps traces that match useful criteria. That is more informative but requires buffering and more collector logic.',
         'Dapper emphasized low overhead and broad deployment, so sampling had to fit the fleet. The useful lesson is restraint. The goal is not to capture every possible event. The goal is to capture enough representative behavior to understand the system and enough exceptional behavior to debug incidents. Production tracing is a budgeted measurement system.',
@@ -252,7 +252,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes and bad traces',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Broken propagation is the classic failure. The trace appears to show a short request because the slow asynchronous work is missing. High-cardinality attributes are another common mistake. If every span records unbounded user IDs, raw URLs, or unique payload strings, storage and index costs explode. The system becomes expensive before it becomes useful.',
         'Sampling can hide rare failures. Clock skew can distort timing. Retries can make a dependency look slow when the real issue is an upstream timeout policy. Excessive span detail can bury the critical path. Too little detail can make every trace a generic service map. A trace is an observation, not ground truth. It must be interpreted with knowledge of instrumentation gaps and sampling rules.',
@@ -260,24 +260,124 @@ export const article = {
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Real-world uses',
       paragraphs: [
         'Instrument the boundary layers first: RPC, HTTP, queues, database clients, caches, async tasks, thread pools, retries, and workflow steps. Keep attributes bounded, typed, and boring. Prefer complete propagation through the system over exquisite detail in one service. A trace with missing edges teaches the wrong lesson.',
         'During an incident, start with the critical path and fanout shape. A slow root span with many parallel children means something different from a single child that dominates latency. Compare successful and failed traces. Look for retries, queue waits, regional hops, cache misses, and one shard or dependency that appears only in the slow examples.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'How to read the animation',
       paragraphs: [
         'Dapper is not important because it invented a tree diagram. It is important because it made distributed causality observable at fleet scale. The system worked by combining context propagation, automatic instrumentation, bounded sampling, and centralized analysis.',
         'The deep lesson is that observability has algorithms and data structures inside it. Trace IDs propagate. Spans form a causal graph. Samplers choose which evidence survives. Collectors reconstruct partial truth under cost limits. A good engineer reads a trace as sampled, instrumented evidence, not as a perfect recording of reality.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Google Research Dapper page at https://research.google.com/pubs/pub36356.html and the paper PDF at https://research.google.com/archive/papers/dapper-2010-1.pdf. Study Distributed Tracing, Tail Latency & p99 Thinking, Message Queues, Circuit Breakers & Deadlines, t-digest Quantile Sketch, OpenTelemetry concepts, and Borg Cluster Scheduler Case Study next.',
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Dapper Tracing Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -1,4 +1,4 @@
-// Query expansion for RAG: rewrite the query, generate hypothetical documents,
+﻿// Query expansion for RAG: rewrite the query, generate hypothetical documents,
 // retrieve from several views, then fuse ranks before reranking.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -201,60 +201,142 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `Query expansion is the retrieval step that admits the user's first wording may not be the best wording for search. In a retrieval-augmented generation system, the user question is usually short, underspecified, and written in everyday language. The corpus may use policy names, product terms, abbreviations, legal clauses, table headings, or internal jargon. If the retriever searches only the raw question, the answer can fail before the language model ever sees evidence. Query expansion creates additional search views that preserve the original intent while giving the retrieval system more ways to find matching documents.`,
-        `HyDE and RAG-Fusion are two important forms of this idea. HyDE, or Hypothetical Document Embeddings, asks a language model to draft an answer-shaped or document-shaped passage, embeds that generated passage, and retrieves real corpus documents near it in embedding space. RAG-Fusion generates several query variants, retrieves candidates for each variant, and combines the ranked lists with a method such as Reciprocal Rank Fusion. Both techniques widen recall before a reranker narrows the final context. The expanded text is a search instrument, not evidence.`,
+        'The HyDE pivot view shows the full expansion pipeline as a directed graph. Active nodes mark the current processing stage. The split from the query node into rewrite and HyDE doc branches shows two independent strategies running in parallel: lexical rewriting for BM25 and hypothetical document generation for dense retrieval. Found markers on the context node mean evidence has reached the generator.',
+        'The fusion tradeoffs view shows ranked candidate lists from multiple query views, then a plot of recall versus noise as the number of views increases. The crossing point of those two curves is the practical limit: beyond it, adding more views costs more than it helps.',
+        'In the matrix steps, active cells mark the strategic move each expansion type makes. Compare cells mark the corresponding risk. The pairing is deliberate: every recall gain has a failure mode. Read horizontally to evaluate one method, vertically to compare methods on the same axis.',
       ],
     },
     {
-      heading: `The obvious approach and the wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious RAG pipeline embeds the user's query once, runs nearest-neighbor search, maybe mixes in BM25, and hands the top chunks to the generator. This works when the query and corpus share vocabulary. It also works when the question contains exact anchors such as error codes, policy identifiers, function names, ticket numbers, statutes, or part numbers. In those cases, changing the query can hurt because the exact token was the strongest clue. Raw-query retrieval must therefore remain part of the system.`,
-        `The wall appears when the user and corpus describe the same thing with different language. A customer asks, "Can I cancel after renewal?" The policy page may say "annual subscription refund window after automatic renewal." A developer asks why "the worker froze," while the incident log says "consumer heartbeat expired after broker rebalance." Dense retrieval helps with meaning, but short questions can still land in a weak region of embedding space. Sparse retrieval preserves exact words, but it cannot match missing synonyms. Query expansion is the attempt to cross that vocabulary gap without throwing away exact search.`,
+        'Retrieval-augmented generation fails silently when the right document never enters the candidate pool. The generator produces a confident answer from whatever evidence it receives, so a recall failure at retrieval time becomes an invisible correctness failure at generation time. The user sees a fluent response, not a search miss.',
+        {
+          type: 'quote',
+          text: 'While hypothetical documents may contain false details, the embedding function is expected to be robust enough to map documents with similar semantics nearby, effectively filtering out the noise.',
+          attribution: 'Gao et al., "Precise Zero-Shot Dense Retrieval without Relevance Labels" (HyDE), ACL 2023',
+        },
+        'Query expansion exists because users and corpora speak different languages about the same facts. A customer writes "can I cancel after renewal?" while the policy document says "annual subscription refund window after automatic renewal." A developer writes "the worker froze" while the incident log says "consumer heartbeat expired after broker rebalance." The vocabulary gap is not a bug in the retriever. It is a structural mismatch between how people ask questions and how institutions write answers.',
+        'The idea is old. Rocchio (1971) expanded queries using pseudo-relevance feedback: retrieve an initial set, assume the top results are relevant, and shift the query vector toward their centroid. HyDE and RAG-Fusion are modern variants that use language models instead of term frequency to generate the expansion signal, but the core motivation is identical: the first query is rarely the best query.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that a retrieval query can be treated as a probe, not as a statement of fact. A probe can be rewritten, decomposed, broadened, or made more document-like if that helps it collide with the right evidence. A human researcher does this naturally. If one search for "cancel after renewal" is poor, the next search might include "refund window," "automatic renewal," "annual plan," and "terms of service." Query expansion automates that search behavior and makes it available inside the RAG pipeline.`,
-        `HyDE pushes the idea further by generating a hypothetical passage instead of a paraphrase. The passage may sound like an answer, but its job is geometric. An answer-shaped paragraph contains terms, structure, and semantic cues that can place the embedding near real documents that a terse question missed. RAG-Fusion adds a second insight: no single expansion needs to be trusted. Run several views, rank documents under each view, then reward documents that repeatedly appear near the top. Repetition across independent views is a useful signal.`,
+        'The reasonable first attempt is single-shot retrieval. Embed the user query, run approximate nearest-neighbor search against the vector index, optionally mix in BM25 scores, take the top-k chunks, and pass them to the generator. This works surprisingly well when the query and corpus share vocabulary: error codes, function names, policy identifiers, ticket numbers, statute references. In those cases, the raw query is the strongest retrieval signal, and rewriting it can only hurt.',
+        'Many production RAG systems ship with exactly this pipeline and never add expansion. The approach is fast (one embedding call, one index lookup), cheap (no extra LLM calls), and predictable (same query always yields same results). For internal tooling where users know the corpus terminology, single-shot retrieval is often sufficient.',
+        'The limit is vocabulary mismatch at scale. As the corpus grows across domains, authors, and time periods, the chance that a short user question lands near the right embedding neighborhood drops. Dense retrieval handles synonyms better than BM25, but a five-word question still produces a thin embedding that can miss documents phrased differently. The system works until someone asks a question in their own words instead of the corpus author\'s words, and then it fails without warning.',
       ],
     },
     {
-      heading: `Mechanism`,
+      heading: 'The wall',
       paragraphs: [
-        `A production expansion pipeline usually starts by classifying the query shape. If the query contains exact identifiers, those tokens are protected. If the query is ambiguous, the system may ask a clarifying question instead of expanding. Otherwise, the pipeline creates several views: the raw query, one or more paraphrases, possibly subqueries for separate constraints, and sometimes a HyDE document. Each view is sent through one or more retrievers, such as BM25 for lexical matches, a dense vector index for semantic matches, SPLADE-style learned sparse retrieval for expansion terms, or a domain-specific index.`,
-        `The result is a candidate pool with duplicates, conflicting ranks, and uneven quality. RAG-Fusion commonly uses Reciprocal Rank Fusion because it is simple and robust: a document gets credit for appearing high in any list, and repeated appearances accumulate. After fusion, a deduplication step collapses near-identical chunks. A cross-encoder, ColBERT reranker, or LLM reranker then scores the surviving candidates against the original user intent. Finally, a context packer chooses a small, source-grounded evidence set for generation. The original question, generated views, retrieved document IDs, ranks, fusion scores, and final citations should all be traceable.`,
+        'The wall is not slow retrieval or low precision. It is invisible recall failure. The right document exists in the corpus, the retriever returns results, the generator produces an answer, and the answer is wrong because the retriever never found the right chunk. There is no error message. The system looks healthy.',
+        'This happens in three patterns. First, vocabulary mismatch: the user and the document use different words for the same concept. Second, query underspecification: a short question like "how do refunds work?" maps to a vague region in embedding space that is equidistant from many irrelevant documents. Third, asymmetric training: many embedding models are trained on query-document pairs where queries are well-formed, but real user questions are fragmentary, misspelled, or colloquial.',
+        'BM25 cannot fix this because it matches exact terms, and the terms are different. Dense retrieval cannot fix this alone because the query embedding is too far from the target document embedding. The problem is geometric: the query lands in the wrong neighborhood, and no amount of reranking can recover a document that was never retrieved.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'How it works',
       paragraphs: [
-        `Query expansion works when the main failure is recall. RAG systems are often bottlenecked by candidate generation. If the right chunk never reaches the reranker, no amount of careful generation can recover it. Expansion increases the chance that the right chunk appears somewhere in the candidate pool. The best expansions add alternate vocabulary, expose hidden constraints, and move the search closer to the corpus while preserving the raw query for exact matching.`,
-        `HyDE works best when the embedding model represents answer-like passages more reliably than fragmentary questions. Many embedding models are trained on pairs of queries and documents, but real user questions can be messy. A generated passage can contain the kind of language that real documents contain, so its embedding becomes a bridge. Fusion works because independent weak signals can become strong when they agree. A document that ranks second for a paraphrase, fourth for HyDE, and third for the raw query deserves more attention than a document that appears once because one expansion drifted.`,
+        'Query expansion creates multiple retrieval views from a single user question, retrieves candidates under each view, and fuses the results before reranking. The three main expansion strategies are multi-query rewriting, hypothetical document embedding (HyDE), and RAG-Fusion.',
+        {
+          type: 'diagram',
+          text: 'User query: "can I cancel after renewal?"\n        |\n        +---> [raw query]  -------> embed -----> vector search ---+\n        |                                                         |\n        +---> [LLM rewrite] ------> "annual renewal refund       |\n        |      x3 variants           window cancellation policy"  |\n        |                     +----> embed -----> vector search ---+\n        |                     +----> BM25 ------> term search ----+\n        |                                                         |\n        +---> [LLM HyDE doc] -----> "Customers who wish to       |\n               hypothetical          cancel their subscription    |\n               answer passage        after automatic renewal      |\n                                     may request a refund..."     |\n                              +----> embed -----> vector search ---+\n                                                                  |\n                                          Reciprocal Rank Fusion <+\n                                                  |\n                                          Cross-encoder rerank\n                                                  |\n                                          Top-k context chunks',
+          label: 'HyDE + multi-query + RAG-Fusion pipeline',
+        },
+        'Multi-query rewriting asks a language model to generate paraphrases or decompositions of the original question. Each variant uses different vocabulary, exposing alternate routes into the corpus. HyDE takes a different approach: instead of rewriting the question, it asks the LLM to draft a hypothetical answer passage. The passage may contain invented details, but its embedding lands in a region of vector space where real answer-like documents cluster. The generated text is a routing signal, not a source of truth.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Generate multiple query views for RAG-Fusion\nasync function generateQueryViews(userQuery, llm, numVariants = 3) {\n  const prompt = [\n    "Given this search query, generate " + numVariants,\n    "alternative phrasings that preserve the original intent",\n    "but use different vocabulary. Return one per line.",\n    "",\n    "Original: " + userQuery,\n  ].join("\\n");\n\n  const response = await llm.complete(prompt);\n  const rewrites = response.trim().split("\\n").filter(Boolean);\n\n  // Always include the raw query as one view\n  return [userQuery, ...rewrites.slice(0, numVariants)];\n}\n\n// Reciprocal Rank Fusion across multiple ranked lists\nfunction reciprocalRankFusion(rankedLists, k = 60) {\n  const scores = new Map();\n  for (const list of rankedLists) {\n    for (let rank = 0; rank < list.length; rank++) {\n      const docId = list[rank].id;\n      const prev = scores.get(docId) || 0;\n      scores.set(docId, prev + 1 / (k + rank + 1));\n    }\n  }\n  return [...scores.entries()]\n    .sort((a, b) => b[1] - a[1])\n    .map(([id, score]) => ({ id, score }));\n}',
+        },
+        'RAG-Fusion ties the pieces together. It runs retrieval for each query view independently, producing several ranked lists. Reciprocal Rank Fusion (RRF) merges the lists by giving each document a score of 1/(k + rank) for each list it appears in, then summing across lists. The constant k (typically 60) dampens the advantage of rank-1 results so that consistent appearance across multiple lists outweighs a single top ranking. After fusion, a cross-encoder or LLM reranker scores the top candidates against the original query, and the final context set goes to the generator.',
       ],
     },
     {
-      heading: `Where it is useful`,
+      heading: 'Why it works',
       paragraphs: [
-        `The clearest use cases are support assistants, enterprise search, legal and policy retrieval, biomedical literature search, technical documentation, educational tutors, and incident knowledge bases. These domains contain many semantically equivalent phrasings. They also contain documents written for specialists while users ask in casual language. Expansion is useful when the system can tolerate a larger candidate pool and has a strong reranker or evidence filter downstream.`,
-        `It is also useful for curriculum and research tools because learners often know the problem but not the official term. A student may ask about "searching several indexes and combining answers" before knowing the phrase Reciprocal Rank Fusion. A developer may ask about "saving previous attention values" before knowing KV Cache. Expansion can map from novice language to expert vocabulary. The same benefit applies in multilingual or cross-dialect corpora, though those settings require careful evaluation instead of assuming paraphrases transfer cleanly.`,
+        'Expansion works because it converts one thin probe into several independent probes that cover more of the embedding space. Each probe has a different vocabulary footprint, so the union of their retrievals is more likely to contain the target document than any single retrieval. The mechanism is coverage, not precision: expansion is a recall strategy, and the reranker downstream handles precision.',
+        'HyDE works because of an asymmetry in how embedding models behave. A short question like "can I cancel?" produces a sparse, ambiguous embedding. A paragraph-length passage about cancellation policy produces a denser embedding in a better-defined neighborhood. The hypothetical document acts as a semantic bridge: it translates a fragmentary question into the kind of text the embedding model was trained to handle well. False details in the generated passage are filtered by the bottleneck of nearest-neighbor search, which returns real corpus documents, not the generated text itself.',
+        {
+          type: 'note',
+          text: 'HyDE assumes the embedding model is more robust to factual errors than to brevity. This is true for many contrastive models trained on long document pairs, but it can fail with models trained primarily on short query-passage pairs. Always validate HyDE against your specific embedding model.',
+        },
+        'Fusion works because agreement across independent views is a strong relevance signal. If a document ranks high for the raw query, a paraphrase, and a HyDE embedding, it is probably relevant. A document that appears only in one expansion\'s results may be an artifact of query drift. RRF rewards consistency without requiring calibrated scores across different retrievers, which is why it works even when mixing BM25 scores with cosine similarities.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The largest failure is query drift. A rewrite can replace the user's actual intent with a nearby but wrong intent. HyDE can invent details that steer retrieval toward plausible but irrelevant documents. Expansion can also damage exact search by removing identifiers, dates, quoted phrases, citations, or code symbols. In security and compliance settings, it can accidentally broaden a query beyond the user's authorization boundary unless filters are applied before and after retrieval.`,
-        `Expansion also costs latency and money. It may require extra language-model calls, extra index lookups, larger candidate sets, more deduplication, and heavier reranking. If the downstream context budget is fixed, improved candidate recall may not improve answers because good evidence still gets truncated. If the corpus is stale, HyDE can confidently route toward old documents. If the question should have been clarified, expansion can create a false sense of certainty. These are system failures, not just prompt failures.`,
+        {
+          type: 'table',
+          headers: ['Method', 'LLM calls', 'Retrieval calls', 'Latency multiplier', 'Recall gain', 'Main risk'],
+          rows: [
+            ['Naive single query', '0', '1', '1x', 'baseline', 'Vocabulary mismatch'],
+            ['Query expansion (rewrite)', '1', '2-4', '2-3x', 'Moderate', 'Query drift'],
+            ['HyDE', '1', '1-2', '2-3x', 'High for paraphrases', 'Hallucinated routing'],
+            ['RAG-Fusion', '1', '3-5', '3-5x', 'High', 'Latency + noise ceiling'],
+            ['Multi-query + HyDE + Fusion', '2', '4-8', '4-8x', 'Highest', 'Diminishing returns past 4-5 views'],
+          ],
+        },
+        'The dominant cost is LLM calls for expansion, not retrieval. Generating three paraphrases and one HyDE document requires one to two LLM calls, each adding 200-500ms of latency. Retrieval calls against a vector index are fast (10-50ms each), so running four retrievals in parallel barely changes wall-clock time. The real cost multiplier is sequential: LLM generation, then retrieval, then reranking. Each layer waits for the previous one.',
+        'Doubling the number of query views does not double recall. The first two or three views typically capture most of the recall gain. Beyond five views, the curve flattens: new views mostly retrieve documents already in the pool, and the reranker budget stays fixed. The practical ceiling is 3-5 views for most production systems.',
+        'Memory cost is proportional to the candidate pool size before deduplication. If each of 5 views retrieves 20 chunks, the pool holds up to 100 entries (fewer after dedup). The reranker must score all surviving candidates, so a larger pool means a more expensive reranking step. Cross-encoder rerankers scale quadratically with input length, making this the hidden cost bottleneck.',
       ],
     },
     {
-      heading: `Evaluation signals and study next`,
+      heading: 'Where it wins',
       paragraphs: [
-        `Evaluate expansion by slice. Track recall@k and nDCG for paraphrase questions, exact-identifier questions, ambiguous questions, time-sensitive policy questions, and authorization-filtered questions. Measure how often the correct document enters the candidate pool, how often fusion promotes it, how often the reranker keeps it, and whether the final answer cites it. Compare raw query, multi-query, HyDE, and fusion variants with ablations. Add latency, token cost, retrieval-call count, reranker load, duplicate rate, and context truncation to the same report. A retrieval gain that disappears after reranking is not a product gain.`,
-        `Primary sources to read are HyDE at https://arxiv.org/abs/2212.10496, the ACL Anthology version at https://aclanthology.org/2023.acl-long.99/, the HyDE repository at https://github.com/texttron/hyde, RAG-Fusion at https://arxiv.org/abs/2402.03367, and production-style RAG-Fusion cautions at https://arxiv.org/abs/2603.02153. Study RAG Pipeline, Embeddings & Similarity, Inverted Index, SPLADE Learned Sparse Retrieval, Reciprocal Rank Fusion, Multi-Index RAG, Cross-Encoder Reranker, RAG Evaluation, Self-RAG, Claim Graph & Source Ledger, and Prompt Injection Threat Model next.`,
+        {
+          type: 'bullets',
+          items: [
+            'Enterprise support and policy search: users ask in casual language, documents use legal or institutional phrasing. Expansion bridges the register gap.',
+            'Biomedical and legal literature: the same concept has multiple names across journals, jurisdictions, and time periods. Multi-query rewriting exposes synonyms that a single query misses.',
+            'Educational tools and tutors: learners describe problems before they know the official term. A student searching for "saving previous attention values" needs expansion to find documents about KV caching.',
+            'Incident knowledge bases: developers describe symptoms ("the worker froze") while runbooks describe causes ("consumer heartbeat expired after broker rebalance"). HyDE can generate a cause-shaped document from a symptom-shaped query.',
+            'Cross-lingual and multi-dialect corpora: expansion in the source language, combined with multilingual embeddings, can reach documents in other languages without explicit translation.',
+          ],
+        },
+        'The common thread is a corpus written by specialists and queried by non-specialists, or a corpus with many valid phrasings for the same concept. Expansion is most valuable when the system has a strong reranker downstream that can filter the wider candidate pool back to high-precision evidence.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Query drift is the primary failure. A rewrite can shift the user\'s intent to a nearby but wrong meaning. "Can I cancel after renewal?" rewritten as "subscription cancellation policy" might retrieve general cancellation docs instead of the specific post-renewal refund clause. HyDE amplifies this risk: the generated passage may contain plausible but invented details that steer retrieval toward irrelevant neighborhoods.',
+        'Expansion damages exact-match queries. If the user searches for error code "ERR_SSL_PROTOCOL_ERROR" or ticket number "JIRA-4521," rewriting those tokens into natural language destroys the strongest retrieval signal. A production system must detect exact identifiers and protect them from expansion.',
+        {
+          type: 'bullets',
+          items: [
+            'Authorization boundary leaks: expansion can broaden a query beyond the user\'s access scope unless filters are applied both before and after retrieval.',
+            'Stale corpus routing: HyDE generates text reflecting current knowledge, which may confidently route toward outdated documents if the corpus has not been refreshed.',
+            'False confidence on ambiguous queries: instead of asking for clarification, expansion papers over ambiguity by generating multiple guesses, producing a fluent answer to the wrong question.',
+            'Context budget waste: if the generator has a fixed context window, a wider candidate pool may push good evidence out of the window, turning a recall gain into a generation loss.',
+            'Latency in interactive settings: two extra LLM calls plus parallel retrievals plus reranking can push response time past user tolerance for conversational interfaces.',
+          ],
+        },
+        'The meta-failure is treating expansion as free recall. Every added view increases the chance of including the right document, but also increases noise, latency, cost, and the burden on the reranker. A retrieval gain that disappears after reranking or context packing is not a product gain.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Source', 'Role', 'Reference'],
+          rows: [
+            ['Gao et al., 2023', 'HyDE: hypothetical document embeddings for zero-shot dense retrieval', 'ACL 2023, arxiv.org/abs/2212.10496'],
+            ['Rackauckas, 2023', 'RAG-Fusion: multi-query retrieval with reciprocal rank fusion', 'arxiv.org/abs/2402.03367'],
+            ['Rocchio, 1971', 'Pseudo-relevance feedback: the original query expansion idea', 'The SMART Retrieval System, ch. 14'],
+            ['Cormack et al., 2009', 'Reciprocal Rank Fusion formula and analysis', 'SIGIR 2009'],
+          ],
+        },
+        'Study Embeddings and Similarity to understand why short queries produce weak embeddings. Study Reciprocal Rank Fusion for the mechanics of rank aggregation across lists. Study Cross-Encoder Reranker to see how the precision layer after fusion works. Study RAG Pipeline for the full retrieval-augmented generation architecture that expansion fits into. Study Inverted Index and BM25 for the sparse retrieval side that expansion must not break.',
+        'For extensions, study Self-RAG for systems that decide when to retrieve at all, SPLADE Learned Sparse Retrieval for expansion via learned term weights instead of LLM rewriting, and Prompt Injection Threat Model for security risks when generated expansion text flows through the retrieval pipeline.',
       ],
     },
   ],
 };
+

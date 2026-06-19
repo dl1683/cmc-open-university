@@ -84,7 +84,7 @@ function* countersThatMerge() {
       ['full', 'merge(that, C)', FULL],
     ]),
     highlight: { found: ['full:val'], compare: ['ab:sa', 'ba:sa'] },
-    explanation: `Merge is elementwise max. That keeps every replica's highest known contribution, so it neither drops a slot nor counts it twice. The live values show merge(A, B) = [${AB.join(', ')}] and merge(B, A) = [${BA.join(', ')}] - ${COMMUTES ? 'identical' : 'DIFFERENT'}. Folding in C gives [${FULL.join(', ')}], value ${value(FULL)}. Replaying B again changes nothing: ${IDEMPOTENT}.`,
+    explanation: `Merge is elementwise max. That keeps every replica\'s highest known contribution, so it neither drops a slot nor counts it twice. The live values show merge(A, B) = [${AB.join(', ')}] and merge(B, A) = [${BA.join(', ')}] - ${COMMUTES ? 'identical' : 'DIFFERENT'}. Folding in C gives [${FULL.join(', ')}], value ${value(FULL)}. Replaying B again changes nothing: ${IDEMPOTENT}.`,
     invariant: 'merge = elementwise max: commutative, associative, idempotent — any delivery order, any duplication, same result.',
   };
 
@@ -186,156 +186,101 @@ export function* run(input) {
   else throw new InputError('Pick a view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'Why this matters',
-      paragraphs: [
-        'CRDTs exist for data that must keep accepting writes while replicas are disconnected. A shopping cart, presence count, note, or collaborative document should not stop working every time the network partitions. The price is that the data type itself must know how to merge concurrent histories.',
-        'Conflict-free does not mean conflicts never happen. It means the state is designed so retry, reordering, duplicate delivery, and partial replication still converge without asking a central server to pick the next operation.',
-      ],
-    },
-    {
-      heading: 'Core idea',
-      paragraphs: [
-        'A CRDT chooses a state shape plus a merge function. For a G-counter, the state is a vector with one slot per replica. Replicas only increment their own slot, and merge keeps the maximum value per slot. That one design choice makes merge commutative, associative, and idempotent: order does not matter, sync topology does not matter, and duplicate delivery is harmless.',
-        'More complex CRDTs use the same move. A PN-counter splits increments and decrements into two grow-only vectors. An OR-set gives every add a unique tag, then lets remove delete only tags it has observed. Sequence CRDTs give inserted characters stable identities so concurrent text edits can be ordered deterministically.',
-        'The rule of thumb: if an operation would destroy merge safety, store more structure. Do not ask a bare integer, raw string, or plain JSON value to remember causal history it does not contain.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'In the counter view, start with the failed bare integer: it cannot know which replica contributed which update, so every naive merge loses or double-counts. Then watch the G-counter give each replica its own slot and use elementwise max as merge. The visual invariant is monotonic state: stored components only grow, so duplicate, reordered, or delayed sync cannot undo history.',
-        'In the sets-and-laws view, read each structure by what it chooses to preserve. The LWW register preserves agreement by discarding one concurrent value. The OR-set preserves concurrent adds by tagging them and removing only observed tags. The laws table maps algebra to network failure: commutativity handles reordering, associativity handles different sync paths, and idempotence handles retries. The production toolbox marks the boundary: convergence is not the same as enforcing global business rules.',
-      ],
-    },
-    {
-      heading: 'Where it matters',
-      paragraphs: [
-        'CRDTs are useful when availability and local responsiveness matter more than immediate global serialization: collaborative editors, offline-first apps, caches with mergeable values, distributed counters, shopping carts, tag sets, presence, and replica-local configuration.',
-        'They pair naturally with Gossip Protocol and local-first sync engines. Gossip moves state around; CRDT merge makes repeated, reordered, partial delivery safe. Yjs, Automerge, Riak data types, Dynamo-style versioned values, and many presence systems all use this shape in different forms.',
-      ],
-    },
-    {
-      heading: 'Tradeoffs and failure modes',
-      paragraphs: [
-        'A CRDT guarantees agreement after the same updates arrive. It does not guarantee the agreed value is the one users wanted. Last-writer-wins may drop intent. Add-wins sets may keep an item a user thought they removed. Sequence CRDTs converge text but still need schema rules, rich-text merge semantics, undo, auth, and compaction.',
-        'Global invariants are the hard boundary. Unique usernames, nonnegative bank balances, one-seat reservations, and quota limits cannot be enforced by independent concurrent acceptance alone. You need consensus, leases, escrow, reservations, or a central allocator for those parts. Many real systems mix CRDTs for mergeable data and stronger coordination for invariant-bearing data.',
-      ],
-    },
-    {
-      heading: 'Practical guidance',
-      paragraphs: [
-        'Use CRDTs when the data can tolerate eventual convergence and has a clear merge policy. Prefer the simplest CRDT that matches user semantics: counters for counts, OR-sets for collections where observed remove is acceptable, registers only when losing a concurrent value is harmless, sequence CRDTs for collaborative ordering.',
-        'Before shipping, write down the invariant the CRDT does not protect. Then design storage, anti-entropy, compaction, access control, and conflict UI around that boundary.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Shapiro, Preguica, Baquero, and Zawirski, "Conflict-Free Replicated Data Types" at https://inria.hal.science/hal-00932836v1/document, the 2018 CRDT overview at https://arxiv.org/abs/1805.06358, and the CRDT papers index at https://crdt.tech/papers.html. Study Clocks & Ordering: Lamport to TrueTime, Gossip Protocol, Delta-State CRDT Anti-Entropy Case Study, CAP Theorem, Sequence CRDTs for Collaborative Text, Peritext Rich-Text CRDT Case Study, and Raft Leader Election next.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The counter view starts with the broken design: a bare replicated integer that cannot merge safely. Watch why max, overwrite, and add all fail. Then the G-counter reshapes state into one slot per replica, and elementwise max becomes a safe merge. Active markers highlight which replica owns which slot. The invariant to track: stored components only grow, so no delivery order can undo history.',
+        'The sets-and-laws view contrasts three CRDT families by what they sacrifice. The LWW-register converges by discarding a concurrent value. The OR-set converges by tagging adds and removing only observed tags. The laws table maps each algebraic property to the network failure it absorbs. Read each row as a contract: if this law holds, that class of failure is harmless.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'CRDTs exist for replicated systems that need local writes, offline work, and eventual convergence without a central lock. If users edit on different devices or replicas while disconnected, the system needs a merge rule that makes all replicas arrive at the same value later.',
-        'The hard part is not copying data. It is conflict. If two replicas both update a value, the system must merge those updates without depending on message order. CRDTs solve this by designing data types whose merge operations are mathematically safe.',
+        'Distributed systems replicate data for availability, latency, and offline access. Replication creates a coordination problem: when two replicas accept writes concurrently, the system must reconcile them later. Traditional approaches use a leader or consensus protocol to serialize writes, but that blocks during partitions and adds round-trip latency.',
+        'CRDTs solve this by embedding the merge rule into the data type itself. The term was introduced by Shapiro, Preguica, Baquero, and Zawirski in their 2011 INRIA technical report "Conflict-Free Replicated Data Types." Their key contribution was showing that if a replicated data type satisfies certain algebraic properties, all replicas converge to the same state once they have received the same updates, regardless of delivery order, duplication, or network topology.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is last-write-wins. Attach timestamps and keep the latest value. That is simple, but it can erase real work under clock skew or concurrent edits. It chooses a winner rather than preserving intent.',
-        'Another approach is central coordination: send every write through one leader. That gives a clear order, but it fails offline and adds latency. CRDTs are for systems where local progress matters enough to pay for richer merge semantics.',
+        'The first attempt is last-writer-wins: attach a timestamp to each write and keep whichever value has the larger timestamp. This is simple, and it does produce agreement. But it achieves agreement by silently discarding one concurrent update. Under clock skew, the "last" writer may not be the one the user expects. For a profile field where any value is acceptable, that is fine. For a shopping cart, a shared document, or a counter, silently dropping a concurrent edit is data loss.',
+        'The second attempt is central coordination: route every write through a single leader that serializes operations. This gives a total order and prevents conflicts entirely. But it fails offline, it adds latency proportional to the round-trip to the leader, and during network partitions the system must either reject writes or risk split-brain. CRDTs exist for the space where local writes, offline progress, and partition tolerance matter more than a total order.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'A state-based CRDT uses a merge function that is associative, commutative, and idempotent. Associative means grouping does not matter. Commutative means order does not matter. Idempotent means receiving the same state twice does not change the result.',
-        'Operation-based CRDTs send operations instead of whole state, but they still need rules that make concurrent operations converge. The common theme is that the data type is designed so replicas can accept updates independently and reconcile deterministically.',
+        'The wall is the merge function. A bare integer counter cannot be merged safely because the number alone does not record who contributed which increment. If replica A has count 2 and replica B has count 1, taking the max gives 2 (losing B\'s increment), taking the sum gives 3 (correct once, but double-counts when gossip retries the same state), and overwriting gives whichever arrived last (losing the other). The state shape lacks the causal structure needed to merge without loss or duplication.',
+        'The same wall appears in sets. If replica A adds "milk" and replica B concurrently removes "milk," the merge result depends on whether the system saw the add or the remove last. Without tracking which specific add the remove was responding to, the outcome is arbitrary. The fundamental problem is the same in both cases: the data structure does not carry enough history to resolve concurrent operations deterministically.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Shapiro et al. identified two families. A state-based CRDT (CvRDT) ships its full state between replicas and merges with a function that must be commutative, associative, and idempotent. These three properties make the merge a join operation on a join-semilattice: a partially ordered set where every pair of elements has a least upper bound. The least upper bound is the merged state, and because it is unique, all replicas that have seen the same updates converge regardless of merge order.',
+        'An operation-based CRDT (CmRDT) ships operations instead of state. The delivery layer must guarantee causal delivery (operations from the same source arrive in order), but concurrent operations must commute. The two families are equivalent in expressiveness: any CvRDT can be expressed as a CmRDT and vice versa, though they differ in bandwidth and delivery requirements.',
+        'The practical move is always the same: if a naive operation would break merge safety, store more structure. A counter becomes a vector. A set becomes a tagged set with tombstones. A register becomes a timestamped pair. The extra metadata is the price of coordination-free convergence.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A grow-only counter can store one count per replica. Local increment increases only the local slot. Merge takes the maximum for every replica slot. The displayed value is the sum of slots. Concurrent increments survive because they happen in different components.',
-        'A PN-counter uses two grow-only counters: one for increments and one for decrements. A grow-only set unions elements. An observed-remove set tracks add tags and remove evidence so a remove deletes only adds it has observed. Sequence CRDTs add identifiers that preserve order for collaborative text.',
-        'Replication can be anti-entropy: replicas periodically exchange state or deltas. Because merge is idempotent and commutative, duplicate messages and out-of-order delivery are safe. The system still needs delivery eventually if replicas are expected to converge.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The counter view proves that concurrent local writes can both survive. Instead of two replicas racing to overwrite one number, each replica owns a component. Merge combines components with max, then the query function sums them.',
-        'The set view proves that deletion is harder than addition. Adding can be a union. Removing needs evidence about which adds are being removed. Without that evidence, a concurrent add and remove can collapse into arbitrary last-writer behavior.',
+        'A G-Counter (grow-only counter) assigns one slot per replica in a vector. Replica i increments only slot i. The value is the sum of all slots. Merge takes the componentwise maximum. Because each slot is monotonically nondecreasing and only one replica writes to it, concurrent increments land in disjoint coordinates and survive every merge. This is the simplest useful state-based CRDT.',
+        'A PN-Counter (positive-negative counter) supports decrements by maintaining two G-Counters: P for increments and N for decrements. Each half merges independently with componentwise max. The displayed value is sum(P) minus sum(N). Subtraction never touches the stored vectors; it exists only in the query. Every stored component still grows monotonically, preserving the semilattice property.',
+        'An LWW-Register (last-writer-wins register) stores a value paired with a timestamp. Merge keeps whichever pair has the larger timestamp. This is a valid CRDT because the max-timestamp rule is commutative, associative, and idempotent. It converges, but it converges by discarding the concurrent value with the smaller timestamp. Use it only when losing a concurrent write is acceptable.',
+        'An OR-Set (observed-remove set) gives every add operation a globally unique tag. Remove does not delete the element; it tombstones only the tags it has observed. A concurrent add creates a fresh tag that the remove has never seen, so the fresh tag survives. This produces add-wins semantics: if any replica adds an element concurrently with a remove, the element remains in the merged set.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'CRDT convergence comes from algebra, not from timing luck. If every replica eventually receives the same set of updates or states, and merge is associative, commutative, and idempotent, then every merge order reaches the same result.',
-        'The design also separates update and query. Internal metadata may be a vector, tag set, tombstone set, or causal context. The user-facing value is derived from that metadata. The extra structure is the price of deterministic conflict resolution.',
+        'Convergence is a theorem, not a hope. For state-based CRDTs, the proof rests on the join-semilattice structure. If the set of possible states forms a join-semilattice under the merge function, and every local update moves the state upward in the partial order (monotonic), then after any two replicas exchange state, both reach the same least upper bound. The three laws each absorb a specific network failure: commutativity handles message reordering, associativity handles different sync topologies (A syncs with B then C, or A syncs with C then B), and idempotence handles duplicate delivery from gossip retries.',
+        'For operation-based CRDTs, the proof requires that the delivery layer preserves causal order and that concurrent operations commute. Given those guarantees, every replica applies the same set of operations and arrives at the same state. The causal delivery requirement is stronger than what state-based CRDTs need, but the bandwidth is lower because only operations travel, not full state.',
+        'Shapiro et al. call the resulting guarantee Strong Eventual Consistency (SEC): any two replicas that have received the same set of updates are in the same state, with no rollbacks or conflict resolution needed.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'CRDTs spend metadata to avoid coordination. Counters store per-replica components. Sets may store tombstones or dots. Text CRDTs store position identifiers. That metadata can grow and may need compaction once causal stability is known.',
-        'The tradeoff is semantic fit. Some merges are natural, such as unioning cart additions or taking a maximum version. Others are not. Bank transfers, inventory reservations, and uniqueness constraints often need coordination or escrow-style protocols rather than pure CRDT merge.',
+        'G-Counter and PN-Counter metadata scales linearly with the number of replicas: one slot per replica per counter. For a system with 5 replicas, each counter is a 5-element vector (or two 5-element vectors for PN). This is negligible for small replica sets but becomes expensive when every client is a "replica" -- mobile-first systems with millions of devices need techniques like replica-id compaction or hierarchical counters.',
+        'OR-Set metadata can grow without bound. Every add creates a tag, and every remove creates a tombstone. Without compaction, the tombstone set grows forever. Safe compaction requires causal stability: knowing that all replicas have observed the tombstoned tags, so the tombstones can be garbage-collected. This brings version vectors or similar causal metadata back into the system.',
+        'State-based sync bandwidth is proportional to state size: the full vector ships on every exchange. Delta-state CRDTs (Almeida, Shoker, Baquero, 2018) reduce this by shipping only the state that changed since the last sync, while preserving the semilattice merge contract. Operation-based CRDTs ship only operations but require reliable causal broadcast, which has its own cost.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'CRDTs win in collaborative editing, offline-first apps, distributed presence, counters, likes, shopping carts, replicated metadata, edge caches, and systems where availability is more important than immediate global agreement.',
-        'They also provide a vocabulary for product design. A conflict is not just a technical problem; it is a question about user intent. CRDTs are strongest when the product has a merge rule users would actually accept.',
+        'Riak (now Riak KV) was the first major database to ship built-in CRDT data types: counters, sets, registers, maps, and flags. Riak\'s implementation follows the Shapiro et al. specifications directly, using state-based CRDTs with dotted version vectors for accurate causal tracking and tombstone compaction.',
+        'Redis added CRDT support through the Redis Enterprise Active-Active feature, which uses CRDTs to replicate data across geographically distributed clusters. Each Redis Enterprise cluster can accept writes locally, and CRDT merge rules reconcile conflicts automatically across regions. Counters, sets, sorted sets, strings, and streams all have CRDT merge semantics.',
+        'Yjs and Automerge are the two dominant open-source CRDT libraries for collaborative editing. Yjs uses a sequence CRDT based on YATA (Yet Another Transformation Approach) to handle concurrent text insertions with unique position identifiers. Automerge uses a similar approach with an operation-based CRDT backend. Both power real-time collaborative editors: Yjs underlies collaborative features in ProseMirror, Tiptap, BlockSuite, and several Google-internal tools. Automerge powers local-first applications where documents sync peer-to-peer without a central server.',
+        'Figma uses a custom CRDT for its multiplayer design tool, handling concurrent edits to the same canvas objects. Apple Notes uses CRDTs for cross-device sync. Phoenix Presence (Elixir) uses a CRDT-based presence tracker for real-time user lists. Soundcloud used CRDTs for distributed counters. The pattern appears wherever the system needs local writes, partition tolerance, and eventual convergence.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is assuming every data type has a good CRDT. Some invariants are global. If two users cannot reserve the same seat, local independent writes can violate the constraint unless the system uses coordination, escrow, or partitioned rights.',
-        'The second failure is unbounded metadata. Tombstones, operation logs, and position identifiers can grow forever without compaction. Safe compaction requires knowing that relevant replicas have seen the evidence, which brings causal tracking back into the design.',
+        'CRDTs guarantee that replicas agree on state. They do not guarantee the agreed state satisfies global invariants. If two users cannot reserve the same airline seat, local independent acceptance of both reservations violates the constraint. Unique usernames, nonnegative account balances, inventory caps, and quota limits all require coordination, escrow, or partitioned authority. CRDTs are the wrong tool for these problems.',
+        'Unbounded metadata is the second failure. Tombstones, operation logs, and position identifiers grow forever without compaction. Compaction requires knowing that all relevant replicas have seen the evidence being garbage-collected, which reintroduces coordination at the compaction layer. Production systems must design a compaction protocol alongside the CRDT.',
+        'Semantic surprise is the third failure. An OR-set with add-wins semantics may keep an item a user thought they removed, because a concurrent add on another replica created a fresh tag. An LWW-register may discard a careful correction in favor of a typo with a faster clock. The merge rule is mathematically correct but may not match user intent. Product design must account for the merge semantics the CRDT actually provides.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose replica A and replica B each increment a counter while offline. A stores [A: 1, B: 0]. B stores [A: 0, B: 1]. When they exchange state, merge takes the componentwise maximum and both replicas reach [A: 1, B: 1], whose displayed value is 2.',
-        'The same shape explains why a plain integer counter fails. If both replicas start at 0 and set the value to 1, last-write-wins keeps one increment and loses the other. The CRDT representation stores enough causal structure to know both increments happened.',
-        'For a set, adding is easy because union preserves concurrent adds. Removing is harder because a remove should not erase an add it never observed. Observed-remove sets solve this by tagging adds and removing the tags the replica has seen.',
+        'Two replicas, A and B, track a like counter using a G-Counter with two slots. Both start at [0, 0]. While partitioned, A receives two likes: A increments its own slot twice, reaching state [2, 0]. B receives one like and increments its own slot, reaching [0, 1]. Neither replica has seen the other\'s updates.',
+        'When connectivity returns, A sends its state [2, 0] to B, and B sends [0, 1] to A. Both compute merge([2, 0], [0, 1]) = [max(2,0), max(0,1)] = [2, 1]. The displayed value is 2 + 1 = 3. All three likes are preserved. No coordination was needed.',
+        'Now suppose B sends its state to A again (a retry). A computes merge([2, 1], [0, 1]) = [max(2,0), max(1,1)] = [2, 1]. The state is unchanged. Idempotence absorbed the duplicate. Suppose a third replica C had received B\'s state first and then A\'s. C would compute merge(merge([0,0], [0,1]), [2,0]) = merge([0,1], [2,0]) = [2,1]. Associativity and commutativity ensure the same result regardless of sync path.',
+        'Contrast this with a plain integer counter. A has count 2, B has count 1. Taking max gives 2 (lost B\'s like). Taking sum gives 3 now, but if B sends again, sum gives 4 (double-count). The integer lacks the per-replica structure that makes merge safe.',
       ],
     },
     {
-      heading: 'Design checklist',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Start by naming the user intent. Does a concurrent update mean union, maximum, addition, replacement, or a visible conflict? If the product answer is unclear, the CRDT cannot save the design.',
-        'Then name the metadata needed to make that merge deterministic. Counters need replica slots. Removes need evidence. Text needs position identifiers. Compaction needs causal stability. Each piece of metadata should exist because it protects a merge rule.',
-        'Finally, test every pair of operations in both orders and with duplicate delivery. If add then merge then remove gives a different result from remove then merge then add, the type may still be valid, but only if the causal explanation is intentional.',
-      ],
-    },
-    {
-      heading: 'How to choose it',
-      paragraphs: [
-        'Use a CRDT when local availability and eventual convergence are more important than immediate global invariants. Collaborative notes, counters, reactions, and replicated preferences often fit. Payments, seat assignment, and inventory caps often need coordination.',
-        'The decision should be made at the product level, not only the storage level. Users must be able to understand the merge result. A shopping cart that preserves both additions is natural. A document that interleaves concurrent paragraphs may need UI support to remain understandable.',
-        'CRDTs also pair well with causal metadata. Version vectors, dotted vectors, and anti-entropy protocols tell replicas what they have seen and what can be compacted. Without that layer, a CRDT can converge but still become too large or too hard to audit.',
-        'For production systems, the synchronization layer matters as much as the data type. Peers need identity, authentication, replay protection, delta exchange, snapshot compaction, and a way to repair missed updates. The merge law gives convergence; the transport makes convergence happen.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Version Vectors and Dotted Version Vectors, Delta-State CRDT Anti-Entropy, Sequence CRDTs, Yjs Struct Store and Updates, CAP Theorem, Read Write Quorums, and Local-First Sync Engine. A useful exercise is to design a CRDT for likes, then explain why the same design fails for bank balances.',
-        'Then build a two-replica simulation with duplicate, delayed, and reordered messages. If the final values converge every time, the merge law is doing real work. If they do not, inspect which algebraic property your design violated in practice.',
+        'The foundational paper is Shapiro, Preguica, Baquero, and Zawirski, "A Comprehensive Study of Convergent and Commutative Replicated Data Types" (INRIA TR 7506, 2011), available at https://inria.hal.science/hal-00932836v1/document. It defines CvRDTs, CmRDTs, proves their equivalence, and catalogs G-Counter, PN-Counter, G-Set, 2P-Set, LWW-Register, OR-Set, and sequence CRDTs with full specifications. The 2018 survey by Preguica, Baquero, and Shapiro at https://arxiv.org/abs/1805.06358 covers delta-state CRDTs and production experience. The community index at https://crdt.tech/papers.html tracks the full literature.',
+        'Prerequisite: study Clocks and Ordering (Lamport to TrueTime) to understand the causal metadata CRDTs rely on, and CAP Theorem to understand the availability-consistency tradeoff that motivates CRDTs. Extension: study Delta-State CRDT Anti-Entropy to see how production systems reduce sync bandwidth. Study Sequence CRDTs for Collaborative Text and the Peritext Rich-Text CRDT Case Study for the harder problem of concurrent text editing. Contrast with Raft Leader Election to see the consensus-based alternative for problems where global invariants are required.',
+        'A useful exercise: design a CRDT for a shopping cart, then explain why the same design fails for a bank account balance that must stay nonnegative. The boundary between "mergeable data" and "invariant-bearing data" is the central design decision in any system that mixes CRDTs with coordination.',
       ],
     },
   ],

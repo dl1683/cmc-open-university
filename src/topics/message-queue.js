@@ -96,93 +96,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why message queues exist',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A message queue is a durable handoff between a service that produces work and a service that performs it later. The producer writes a message, receives confirmation that the broker accepted it, and moves on. The consumer receives the message, does the work, and acknowledges completion.',
-        'The purpose is decoupling. Checkout should not wait for email, invoice generation, fraud scoring, search indexing, warehouse sync, and analytics delivery to finish inside the customer request. Those jobs have different latency profiles, failure modes, and scaling needs.',
-        'The queue turns direct coordination into stored work. That is powerful, but it creates new questions: how durable is the write, how many consumers may receive the same message, how ordering is defined, how lag is handled, and what happens to messages that fail forever.',
+        'Each frame is one tick of a system with a producer (checkout service) and a consumer (email/invoice worker). Active highlights show messages just enqueued. Removed highlights show the message being processed and ACKed. Swap highlights mark a delivery that failed mid-processing.',
+        'Watch queue depth: it rises when producers outpace consumers and falls when consumers catch up. The gap between the two rates is the backlog, and backlog is the core quantity a message queue manages.',
+        'In the crash scenario, a message is received but never acknowledged. The broker holds it, then redelivers it on the next consumer attempt. That redelivery frame is the most important one: it shows at-least-once semantics in action and surfaces the idempotency requirement that every production consumer must handle.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is a direct function call or HTTP request from producer to consumer. It is simple until the consumer slows down, crashes, deploys, rate-limits, or has to process a burst. Then the producer inherits every downstream problem.',
-        'A second naive approach is to store work in a database table and poll it. That can be good enough for small systems, but it quickly needs leases, retry counts, indexes, cleanup, concurrency control, dead-letter handling, and visibility rules. At that point the system is rebuilding a broker.',
-        'The wall is that asynchronous work is not just a queue data structure from a textbook. Production messaging is FIFO plus durability, acknowledgement, redelivery, backpressure, monitoring, and idempotency.',
+        'A checkout service accepts an order in 50 ms. Sending a receipt email takes 200 ms. Generating an invoice PDF takes 500 ms. Updating a search index takes 300 ms. Running fraud scoring takes 400 ms. If checkout calls each of these synchronously, the customer waits 1,450 ms and any single failure breaks the purchase.',
+        'These downstream jobs have different latency profiles, failure modes, and scaling needs. Coupling them to the request path means the slowest, flakiest dependency sets the pace and reliability ceiling for the entire flow.',
+        'A message queue breaks that coupling. The producer writes work to a durable broker and returns immediately. Consumers drain the work at their own speed, retry on their own schedule, and scale independently. The queue converts a synchronous chain of dependencies into stored work with delivery guarantees.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The obvious approach',
       paragraphs: [
-        'In the steady-consumer scenario, watch queue depth. New messages enter faster than the worker can sometimes drain them, so the queue becomes a buffer between producer speed and consumer speed. That is the main architectural benefit.',
-        'In the crash scenario, focus on the ACK. Receiving a message is not the same as completing it. The message should disappear only after the consumer acknowledges success. If the worker dies first, the broker can make the message visible again.',
-        'The redelivery frame is the key teaching moment. A queue can protect against loss while still delivering duplicates. The correct response is not to hope duplicates never happen; it is to design consumers so duplicate delivery is safe.',
+        'The first instinct is a direct HTTP call or function invocation from producer to consumer. It works when traffic is low, the consumer is fast, and neither side ever crashes. Many early systems run this way for months without trouble.',
+        'When the consumer slows down, deploys, rate-limits, or crashes, the producer inherits every downstream problem. A 500 from the email service means checkout either retries (blocking the customer) or drops the email (losing work). Neither is acceptable.',
+        'A second reasonable attempt is a jobs table in the application database: INSERT a row, poll it from a worker, DELETE after processing. This works at low scale but quickly needs leases, retry counts, visibility windows, indexes on status columns, dead-letter handling, and concurrency control. At that point the team is building a broker inside a database.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that asynchronous work is not just a FIFO data structure. Production messaging requires durability (the message survives broker restarts), acknowledgment (the message is removed only after the consumer confirms success), redelivery (failed processing causes automatic retry), backpressure (producers slow down or messages are rejected when the queue fills), ordering guarantees (scoped to a partition, group, or queue), and dead-letter handling (poison messages are isolated instead of blocking the stream).',
+        'A textbook queue gives you push and pop. A production message broker gives you a durable log, delivery leases, consumer group coordination, offset management, retention policies, schema evolution, and observability hooks. The gap between the two is where real systems fail.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A producer sends a message to a broker. A durable broker writes the message before confirming acceptance. Depending on the system, that write may land in a log, replicated segment, or managed storage layer.',
-        'A consumer receives a message under some delivery contract. In a task queue, the broker may hide the message for a visibility timeout while the consumer works. If the consumer acknowledges success, the broker removes it. If the consumer crashes or the timeout expires, the broker can deliver it again.',
-        'Kafka has a different shape: records are appended to partitions, and consumers track offsets. The record is not removed for one consumer. Consumer groups coordinate which members read which partitions, and committed offsets describe progress.',
+        'A producer sends a message to a broker. The broker writes it to durable storage (disk, replicated log, or managed storage) before confirming acceptance. Until the broker acknowledges the write, the producer must assume the message may be lost.',
+        'In a task-queue model (SQS, RabbitMQ), the broker delivers a message to one consumer and starts a visibility timeout. The message is hidden from other consumers during this window. If the consumer finishes and sends an ACK, the broker deletes the message. If the consumer crashes or the timeout expires, the broker makes the message visible again for redelivery.',
+        'In a log model (Kafka, Redpanda, Redis Streams), records are appended to partitions. Consumers track offsets: a committed offset marks the last successfully processed record. The record is not deleted per consumer; retention policy governs cleanup. Consumer groups coordinate which members read which partitions, and rebalancing reassigns partitions when members join or leave.',
+        'SQS visibility timeout defaults to 30 seconds. Kafka consumer group rebalance triggers when a member misses heartbeats for session.timeout.ms (default 45 seconds). RabbitMQ uses explicit ACK/NACK per message with optional prefetch limits. NATS JetStream uses explicit ack with configurable ack-wait. Each system scopes its guarantees differently, but the contract is the same: the broker holds the message until the consumer proves it is done.',
       ],
     },
     {
-      heading: 'Delivery guarantees',
+      heading: 'Why it works',
       paragraphs: [
-        'At-most-once delivery means a message may be lost, but it should not be delivered twice. That is rarely acceptable for important business work.',
-        'At-least-once delivery means the broker tries not to lose accepted messages, but duplicates can happen. This is the common default because it is usually better to repeat work than to lose it.',
-        'Exactly-once is often narrower than it sounds. Kafka transactions can provide exactly-once processing within Kafka under specific conditions, but an external side effect like sending email, charging a card, or writing to a third-party API still needs idempotency. In practical service design, exactly-once behavior usually means at-least-once delivery plus idempotent side effects.',
+        'The correctness invariant is: a message is either durably stored in the broker or successfully processed by a consumer. It is never in neither state (lost) unless the system is configured for at-most-once delivery. The broker maintains this invariant by treating the ACK as the commit boundary: no ACK means the message stays in the system.',
+        'Durability comes from writing before confirming. The producer sees a confirmation only after the broker has persisted the message. If the broker crashes after persisting but before the consumer reads, the message survives. If the broker crashes before persisting, the producer never received confirmation and can retry.',
+        'Redelivery preserves the invariant after consumer failure. The consumer received the message but did not ACK. The broker does not know whether the consumer processed it, partially processed it, or never started. It redelivers, which may cause duplicate processing. This is at-least-once delivery: the system chooses possible duplication over possible loss.',
       ],
     },
     {
-      heading: 'Ordering and scaling',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Queues make ordering a scoped promise. A single FIFO queue can preserve order but limits parallelism. Kafka preserves order within a partition, not across a whole topic. SQS FIFO queues preserve order within a message group. RabbitMQ ordering can be affected by acknowledgments, redelivery, and multiple consumers.',
-        'Scaling consumers often means weakening global order. If ten workers process one queue, faster jobs may finish before older slower jobs. If strict order matters, partition by a key such as account_id or order_id so all related messages go through the same ordered lane.',
+        'Enqueue and dequeue are O(1) per message in both task-queue and log-based systems. Kafka appends to a partition log sequentially; SQS and RabbitMQ route to a queue. The dominant cost is not algorithmic but operational: disk I/O for durability, network round-trips for replication, and coordination overhead for consumer groups.',
+        'Kafka brokers on commodity hardware sustain 200 MB/s per broker with 3x replication. A single SQS standard queue handles nearly unlimited throughput (AWS does not publish a hard cap but documents millions of messages per second across partitions). RabbitMQ handles roughly 20,000-50,000 messages per second per queue depending on message size, persistence, and acknowledgment mode.',
+        'Memory cost scales with in-flight messages for task queues and with retained log size for Kafka. Kafka retention is typically time-based (7 days default) or size-based. SQS retains messages for up to 14 days. The operational surface includes broker monitoring, consumer lag alerting, partition rebalancing, schema registry management, and dead-letter queue inspection.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Queues win when work can happen later, when producers and consumers scale independently, when bursts are normal, and when downstream dependencies fail independently. The access pattern is: record work now, process reliably later, never lose accepted work.',
+        'Email delivery, webhook dispatch, thumbnail generation, video transcoding, fraud scoring, search indexing, telemetry ingestion, order fulfillment, cache invalidation, and saga choreography across microservices all fit this pattern. Each involves a producer that should not wait for the side effect and a consumer whose failure should not propagate upstream.',
+        'Kafka specifically wins for event sourcing, change data capture, and stream processing where consumers need to replay history. Its log retention means a new consumer can start from the beginning and rebuild derived state. SQS wins for serverless fan-out with Lambda triggers. RabbitMQ wins for complex routing topologies with exchanges, bindings, and per-queue policies. NATS wins for low-latency pub-sub with optional persistence via JetStream.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A queue absorbs bursts but does not erase work. If consumers stay slower than producers, queue depth grows without bound and end-to-end latency rises until the system either scales consumers, sheds load, or accepts that processing is hours behind.',
+        'Poison messages fail every time they are processed. Without a max-retry policy and dead-letter queue, one malformed message can block an ordered partition or burn consumer cycles indefinitely. Every production queue needs a dead-letter path.',
+        'Retry storms hit when a dependency recovers and thousands of backed-up retries arrive simultaneously. Exponential backoff with jitter, rate-limited retry queues, and circuit breakers are required to prevent the recovered dependency from immediately failing again under the retry surge.',
+        'A queue is not a database. It cannot answer "what is the current state of order 12345?" Store state in a database and use the queue to propagate events. A queue is also the wrong tool when the caller genuinely needs the result before continuing: asynchronous messaging only hides latency while making error handling harder.',
+        'Queues add operational surface: broker availability, disk provisioning, retention tuning, partition management, consumer lag monitoring, replay policy, schema compatibility, dead-letter inspection, and distributed tracing. Use them when decoupling is worth that surface.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'An order service enqueues order_created. An email worker sends a receipt. A fulfillment worker reserves inventory. A search worker updates an index. The producer does not wait for all of them; it only needs to know that the event or command was accepted durably.',
-        'Now the email worker crashes after sending the email but before acknowledging the message. The broker redelivers it. Without idempotency, the customer gets two receipts. With an idempotency table keyed by message_id or order_id plus side_effect_type, the worker sees the email was already sent and ACKs without repeating the side effect.',
+        'An e-commerce checkout service enqueues an order_created event. Three independent consumers subscribe: an email worker sends a receipt, a fulfillment worker reserves inventory, and a search worker updates the product index. The producer returns a 200 to the customer after the broker acknowledges the event. Total customer-facing latency: 50 ms plus one broker round-trip, regardless of downstream processing time.',
+        'The email worker picks up order_created, renders the receipt template, and calls the SMTP relay. The relay accepts the email. The worker sends an ACK to the broker. The broker deletes the message. Elapsed: 200 ms, invisible to the customer.',
+        'Now the email worker crashes after sending the email but before sending the ACK. The broker does not know the email was sent. After the visibility timeout expires, it redelivers order_created to the same or a different worker instance. Without idempotency, the customer receives two receipts.',
+        'The fix: the email worker maintains a processed_events table with a unique constraint on (order_id, event_type). Before sending the email, it checks the table. If the row exists, the email was already sent; the worker ACKs without resending. If the row does not exist, it inserts the row and sends the email in a transaction (or uses a transactional outbox). This is at-least-once delivery plus idempotent consumers, which is how production systems achieve effectively-once behavior.',
       ],
     },
     {
-      heading: 'Backpressure and failure modes',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A queue can absorb bursts, but it does not erase work. If consumers stay slower than producers, queue depth grows and latency rises. Eventually the system must scale consumers, slow producers, reject low-priority work, or accept stale processing.',
-        'Poison messages are messages that fail every time. Without a policy, one bad message can burn retries forever or block an ordered lane. Dead-letter queues exist so repeated failures can be isolated, inspected, and repaired without stopping the whole stream.',
-        'Retry storms are another failure mode. When a dependency recovers, thousands of delayed retries can arrive at once. Good systems use exponential backoff, jitter, rate limits, and circuit breakers rather than retrying everything immediately.',
-      ],
-    },
-    {
-      heading: 'Where queues win',
-      paragraphs: [
-        'Queues win when work can happen later, when producers and consumers scale independently, when bursts are normal, when downstream dependencies fail independently, or when a workflow needs replayable steps.',
-        'Common uses include email delivery, webhooks, thumbnail generation, video transcoding, fraud scoring, search indexing, telemetry ingestion, order fulfillment, cache invalidation, and saga choreography across services.',
-      ],
-    },
-    {
-      heading: 'Where queues are the wrong tool',
-      paragraphs: [
-        'A queue is not a substitute for a database when readers need current state. Store state in a database, then publish events to notify other systems. Do not ask a queue to answer "what is true right now?"',
-        'A queue is also a poor fit when the caller genuinely needs the result before it can continue. In that case asynchronous messaging may only hide latency while making error handling harder.',
-        'Finally, queues add operational surface: broker availability, disk, retention, partitioning, consumer lag, replay policy, schema compatibility, dead-letter handling, and tracing. Use them when decoupling is worth that surface.',
-      ],
-    },
-    {
-      heading: 'Sources and broker details',
-      paragraphs: [
-        'Kafka documentation describes topics as partitioned logs and explains that consumers of a topic-partition read events in the order written: https://kafka.apache.org/documentation/. Kafka implementation notes describe consumer offsets as the mechanism that lets a consumer resume from a committed position after restart: https://kafka.apache.org/22/implementation/distribution/.',
-        'Amazon SQS documents visibility timeout as the interval during which a received message is hidden from other consumers; if it is not deleted before the timeout expires, it can be received again: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html. SQS also documents standard queues as at-least-once delivery: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues-at-least-once-delivery.html. RabbitMQ acknowledgements and publisher confirms cover the broker-side handshake between publishing, delivery, processing, and acknowledgement: https://www.rabbitmq.com/docs/confirms.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Start with Queue for FIFO intuition and Write-Ahead Log for durable appends. Then study Transactional Outbox, Saga Pattern, Distributed Tracing, Cache Invalidation & Versioning, Load Balancer, Rate Limiter, Kafka Log Compaction, and Dead Letter Queue patterns. Together they explain how asynchronous systems stay reliable instead of merely delayed.',
+        'Kafka documentation describes topics as partitioned append-only logs with consumer offsets tracking progress: https://kafka.apache.org/documentation/. Amazon SQS documents visibility timeout and at-least-once delivery semantics: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html. RabbitMQ documents acknowledgments and publisher confirms: https://www.rabbitmq.com/docs/confirms. NATS JetStream documents persistent streaming with explicit ack modes: https://docs.nats.io/nats-concepts/jetstream.',
+        'Prerequisite: study Queue for FIFO mechanics and Write-Ahead Log for durable append semantics. Extension: study Transactional Outbox for reliable event publishing from a database, Saga Pattern for multi-step workflows across services, and Kafka Log Compaction for building materialized views from event streams. Alternative: study gRPC streaming or server-sent events for cases where synchronous push is a better fit than store-and-forward. Operations: study Dead Letter Queue patterns, Distributed Tracing for following messages across services, and Rate Limiter for protecting consumers from retry storms.',
       ],
     },
   ],

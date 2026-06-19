@@ -1,4 +1,4 @@
-// The ROC curve is a menu; money is how you order. Attach a dollar cost to
+﻿// The ROC curve is a menu; money is how you order. Attach a dollar cost to
 // each kind of mistake and the "where do I set the threshold?" debate
 // becomes arithmetic — and the optimum SLIDES when the costs flip.
 
@@ -55,11 +55,11 @@ export function* run(input) {
     state: plotState({
       axes: { x: { label: 'threshold' }, y: { label: 'total cost on the 20 test emails ($)' } },
       series: [{ id: 'costCurve', label: 'expected cost', points: curvePoints }],
-      markers: [{ id: 'best', x: best, y: cost(best, cFP, cFN), label: `t = ${best} → $${cost(best, cFP, cFN)}` }],
+      markers: [{ id: 'best', x: best, y: cost(best, cFP, cFN), label: `t = ${best} â†’ $${cost(best, cFP, cFN)}` }],
     }),
     highlight: { active: ['costCurve'], found: ['best'] },
-    explanation: `Sweep every threshold over the same 20 scored emails the ROC topic used and total the bill at each stop: cost(t) = $${cFP}·(false positives) + $${cFN}·(false negatives). The curve sags to a minimum and climbs at both ends — flag everything and the $${cFP} mistakes pile up on the ${invoiceWorld ? 'left' : 'right'} side of the ledger; flag nothing and the $${cFN} ones do. The cheapest threshold is t = ${best}, total damage $${cost(best, cFP, cFN)}. ${invoiceWorld ? 'A STRICT threshold: with junked invoices at $10, the filter only flags what it is very sure of — precision bought with recall.' : 'A PERMISSIVE threshold: with missed fraud at $10, the system flags on faint suspicion — recall bought with false alarms.'}`,
-    invariant: 'The optimal threshold minimizes cFP·FP(t) + cFN·FN(t) — nothing else about the model changes.',
+    explanation: `Sweep every threshold over the same 20 scored emails the ROC topic used and total the bill at each stop: cost(t) = $${cFP}Â·(false positives) + $${cFN}Â·(false negatives). The curve sags to a minimum and climbs at both ends — flag everything and the $${cFP} mistakes pile up on the ${invoiceWorld ? 'left' : 'right'} side of the ledger; flag nothing and the $${cFN} ones do. The cheapest threshold is t = ${best}, total damage $${cost(best, cFP, cFN)}. ${invoiceWorld ? 'A STRICT threshold: with junked invoices at $10, the filter only flags what it is very sure of — precision bought with recall.' : 'A PERMISSIVE threshold: with missed fraud at $10, the system flags on faint suspicion — recall bought with false alarms.'}`,
+    invariant: 'The optimal threshold minimizes cFPÂ·FP(t) + cFNÂ·FN(t) — nothing else about the model changes.',
   };
 
   const sample = [0.3, 0.45, 0.55, 0.65, 0.8, 0.95];
@@ -105,12 +105,21 @@ export function* run(input) {
       format: (v) => v.toFixed(2),
     }),
     highlight: { compare: ['formula:value', 'empirical:value'] },
-    explanation: `One more beautiful step: if the model's probabilities were CALIBRATED (see Calibration & Reliability Diagrams), no sweep would be needed. Flag exactly when p·$${cFN} — the expected cost of passing — exceeds (1−p)·$${cFP}, the expected cost of flagging. Solve: t* = cFP/(cFP+cFN) = ${tStar.toFixed(2)}. Our empirical sweep said ${best} instead — and that gap is the fingerprint of MISCALIBRATION: the formula trusts the scores' face value, the sweep trusts what they actually did. Calibrate first and the two answers converge; that is why calibration is not cosmetic — it is what lets you set thresholds with algebra instead of experiments.`,
+    explanation: `One more beautiful step: if the model's probabilities were CALIBRATED (see Calibration & Reliability Diagrams), no sweep would be needed. Flag exactly when pÂ·$${cFN} — the expected cost of passing — exceeds (1âˆ’p)Â·$${cFP}, the expected cost of flagging. Solve: t* = cFP/(cFP+cFN) = ${tStar.toFixed(2)}. Our empirical sweep said ${best} instead — and that gap is the fingerprint of MISCALIBRATION: the formula trusts the scores' face value, the sweep trusts what they actually did. Calibrate first and the two answers converge; that is why calibration is not cosmetic — it is what lets you set thresholds with algebra instead of experiments.`,
   };
 }
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Picking a Threshold with Real Costs. Attach a price to each mistake and the threshold debate becomes arithmetic — watch the optimum slide when costs flip..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [
@@ -119,28 +128,28 @@ export const article = {
       ],
     },
     {
-      heading: 'The obvious threshold',
+      heading: 'The obvious approach',
       paragraphs: [
         'The obvious threshold is 0.5. If the score is above one half, flag the case. If it is below one half, pass it. That rule is reasonable only when the score is a calibrated probability, the two mistake types have equal cost, and the product has no capacity limits. Those assumptions are rare in deployed systems.',
         'A fraud team may accept many false alarms to avoid large losses. An email provider may require high confidence before hiding a legitimate message. A medical screening workflow may set a low first-stage threshold because a human specialist reviews the positives. The threshold is not a universal truth about the model. It is the operating point chosen for a particular decision.',
       ],
     },
     {
-      heading: 'Where the obvious rule fails',
+      heading: 'Where it fails',
       paragraphs: [
         'The 0.5 rule fails when costs differ, when classes are imbalanced, when scores are not calibrated, or when the system has a limited review budget. It can raise accuracy while harming the rare class. It can improve recall while overwhelming reviewers. It can reduce false positives while allowing expensive misses. Accuracy hides the tradeoff because it combines multiple kinds of decisions into one number.',
         'ROC Curves and AUC shows the menu of possible operating points for a ranker. Precision and Recall explain how one threshold changes counts in the confusion matrix. Threshold optimization chooses one point on that menu using costs and constraints. The model is not retrained. The deployment rule changes.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         'The core insight is simple: choose the action with the lower expected loss. A threshold is correct only relative to a loss function. If a false positive costs cFP and a false negative costs cFN, then every threshold t has a bill: cost(t) = cFP * FP(t) + cFN * FN(t). The best threshold is the one with the smallest bill on data that represents the deployment population.',
         'This turns a vague debate into a ledger. Tightening the threshold usually reduces false positives and increases false negatives. Loosening the threshold usually increases false positives and reduces false negatives. Whether the trade is good depends on the exchange rate between cFP and cFN. A team arguing about the right threshold is often arguing about the prices without writing them down.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'The empirical mechanism is a sweep. Sort the candidate scores, evaluate the confusion matrix at each possible cutoff on validation data, and compute the cost for each cutoff. The minimum-cost cutoff becomes the proposed threshold. This procedure trusts observed behavior on held-out examples rather than trusting the numeric score at face value.',
         'The module uses twenty scored emails from the ROC topic: ten spam messages and ten legitimate messages. In the invoice world, the expensive mistake is a false positive. Junking a real invoice costs $10, while letting one spam message through costs $1. The threshold becomes strict because the system should flag only messages it is very sure about. Precision is bought by giving up recall.',
@@ -178,14 +187,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
         'Spam filters use high thresholds when hiding legitimate mail is unacceptable. Fraud systems often use lower thresholds when losses are large and review is cheap enough. Medical screening usually favors recall in the first stage, then relies on confirmatory tests or human review to control false positives. Search, recommendations, ads, safety systems, credit, insurance, and compliance workflows all use thresholds under different cost and audit constraints.',
         'The common pattern is that the same model can be deployed differently in different contexts. A bank serving high-risk transactions may use a lower threshold than a bank serving small routine payments. An email provider may use a stricter threshold for deleting messages than for labeling them. The action matters. Thresholds should be chosen for the decision being made, not copied from a benchmark.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Threshold tuning cannot rescue a model that ranks cases badly. If positives and negatives are mixed at every score level, every threshold is a painful compromise. A better AUC improves the menu of possible tradeoffs; threshold optimization chooses from the menu. These are different jobs.',
         'It also fails when costs are guessed poorly. A false positive may have hidden costs such as churn, support load, legal exposure, or lost trust. A false negative may have delayed costs that are hard to observe. If the validation set is shifted, contaminated, or too small, the chosen threshold can look cheap offline and fail in production.',
@@ -205,5 +214,87 @@ export const article = {
         'Study Precision, Recall and the Confusion Matrix for the counts behind the ledger. Study ROC Curves and AUC to understand the menu of possible thresholds. Study Calibration and Reliability Diagrams before trusting closed-form threshold rules. Study Imbalanced Classification because rare positive classes make default thresholds dangerous. Study A/B Testing and p-values for verifying that a threshold change improves production outcomes rather than only offline cost.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "Cost is both asymptotic and practical.",
+        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
+        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Picking a Threshold with Real Costs moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

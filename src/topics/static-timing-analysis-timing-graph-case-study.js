@@ -209,25 +209,6 @@ export function* run(input) {
   else throw new InputError('Pick a static-timing view.');
 }
 
-const legacyArticle = {
-  references: [
-    { title: 'OpenROAD OpenSTA Documentation', url: 'https://openroad.readthedocs.io/en/latest/main/src/sta/README.html' },
-    { title: 'OpenSTA API Notes', url: 'https://github.com/The-OpenROAD-Project/OpenSTA/blob/master/doc/StaApi.txt' },
-    { title: 'OpenLane Timing Closure Documentation', url: 'https://openlane2.readthedocs.io/en/latest/usage/timing_closure/index.html' },
-  ],
-  sections: [
-    { heading: 'Why this exists', paragraphs: ['A chip can be logically correct and still fail because signals arrive too late, too early, too slowly, or with too much load. Exhaustive simulation cannot cover every timing path, input vector, mode, and process corner.', 'Static timing analysis checks modeled timing paths without simulating all vectors. It turns the design into a timing graph and propagates arrival and required times through that graph.'] },
-    { heading: 'The obvious approach', paragraphs: ['A beginner might measure one path delay from launch flop to capture flop and compare it with the clock period. Real designs have many paths, multiple clocks, generated clocks, setup checks, hold checks, false paths, multicycle paths, slew limits, capacitance limits, and process corners.', 'The timing graph generalizes the one-path idea. Vertices represent pins or timing points. Edges represent cell and net delay arcs. Constraints define how launches and captures are related.'] },
-    { heading: 'The wall', paragraphs: ['Timing state multiplies quickly. Each value may depend on mode, corner, clock edge, timing sense, slew, load, and exception handling. A single instance resize can dirty many downstream arrival values and upstream required values.', 'This is why STA is as much cache discipline as graph theory. Stale arrival, required, or slack values can make a timing closure loop optimize the wrong problem.'] },
-    { heading: 'The core insight', paragraphs: ['Arrival time propagates forward from launches. Required time propagates backward from capture constraints. Slack is required minus arrival. Negative setup slack means data arrives too late; hold analysis has a different shape and repair logic.', 'Incremental STA treats timing as dependency propagation. After an ECO, only affected cones should be invalidated and recomputed, but the dirty marking must cover both forward and backward effects.'] },
-    { heading: 'Legacy visual note', paragraphs: ['The arrival-required-slack view shows the two waves of information. Arrival moves through data arcs. Required time comes back from constraints. The violation appears where the arrival curve crosses the required curve.', 'The incremental-update view shows why timing closure can be interactive. A resized cell dirties a local timing cone, not necessarily the whole chip. The queue table is the algorithm hiding inside the signoff tool.'] },
-    { heading: 'Why it works', paragraphs: ['Timing paths form a directed analysis graph between sequential boundaries. If the graph, library delay models, parasitics, clocks, and constraints are correct, propagation gives conservative path checks without enumerating input vectors.', 'Path reports are useful because they preserve provenance: launch clock, launch flop, arc delays, net delays, capture clock, exception rules, and slack. The report tells an engineer what to repair.'] },
-    { heading: 'Complete case study', paragraphs: ['A setup violation appears at FF2/D. The STA engine reports the launch clock, launch flop, cell arcs, net delays, capture clock, arrival time, required time, and negative slack. The repair loop upsizes one gate and inserts a buffer.', 'The timing graph marks downstream arrivals and upstream required values dirty, then recomputes the affected cone. The next report improves setup slack but creates a hold risk on a short neighboring path, so the closure ledger keeps setup and hold findings separate.'] },
-    { heading: 'Where it fails', paragraphs: ['STA is only as good as its model inputs. Liberty arcs, SDC constraints, parasitics, netlist topology, clock definitions, and mode/corner coverage must agree.', 'Common mistakes are confusing simulation correctness with timing correctness, caching timing values without full keys, repairing setup while breaking hold or routing congestion, and hiding violations behind bad exceptions.'] },
-    { heading: 'Study next', paragraphs: ['Primary sources: OpenROAD OpenSTA docs at https://openroad.readthedocs.io/en/latest/main/src/sta/README.html, OpenSTA API notes at https://github.com/The-OpenROAD-Project/OpenSTA/blob/master/doc/StaApi.txt, and OpenLane timing closure docs at https://openlane2.readthedocs.io/en/latest/usage/timing_closure/index.html.', 'Study Standard Cell Netlist Hypergraph for the identity layer, Data-Flow Worklist Analysis for propagation mechanics, GraphBLAS for sparse graph thinking, and Standard Cell Placement for how physical coordinates affect delay.'] },
-  ],
-};
-
 export const article = {
   sections: [
     {

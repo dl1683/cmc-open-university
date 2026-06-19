@@ -1,4 +1,4 @@
-// Bloom filter: a bit array + k hash functions. Answers "have I seen this?"
+﻿// Bloom filter: a bit array + k hash functions. Answers "have I seen this?"
 // in O(1) and almost no memory — with one weird rule: "no" is certain,
 // "yes" is only probable.
 
@@ -88,73 +88,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `Why this exists`,
+      heading: 'How to read the animation',
       paragraphs: [
-        `A Bloom filter exists for the cases where exact membership is too expensive and a one-sided answer is good enough. Many systems repeatedly ask the same question: "Can this key possibly be here?" If the answer is no, the system can skip a disk read, network call, database probe, cache lookup, duplicate crawl, or security-list check. If the answer is maybe, the system can pay the real cost and verify against the source of truth.`,
-        `The data structure is a probabilistic set with asymmetric correctness. It can say "definitely not present" with certainty, assuming the filter was built correctly and no unsupported deletion occurred. It can only say "probably present" on positives because unrelated keys may have set the same bits. That is exactly what many systems need: a cheap negative gate before an expensive exact lookup.`,
-        `The reason it matters is memory. A hash table stores keys or references, plus table overhead, load-factor slack, object headers, and allocation metadata. A Bloom filter stores only a bit array and a small fixed set of hash functions. For a planned item count and false-positive target, it can use around ten bits per item for roughly a one percent false-positive rate. It gives up exact positives to save space.`,
+        'The row of cells is the bit array -- one bit per cell, numbered left to right. Every cell starts at 0. When a bit flips to 1, the cell fills in.',
+        'During insertion, highlighted cells show the three hash outputs for that key: the bit positions it maps to. After the bits are set, they turn green to mark the footprint. During a query, the same three positions are highlighted and checked.',
+        'Watch for overlap. When two keys share a bit position, the second insertion finds that bit already at 1. The filter cannot tell which key set it. When a query finds all three bits set by other keys\' combined footprints, you are watching a false positive happen.',
+        'The safe inference: if any of the three queried bits is 0, the key was never inserted. Insertion would have set all three. One zero is proof of absence.',
       ],
     },
     {
-      heading: `The naive approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive answer is to keep an exact set. Put every key in a hash table, and membership becomes straightforward: hash the key, find the bucket, compare exact keys, and answer true or false. That is the right design when the set is small, when positive answers must be authoritative, or when deletions and iteration are required. It is the wrong first gate when the set is huge and most queries are misses.`,
-        `Imagine an LSM database with dozens of immutable files on disk. A read for an absent key could probe many files before proving the key is nowhere. An exact in-memory set for every file would duplicate all keys and may cost more RAM than the database can spare. A sorted index can narrow the search, but the system still wants a very cheap "not in this file" test. The Bloom filter answers that test without storing the keys themselves.`,
-        `Another naive answer is to hash each key to one bit. Insert sets that bit; query checks it. This saves space, but false positives explode because one bit carries too little information. Many unrelated keys collide on the same position. A Bloom filter improves that one-bit sketch by giving each key several independent bit positions. The footprint is still compact, but a query must match all positions, which makes accidental matches much less common.`,
+        'Burton Howard Bloom posed the question in 1970: how much memory can you save on set-membership queries if you accept a small chance of saying "yes" when the true answer is "no"? His answer -- published as "Space/Time Trade-offs in Hash Coding with Allowable Errors" -- was a structure that never stores the elements at all, only the side effects of hashing them.',
+        'The savings are large. Storing 1 billion URLs in a hash set costs roughly 50 GB. A Bloom filter answering "is this URL in the set?" at a 1% false-positive rate uses about 1.2 GB -- 40x less. It never sees the URLs after hashing.',
+        'The use case is a cheap negative gate. Many systems ask "is this key here?" millions of times per second, and the answer is usually no. When the filter says no, the system skips the expensive disk read or network call entirely. When it says maybe, the system pays the full lookup cost. One fast check eliminates most of the real work.',
       ],
     },
     {
-      heading: `Core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is to store evidence of insertion, not the inserted items. Start with an array of m zero bits. Choose k hash functions. To insert an item, hash it k ways and set the corresponding k bit positions to one. To query an item, hash it the same k ways and inspect those same positions. If any position is still zero, the item was definitely not inserted, because insertion would have set every one of its positions.`,
-        `The positive case is different. If all k positions are one, the item might have been inserted, but the filter cannot prove that this particular item caused those bits. Other inserted items may have covered the same positions by coincidence. That is the entire contract: zeros are proof of absence; ones are only evidence of possible presence.`,
-        `This is why a Bloom filter is usually not the final data store. It is a front door. It prevents expensive work on definite misses, then delegates possible hits to a real table, file, database, remote service, or verification step. When people misuse Bloom filters, they usually forget this division and treat a positive answer as fact.`,
+        'A hash set solves membership exactly. Hash each element, store it in a table, look it up in O(1). You get insertion, deletion, enumeration, and zero uncertainty -- every positive is true, every negative is true.',
+        'For small to moderate sets that fit in memory, hash sets are the right tool. Nothing about them is wrong until the set gets large and the only question you need answered is yes or no.',
       ],
     },
     {
-      heading: `How the algorithm works`,
+      heading: 'The wall',
       paragraphs: [
-        `Construction begins by choosing the expected item count n and a desired false-positive probability p. Those two choices determine the bit-array size m and the number of hashes k. The common approximation for false positives after n inserts is (1 - e^(-kn/m))^k. For fixed m and n, the best k is about (m / n) * ln 2. Too few hashes make weak fingerprints. Too many hashes set too many bits and fill the array faster than necessary.`,
-        `Insertion is simple. Compute k indexes in the range 0 to m - 1. Set each bit to one. If two hashes point to the same bit, the item simply sets fewer distinct bits; real implementations usually size the filter and choose hash derivation to make that uncommon. Query repeats the same k index calculation and checks the bit array. The operations are O(k), and k is a configured small constant, so systems often treat insert and query as constant time.`,
-        `Real implementations often derive k positions from two strong base hashes instead of computing k unrelated hashes. A standard Bloom filter still cannot safely delete: clearing a bit would remove evidence for every item that also uses that bit. Counting Bloom filters store small counters instead of bits so they can decrement, at a higher memory cost. Other variants such as scalable Bloom filters, blocked Bloom filters, Cuckoo filters, and XOR filters adjust the same trade space.`,
+        'Hash sets store the actual keys. A hundred million email addresses cost gigabytes -- every string lives in full, plus bucket pointers, object headers, and load-factor slack. Doubling the set doubles the memory. The system pays full storage cost to answer a question that is usually "not a member."',
+        'A single-bit-per-key trick sounds appealing: hash each key to one position in a bit array. But with 100 million keys in a billion-bit array, roughly 10% of bits are set, and any query landing on a set bit is a false positive. One hash function cannot spread information thinly enough -- the false-positive rate equals the fill ratio.',
       ],
     },
     {
-      heading: `What the visual is proving`,
+      heading: 'How it works',
       paragraphs: [
-        `The visual is proving the one-sided guarantee. During insertion, each key turns on a small footprint of bits. During query, the same footprint is checked. A zero bit is decisive because no earlier insertion of that queried key could have left the bit at zero. This is the proof of the "definitely not present" answer.`,
-        `The visual is also proving why positive answers are weaker. As more keys are inserted, footprints overlap. Eventually a key that was never inserted may find all of its positions already set by other keys. Nothing in the bit array records ownership, so the filter cannot distinguish a true hit from a collision-shaped false hit. The word "probably" is not a hedge; it is the data structure contract.`,
-        `The final lesson is saturation. Early in the filter lifetime, many bits are zero and most absent keys are rejected quickly. As the array fills, fewer queries encounter a zero bit, and the false-positive rate rises. A Bloom filter is sized for an expected population. If the system keeps inserting far beyond that population, the filter turns into a mostly-one bit array that says maybe too often to be useful.`,
+        'A Bloom filter is an m-bit array (all zeros initially) and k independent hash functions. To insert a key, hash it k times to get k bit positions in [0, m-1] and set all k bits to 1. To query, hash the key the same k ways and check the same k positions. If any position is 0, the key was definitely not inserted. If all k are 1, it is probably present. There are no deletions -- bits are never cleared.',
+        'The false-positive probability after inserting n elements is approximately (1 - e^(-kn/m))^k. The optimal number of hash functions is k = (m/n) * ln(2). At the optimum, the formula simplifies: for a target false-positive rate p, you need m = -n * ln(p) / (ln(2))^2 bits. At p = 1%, that works out to about 9.6 bits per element regardless of element size, with k = 7.',
+        'Real implementations avoid computing k independent hashes. Kirsch and Mitzenmacher (2004) showed that h_i(x) = h1(x) + i * h2(x) mod m, using just two base hashes, preserves the theoretical guarantees. Insert and query both cost O(k), and since k is a small constant (typically 3 to 13), both are effectively O(1).',
       ],
     },
     {
-      heading: `Costs and tradeoffs`,
+      heading: 'Why it works',
       paragraphs: [
-        `The main benefit is compactness. Space is O(m), independent of key size, because keys are discarded after their bits are set. This matters when keys are long strings, URLs, document IDs, row keys, or binary fingerprints. The filter can fit in CPU cache or memory where an exact set would not. That makes it useful even when it only removes a fraction of expensive probes.`,
-        `The main cost is uncertainty on positives. Every false positive triggers the expensive lookup the filter was meant to avoid. The system remains correct if it verifies positives, but performance can degrade when the false-positive rate is too high. Correct sizing is therefore part of the design, not an optimization detail. You choose the bit budget from the expected population and acceptable wasted work.`,
-        `The second cost is operational. A Bloom filter needs a rebuild plan when the set changes heavily, item count outgrows the estimate, or a new false-positive target is required. If the filter is persisted, version the hash functions and parameters. Insert and query must use the same encoding and layout, or the guarantee disappears.`,
+        'The no-false-negatives guarantee rests on one invariant: bits are only set, never cleared. If key x was inserted, all k of its bit positions were set at insertion time. No later operation undoes this. Querying x always finds all k bits at 1.',
+        'False positives come from bit collisions. As n items are inserted, each setting k bits, the fraction of 1-bits grows. A key y that was never inserted still hashes to k positions. Each position has some probability of being 1 due to other keys. When all k happen to be 1 by coincidence, the filter cannot distinguish y from a true member. The probability of this accident is (1 - e^(-kn/m))^k -- it rises as the array fills and falls as you add more bits or tune k.',
+        'The guarantee breaks the moment a bit is cleared. If bit j belongs to keys A, B, and C, clearing it because A is deleted creates false negatives for B and C. This is why standard Bloom filters do not support deletion.',
       ],
     },
     {
-      heading: `Real uses`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Databases use Bloom filters to avoid wasted reads. In LSM systems such as RocksDB, LevelDB, and Cassandra-style designs, immutable sorted files can each carry a filter for their keys. If the filter says a key is absent from a file, the read path skips that file. This is valuable because a few hash checks are much cheaper than touching storage. SSTable block indexes and filters use the same negative-test idea at smaller units.`,
-        `Distributed systems use filters to reduce communication. A service can summarize a set before exchanging exact differences. A cache can avoid asking a lower tier for objects that are definitely absent. Crawlers and deduplication pipelines can reject URLs or fingerprints they definitely have not seen in a given shard. Security systems have used related compact membership structures to ship or query large reputation lists without moving every exact string to every client.`,
+        'Insert: O(k). Query: O(k). Since k is a small constant, both are O(1) in practice. Each operation computes k hashes and touches k bit positions. No resizing, no chaining, no probing.',
+        'Space: m bits total, independent of key size. Keys are discarded after hashing. At 1% false-positive rate: ~9.6 bits per element, k = 7. At 0.1%: ~14.4 bits per element, k = 10. Halving the false-positive rate costs about 1.44 extra bits per element. A filter for 1 billion items at 1% error is about 1.2 GB.',
+        'No deletion, no enumeration, no counting. The filter is write-once per bit. Counting Bloom filters replace each bit with a 4-bit counter to support deletion, at 4x memory cost.',
+        'The hidden cost is capacity planning. A Bloom filter must be sized for an expected population n. If the real population far exceeds n, the array saturates -- most bits go to 1 and the false-positive rate climbs toward 100%. An over-full filter is just an expensive array of ones.',
       ],
     },
     {
-      heading: `Failure modes and limits`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `The first failure mode is treating maybe as yes. A Bloom filter can guard an exact lookup, but it should not authorize access, prove uniqueness, confirm a malware match, or decide that a record exists unless false positives are acceptable for that decision. If a false positive would be a correctness bug, the filter must be followed by exact verification.`,
-        `The second failure mode is overfilling. The false-positive formula assumes a planned n. If the real population is much larger, the bit array fills and the filter stops filtering. Monitoring should include inserted count, estimated fill ratio, observed false-positive rate, and rebuild triggers. A filter with no population discipline is just hidden technical debt.`,
-        `The third failure mode is bad hashing. Correlated positions, biased hashes, inconsistent encodings, or different hash versions across producers and consumers can create false positives far above the design target. Worse, if insert and query disagree about canonicalization, the same logical item may hash differently and produce a false negative. The filter can only keep its guarantee when the input bytes and hash parameters are stable.`,
+        'Chrome Safe Browsing shipped a Bloom filter of malicious URLs to every browser. Each URL was checked locally before navigation. A negative meant safe with certainty; a positive triggered server-side verification. Most checks stayed local, and no malicious URL was missed.',
+        'LSM-tree storage engines (LevelDB, RocksDB, Cassandra) attach a Bloom filter to each SSTable. A point lookup might otherwise probe dozens of sorted files across multiple levels. The filter turns most of those disk reads into a few hash computations -- if the filter says "definitely not here," the file is skipped.',
+        'Akamai and other CDNs use Bloom filters to avoid caching one-hit wonders. An object must appear to have been requested before (pass the filter) to earn a cache slot. This keeps the cache from filling with objects requested once and never again.',
+        'Bitcoin SPV nodes send a Bloom filter of their addresses to full nodes. The full node streams back only transactions matching the filter, reducing bandwidth from the full blockchain to a small filtered subset.',
+        'Spell checkers store dictionaries as Bloom filters. A word failing the filter is definitely misspelled. A word passing might still be wrong (false positive), but at low enough rates most passes are real words, and the dictionary fits in far less memory than the word list.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Study Hash Table first because Bloom filters borrow hashing while discarding exact key storage. Then study Counting Bloom Filter, Learned Bloom Filter, XOR Filter, SSTable Block Index & Filter Case Study, LSM Trees (How Cassandra Writes), RocksDB LSM Case Study, LSM Compaction Strategies Primer, Runtime Bloom Filter Join Pruning, Cache Invalidation & Versioning, Big-O Growth Rates, Merkle Tree, and Consistent Hashing. Those topics show when approximate membership, exact membership, authenticated membership, and distributed placement are different tools rather than interchangeable uses of hashes.`,
+        'No deletion. The standard filter is append-only. If elements expire or get revoked, the filter must be rebuilt from scratch. Counting Bloom filters fix this at 4x memory. Cuckoo filters support deletion with better space efficiency at false-positive rates below about 3%.',
+        'No enumeration. You cannot list what was inserted -- the keys are gone. You cannot count elements exactly, only estimate from the fill ratio.',
+        'False-positive rate grows with load. The formula (1 - e^(-kn/m))^k assumes uniform hashing. If the actual population exceeds the planned n, the rate climbs fast. A k = 7 filter at 50% fill has about 0.8% false positives; at 75% fill, roughly 12%.',
+        'Poor cache locality at scale. When m is millions of bits, each of k hash probes may land in a different cache line. Blocked Bloom filters (cache-line-sized sub-filters) address this at a small accuracy cost. Cuckoo filters probe only two buckets, giving better locality.',
+        'Adversarial inputs. If an attacker knows the hash functions, they can craft keys mapping to the same bits, inflating the false-positive rate for targeted queries. Seeded hash functions mitigate this.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Setup: m = 10 bits (all zeros), k = 3 hash functions. To hash a string, sum the character codes and apply three functions: h1(x) = (x * 7 + 3) mod 10, h2(x) = (x * 11 + 5) mod 10, h3(x) = (x * 13 + 1) mod 10. For "cat": c + a + t = 99 + 97 + 116 = 312. For "dog": d + o + g = 100 + 111 + 103 = 314.',
+        'Insert "cat" (sum 312): h1 = (2184 + 3) mod 10 = 7, h2 = (3432 + 5) mod 10 = 7, h3 = (4056 + 1) mod 10 = 7. All three hashes land on bit 7. Set bit 7. Array: [0,0,0,0,0,0,0,1,0,0]. One bit on.',
+        'Insert "dog" (sum 314): h1 = (2198 + 3) mod 10 = 1, h2 = (3454 + 5) mod 10 = 9, h3 = (4082 + 1) mod 10 = 3. Set bits 1, 3, 9. Array: [0,1,0,1,0,0,0,1,0,1]. Four bits on out of 10 (40% fill).',
+        'Query "cat": same hash as insertion -- all three land on bit 7. Bit 7 is 1. Answer: probably present. Correct.',
+        'Query "bird": b + i + r + d = 98 + 105 + 114 + 100 = 417. h1 = (2919 + 3) mod 10 = 2, h2 = (4587 + 5) mod 10 = 2, h3 = (5421 + 1) mod 10 = 2. Check bit 2 -- it is 0. Answer: definitely not present. One zero bit proves absence.',
+        'Query "fish": f + i + s + h = 102 + 105 + 115 + 104 = 426. h1 = (2982 + 3) mod 10 = 5, h2 = (4686 + 5) mod 10 = 1, h3 = (5538 + 1) mod 10 = 9. Check bits 1, 5, 9. Bit 5 is 0. Answer: definitely not present. Even though bits 1 and 9 were set by "dog," bit 5 was never touched. One miss is enough.',
+        'Now suppose we also inserted a key that set bit 5. If "fish" were queried again with bits 1, 5, and 9 all at 1, the filter would answer "probably present" -- a false positive. "fish" was never inserted, but its three bit positions were all covered by other keys\' footprints. This is the tradeoff: the filter saved storing any actual strings, at the cost of occasional phantom matches.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Bloom, "Space/Time Trade-offs in Hash Coding with Allowable Errors," Communications of the ACM, 1970. Kirsch and Mitzenmacher, "Less Hashing, Same Performance: Building a Better Bloom Filter," 2004. Fan et al., "Cuckoo Filter: Practically Better Than Bloom," CoNEXT, 2014.',
+        'Prerequisite: Hash Table -- the exact-membership alternative that Bloom filters compress by discarding keys. Extensions: Counting Bloom Filter (deletion via small counters, 4x memory), Cuckoo Filter (deletion, better cache locality, lower space below 3% false-positive rate). Related sketches: HyperLogLog (approximate cardinality), Count-Min Sketch (approximate frequency counting). Production context: LSM Trees, RocksDB, and SSTable topics show Bloom filters at the storage-engine level.',
       ],
     },
   ],
 };
+

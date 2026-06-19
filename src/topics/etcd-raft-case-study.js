@@ -210,6 +210,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for etcd Raft Case Study. etcd as a production consensus-backed KV store: clients talk to a leader, Raft orders writes, WAL and snapshots protect state, and watches stream revisions..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why It Exists',
       paragraphs: [
         `Distributed control planes need one durable source of truth. If API servers, schedulers, controllers, and operators disagree about desired state, the platform can create duplicate work, lose locks, or reconcile against stale configuration.`,
@@ -218,7 +227,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Obvious Approach and the Wall',
+      heading: 'The wall',
       paragraphs: [
         `The obvious approach is to put configuration in an ordinary database, or to push changes directly to every component. That works while the system is small and failures are clean.`,
         `The wall appears when components need shared ordering. A controller does not only need the current value of a key. It needs to know which revision it observed, which changes happened before it, which lease is still valid, and whether its watch stream missed anything.`,
@@ -226,7 +235,7 @@ export const article = {
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The core insight',
       paragraphs: [
         `Put every change through one replicated Raft log, then expose the applied result as MVCC revisions. Raft decides the order. The backend stores revisioned key-value state. Watches let clients follow the ordered stream from a known revision.`,
         `That combination turns a key-value store into a coordination database. Clients can write desired state, read a consistent snapshot, attach a lease, start a watch at revision r, and recover if r has been compacted.`,
@@ -242,7 +251,7 @@ export const article = {
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
         `A write normally reaches the Raft leader. The leader proposes it as a log entry, persists it, replicates it to followers, and marks it committed after a quorum stores it. Only then is the command applied to the key-value backend.`,
         `Applying the command creates a new MVCC revision. A range read can observe a consistent revision. A watch can stream changes after a revision. A transaction can compare versions or revisions before writing.`,
@@ -251,7 +260,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
         `Raft gives etcd one committed order for writes. MVCC turns that order into observable revisions. A watcher can ask to resume from revision r because the system has a total order of applied changes.`,
         `Quorum protects that order during failures. A minority partition cannot keep accepting writes as if it were the cluster. That is the right trade for control-plane truth: it is better to reject or stall a write than to let two schedulers believe different desired states are both current.`,
@@ -259,7 +268,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Worked Case Study',
+      heading: 'Worked example',
       paragraphs: [
         `A Kubernetes Deployment update begins when the API server writes a new desired spec into etcd. That write is ordered through Raft and applied as a new MVCC revision.`,
         `Controllers do not poll blindly for "whatever looks newest." They watch from known revisions. The Deployment controller sees the changed object, calculates the needed ReplicaSet changes, writes more desired state, and other controllers continue the chain.`,
@@ -268,7 +277,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The main cost is synchronous coordination. Linearizable writes, and linearizable reads when requested, involve the leader and quorum path. Disk latency, network latency, and leader health matter directly to the whole control plane.`,
         `The second cost is retention management. Watches and historical reads depend on retained MVCC revisions. Compaction keeps storage bounded, but it forces slow clients to handle compacted revisions by relisting.`,
@@ -276,7 +285,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `etcd wins for small, important, coordination-heavy data: Kubernetes objects, service-discovery records, configuration, leader-election keys, distributed locks, and lease-backed metadata.`,
         `It is strongest when clients need more than storage. They need conditional writes, ordered watches, revisioned reads, and a failure model that prefers consistency over accepting conflicting updates.`,
@@ -284,7 +293,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
         `etcd fails when used as a general data platform. It is not a message queue, analytics store, blob store, cache, or high-cardinality event log. Pushing large values or noisy events through it harms the systems that depend on it for coordination.`,
         `It also fails when clients ignore revision boundaries. A watch that silently skips compacted history is a correctness bug. A restore that ignores member identity or cluster membership can create a different kind of outage than the one it was meant to fix.`,
@@ -292,10 +301,69 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and Study Next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: etcd persistent storage files at https://etcd.io/docs/v3.6/learning/persistent-storage-files/, etcd disaster recovery at https://etcd.io/docs/v3.5/op-guide/recovery/, and the etcd Raft library at https://github.com/etcd-io/raft. Study Raft Log Replication, Raft Snapshots, Write-Ahead Log, MVCC Internals & VACUUM, and Kubernetes Reconciliation Case Study next.',
       ],
     },
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+
+      {
+        heading: 'Learning map',
+        paragraphs: [
+          'Before this topic, unlock all prerequisites and define the required preconditions.',
+          'After this topic, trace where this idea appears in one larger path on this site.',
+          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
+        ],
+      },
+
+      {
+        heading: 'Micro checks',
+        paragraphs: [
+          {
+            type: 'bullets',
+            items: [
+              'Can you state one invariant in one sentence?',
+              'Can you prove one transition with pre and post state?',
+              'Can you name one hidden edge case in one line?',
+              'Can you transfer this mechanism to a neighboring domain?',
+            ],
+          },
+        ],
+      },
+
+      {
+        heading: 'Try this now',
+        paragraphs: [
+          'Build one input manually and predict every step before running the animation.',
+          'If your predicted final state matches the animation for etcd-raft-case-study, continue to the next topic in the same track.'
   ],
+      },
+],
 };

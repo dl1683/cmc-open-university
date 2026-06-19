@@ -1,4 +1,4 @@
-// requestAnimationFrame: a frame-scheduler primer for browser work that must
+﻿// requestAnimationFrame: a frame-scheduler primer for browser work that must
 // land before the next repaint without starving input, style, layout, or paint.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -240,6 +240,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for requestAnimationFrame Frame Budget. How requestAnimationFrame queues one-shot callbacks before repaint, shares frame timestamps, and turns animation into a budgeted scheduling problem..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Browser animation is a scheduling problem before it is a drawing problem. A page wants motion to line up with the display refresh, but JavaScript runs on the same main thread that handles input, style calculation, layout, paint, compositing coordination, promise callbacks, and garbage collection. Smooth output depends on when work runs, how much it does, and whether the browser still has time to render after the script exits.',
@@ -261,14 +270,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core contract',
+      heading: 'The core insight',
       paragraphs: [
         'A requestAnimationFrame request schedules one callback. The callback is one-shot, so an animation loop must request the next callback itself. That shape matters: each frame is an explicit decision to continue, not a hidden browser-owned interval that runs forever.',
         'The callback timestamp is the frame clock. Code should compute progress from elapsed time rather than from the number of callbacks that happened. Multiple rAF callbacks in the same frame receive the same timestamp even though earlier callbacks may have spent time. That lets independent animations stay synchronized to the frame rather than to callback order.',
       ],
     },
     {
-      heading: 'How the frame works',
+      heading: 'How it works',
       paragraphs: [
         'A simplified browser turn looks like this: a task runs, microtasks drain, rAF callbacks for the upcoming rendering opportunity run, and then the browser performs the style, layout, paint, and compositing work needed for the frame. Real engines have more queues and optimizations, but the teaching boundary is enough: rAF happens before rendering, not after it.',
         'Good frame code follows a small phase discipline. Read the old state or geometry, compute the new visual state from the timestamp, write cheap visual changes such as transform or opacity when possible, and exit. Mixing writes and reads can force layout early inside the callback, so the page pays rendering cost before the browser has reached its normal rendering phase.',
@@ -282,7 +291,7 @@ export const article = {
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'How it works (2)',
       paragraphs: [
         'The timeline view makes the hidden deadline visible. The rAF node is not the end of the frame. It is a slot before style, layout, paint, and composite, so the callback must leave enough time for work that JavaScript does not directly perform.',
         'The jank-recovery view shows the operational fix. Visual work stays in rAF. Work that can wait is sliced into tasks or postponed. CPU-heavy work moves to a worker when it can be separated from DOM access. The loop caps large elapsed times after a pause so it does not try to replay missed simulation steps in one frame.',
@@ -296,7 +305,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Use rAF for work the user must see on the next frame: transform and opacity updates, canvas drawing, drag feedback, scroll-linked indicators, caret motion, scrubbers, game rendering, and final visual commits after state is ready.',
         'A live chart is a clean systems example. Network promises update a cache. A worker or task slice aggregates data. The rAF callback samples the latest ready state, computes positions from the frame timestamp, writes the minimal visual changes, and exits. The chart stays responsive because data processing and frame commitment are different jobs.',
@@ -310,11 +319,84 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN Window.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame, MDN DedicatedWorkerGlobalScope.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/DedicatedWorkerGlobalScope/requestAnimationFrame, and MDN Critical Rendering Path at https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path.',
         'Study The Event Loop first, because long tasks and microtasks explain why rAF can arrive late. Then study Promise Microtask Queue, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, PerformanceObserver Long Task Attribution, How a Browser Paints a Page, Dirty Rectangle Damage Tracking, Web Workers: A Second Thread, OffscreenCanvas Worker Renderer, React Fiber Scheduler Case Study, Virtual DOM Reconciliation, and WebGPU Swapchain Frame Pacing.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
+        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
+        "The goal is prediction, not a one-off demonstration.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why requestAnimationFrame Frame Budget moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

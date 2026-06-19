@@ -163,7 +163,7 @@ function* thrash() {
       format: (v) => (v ? 'runs' : 'skipped'),
     }),
     highlight: { found: ['transform:layout', 'transform:paint'], active: ['transform:composite'] },
-    explanation: 'The deeper win: choose properties that enter the pipeline LATE. Animating height re-runs layout + paint + composite every frame; animating transform: translateY() touches only the compositor — the element already lives on its own GPU layer, so the browser just re-blends. That is why smooth UIs animate transform and opacity and almost nothing else, and why a janky animation is usually a layout property in disguise. DevTools\' Performance panel paints forced layouts as angry purple — now you know exactly what it is accusing your code of.',
+    explanation: 'The deeper win: choose properties that enter the pipeline LATE. Animating height re-runs layout + paint + composite every frame; animating transform: translateY() touches only the compositor — the element already lives on its own GPU layer, so the browser just re-blends. That is why smooth UIs animate transform and opacity and almost nothing else, and why a janky animation is usually a layout property in disguise. DevTools\'s Performance panel paints forced layouts as angry purple — now you know exactly what it is accusing your code of.',
   };
 }
 
@@ -177,7 +177,7 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'Why this exists',
       paragraphs: [
         'A browser has to turn a stream of HTML, CSS, images, fonts, and JavaScript into pixels while the user is waiting. The hard part is that the page is not static. JavaScript can change the DOM, CSS can change which nodes are visible, text can wrap differently after a font arrives, and the user expects scrolling and animation to keep running at frame rate.',
         'The rendering pipeline is the browser answer to that problem. It breaks the work into parse, style, layout, paint, and composite stages. Frontend performance is mostly the art of avoiding repeated work in the expensive stages, especially layout and paint.',
@@ -191,14 +191,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Core idea',
+      heading: 'The core insight',
       paragraphs: [
         'The core idea is a dependency graph from document structure to pixels. HTML creates the DOM tree. CSS creates style rules and computed values. The render tree keeps the visible styled boxes. Layout assigns geometry. Paint records drawing commands. Compositing blends painted layers into the final frame.',
         'Each later stage depends on some earlier stage, but not every change invalidates the whole pipeline. Changing text content can require layout and paint. Changing `background-color` can usually skip layout but still paint. Changing `transform` or `opacity` on a composited layer can often skip layout and paint and only ask the compositor to blend layers differently.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
         'Parsing is a stack-shaped tree-building process. Opening tags push, closing tags pop, and DOM nodes become parents and children. CSS parsing and selector matching compute styles for those nodes. The engine then filters out nodes that produce no boxes, such as `display: none`, before layout assigns each remaining box an exact position and size.',
         'Layout is where relative declarations become geometry: percentages become pixels, text wraps, children influence parent height, and later boxes may move. Paint converts geometry and style into drawing commands such as fill this background, draw this border, and rasterize these glyphs. Compositing takes painted layers, often including GPU-backed layers, and produces the final screen image.',
@@ -219,46 +219,119 @@ export const article = {
       ],
     },
     {
-      heading: 'Animation guide',
+      heading: 'How to read the animation',
       paragraphs: [
         'In the page-load view, read left to right as a pipeline. The first array is the incoming HTML token stream. The tree frames show DOM construction, including nodes that will never paint. The CSS matrix shows computed values, and the removed `display: none` row explains why the render tree is smaller than the DOM. The layout matrix is the first moment where boxes get exact coordinates.',
         'In the layout-thrash view, watch the dirty-layout flag even though it is not drawn as a separate variable. A style write marks layout dirty. A later geometry read such as `offsetHeight` needs a correct answer immediately, so the browser synchronously runs layout inside the JavaScript loop. The fix frames show the two real remedies: batch reads before writes, or choose properties such as `transform` and `opacity` that enter late in the pipeline.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'The browser pipeline is a huge win because it separates concerns and lets engines skip work. The cost is that performance is now stage-specific. A program can have efficient JavaScript and still be slow because it forces layout, paints too many pixels, creates too many layers, or invalidates style across a large subtree.',
         'Compositor-only animation is also a tradeoff, not a universal rule. Extra layers consume memory and can increase upload or blending cost. CSS containment and `content-visibility` can fence work, but they also change how the browser reasons about layout and visibility. The right optimization depends on the stage that profiling shows is actually slow.',
       ],
     },
     {
-      heading: 'Limits',
+      heading: 'Where it fails',
       paragraphs: [
         'The five-stage model is a teaching model. Real engines have preload scanners, style sharing, incremental layout, display lists, damage tracking, raster worker threads, GPU processes, font loading rules, async scrolling paths, and many heuristics. The stages are still useful, but browser internals are not one simple function call per stage.',
         'The model also does not erase main-thread constraints. Web Workers can move CPU work away from the main thread, but they cannot directly mutate the DOM. Eventually visual changes return to the rendering pipeline. Service workers and CDNs can make resources arrive faster, but they cannot rescue a page that spends too long laying itself out after arrival.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'The classic failure mode is layout thrashing: code alternates writes that dirty layout with reads that demand fresh geometry. The browser cannot safely return an old `getBoundingClientRect` or `offsetHeight`, so it does the expensive work immediately and repeatedly.',
         'Other failures include animating layout properties such as `height`, inserting thousands of DOM nodes instead of virtualizing, using selectors or style invalidations that touch too much of the tree, loading fonts in a way that shifts layout, and treating `display: none` and `visibility: hidden` as equivalent. They diverge exactly because one removes a box from layout and the other leaves the box in place.',
       ],
     },
     {
-      heading: 'Practical use',
+      heading: 'Real-world uses',
       paragraphs: [
         'When a page janks, profile first. If the trace shows long JavaScript tasks, reduce work or move safe computation off-thread. If it shows forced layout, batch reads before writes. If it shows paint cost, reduce invalidated pixels, expensive effects, and overdraw. If animation is the problem, prefer `transform` and `opacity` where the visual design allows it.',
         'UI frameworks, virtual DOM reconciliation, requestAnimationFrame scheduling, virtual scrolling, CSS containment, and image lazy-loading are all practical ways of cooperating with the same pipeline. The goal is not to memorize one trick. The goal is to know which stage you are making the browser repeat.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         "MDN's critical rendering path guide covers the path from HTML, CSS, and JavaScript to pixels: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. MDN's browser overview adds the broader navigation-to-rendering context: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work. web.dev covers rendering performance and compositor-friendly animations at https://web.dev/articles/rendering-performance and https://web.dev/articles/animations-guide. Chrome documents forced reflow at https://developer.chrome.com/docs/performance/insights/forced-reflow.",
         'Study Tree Traversals and Stack for parsing, then The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, and PerformanceObserver Long Task Attribution for when rendering work gets a turn. Virtual DOM Reconciliation, Dirty Rectangle Damage Tracking, OffscreenCanvas Worker Renderer, WebGPU Swapchain Frame Pacing, and Render Graph Framegraph Resource Lifetimes continue the path from changed UI state to bounded paint and GPU work.',
       ],
     },
-  ],
+      {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "Name the reasonable first attempt and why teams reach for it.",
+        "Then show the exact place that approach stops scaling or starts breaking.",
+        "Treat this section as contrast, not a rejection.",
+      ],
+    },
+
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why How a Browser Paints a Page moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

@@ -1,4 +1,4 @@
-// Kafka case study: a distributed commit log for event streams. Partitions
+﻿// Kafka case study: a distributed commit log for event streams. Partitions
 // provide ordering, offsets provide replay, consumer groups provide scale-out,
 // and compaction turns keyed streams into materialized latest-value logs.
 
@@ -210,14 +210,23 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The real problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Kafka Log Case Study. Kafka as a production log: partition ordering, offsets, consumer groups, retention, compaction, and backpressure..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         'Large systems do not just need messages. They need a durable record of what happened, many independent readers, bounded ordering guarantees, recovery after crashes, and a way to replay history when a downstream service changes its mind. A payment service may emit an order event that is needed by fraud detection, analytics, search indexing, customer email, billing, and an offline feature pipeline. Those readers move at different speeds and fail in different ways.',
         'A plain in-memory queue solves only the handoff. Once one worker consumes a message, the broker can delete it. That is efficient for a single job queue, but it is the wrong shape when history itself is useful. Kafka is the case study for treating the log as the shared data structure. Producers append records. Brokers retain ordered segments. Consumers own their positions. The result is not just messaging; it is a replayable event backbone.',
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'The obvious approach',
       paragraphs: [
         'The first baseline is a database table with a processed flag. Writers insert events, workers poll for unprocessed rows, and each worker marks a row done. This gives durability, but the database is now doing queue coordination, ordering, fanout, retention, and cleanup through ad hoc queries. Polling creates load, workers fight over locks, and replay is awkward because the table has been mutated to represent consumption.',
         'The second baseline is a conventional message queue. That is better for work distribution, but it usually treats successful consumption as deletion. If a new analytics service needs six months of events, it cannot ask the queue to replay what older consumers already removed. If a search indexer has a bug and needs to rebuild, the queue has no principled reason to still have the old records. The wall is that consumption and storage have been fused.',
@@ -231,7 +240,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         'A producer sends a record to a topic. A partitioner chooses the partition, often by hashing the key. The partition leader appends the record to the end of its log, assigns the next offset, and replicates the append to follower brokers according to the topic configuration. Acknowledgment settings decide whether the producer waits for only the leader or for a stronger replication condition. The log is stored in segments so old data can be deleted, compacted, or moved without rewriting the whole partition.',
         'A consumer group is a named set of readers that cooperatively process a topic. Kafka assigns each partition to at most one member of the group at a time. If a topic has four partitions and a group has two consumers, each consumer may own two partitions. If the group grows to four consumers, each can own one partition. If it grows to eight consumers, four consumers will be idle for that topic because partition ownership is the parallelism limit.',
@@ -267,14 +276,14 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Partitions are the main design knob and the main trap. More partitions increase parallelism and throughput, but they also increase metadata, file handles, leader election work, rebalancing cost, and operational complexity. Too few partitions bottleneck consumers. Too many partitions make failures and reassignments heavier. Changing partition count can also change key-to-partition routing for new records unless the producer strategy handles it carefully.',
         'Key choice decides both order and load balance. A hot key can overload one partition while others sit idle. A random key improves balance but destroys per-entity ordering. Retention consumes disk. Compaction consumes I/O and can leave old values visible until the cleaner catches up. Stronger producer acknowledgments improve durability but add latency. Kafka gives direct controls, but those controls force the application to state its priorities.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Kafka wins when multiple systems need the same stream: change data capture, operational logs, metrics, analytics ingestion, fraud pipelines, search indexing, feature pipelines, stream processing, audit trails, and cache rebuilds. It is especially strong when readers need independent progress and when replay is a normal operational tool rather than an emergency exception.',
         'It also wins at service boundaries where producers should not know every downstream consumer. A checkout service can publish an order event once. New consumers can appear later without adding synchronous calls to checkout. The cost is that the event contract becomes a long-lived API, so schema evolution, compatibility, and dead-letter handling become part of the platform.',
@@ -288,7 +297,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails (2)',
       paragraphs: [
         'Common failures include consumer lag growing until retention deletes unread records, poison messages blocking a partition, rebalances pausing work during deployments, transactional producers fencing old instances, compaction tombstones disappearing before all replicas of state have rebuilt, and a single hot partition limiting throughput for the whole topic.',
         'The defensive patterns are equally concrete: monitor lag by group and partition, make sinks idempotent, include event IDs, use retry and dead-letter topics deliberately, test replay from old offsets, define schema compatibility rules, and size retention against recovery objectives. Kafka is simple at the data-structure level, but production use is mostly about respecting the edge cases created by that simplicity.',
@@ -300,5 +309,69 @@ export const article = {
         'Primary source: "Kafka: a Distributed Messaging System for Log Processing" at https://pages.cs.wisc.edu/~akella/CS744/F17/838-CloudPapers/Kafka.pdf. Study Message Queues for the deletion-on-consume contrast, Write-Ahead Log (WAL) for append durability, Sharding & Partitioning for key-to-partition tradeoffs, Backpressure & Flow Control for lag, Idempotency & Exactly-Once Delivery for sink correctness, and Feature Store: Offline/Online Consistency for replayed state.',
       ],
     },
-  ],
+      {
+      heading: 'The wall',
+      paragraphs: [
+        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
+        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
+        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Kafka Log Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };
+

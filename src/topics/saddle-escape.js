@@ -17,7 +17,7 @@ export const topic = {
 
 // The test surface: f(x, y) = ½(x² − 0.2y²). One up-direction, one gently
 // DOWN direction (λ = 1, −0.2) — a shallow saddle, the kind that makes
-// training plateaus. Contours are hyperbolas, like every saddle's.
+// training plateaus. Contours are hyperbolas, like every saddle\'s.
 const LNEG = 0.2;
 const f = (x, y) => 0.5 * (x * x - LNEG * y * y);
 function saddleContours() {
@@ -84,8 +84,8 @@ const SGD_PATH = sgd(0.02, 600);
 const ESCAPE_STEPS = SGD_PATH.length - 1;
 const SGD_FINAL_LOSS = f(SGD_PATH.at(-1).x, SGD_PATH.at(-1).y);
 
-// Newton's step from anywhere lands ON the saddle: H⁻¹∇f(w) = w for this
-// quadratic, so w − H⁻¹∇f = 0 — the saddle is Newton's fixed point.
+// Newton\'s step from anywhere lands ON the saddle: H⁻¹∇f(w) = w for this
+// quadratic, so w − H⁻¹∇f = 0 — the saddle is Newton\'s fixed point.
 const NEWTON = [{ x: 2.0, y: 2.2 }, { x: 0, y: 0 }];
 
 function* saddleWorld() {
@@ -114,14 +114,14 @@ function* saddleWorld() {
       series: [...CONTOURS, { id: 'gd', label: 'exact gradient descent — parked', points: GD }],
     }),
     highlight: { removed: ['gd'] },
-    explanation: `Here is the failure, live. The surface is f = ½(w₁² − 0.2w₂²): a saddle with one climbing direction (λ = 1) and one gently descending escape route (λ = −0.2, downhill along ±w₂ forever). Exact gradient descent starts at (2.4, 0) — note w₂ = 0, no component along the escape direction — and the update can never create one: the w₂ gradient is proportional to w₂ itself, and 0.2 × 0 is 0. The path slides straight into the saddle and STOPS, gradient norm ${GD_GRADNORM.toExponential(1)} after 40 steps. Every convergence test based on "gradient is small" certifies this as success. The optimizer didn't get trapped by a wall; it got parked by a symmetry.`,
+    explanation: `Here is the failure, live. The surface is f = ½(w₁² − 0.2w₂²): a saddle with one climbing direction (λ = 1) and one gently descending escape route (λ = −0.2, downhill along ±w₂ forever). Exact gradient descent starts at (2.4, 0) — note w₂ = 0, no component along the escape direction — and the update can never create one: the w₂ gradient is proportional to w₂ itself, and 0.2 × 0 is 0. The path slides straight into the saddle and STOPS, gradient norm ${GD_GRADNORM.toExponential(1)} after 40 steps. Every convergence test based on "gradient is small" certifies this as success. The optimizer didn\'t get trapped by a wall; it got parked by a symmetry.`,
     invariant: 'Exact GD preserves zero components along eigendirections: start on the saddle\'s stable manifold and you stay on it.',
   };
 
   yield {
     state: plotState({
       axes: AXES,
-      series: [...CONTOURS, { id: 'newton', label: "Newton's step — lands ON the saddle", points: NEWTON }],
+      series: [...CONTOURS, { id: 'newton', label: "Newton\'s step — lands ON the saddle", points: NEWTON }],
     }),
     highlight: { removed: ['newton'] },
     explanation: 'It gets worse before it gets better: Newton\'s method — the curvature-aware hero of The Hessian: Curvature & Newton\'s Step — is actively ATTRACTED to saddles. Newton solves ∇f = 0, and a saddle satisfies that equation just as well as a minimum does; on this quadratic, one Newton step from anywhere lands exactly on the saddle (drawn live: one stride from (2.0, 2.2) to the origin). H⁻¹ divides each direction by its eigenvalue, and dividing by a NEGATIVE eigenvalue flips the descent direction into ascent along that axis. The saddle-free Newton fix (Dauphin et al.): divide by |λ| instead — keep curvature\'s magnitude, never its sign. Pure second-order methods need this surgery before they\'re safe in saddle country.',
@@ -185,75 +185,116 @@ export function* run(input) {
   else throw new InputError('Pick a view.');
 }
 
-const saddleEscapeArticleSections = [
-  {
-    heading: `Why This Exists`,
-    paragraphs: [
-      `Deep-learning optimization is not hard only because the loss surface has many bad minima. In a high-dimensional model, a point where the gradient is zero is usually not a bowl. It is usually a saddle: uphill in some directions, downhill in others, and flat enough near the center that a first-order optimizer can look finished. A minimum needs every Hessian eigenvalue to be positive. If those signs were even roughly balanced, the chance of all positive signs would shrink like 2 to the minus d. The visual starts with that counting pressure because it changes the story. Training plateaus are often not walls around bad minima. They are neighborhoods where the gradient is tiny while a descent direction exists but has not been activated.`,
-    ],
-  },
-  {
-    heading: `The Obvious Approach`,
-    paragraphs: [
-      `The reasonable first attempt is exact gradient descent. Compute the gradient of the whole loss, step downhill, and stop when the gradient norm becomes small. That rule is correct on a convex bowl because the only zero-gradient point is the minimum. It is also attractive in engineering terms: full-batch gradients are deterministic, easy to debug, and make convergence tests look clean. A second reasonable attempt is Newton's method. If the gradient is small because the surface is curved, use curvature to jump to the critical point faster. Both approaches are natural if the mental model is a bowl. Both become dangerous when the surface contains many directions with mixed curvature.`,
-    ],
-  },
-  {
-    heading: `The Wall`,
-    paragraphs: [
-      `The wall is that a small gradient is not a certificate of a useful minimum. At a saddle, the gradient can be exactly zero even though there is a downhill direction. The local quadratic picture is controlled by Hessian eigenvectors. Positive eigenvalues pull the iterate toward the critical point along stable directions. Negative eigenvalues push away along escape directions. If the current point has no component along a negative-curvature eigenvector, exact gradient descent may never create one. It can preserve the symmetry that keeps the escape coordinate at zero. The optimizer did not fail because it could not find a downhill route. It failed because its deterministic update stayed on the saddle's stable manifold.`,
-    ],
-  },
-  {
-    heading: `Core Insight`,
-    paragraphs: [
-      `The core insight is that negative curvature is both the problem and the exit. Near a strict saddle, any nonzero displacement in a negative-curvature direction grows under gradient descent instead of shrinking. Stochastic gradient descent supplies that displacement for free because each minibatch gives a slightly different gradient estimate. The noise is not just dirt on a clean deterministic process. It is the seed that lets negative curvature amplify an escape coordinate. Once a tiny component exists, the saddle multiplies it step after step until the path visibly leaves the plateau. In this setting, randomness is not a decoration around optimization. It is part of the mechanism that makes high-dimensional training move.`,
-    ],
-  },
-  {
-    heading: `How It Works`,
-    paragraphs: [
-      `The plotted surface is deliberately small: f(w1, w2) = 1/2(w1^2 - 0.2w2^2). Along w1, curvature is positive, so gradient descent contracts the coordinate toward zero. Along w2, curvature is negative, so any nonzero coordinate is pushed away from zero and down the loss surface. Exact gradient descent starts at (2.4, 0). The w2 gradient is proportional to w2, so the update keeps w2 at zero forever. The path slides into the origin and satisfies a gradient-norm stop test even though the vertical direction descends. Newton's method shows a different failure. It solves for a zero gradient, and this saddle is a zero-gradient point. On this quadratic, a Newton step lands directly on the origin because the Hessian inverse cancels the gradient rather than asking whether the critical point is a minimum.`,
-    ],
-  },
-  {
-    heading: `What The Visual Proves`,
-    paragraphs: [
-      `The first table proves the dimensionality problem. As the parameter count rises, the chance that every local curvature direction points upward collapses. The contour plot then proves the deterministic failure: exact gradient descent can approach a saddle and stop because the escape coordinate never appears. The SGD path proves the opposite behavior with the same surface, start, and learning rate. A tiny random kick places a small amount of mass on w2. Negative curvature then compounds that mass until the path peels away. The escape-time table explains why a plateau can last long enough to look like convergence. If the negative eigenvalue is shallow, the multiplier is only slightly larger than one, so the hidden coordinate needs many steps before it becomes visible in the loss curve.`,
-    ],
-  },
-  {
-    heading: `Why It Works`,
-    paragraphs: [
-      `The correctness argument is local. Around a strict saddle, the Taylor approximation is a quadratic whose Hessian has at least one negative eigenvalue. In a positive-curvature direction, gradient descent subtracts a vector that points away from the coordinate's sign, so the coordinate shrinks. In a negative-curvature direction, the sign flips: subtracting the gradient pushes the coordinate farther from zero. Exact gradient descent can miss this route only on a special stable set where the negative-curvature component is exactly absent. Random perturbations almost surely leave that set. Once they do, repeated multiplication by a factor above one makes escape inevitable unless the learning rate is too small, too large, or the local quadratic model stops applying before the iterate reaches a descending route.`,
-    ],
-  },
-  {
-    heading: `Cost And Tradeoffs`,
-    paragraphs: [
-      `Saddle escape is cheap when it comes from ordinary minibatch noise, but it is not free in every sense. More noise can help exploration and escape, yet too much noise raises gradient variance and can slow convergence near a good basin. A larger learning rate amplifies escape coordinates faster, but it can overshoot sharp valleys or destabilize training. Momentum helps because velocity built before the plateau can carry the iterate across a stable manifold, but momentum can also make bad hyperparameters more violent. Explicit perturbed-gradient methods add a detection rule: when the gradient norm is small, inject noise and test whether the loss drops. That gives cleaner theory, but production training usually relies on SGD, batch size, learning-rate schedules, and adaptive optimizers instead of explicit saddle detectors.`,
-    ],
-  },
-  {
-    heading: `Where It Wins`,
-    paragraphs: [
-      `This idea is useful whenever a training curve stalls and then drops. The stall may be a shallow saddle, not proof that the model has learned all it can. It also explains why full-batch deterministic training can be less practical than noisy minibatch training even when the full gradient is more accurate. In research, explicit saddle examples are good tests for optimizers: an optimizer that only reduces gradient norm can look successful while landing on a bad critical point. In practice, saddle geometry informs choices about batch size, momentum, warmup, learning-rate decay, and second-order methods. It gives a concrete reason to treat stochasticity as a resource to tune, not only an error source to remove.`,
-    ],
-  },
-  {
-    heading: `Where It Fails`,
-    paragraphs: [
-      `Saddle escape is not a complete theory of neural-network training. Some plateaus come from bad scaling, saturated activations, data issues, optimizer bugs, or learning rates that are already too low. Some critical regions are non-strict saddles with very flat directions rather than clean negative eigenvalues, so the simple exponential escape story weakens. Noise can also damage late-stage convergence, especially when the model is near a narrow optimum or when the objective is already dominated by sampling error. Newton-style fixes are expensive because reliable curvature information is hard to compute at modern model sizes. The lesson is not "add random noise forever." The lesson is to read small gradients together with curvature, stochasticity, and loss movement.`,
-    ],
-  },
-  {
-    heading: `Study Next`,
-    paragraphs: [
-      `Study Gradient Descent first if the update rule still feels mechanical. Then read The Hessian: Curvature & Newton's Step to connect eigenvalues with local shape and to see why Newton can mistake a saddle for success. Loss Landscapes & Optimization Geometry gives the larger map: basins, barriers, sharpness, and why two-dimensional plots can both help and mislead. Momentum, RMSProp & Adam explains the practical escape tools used in real training loops. Perturbed gradient descent is the theory path: it formalizes the idea that small random kicks let first-order methods escape strict saddles in polynomial time. Contour-map topics are useful too, because they train the eye to separate a true basin from a saddle plateau.`,
-    ],
-  },
-];
-
 export const article = {
-  sections: saddleEscapeArticleSections,
+  sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The contour plot shows the loss surface f = 1/2(w1^2 - 0.2*w2^2). Hyperbolas curving left-right are positive-loss contours (the bowl direction along w1). Hyperbolas curving up-down are negative-loss contours (the escape direction along w2). The origin is the saddle point where both gradients vanish.',
+        'In the "a world made of saddles" view, the table shows why high-dimensional critical points are almost never minima. The contour plot shows exact gradient descent parking at the saddle, then Newton jumping directly onto it. In the "noise is the feature" view, the SGD path is overlaid on the same contours alongside the parked GD path. Watch for the long hesitation near the origin followed by the sudden peel-off -- that is exponential compounding becoming visible.',
+        'Active markers (the moving dot) show the current optimizer position. The trail behind it shows the full path history. When the trail stops moving, the optimizer is stuck -- either parked at the saddle or escaped to a region of lower loss.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        {
+          type: 'quote',
+          text: 'The prevalence of saddle points, not local minima, provides a much more daunting challenge to optimization in high-dimensional spaces.',
+          attribution: 'Yann Dauphin, Razvan Pascanu, Caglar Gulcehre, Kyunghyun Cho, Surya Ganguli, Yoshua Bengio -- "Identifying and attacking the saddle point problem in high-dimensional non-convex optimization" (2014)',
+        },
+        'For decades the default story about neural-network training was "beware bad local minima." Dauphin et al. (2014) overturned that story with a counting argument grounded in random matrix theory. At a critical point where the gradient is zero, the Hessian has d eigenvalues, one per parameter direction. A true minimum needs all d to be positive. If signs were fair coins, the probability is 2^(-d). For a small neural network with d = 10^6 parameters that is 2^(-1,000,000) -- effectively zero. The refined version, drawing on results from the Gaussian Orthogonal Ensemble (GOE) in random matrix theory, shows that eigenvalue signs are not independent coins but are correlated with the loss value: high up the landscape, negative eigenvalues dominate; only near the floor do critical points become genuine minima.',
+        'The practical consequence is that training plateaus -- epochs where the loss flatlines before suddenly dropping -- are usually not evidence of a wall around a bad minimum. They are neighborhoods of a saddle point where the gradient is tiny, a descent direction exists along the negative-curvature eigenvector, but that direction has not yet been activated by the optimizer.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The natural first attempt is full-batch gradient descent. Compute the gradient of the entire loss, step proportional to the negative gradient, stop when the gradient norm is small. On a convex loss surface this works perfectly: the only zero-gradient point is the global minimum, so "gradient is small" is a reliable certificate. Full-batch gradients are deterministic, reproducible, and easy to debug.',
+        'The natural second attempt is Newton\'s method. If the gradient is small because curvature is steep, use the Hessian to jump directly to the critical point. Newton converges quadratically on well-behaved problems and uses curvature information that first-order methods ignore.',
+        'Both approaches implicitly assume the loss surface is a bowl. Both become dangerous when the surface is a saddle.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A small gradient is not proof of a useful minimum. At a saddle point the gradient is exactly zero even though a descent direction exists. The Hessian eigenvectors partition local space into directions of positive curvature (uphill from the saddle) and negative curvature (downhill forever). If the optimizer starts with zero component along a negative-curvature eigenvector, exact gradient descent will never create one: the gradient update in that direction is proportional to the current coordinate, and the product of any learning rate with zero is still zero.',
+        {
+          type: 'diagram',
+          text: '                    w1 (positive curvature, lambda = +1)\n                     ^\n                     |   loss INCREASES\n                     |   along this axis\n           ----------+---------->\n          loss       |          loss\n          DECREASES  * saddle   DECREASES\n          along w2   |          along w2\n                     |\n                     v\n                    w2 (negative curvature, lambda = -0.2)',
+          label: 'Saddle point geometry: the Hessian has eigenvalue +1 along w1 (stable, attracts) and -0.2 along w2 (unstable, repels). Gradient descent approaching along the w1 axis never discovers the w2 escape.',
+        },
+        'Newton\'s method is worse. Newton solves for any zero of the gradient, and a saddle satisfies that equation exactly. On the quadratic f = 1/2(w1^2 - 0.2*w2^2), one Newton step from any starting point lands on the saddle at the origin. The Hessian inverse divides each component by its eigenvalue; dividing by a negative eigenvalue flips the step direction, turning descent into ascent along the escape axis. The saddle is Newton\'s fixed point.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The escape mechanism has three ingredients: a strict saddle (at least one negative Hessian eigenvalue), a source of noise, and time for compounding.',
+        'A strict saddle is a critical point where the Hessian has at least one strictly negative eigenvalue. The "strict" matters: it guarantees exponential amplification rather than mere drift. At such a point, any nonzero displacement along the negative-curvature eigenvector grows geometrically under gradient descent. Concretely, the w2 coordinate updates as w2 <- w2 * (1 + lr * |lambda_neg|) + noise. Each step multiplies the escape coordinate by a factor greater than one and adds a fresh noise term.',
+        'Minibatch SGD supplies the noise for free. Each minibatch computes the gradient on a random subset of the data, producing a slightly different gradient estimate than the full loss. The error is not isotropic: SGD noise is structured by the data, with higher variance along directions where per-sample gradients disagree. This structured noise tends to deposit mass precisely on the directions that matter for escape.',
+        'The escape timeline has a characteristic shape: invisible compounding for many steps (the plateau), then a sudden visible departure (the drop). Escape time scales as log(R/epsilon) / (lr * |lambda_neg|), where epsilon is the noise amplitude and R is the distance at which the quadratic approximation gives way to the broader landscape. The shallower the negative eigenvalue, the longer the plateau -- and this is exactly the anatomy of the flatline-then-drop pattern seen in real training curves.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument rests on the strict saddle property. Near a strict saddle, the loss function is locally quadratic with at least one negative Hessian eigenvalue. In any positive-curvature direction, gradient descent contracts the coordinate toward the saddle -- these are stable directions. In any negative-curvature direction, gradient descent does the opposite: it amplifies the coordinate away from the saddle, because subtracting a negative gradient component pushes the iterate further from zero.',
+        'Exact gradient descent can miss the escape route only if the iterate lives exactly on the saddle\'s stable manifold -- the subspace spanned by positive-curvature eigenvectors, where the negative-curvature components are precisely zero. This stable manifold has measure zero in the full parameter space. Any random perturbation almost surely displaces the iterate off this set. Once displaced, repeated multiplication by (1 + lr * |lambda_neg|) > 1 makes escape inevitable.',
+        'Jin et al. (2017) formalized this: perturbed gradient descent -- which adds a small random perturbation whenever the gradient norm drops below a threshold -- escapes all strict saddles in polynomial time, whereas deterministic gradient descent can require exponential time or may never escape at all. The key insight from random matrix theory (Bray and Dean, 2007) is that high-dimensional random functions have a specific eigenvalue structure at critical points: the fraction of negative eigenvalues increases with the loss value. Near the global minimum, critical points tend to have all-positive eigenvalues (true minima). High up the landscape, most eigenvalues are negative (high-index saddles). This means the optimizer encounters an obstacle course of saddles on the way down, but the saddles near the bottom -- the dangerous ones -- are also the easiest to escape because they have few negative directions and those directions tend to be steep.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Method', 'Saddle escape mechanism', 'Escape speed', 'Per-step cost', 'Practical notes'],
+          rows: [
+            ['SGD (minibatch)', 'Batch noise deposits mass on escape directions', 'Moderate: depends on noise amplitude and |lambda_neg|', 'O(batch_size * d)', 'Free escape mechanism; noise is structured by data; the default choice'],
+            ['SGD + momentum', 'Velocity from before the plateau coasts through the flat region', 'Faster: momentum carries the iterate across the stable manifold', 'O(batch_size * d) + O(d) velocity buffer', 'Smooths escape but can overshoot narrow basins'],
+            ['Adam / RMSProp', 'Per-coordinate adaptive lr amplifies small gradients in flat directions', 'Fast: adaptive scaling detects and exploits low-curvature directions', 'O(batch_size * d) + O(d) moment buffers', 'Often fastest in practice; the adaptive denominator effectively estimates local curvature'],
+            ['Saddle-free Newton', 'Divides step by |lambda| instead of lambda; removes sign-flip trap', 'Very fast: uses curvature magnitude directly', 'O(d^2) to O(d^3) for Hessian computation', 'Theoretically clean but impractical at modern model sizes; approximations (e.g., Hessian-vector products) help'],
+          ],
+        },
+        'Escape via minibatch noise is free in compute -- you are already paying for SGD. The cost is indirect: more noise helps escape but raises gradient variance, which slows convergence near a good basin. Larger batch sizes reduce noise and slow escape but give more stable convergence. This is one reason practitioners use learning-rate warmup (small lr at the start lets the optimizer settle, then larger lr amplifies escape) and batch-size schedules (small batches early for exploration, large batches late for precision).',
+        'Perturbed gradient descent (Jin et al.) adds explicit detection: when ||gradient|| < epsilon, inject a random perturbation of radius r and run for a fixed number of steps. If the loss does not drop, the point is an approximate local minimum. The theoretical escape time is polynomial in d, 1/epsilon, and 1/|lambda_neg|. In practice, nobody runs the explicit perturbation protocol -- the inherent noise of minibatch training handles it.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Saddle escape theory explains the flatline-then-drop signature of training curves. When loss stalls for an epoch and then suddenly drops, the optimizer was likely orbiting a shallow saddle while the escape coordinate compounded below the noise floor. Recognizing this pattern prevents premature early stopping.',
+        'It explains why small-batch SGD often generalizes better than full-batch training. The noise is not just an approximation error -- it is the mechanism that finds descent directions a deterministic optimizer would miss. It explains why full-batch training with the same total gradient computation can converge to worse solutions: less noise means slower escape from saddles that sit above better basins.',
+        'In optimizer design, saddle geometry motivates adaptive methods. Adam\'s per-coordinate second-moment scaling effectively estimates local curvature: coordinates with consistently small gradients (flat directions near a saddle) get amplified learning rates. This is implicit saddle detection. It motivates momentum: velocity accumulated in the descent phase before a plateau carries the iterate through the flat region rather than requiring the optimizer to rebuild motion from a vanishing gradient.',
+        'In research, explicit saddle surfaces are useful test problems for new optimizers. An optimizer that only minimizes gradient norm can certify a saddle as a success. Testing on known saddle landscapes reveals whether the optimizer has a real escape mechanism or just an early stopping criterion.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The strict saddle theory requires at least one eigenvalue to be bounded away from zero in the negative direction. Non-strict saddles -- critical points where the Hessian has eigenvalues very close to zero but not clearly negative -- break the exponential escape story. The multiplier (1 + lr * |lambda_neg|) is barely above one, so escape takes an impractical number of steps. Real loss landscapes have regions of near-zero curvature that are neither clean saddles nor clean minima.',
+        'Noise helps escape but hurts convergence. Near a narrow optimum late in training, the same minibatch noise that escaped saddles earlier now bounces the iterate around the basin floor. This is why learning-rate decay works: reducing lr shrinks both the step size and the effective noise, trading exploration for precision. The saddle story does not tell you when to stop exploring.',
+        'The theory is local. It describes behavior in a neighborhood where the quadratic Taylor approximation holds. Real loss surfaces are not quadratic, and the basin structure far from the saddle determines where the escaping iterate actually lands. Escaping a saddle is necessary but not sufficient -- the optimizer still needs to find a good basin, and nothing in the saddle escape mechanism guarantees that.',
+        'Second-order fixes (saddle-free Newton, cubic regularization) are theoretically clean but computationally impractical at modern scale. Computing or approximating the Hessian for a model with millions or billions of parameters costs O(d^2) memory or requires careful Hessian-vector product tricks. In practice, the field has settled on first-order methods with implicit curvature estimation (Adam, LAMB, Shampoo) rather than explicit Hessian computation.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Dauphin, Pascanu, Gulcehre, Cho, Ganguli, Bengio. "Identifying and attacking the saddle point problem in high-dimensional non-convex optimization." NeurIPS 2014. The paper that reframed deep learning optimization from "bad local minima" to "proliferating saddle points." Introduced saddle-free Newton.',
+            'Bray and Dean. "Statistics of critical points of Gaussian random fields on large-dimensional spaces." Physical Review Letters, 2007. The random matrix theory result connecting critical point index to loss value.',
+            'Jin, Ge, Netrapalli, Kakade, Jordan. "How to escape saddle points efficiently." ICML 2017. Proved that perturbed gradient descent escapes all strict saddles in polynomial time.',
+            'Ge, Huang, Jin, Yuan. "Escaping from saddle points -- online stochastic gradient for tensor decomposition." COLT 2015. Early formal result on SGD escaping saddle points.',
+            'Li, Tai, E. "Stochastic modified equations and adaptive stochastic gradient algorithms." ICML 2017. Connects SGD noise structure to the modified loss landscape the optimizer implicitly follows.',
+          ],
+        },
+        'Study Gradient Descent first if the update rule w <- w - lr * gradient still feels mechanical. Then study The Hessian: Curvature & Newton\'s Step to understand eigenvalues, local quadratic shape, and why Newton is attracted to saddles. Loss Landscapes & Optimization Geometry gives the larger map: basins, barriers, sharpness measures, and why 2D contour plots are both useful and misleading.',
+        'For the practical escape toolbox, study Momentum, RMSProp & Adam -- those topics explain the velocity and adaptive-scaling mechanisms that make real training work. For the mathematical underpinning, random matrix theory (Wigner semicircle law, GOE eigenvalue distribution) explains why eigenvalue sign statistics follow the pattern Dauphin et al. observed.',
+      ],
+    },
+  ],
 };

@@ -175,6 +175,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        "Read the animation as the execution trace for Capability Security & Attenuation. A primer on capability security: unforgeable references, least authority, delegation, attenuation, revocation, membranes, and confused-deputy resistance..",
+        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
+        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+      ],
+    },
+    {
       heading: 'Problem',
       paragraphs: [
         `Most software security bugs are not caused by a program needing no authority at all. They are caused by a program receiving more authority than the current job requires. A markdown previewer needs to read one document. A formatter needs to read a source file and write a replacement buffer. A package installer may need network access, a cache directory, and a narrow write path. If all of those components inherit the whole filesystem, process environment, credential store, and network by default, then a small bug or malicious dependency can exercise power that had nothing to do with the task.`,
@@ -182,7 +191,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Naive design',
+      heading: 'The obvious approach',
       paragraphs: [
         `The usual first design is an access-control list. Each protected object has a table that says which users, groups, roles, or service accounts may perform which operations. On every operation, the resource asks whether the caller is on the list. This is a useful model for many durable authorization problems. A document service really does need to answer questions like whether user 123 can comment on document 456 because of a team, folder, organization, or sharing relation.`,
         `But ACL thinking becomes awkward for local delegation. Suppose Alice has a file handle and wants Bob, an untrusted plugin, to format exactly that file. Editing a global permission table to represent this one temporary interaction is too broad. Bob may run under the same user account as Alice. Bob may be able to call ambient APIs that never mention the current file. The table may answer the identity question correctly while the runtime still gives Bob too many paths to act.`,
@@ -196,7 +205,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         `A capability is both designation and authority. Designation means the reference names the object. Authority means the holder may use the operations exposed through that reference. Those two facts are intentionally fused. You do not first name an object by a global string and then ask a separate access-control table whether you may use it. You use the object through the reference you were given.`,
         `This makes security look like a graph problem. Actors, services, resources, proxies, and revokers are nodes. Capability references are directed edges. If Alice sends Bob a reference, delegation adds an edge from Bob to the object or to a proxy in front of the object. If Bob never receives the edge and cannot forge it, Bob cannot use that path. Least authority becomes a construction rule: build the graph so every component receives only the edges needed for the work it was asked to perform.`,
@@ -204,7 +213,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
         `The smallest capability system needs only a few pieces. First, references must be unforgeable. Code may receive a reference, store it, call it, or pass it on, but it may not invent a working reference from an arbitrary string. Second, objects must avoid ambient escape hatches. If every object can reach global filesystem and network APIs, then the visible graph is a lie. Third, delegation must be ordinary message passing: a holder of a capability can introduce another actor to that capability by sending the reference.`,
         `Attenuation is usually implemented with a proxy. The proxy holds the stronger target reference privately and exposes a smaller surface. A read-only file proxy forwards read calls and rejects write calls. A path-limited directory proxy checks that every requested child path stays under an allowed prefix. A budget proxy decrements a counter before forwarding. A logging proxy records method, caller, and resource before allowing the call. The delegate receives the proxy, not the original object, so all of its calls pass through the narrowing policy.`,
@@ -237,7 +246,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and behavior',
       paragraphs: [
         `The runtime cost is extra indirection. Proxies add method calls. Membranes add wrapper allocation and identity bookkeeping. Revocation adds a branch on the forwarding path. Audit, budget, and time checks add state. In a fine-grained object graph, those costs can matter. In many security-sensitive systems, the cost is acceptable because the alternative is broad authority with weak confinement.`,
         `The engineering cost is discipline. A single unrestricted global can bypass the whole model. Reflection, dynamic module loading, native extensions, process-wide credentials, shared mutable singletons, and raw bearer URLs all need careful treatment. Capability security is easiest when the language or runtime helps: object references are unforgeable, imports are controlled, and dangerous authority is not placed in the global namespace by default.`,
@@ -245,7 +254,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         `Capabilities win in plugin systems, browser APIs, mobile permissions, sandboxed agents, distributed actors, object stores, build systems, and job runners. In all of these settings, the caller can hand a component narrow task authority instead of letting it inherit a root context. A test runner can receive a temporary directory capability. A browser tab can receive a handle to one selected file. An agent tool can receive a budgeted, audited API reference.`,
         `They also win when delegation is frequent and local. Passing a read-only, time-limited reference to one worker is easier to reason about than updating a shared role that may affect many future calls. The graph edge makes the authority visible in the program structure. That visibility is valuable for reviews because the reviewer can ask why this object received this reference and whether a weaker proxy would have been enough.`,
@@ -260,11 +269,74 @@ export const article = {
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         `Primary references include Capability Myths Demolished, the ERights capability material, and Dennis and Van Horn's work on programming semantics for multiprogrammed computations. For a modern systems view, compare object capabilities with sandbox APIs, browser file handles, mobile permission grants, and service-to-service credential minting.`,
         `Study Zanzibar Authorization Case Study for durable relationship authorization, OAuth PKCE Token Lifecycle Case Study and JWT Verification for bearer-token systems, Macaroon Caveat Chain Case Study and UCAN Delegation Proof Chain for attenuated credentials, Agent Tool Permission Lattice for explicit tool authority, and Seccomp BPF Sandbox Policy for process-level confinement. The useful next question is how a system decides when to mint a capability, how narrow it can be, and how every escape path is closed.`,
       ],
     },
-  ],
+      {
+      heading: 'Why this exists',
+      paragraphs: [
+        "State the real constraint this topic fixes before introducing the mechanism.",
+        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
+        "Without that, every optimization appears decorative.",
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
+        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
+        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+      ],
+    },
+
+    {
+      heading: 'Frame-by-frame checkpoints',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
+            'State the invariant that must remain true before the next frame starts.',
+            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
+            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you state one operation-level invariant in one sentence?',
+            'Can you derive the time cost from the frame sequence without referencing external formulas?',
+            'Can you name one hidden edge case where the naive implementation fails?',
+            'Can you transfer this mechanism to one system from a different domain?',
+          ],
+        },
+      ],
+    },
+
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
+        'Use this topic as a checkpoint: if you can explain why Capability Security & Attenuation moves from input to output in the animation and where it fails, you are ready for the next topic.',
+      ],
+    },
+
+      {
+        heading: 'Sources and study next',
+        paragraphs: [
+          'Read one primary source, one implementation source, and one production case where this idea appears.',
+          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
+          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
+        ],
+      },
+],
 };

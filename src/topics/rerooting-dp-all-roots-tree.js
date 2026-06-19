@@ -338,68 +338,6 @@ export function* run(input) {
   else throw new InputError('Pick a rerooting-DP view.');
 }
 
-const legacyArticle = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'Rerooting DP is a tree dynamic-programming technique for problems that ask for an answer at every possible root. Instead of running a full DFS from every node, it computes one rooted DP and then moves the root across each edge in constant or near-constant time.',
-        'The reasonable first attempt is brute force: pick a root, run a traversal, compute the score, then repeat for the next root. That is not foolish; it directly matches the question. The wall is duplicated work. Neighboring roots see almost the same tree, and rerooting exists to reuse that near-identical state instead of paying O(n) again for each candidate.',
-        'The common shape is two passes. A postorder pass computes subtree information. A preorder pass sends parent-side information into each child, allowing the answer for the child-rooted tree to be derived from the parent-rooted answer.',
-        'This topic uses the sum of distances from each node to all other nodes because the reroot formula is visible: moving the root into a child subtree makes nodes inside that subtree one step closer and all other nodes one step farther.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Choose any root and run a DFS. For sum of distances, store size[u], the number of nodes in u\'s subtree, and down[u], the sum of distances from u to nodes in that subtree. A child c contributes down[c] + size[c], because every node in c\'s subtree is one edge farther from u than from c.',
-        'After the first pass, ans[root] is known. For an edge u to child v, rerooting from u to v changes distances in two groups. The size[v] nodes in v\'s subtree become one closer, and the n - size[v] nodes outside become one farther. Therefore ans[v] = ans[u] - size[v] + (n - size[v]), often written ans[v] = ans[u] + n - 2 * size[v].',
-        'Why it works: crossing one edge is the only thing that changes. Every node on the child side loses exactly one unit of distance; every other node gains exactly one. No individual path has to be recomputed because the edge cut partitions all vertices into those two groups.',
-        'More general rerooting DPs use a merge operation over child contributions. To send information to one child, the parent must combine every contribution except that child plus the parent-side contribution. Prefix and suffix folds are the standard way to make that exclusion O(1) per child after linear preprocessing.',
-      ],
-    },
-    {
-      heading: 'Legacy visual note',
-      paragraphs: [
-        'Read the first pass as gathering facts upward from children to parent. Each subtree answer is local to the original root. The second pass is the rerooting move: carry the outside-of-subtree contribution down so every node can act as if it were the root.',
-        'The beginner mistake is recomputing a full DFS from every root. Rerooting works because neighboring roots differ by one edge. The animation shows how to reuse almost all work when the root crosses that edge.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'For the distance-sum example, the runtime is O(n): one postorder pass, one preorder reroot pass, and constant work per edge. Memory is O(n) for sizes, down values, answers, and the adjacency list.',
-        'The naive alternative is O(n^2): run a traversal from each root candidate. Rerooting is the difference between asking every root from scratch and treating neighboring roots as closely related states.',
-        'For generic rerooting, the cost depends on the combine operation. If child contributions can be merged associatively and excluded efficiently with prefix/suffix folds, the usual result is still linear or O(n log n) if the child data structure has logarithmic update costs.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A telemetry platform has a tree-shaped edge network and needs to choose one collector location. The cost of a collector is total hop distance from every site to that collector. Recomputing distances from every candidate site repeats almost the same work n times.',
-        'Rerooting scores every candidate in one sweep. The first pass computes subtree sizes and the score for an arbitrary hub. The second pass moves that score across every edge. In the example animation, node 1 scores 11, nodes 2 and 3 score 12, node 6 scores 15, and leaf node 7 scores 20. The central hub wins for this cost function.',
-        'The same pattern appears in organization trees, file trees, phylogenetic trees, dependency trees, and UI or scene graphs whenever the question is "what would the answer be if this node were the root?"',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Rerooting does not mean physically reversing the whole tree for each node. It means deriving the neighboring root state from the current root state.',
-        'The formula must match the metric. The simple ans[v] = ans[u] + n - 2 * size[v] formula is for unweighted sum of distances. Weighted edges, max-distance objectives, independent sets, and matching-style DPs need their own transfer equations.',
-        'Another common bug is forgetting the parent-side contribution when moving down. Subtree DP alone only sees descendants under the temporary root. Rerooting becomes correct when every child also receives the information from outside its subtree.',
-        'It also fails when the state cannot exclude one child contribution cheaply. If the combine operation is not associative, not invertible, or too large to summarize with prefix/suffix folds, the second pass may become as expensive as the brute-force method it was meant to replace.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Sources: USACO Guide DP on Trees - Solving For All Roots at https://usaco.guide/gold/all-roots, USACO Guide DP on Trees introduction at https://usaco.guide/gold/dp-trees, and AtCoder ABC222 editorial section on rerooting DP at https://atcoder.jp/contests/abc222/editorial/2763.',
-        'Study Tree Traversals, Memoization, Virtual Tree LCA Compression, Centroid Decomposition, Heavy-Light Decomposition, and Small-to-Large Merging & DSU on Tree next. They are all ways of reusing tree work instead of repeating traversal blindly.',
-      ],
-    },
-  ],
-};
-
 export const article = {
   sections: [
     {
