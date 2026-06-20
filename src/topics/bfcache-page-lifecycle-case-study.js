@@ -490,7 +490,7 @@ export const article = {
             ['Cross-browser surprise', 'Assumes Chromium freeze/resume or Chrome-specific diagnostics exist everywhere', 'Use pageshow/pagehide as the portable path; test target browsers'],
           ],
         },
-        'The unload event is the most important blocker to remove. Chrome and Firefox desktop have treated unload listeners as BFCache-hostile; Chrome\\u2019s current docs say unload is being gradually deprecated by changing the default so handlers stop firing unless a page opts back in. The replacement is not a bigger unload handler. It is visibilitychange for last reliable save points, pagehide for navigation away, and pageshow for restore.',
+        'The unload event is the most important blocker to remove. Chrome and Firefox desktop have treated unload listeners as BFCache-hostile; current Chrome docs say unload is being gradually deprecated by changing the default so handlers stop firing unless a page opts back in. The replacement is not a bigger unload handler. It is visibilitychange for last reliable save points, pagehide for navigation away, and pageshow for restore.',
         'Some failures are not bugs. A browser may evict an entry under memory pressure. It may refuse to cache a page with sensitive cache policy or unsafe active resources. It may reject a frame tree where an iframe uses a blocking API. A correct application still works after reload; BFCache is a performance and state-fidelity optimization, not the only correct path.',
       ],
     },

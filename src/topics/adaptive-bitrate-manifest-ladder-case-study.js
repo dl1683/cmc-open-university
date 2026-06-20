@@ -218,6 +218,7 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         'Video playback wants a steady timeline, but the network does not provide one. Throughput changes as a phone moves between cells, Wi-Fi competes with other devices, a CDN cache misses, or a browser shares bandwidth with other tabs. The viewer experiences time continuously: if the next two seconds of video do not arrive before playback reaches them, the player stalls. Adaptive bitrate streaming exists to turn an unstable network into a mostly steady viewing experience.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/75/Netflix_icon.svg', alt: 'Streaming service icon', caption: 'Adaptive bitrate streaming enables buffer-free video at any connection speed. Source: Wikimedia Commons, Netflix, Public domain' },
         'The system does that by publishing several encoded versions of the same content and letting the player choose segment by segment. A manifest describes the ladder of renditions, the codecs and resolutions they require, and the playlists or templates that address the media segments. The player then becomes a small controller. It observes download speed, buffer seconds, device limits, and manifest facts, then chooses the representation for the next segment.',
       ],
     },
@@ -225,13 +226,16 @@ export const article = {
       heading: 'The Obvious Approach',
       paragraphs: [
         'The simplest server design is one video file at one bitrate. That worked when content was downloaded before playback or when the audience had predictable connections. It is still a reasonable first thought: one file is easy to cache, easy to test, and easy to reason about. The server does not need a ladder, and the player does not need a switching policy.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Stack_Overflow_icon.svg', alt: 'Network bandwidth variation', caption: 'Fixed-bitrate streaming fails when bandwidth fluctuates. Source: Wikimedia Commons' },
         'The wall is heterogeneity. A bitrate that looks fine on fiber can stall on a train. A bitrate that is safe on a weak connection wastes quality on a large screen with enough bandwidth. A single file also leaves the player with no local move when the network changes mid-session. It can wait, pause, or fail, but it cannot trade resolution for time. Internet video needs multiple valid futures at each point on the timeline.',
+        { type: 'callout', text: 'A 4K stream at 25 Mbps consumes 11 GB per hour. Encoding at every quality level multiplies storage linearly — a 10-rung ladder means 10x the origin storage for every title.' },
       ],
     },
     {
       heading: 'The Core Insight',
       paragraphs: [
         'The core insight is to divide video into aligned segments across a bitrate ladder. Every rendition describes the same timeline, but at different quality, size, codec, or frame-rate choices. If segment 101 is the next two seconds of the movie, the player can request the 360p, 720p, or 1080p version of segment 101 and still continue the same playback timeline. The manifest is the routing table that makes those choices visible.',
+        { type: 'callout', text: 'The client, not the server, chooses quality. Only the client knows its buffer level, screen resolution, and recent throughput measurements. Server-side quality decisions always arrive too late.' },
         'The invariant is timeline compatibility. Switchable renditions must line up closely enough that the player can move between them without a visible jump, audio drift, missing frames, or decoder break. ABR is not only picking the highest bitrate below the last speed sample. It is maintaining a buffer while moving through a constrained graph of playable segment choices.',
       ],
     },
@@ -239,6 +243,7 @@ export const article = {
       heading: 'How It Works',
       paragraphs: [
         'A top-level HLS or DASH manifest lists variants. Each variant carries facts such as nominal bandwidth, resolution, codecs, frame rate, audio group, subtitles, DRM requirements, and the URL of a media playlist or segment template. A media playlist then lists segment sequence numbers, durations, URIs, discontinuities, and live-window markers. The player uses those lists as indexes into CDN objects.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching network', caption: 'Video segments travel as packets through variable-bandwidth network paths. Source: Wikimedia Commons, Oddbodz, Public domain' },
         'At startup, the player chooses an initial rendition, often conservatively, because it has little evidence. After each segment download, it measures bytes over time, updates a throughput estimate such as an EWMA, and updates buffer occupancy. It filters variants the device cannot decode, the screen cannot use, the DRM session cannot play, or the manifest marks as unavailable. Then it chooses the next segment representation.',
         'A stable switch policy is asymmetric. It should switch down quickly when buffer is at risk because a stall is worse than a temporary quality drop. It should switch up more cautiously because one good sample may be noise. Many controllers combine throughput estimates, buffer thresholds, hysteresis, startup rules, and quality caps. The best choice is not the highest row in the ladder; it is the row most likely to keep future playback smooth.',
       ],
@@ -254,6 +259,7 @@ export const article = {
       heading: 'Why It Works',
       paragraphs: [
         'The correctness argument is a timing argument. Playback consumes media seconds at a fixed rate. Download adds media seconds to the buffer at a rate determined by segment size and network throughput. If the player keeps choosing segments that download before the buffer reaches zero, playback continues. If a rendition switch preserves the media timeline and decoder constraints, the viewer sees a quality change instead of a discontinuity.',
+        { type: 'callout', text: 'ABR works because human perception is forgiving: viewers tolerate gradual quality drops far better than rebuffering pauses. Trading resolution for continuity is almost always the right call.' },
         'The controller works because it uses buffer as slack. A short throughput drop does not have to cause a stall if the buffer already contains enough future media. A cautious upswitch protects that slack. A fast downshift rebuilds it. The manifest works because it offers precomputed alternatives, so the player can respond locally without asking the server to re-encode video during playback.',
       ],
     },
@@ -261,6 +267,7 @@ export const article = {
       heading: 'Cost and Behavior',
       paragraphs: [
         'ABR moves cost from playback time to packaging time. The publisher has to encode multiple renditions, store more objects, generate manifests, align segments, test codec combinations, and monitor a larger CDN footprint. More ladder rungs improve matching to devices and networks, but every rung adds encoding cost, cache pressure, QA cases, and observability work. A ladder with too few rungs causes either stalls or visible quality waste.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'CDN server infrastructure', caption: 'Each bitrate ladder rung multiplies storage and CDN costs. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0' },
         'Segment duration is another tradeoff. Shorter segments reduce live latency and let the player react sooner, but they increase HTTP request overhead and make throughput samples noisier. Longer segments are easier to cache and estimate, but the player reacts more slowly and live latency grows. Low-latency modes add partial segments and preload hints, which reduce delay but make timing, cache behavior, and failure handling tighter.',
       ],
     },
@@ -268,6 +275,7 @@ export const article = {
       heading: 'Where It Wins',
       paragraphs: [
         'ABR wins for internet video because it matches one catalog to many devices and networks. A phone on cellular, a TV on fiber, a laptop on hotel Wi-Fi, and a live viewer near the edge of the window can all use the same logical stream while selecting different renditions. CDNs like it because segments are ordinary HTTP objects. Players like it because the next decision is local.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Internet topology map', caption: 'ABR algorithms must adapt to diverse network conditions across the global internet. Source: Wikimedia Commons, The Opte Project, CC BY 2.5' },
         'It also wins as an operational model. Startup delay, rebuffering, low quality, oscillation, and live-edge drift can be traced through manifest metadata, segment fetches, buffer health, and switch reasons. A useful ABR event log records manifest version, selected variant, bandwidth label, measured throughput, buffer seconds, dropped frames, gap handling, device filters, and the reason for each switch.',
       ],
     },

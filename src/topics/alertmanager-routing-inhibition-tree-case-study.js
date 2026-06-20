@@ -164,6 +164,7 @@ export const article = {
   sections: [
     { heading: 'Why this exists', paragraphs: [
       'Prometheus decides that an alert expression is active. Alertmanager decides what humans should hear about it. That second step exists because a real outage can create hundreds of related alert instances, repeated notifications, and symptoms from systems that are only downstream of the first failure.',
+      { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Server monitoring infrastructure', caption: 'Production infrastructure generates thousands of alerts — routing and grouping prevent alert fatigue. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0' },
       'The data-structure lesson is label routing. Alert labels are keys, the route tree is a matcher hierarchy, grouping keys batch equivalent alerts, silences are time-bounded predicates, and inhibition rules encode dependency edges between source and target alerts.',
       'Primary sources: Alertmanager overview at https://prometheus.io/docs/alerting/latest/alertmanager/ and configuration reference at https://prometheus.io/docs/alerting/latest/configuration/.',
     ] },
@@ -174,21 +175,25 @@ export const article = {
     { heading: 'Where that fails', paragraphs: [
       'A large outage breaks the direct-page model. One database failure can trigger storage, replica lag, API latency, checkout errors, and host alerts. Sending each instance as its own page turns evidence into noise and slows the responder down.',
       'The failure is not only volume. The system also needs maintenance mutes, repeated-notification control, receiver ownership, and dependency suppression. A flat list of alerts has no place to express those policies safely.',
+      { type: 'callout', text: 'Alert fatigue kills incident response. When every alert fires individually, operators learn to ignore them all. Grouping, inhibition, and silencing are not convenience features — they are safety mechanisms.' },
     ] },
     { heading: 'Core insight', paragraphs: [
       'Treat alert handling as operations over label sets. A route tree maps labels to receivers. A grouping key defines which alert instances belong in the same notification. A silence is a matcher plus a time window. An inhibition rule says that one active source alert can suppress target alerts when selected labels are equal.',
+      { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree', caption: 'Alertmanager routes alerts through a tree of matchers, like a decision tree classifying each alert to its correct receiver. Source: Wikimedia Commons, CC BY-SA 4.0' },
       'That turns alert noise control into a small rule engine. The correctness of the outcome depends less on clever code than on whether labels describe ownership, service boundaries, severity, and dependency scope accurately.',
+      { type: 'callout', text: 'Inhibition encodes causal knowledge: if the network is down, suppress all application alerts that depend on it. Without inhibition, a single root cause generates hundreds of misleading notifications.' },
     ] },
     {
       heading: 'How the visual model teaches it',
       paragraphs: [
-        "In the route-tree view, read each matcher as a branch predicate over the alert's label set. The important question is not which box lights up first; it is which receiver becomes responsible after the alert has passed through defaults, child routes, grouping keys, and continue rules.",
-        "In the noise-control view, follow the alert through three different filters. A silence removes alerts by an explicit human-created matcher. Deduplication recognizes an alert fingerprint that has already notified. Inhibition suppresses a target only when an active source alert proves the same scoped incident is already being handled.",
-        "The marks in the animation are policy decisions. A routed alert has an owner. A grouped alert has been batched with related evidence. A silenced alert is intentionally hidden for a bounded time. An inhibited alert is not gone; it is withheld because a higher-level alert explains it.",
+        'In the route-tree view, read each matcher as a branch predicate over the alert\'s label set. The important question is not which box lights up first; it is which receiver becomes responsible after the alert has passed through defaults, child routes, grouping keys, and continue rules.',
+        'In the noise-control view, follow the alert through three different filters. A silence removes alerts by an explicit human-created matcher. Deduplication recognizes an alert fingerprint that has already notified. Inhibition suppresses a target only when an active source alert proves the same scoped incident is already being handled.',
+        'The marks in the animation are policy decisions. A routed alert has an owner. A grouped alert has been batched with related evidence. A silenced alert is intentionally hidden for a bounded time. An inhibited alert is not gone; it is withheld because a higher-level alert explains it.',
       ],
     },
     { heading: 'How it works', paragraphs: [
       'An incoming alert is first identified by its label set. Alertmanager matches it through the route tree to find a receiver, computes a grouping key such as cluster plus alertname, checks active silences, checks inhibition rules, deduplicates repeated notifications, and applies group timing before sending or suppressing a message.',
+      { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Network topology', caption: 'Alert routing trees mirror the organizational structure of the systems they monitor. Source: Wikimedia Commons, The Opte Project, CC BY 2.5' },
       'The timing knobs are part of the mechanism. Group wait gives related alerts time to arrive before the first notification. Group interval controls updates for an existing group. Repeat interval controls reminders when the incident stays active. Resolved notifications tell receivers when the group has cleared.',
     ] },
     { heading: 'Worked example', paragraphs: [
@@ -197,6 +202,7 @@ export const article = {
     ] },
     { heading: 'Why it works', paragraphs: [
       'The useful invariant is that two alerts with the same grouping key are treated as one notification group until their labels or lifecycle diverge. Deduplication keeps the same alert fingerprint from becoming repeated new work. Inhibition is safe only when the source and target share the labels that prove they refer to the same scope, such as the same cluster.',
+      { type: 'callout', text: 'The routing tree is evaluated top-down with continue semantics. An alert matches the first route whose matchers fit, unless continue:true sends it to additional routes. This gives operators both precision and coverage.' },
       'This is why label discipline matters. Good labels make routing deterministic and inhibition narrow. Bad labels make the tree look correct while it pages the wrong team or hides the wrong symptom.',
     ] },
     { heading: 'Costs and tradeoffs', paragraphs: [
@@ -210,6 +216,7 @@ export const article = {
     ] },
     { heading: 'Where it wins', paragraphs: [
       'Alertmanager wins when many alert instances describe one incident, when ownership can be derived from labels, and when dependency relationships are stable enough to encode. Cluster outages, service-level pages, maintenance windows, and multi-team receiver policies are the natural fit.',
+      { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/38/Prometheus_software_logo.svg', alt: 'Prometheus logo', caption: 'Prometheus and Alertmanager form the standard open-source monitoring and alerting stack. Source: Wikimedia Commons, CNCF, Apache 2.0' },
     ] },
     { heading: 'Where it fails', paragraphs: [
       'It is the wrong tool for deciding whether a metric expression should fire; that belongs in Prometheus rules. It also cannot infer root cause from weak labels. If dependency labels are missing, stale, or too broad, inhibition becomes guesswork and should stay out of the paging path.',
