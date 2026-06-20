@@ -215,6 +215,7 @@ export const article = {
       paragraphs: [
         'Large-scale machine learning is not just a set of equations. A training job has to place tensor operations on CPUs, GPUs, TPUs, and remote workers; move data between them; update state; checkpoint progress; and recover enough information to debug slow or wrong runs.',
         'TensorFlow made that problem explicit by representing computation as a dataflow graph. Nodes are operations, edges are tensors, and stateful nodes hold variables. Once computation is a graph, the runtime can schedule, place, rewrite, partition, and execute it across devices.',
+        {type:'callout', text:'TensorFlow made ML training a schedulable graph so the runtime could reason about tensors, state, placement, and device boundaries before execution.'},
       ],
     },
     {

@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         `A training checkpoint is not a production serving system. It is a set of weights and model metadata. A production LLM endpoint also needs kernels, precision choices, tensor-parallel layout, memory policy, batching policy, observability, rollback, and a way to keep latency inside a service goal while many users generate tokens at the same time.`,
         `TensorRT-LLM is useful to study because it makes those hidden serving decisions explicit. The deployed object is not just the model. It is a built engine, runtime configuration, paged KV cache, scheduler policy, and backend boundary that operations can test, canary, and roll back.`,
+        {type:'callout', text:`TensorRT-LLM serving is a compiled engine contract plus a live scheduler whose real capacity is bounded by KV memory as much as compute.`},
       ],
     },
     {

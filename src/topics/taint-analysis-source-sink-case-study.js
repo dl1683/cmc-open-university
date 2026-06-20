@@ -138,6 +138,7 @@ export const article = {
         `Security bugs often appear when untrusted data crosses a trust boundary and later reaches an operation that treats the value as authority. An HTTP parameter becomes SQL text. A path segment becomes a filesystem path. A header becomes a redirect URL. Retrieved text becomes an LLM tool instruction. The value may pass through helpers, objects, arrays, promises, and string builders before the dangerous call happens.`,
         `Taint analysis exists to make that path visible. It marks values from sources as untrusted, propagates that influence through program operations, and reports when taint reaches a dangerous sink without an approved sanitizer or safe API boundary. The useful output is not merely "line 42 is bad." It is a source-to-sink path that a reviewer can inspect.`,
         `This matters because manual review does not scale across modern applications. Searching for database calls, shell execution, template rendering, file access, SSRF-capable clients, or tool calls finds the endpoints, but not the data provenance. Taint analysis turns the question into graph reachability with security-specific models: where does untrusted data start, how can it move, where is it dangerous, and which transformations change its role?`,
+        {type:'callout', text:`Taint analysis turns security review into reachability over trust labels, with sources, sinks, sanitizers, and summaries defining the useful graph.`},
       ],
     },
     {

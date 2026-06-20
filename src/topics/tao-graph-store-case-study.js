@@ -213,6 +213,8 @@ export const article = {
         'TAO is Facebook\'s published distributed data store for the social graph. The 2013 USENIX paper describes a system built for a workload with enormous read volume, graph-shaped data, geographic distribution, and a fixed set of product-facing queries.',
         'The problem was not "store a graph" in the abstract. Product code needed fast access to nearby graph facts: this user authored this post, this post has these comments, this photo has these likes, this page has these followers. Those reads had to be low-latency and predictable at Facebook scale.',
         'TAO matters because it shows a production system shaped around a narrow data model. It is not general SQL, not a full graph query language, and not just a cache. It is a storage service whose API matches the hot read paths.',
+        {type:'callout', text:'TAO wins by narrowing the graph API until caching, refill, and consistency become workload-specific mechanisms.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/0/05/Sna_large.png', alt:'Social network graph with dense and sparse clusters of connected nodes.', caption:'Social network graph as a visual proxy for TAO object-association neighborhoods. Image: DarwinPeacock/GUESS, Wikimedia Commons, CC BY 3.0.'},
       ],
     },
     {

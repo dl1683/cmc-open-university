@@ -173,6 +173,8 @@ export const article = {
         'A full statevector stores one complex amplitude for every basis state. That is exact and simple, but memory doubles with each qubit. A 40-qubit vector is already far beyond a laptop. The brute-force representation treats every circuit as if it needs the full wavefunction at every step.',
         'Many circuits have more structure than that. Gates are local. Wires connect specific qubits. Some circuits create little entanglement across certain cuts. Tensor networks try to exploit that structure by representing the circuit as a graph of tensors and shared indices rather than one flat 2^n array.',
         'The goal is not to make quantum simulation easy in general. It is to avoid the statevector explosion when the circuit graph and the requested output allow the sums to be rearranged cheaply.',
+        {type:'callout', text:'Tensor-network simulation replaces qubit-count panic with a contraction-order problem over graph structure and requested outputs.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/79/Tensor_train.png', alt:'Tensor train diagram showing a high-order tensor decomposed into a chain of smaller tensors.', caption:'Tensor train technique. Image: AtellK, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

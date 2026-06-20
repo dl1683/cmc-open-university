@@ -233,6 +233,8 @@ export const article = {
         'Synthetic control exists for interventions that happen to one visible unit instead of many randomly assigned units. A state passes a law, a city changes policing policy, a platform launches a market rule, or one store receives a new operating model. The analyst still needs a counterfactual: what would the treated unit have looked like if the intervention had not happened?',
         'The constraint is that no untreated unit is usually a perfect comparison. A neighboring state may share geography but not history. A similar store may share size but not demand mix. A country may share region but not institutions. Synthetic control answers by building a comparison unit from weighted untreated donors, then asking whether that weighted unit tracked the treated unit before the intervention.',
         'The output is not only a chart. A serious synthetic-control design produces a donor pool, a weight vector, pre-treatment fit diagnostics, a post-treatment gap path, placebo comparisons, and sensitivity checks. Those objects make the estimate inspectable. Without them, the method collapses into a line chart with causal language attached.',
+        {type:'callout', text:'The donor-weight vector is the causal design object because it turns a missing counterfactual into an auditable mix of real untreated histories.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c4/SCMGermany.png', alt:'Line chart comparing West Germany GDP with a synthetic counterfactual around reunification.', caption:'Synthetic control comparison for German reunification. Image: SCMGermany.png, Wikimedia Commons.'},
       ],
     },
     {

@@ -203,6 +203,8 @@ export const article = {
       paragraphs: [
         'A TCP server must admit new connections before application code can read or write them. That admission path has to handle incomplete handshakes, completed sockets waiting for user space, bursts of reconnecting clients, and abuse such as SYN floods.',
         'The important point is that a listening socket is not a connected socket. A SYN creates incomplete handshake state. After the final ACK arrives, a full connected socket waits in the accept queue. accept() removes one connected socket and returns a new file descriptor.',
+        {type:'callout', text:'A listening socket is an admission pipeline where handshake pressure and application-drain pressure live in different queues.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/32/Tcp_normal_2.png', alt:'TCP connection diagram showing SYN, SYN-ACK, and ACK messages between client and server.', caption:'Usual TCP connection scenario. Image: N-21, Wikimedia Commons, CC BY-SA 3.0/GFDL.'},
       ],
     },
     {

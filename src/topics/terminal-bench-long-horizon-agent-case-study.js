@@ -202,6 +202,7 @@ export const article = {
         `Many agent benchmarks ask whether a model can answer a question, choose an option, or patch a file. Terminal work asks a harder operational question: can an agent use a real shell over time, inspect an unfamiliar environment, run commands, repair setup, create artifacts, keep budget, and satisfy an external verifier?`,
         `Terminal-Bench exists because the command line is a different interface from chat. A final answer can sound correct while the filesystem is unchanged, a service is not running, or a generated artifact is missing. Terminal tasks force the agent's claims to meet executable state.`,
         `The Terminal-Bench 2.0 paper frames this as long-horizon, realistic work in terminal environments, with tasks that include a unique environment, human-written solution, and tests for verification. The important lesson for data-structure students is that the benchmark is not one prompt. It is a composed system with manifests, sandboxes, command ledgers, artifacts, budgets, verifiers, scores, and audit traces.`,
+        {type:'callout', text:`Terminal-Bench treats agent skill as state-changing execution, where manifests, traces, artifacts, and verifiers replace final-answer trust.`},
       ],
     },
     {

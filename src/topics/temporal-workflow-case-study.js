@@ -214,6 +214,8 @@ export const article = {
         'Many business processes last longer than one process, one request, or one deploy. An order may wait for payment, fraud review, inventory, shipment, and customer email. An infrastructure job may wait for cloud APIs, retries, approvals, and timeouts. If that logic is spread across queues, cron jobs, status rows, and repair scripts, the system becomes hard to reason about after a crash.',
         'Temporal exists to make long-running logic durable. It records workflow progress as an event history. Workers can crash, restart, scale down, or be replaced because the workflow state is reconstructed from history rather than from live process memory.',
         'The hard problem is not just running code later. It is preserving the boundary between decisions already made, side effects already completed, timers already fired, signals already received, and work that still needs to happen.',
+        {type:'callout', text:'Temporal makes workflow state recoverable by treating event history as the durable program boundary and workers as replaceable interpreters.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/af/BPMN-AProcessWithNormalFlow.svg', alt:'BPMN process diagram with start event, timer, task, gateway, message task, and data object.', caption:'BPMN normal-flow process diagram as a visual proxy for workflow orchestration. Image: Mikelo Skarabo, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

@@ -236,6 +236,8 @@ export const article = {
       paragraphs: [
         'This case study exists because "deep learning wins everything" is a bad default for structured tables. Fraud, credit risk, churn, pricing, medical prediction, operations, and product analytics often start from columns that already mean something: age, balance, lab value, region, account age, event count, debt ratio, or support history.',
         'The NeurIPS paper Why do tree-based models still outperform deep learning on tabular data? argues that tree ensembles often remain strong because their inductive bias fits ordinary tables: https://arxiv.org/abs/2207.08815. The lesson is not anti-neural. The lesson is to match the model class and benchmark protocol to the data shape.',
+        {type:'callout', text:'On ordinary tables, the winning architecture is often the one whose bias matches column semantics and benchmark protocol, not the newest model family.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/87/Recursive_Splitting.png', alt:'Recursive splitting diagram showing feature-space partitions and the corresponding decision tree.', caption:'Recursive binary splitting and its matching decision tree. Image: Rossc0827, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
