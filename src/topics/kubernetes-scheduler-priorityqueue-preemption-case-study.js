@@ -341,6 +341,7 @@ export const article = {
       paragraphs: [
         'The Kubernetes scheduler is the control-plane component that turns a pending Pod into a Pod bound to a node. That sounds like a priority queue problem, but the real constraint is cluster state. The scheduler must consider CPU, memory, devices, volumes, taints, tolerations, affinity, topology spread, disruption policy, and plugin state while thousands of cluster events are arriving.',
         'A plain queue would waste the control plane. Many pending Pods cannot fit right now, and retrying them on every loop burns scheduler time that could place work that is actually ready. kube-scheduler therefore separates ready work, delayed retry work, unschedulable work, in-flight work, and nominated nodes. The data structure is a scheduling memory, not just a heap.',
+        {type:'callout', text:'The scheduler queue is a memory of why placement failed, so retries happen only when time or cluster events make a new answer plausible.'},
       ],
     },
     {

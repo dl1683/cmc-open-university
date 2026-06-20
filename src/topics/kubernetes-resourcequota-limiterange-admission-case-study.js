@@ -214,6 +214,7 @@ export const article = {
         'A shared Kubernetes cluster needs a budget before the object is stored. If the API server accepts every Pod, Service, ConfigMap, or PersistentVolumeClaim, one namespace can consume control-plane objects, requested CPU, memory, storage, or scarce extended resources before other teams notice.',
         'The scheduler cannot be the first policy boundary. Scheduling answers "can this Pod fit on some node?" Namespace policy answers "is this team allowed to create this object at this cost?" That second question must be answered on the write path, before etcd records the object as desired state.',
         'ResourceQuota sets hard namespace limits for aggregate resource use and object counts. LimitRange sets per-object defaults and min/max rules. Together they turn a vague create request into an accountable object and then decide whether the namespace can afford it.',
+        {type:'callout', text:'LimitRange and ResourceQuota move tenant fairness onto the API write path, where object shape and namespace budget can be checked before desired state is stored.'},
       ],
     },
     {

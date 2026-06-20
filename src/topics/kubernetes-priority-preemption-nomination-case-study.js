@@ -190,6 +190,7 @@ export const article = {
       paragraphs: [
         'The priority queue view shows how PriorityClass values control the order Pods leave the scheduling queue, and what happens when the front-of-queue Pod cannot find a feasible node. Active cells are the current decision point. Found markers are placement outcomes the scheduler has committed to. Visited markers are candidates already ruled out by constraint checks.',
         'The preemption gap view traces the timeline between nomination and binding. Watch for the moment when a higher-priority Pod arrives during the gap and steals the nominated slot. That race is the most common source of confusion in production preemption debugging.',
+        {type:'callout', text:'Preemption is a conditional scheduling proof, not a blank check to remove lower priority Pods.'},
         {
           type: 'note',
           text: 'At each frame, ask three questions: what changed, why the scheduler is allowed to make that move, and what could go wrong between now and the next frame. The gap between nomination and binding is where most real-world surprises live.',

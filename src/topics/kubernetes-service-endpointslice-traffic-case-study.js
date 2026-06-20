@@ -195,6 +195,8 @@ export const article = {
       paragraphs: [
         'Pods are temporary. They get created, rescheduled, replaced, marked unready, and deleted. Their IPs are implementation details, but clients need a stable way to reach the logical application.',
         'A Service is that stable contract. EndpointSlices are the scalable backend index behind it. They tell the datapath which endpoints currently belong to the Service and which ones should receive ordinary traffic.',
+        {type:'callout', text:'A Service separates stable identity from changing backend membership, while EndpointSlices shard that membership so traffic state can update without rewriting one huge record.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/63/Pod-networking.png', alt:'Diagram of three Kubernetes Pods with containers connected through Service X and Pod IP addresses.', caption:'Kubernetes pod networking and service resolution diagram by Marvin The Paranoid, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

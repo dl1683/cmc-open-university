@@ -216,7 +216,8 @@ export const article = {
       paragraphs: [
         "Kubernetes exists to run desired state, not to run one command and hope the cluster stays that way. A user says there should be three replicas, a service endpoint, a certificate, a volume, or a namespace policy. The cluster then has to keep that intent true while nodes fail, containers crash, networks partition, and operators change objects at the same time.",
         "Reconciliation is the control-loop pattern that makes this possible. Desired state is stored in the API server and etcd. Controllers observe that state, compare it with actual state, and make small repairs. If reality already matches the spec, the controller does nothing. If reality has drifted, the controller issues another create, update, delete, or status write.",
-        "The important shift is that Kubernetes treats failure as normal. A controller can miss a watch event, crash after creating a child object, see a stale cache, or lose a race with another writer. The system still has a path back to correctness because the next reconcile pass reads durable state again and computes the gap from scratch."
+        "The important shift is that Kubernetes treats failure as normal. A controller can miss a watch event, crash after creating a child object, see a stale cache, or lose a race with another writer. The system still has a path back to correctness because the next reconcile pass reads durable state again and computes the gap from scratch.",
+        {type:"callout", text:"Reconciliation works because the desired state survives worker failure and every retry recomputes the gap from durable cluster truth."}
       ],
     },
     {

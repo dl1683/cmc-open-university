@@ -190,6 +190,7 @@ export const article = {
       paragraphs: [
         'A Kubernetes cluster is shared infrastructure. Some nodes are ordinary general-purpose capacity. Other nodes are expensive, sensitive, or temporarily unhealthy: GPU nodes, high-memory nodes, storage nodes, control-plane nodes, compliance pools, and nodes under pressure. The platform needs a way for those nodes to say that ordinary Pods should stay away unless they carry an explicit exception.',
         'Labels and affinity can attract Pods to a node pool, but attraction is not protection. A web Pod with no selector might still land on an expensive GPU node if the scheduler sees enough free CPU and memory. A health-related node condition also needs a way to repel new Pods or evict running Pods. Taints and tolerations solve the negative side of placement.',
+        {type:'callout', text:'Taints are node-owned repulsion and tolerations are Pod-owned exceptions, so admission to a pool stays separate from attraction, scoring, and resource fit.'},
       ],
     },
     {

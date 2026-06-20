@@ -192,6 +192,8 @@ export const article = {
         'Pods often need to call the Kubernetes API. A controller watches Pods, an operator patches custom resources, a backup agent reads VolumeSnapshots, and an admission helper may inspect configuration. The cluster needs a workload identity for each of those calls before it can decide whether the call should be allowed.',
         'A ServiceAccount supplies that workload identity. A Pod can run as a named ServiceAccount, receive a projected token, and authenticate to the API server as that account. RBAC then answers a separate question: is this authenticated subject allowed to perform this verb on this resource in this scope?',
         'The boundary matters because Kubernetes API access is operational authority. A token that can list Secrets, patch Deployments, create Pods, or update RoleBindings is not just a login artifact. It is a capability to change the cluster. The design goal is to give each workload the smallest usable slice of that authority.',
+        {type:'callout', text:'ServiceAccount tokens prove workload identity, while RBAC keeps valid identity from becoming broad cluster authority.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c2/Role-based_access_control.svg', alt:'Diagram showing subjects, roles, permissions, sessions, operations, and role constraints in RBAC.', caption:'Role-based access control elements diagram by Babbage, CC0, via Wikimedia Commons.'},
       ],
     },
     {

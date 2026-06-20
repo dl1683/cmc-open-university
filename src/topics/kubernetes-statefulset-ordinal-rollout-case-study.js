@@ -206,6 +206,7 @@ export const article = {
       paragraphs: [
         'A Deployment manages interchangeable replicas. That is the right model for stateless web servers, but it is the wrong model for systems where replica identity carries data, membership, or bootstrapping meaning.',
         'StatefulSet exists for Pods that need a stable place in the application. Each replica gets an ordinal, a stable network identity, and stable storage. The controller can then scale and roll out changes without pretending that `db-0` and `db-3` are the same member.',
+        {type:'callout', text:'StatefulSet makes ordinal identity part of correctness, so replacement and rollout preserve the name, storage, and order that stateful systems depend on.'},
       ],
     },
     {

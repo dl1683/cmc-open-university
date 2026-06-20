@@ -205,6 +205,7 @@ export const article = {
       paragraphs: [
         'Cluster maintenance becomes dangerous when it sees Pods but not the service behind them. A node drain, upgrade, descheduler action, or operator script can evict several replicas before replacements become ready. The ReplicaSet or StatefulSet may eventually heal the object count, but the user-facing service can still fall below its availability target during the gap.',
         'A PodDisruptionBudget is Kubernetes saying that planned disruption needs an application-level budget. It gives the workload owner a way to state how much voluntary disruption the workload can tolerate while maintenance proceeds.',
+        {type:'callout', text:'A PDB turns node maintenance into explicit availability accounting, so voluntary eviction spends health slack only while the selected workload can still serve.'},
       ],
     },
     {

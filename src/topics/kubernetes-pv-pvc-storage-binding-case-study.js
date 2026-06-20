@@ -174,6 +174,7 @@ export const article = {
       paragraphs: [
         'Kubernetes is good at replacing Pods. That is exactly why storage needs a separate contract. If a database Pod dies, the replacement should not get a fresh empty directory just because the compute object was disposable.',
         'PersistentVolumeClaims give workloads a stable storage request. PersistentVolumes represent the concrete durable asset. StorageClasses describe the provisioning policy: which driver creates the volume, which parameters it uses, how deletion is handled, whether expansion is allowed, and when topology is chosen.',
+        {type:'callout', text:'PV and PVC binding separates the durable storage request from the replaceable Pod, so compute churn does not become data loss.'},
       ],
     },
     {
