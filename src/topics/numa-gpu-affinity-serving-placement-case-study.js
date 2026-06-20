@@ -233,6 +233,8 @@ export const article = {
       paragraphs: [
         'NUMA GPU affinity is the placement discipline that keeps CPU worker threads, pinned host buffers, NICs, GPUs, and nearby cache tiers on the shortest practical path. In LLM serving, bad affinity can turn a fast model into a tail-latency problem because host copies, control traffic, page faults, or RDMA setup cross the wrong socket.',
         'This topic exists because hardware topology is easy to ignore when the code still works. A request can complete while paying an avoidable inter-socket hop. At low load that tax may hide in the noise. Under concurrency it can bend p99 and make the serving stack look worse than the model or engine actually is.',
+        {type:'callout', text:'Affinity makes hardware topology part of the serving algorithm by scoring worker, memory, GPU, NIC, and cache placement as one path.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/e/ee/NUMA-scheme-fr.svg', alt:'Diagram of processors connected to local memory modules and an interconnect.', caption:'NUMA architecture diagram by Topeil, Wikimedia Commons, CC0.'},
       ],
     },
     {

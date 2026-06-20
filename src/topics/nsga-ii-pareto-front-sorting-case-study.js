@@ -207,6 +207,8 @@ export const article = {
       paragraphs: [
         `NSGA-II exists because many real optimization problems do not have one honest score. A model-routing policy may trade latency, cost, accuracy, and safety risk. A robot controller may trade speed, energy, stability, and clearance. A search index may trade recall, memory, build time, and query latency. Calling one candidate best before the policy is known hides the actual decision.`,
         `The point of multi-objective optimization is to keep that decision visible. Instead of collapsing everything into one weighted score too early, NSGA-II evolves a population of candidates and ranks them by Pareto dominance. The result is a frontier of tradeoffs: cheaper but worse, slower but safer, more accurate but more expensive, and knee points where one metric improves sharply before another becomes costly.`,
+        {type:'callout', text:`NSGA-II preserves the tradeoff surface by ranking dominance layers first and using crowding distance only when capacity forces a choice.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b7/Front_pareto.svg', alt:'Pareto front diagram showing dominated points and frontier points.', caption:'Pareto front diagram by Nojhan, Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {

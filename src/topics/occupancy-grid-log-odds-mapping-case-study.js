@@ -190,6 +190,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The grid-update view shows four cells receiving one scan. Active cells (blue) received free-space evidence and moved negative. Found cells (green) received hit evidence and moved positive. The saturated cell shows clamping in action: its prior was already high, so the update is absorbed rather than pushing belief further.',
+        {type:'callout', text:'Occupancy grids turn noisy range observations into additive cell evidence by lowering traversed cells and raising hit endpoints.'},
         'The sensor-rays view traces the causal chain from robot pose through lidar scan to grid. Active edges show which cells the ray traversed. The compare node (costmap) reminds you that planning never reads raw log-odds directly.',
         'At each frame, ask: which cells changed sign, which stayed the same, and what would happen if the pose estimate were wrong by one cell width.',
       ],

@@ -191,6 +191,8 @@ export const article = {
       paragraphs: [
         'The simplest storage interface looks like a function call: submit a command to the disk, block until the answer comes back, return bytes or an error. That model is easy to reason about because request order, completion order, and caller state are almost the same thing. It also matches older mental models from spinning disks, where one mechanical head made a single ordered path feel natural.',
         'A slightly better version uses one shared software queue and lets the driver issue multiple commands. That improves throughput, but it still makes every CPU contend for one dispatch point. It also hides an important distinction: the queue used by the operating system is not the same as the queue the hardware controller can fetch directly by DMA.',
+        {type:'callout', text:'NVMe makes storage concurrency explicit by splitting host-produced command rings from controller-produced completion rings.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/75/Samsung_980_PRO_PCIe_4.0_NVMe_SSD_1TB-top_PNr%C2%B00915.jpg', alt:'Top view of an M.2 NVMe solid-state drive.', caption:'Samsung 980 PRO M.2 NVMe SSD photo by D-Kuru/Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

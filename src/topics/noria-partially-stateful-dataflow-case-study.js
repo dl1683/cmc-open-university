@@ -218,6 +218,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The partial-state view shows the central memory decision in Noria. Each node in the dataflow graph is either hot (state resident, reads hit), cold (state evicted, memory freed), or in a miss state (a read arrived for an evicted key). The upquery node lights up when a miss triggers backward traversal through indexed operators to reconstruct the missing answer.',
+        {type:'callout', text:'Noria makes cached reads structural by keeping query-shaped hot state and rebuilding cold keys through indexed upqueries.'},
         {
           type: 'diagram',
           text: [

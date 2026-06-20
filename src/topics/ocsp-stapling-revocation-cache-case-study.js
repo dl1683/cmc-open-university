@@ -179,6 +179,7 @@ export const article = {
         'A TLS certificate can become unsafe before its expiration date. The private key may leak, the certificate may be misissued, or the domain owner may need the CA to stop trusting a still-valid credential.',
         'Expiration alone cannot solve that problem. A browser needs a revocation answer during connection setup, but a live revocation lookup on every connection adds latency, leaks which certificate the user is checking, and makes the CA responder part of page-load availability.',
         'OCSP stapling is the compromise: the server fetches a responder-signed certificate-status object ahead of time, caches it, and sends it inside the TLS handshake. The client still verifies the responder signature and freshness window.',
+        {type:'callout', text:'OCSP stapling moves revocation from live client lookup to a server-cached signed proof with a strict freshness window.'},
       ],
     },
     {

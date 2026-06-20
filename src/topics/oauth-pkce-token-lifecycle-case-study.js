@@ -209,6 +209,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for OAuth PKCE Token Lifecycle Case Study. A security-state case study: code verifier, code challenge, state, authorization code, access token, refresh token, scopes, and rotation..",
+        {type:"callout", text:"PKCE works by separating the browser-carried code from the client-held verifier, then binding the token exchange to both."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",

@@ -192,6 +192,7 @@ export const article = {
         'NVLink and NVSwitch exist because large GPU jobs often wait on communication, not arithmetic. A model-parallel training step may need all-reduce for gradients, all-gather for tensor-parallel activations, all-to-all for expert routing, or fast peer memory movement for inference state. If that traffic falls back to a weak fabric, expensive GPUs idle.',
         'The topic is easy to misunderstand because procurement language usually counts GPUs and peak bandwidth. Real workloads care about topology, bisection, collective shape, tail latency, degraded links, and whether the scheduler places tightly coupled ranks near each other.',
         'The data-structure view is a graph. GPUs are vertices, switch chips and switch trays are routing vertices, and links carry bandwidth, error, health, temperature, and policy metadata. A scheduler that ignores that graph treats a rack-scale accelerator like a loose pile of GPUs.',
+        {type:'callout', text:'A GPU fabric is a graph resource: collective performance depends on route shape, link health, and where tightly coupled ranks are placed.'},
       ],
     },
     {

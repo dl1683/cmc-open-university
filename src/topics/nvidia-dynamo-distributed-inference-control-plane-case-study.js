@@ -221,6 +221,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for NVIDIA Dynamo Distributed Inference Control Plane. A distributed inference control-plane case study: disaggregated serving, KV-aware routing, multi-tier cache, worker pools, NIXL transfer, autoscaling, and engine coordination..",
+        {type:"callout", text:"Dynamo turns hidden serving state into router-visible records so phase split, KV locality, transfer cost, and scale decisions share one control surface."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",

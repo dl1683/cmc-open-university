@@ -195,6 +195,7 @@ export const article = {
       paragraphs: [
         'Reinforcement learning usually assumes the learner can try actions, observe rewards, and improve through interaction. That is a bad fit for many real systems. A robot can break hardware while exploring. A recommender can damage user trust. A medical policy cannot try unsafe treatments just to learn their value. Offline reinforcement learning exists for settings where historical logs are available but live exploration is expensive, unethical, slow, or dangerous.',
         'The input is a fixed dataset of transitions: state, action, reward, next state, and sometimes the probability that the old behavior policy took the action. The goal is to learn a better policy without collecting new training data during learning. That sounds close to supervised learning, but it is not. A policy changes which actions are taken, and those actions change future states. That feedback loop is what makes offline RL hard.',
+        {type:'callout', text:'Offline RL is a support-boundary problem: policy improvement is credible only where logged behavior supplies evidence.'},
       ],
     },
     {
