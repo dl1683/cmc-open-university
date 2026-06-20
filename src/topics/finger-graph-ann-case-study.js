@@ -238,6 +238,8 @@ export const article = {
       paragraphs: [
         'FINGER is a fast inference method for graph-based approximate nearest-neighbor search. It targets the query-time bottleneck in HNSW-style systems: greedy graph search repeatedly evaluates distances from the query to candidate neighbor vectors. Many of those exact distance computations do not change the candidate list, especially after the top-k upper bound becomes tight.',
         'The paper, from Amazon-associated authors and collaborators, proposes using residual-vector geometry to approximate distances that are unlikely to matter. The local corpus summary captures the core insight well: if a point is farther away than the current top-k bound, the exact value of that distance is often irrelevant. You only need enough evidence to skip it safely.',
+        {type:'callout', text:'FINGER saves query time by spending exact distance only on candidates that can still change the frontier.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/28/Hierarchical_Navigable_Small_World_%28HNSW%29.png', alt:'Multi-layer HNSW graph search diagram with entry point, query vector, and nearest neighbor.', caption:'Hierarchical Navigable Small World graph illustration by Rose electric, CC BY 4.0, via Wikimedia Commons.'},
       ],
     },
     {

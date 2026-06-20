@@ -170,6 +170,7 @@ export const article = {
       paragraphs: [
         'A fencing token is a monotonically increasing number attached to a lock grant, lease, leadership term, or exclusive work assignment. The client includes that number on every side effect. The protected resource stores the highest token it has accepted and rejects operations with older tokens. The token turns "I think I still own the lock" into a checkable epoch at the place where data would actually change.',
         'This exists because a distributed lock service can choose a new owner while an old owner is paused, partitioned, or delayed. When the old process resumes, it may still have stale local state and may still be capable of sending writes. The lock service alone cannot stop writes that go to a database, object store, manifest service, hardware controller, or external API. The resource receiving the side effect must participate.',
+        {type:'callout', text:'A lock only proposes ownership; fencing makes freshness enforceable at the resource that applies the write.'},
       ],
     },
     {

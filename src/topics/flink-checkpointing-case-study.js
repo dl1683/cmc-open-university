@@ -214,6 +214,7 @@ export const article = {
         'Flink checkpointing exists because stateful streaming jobs are long-running programs, not one-shot scripts. A fraud job may keep per-card windows for months. A CDC enrichment job may remember join state. A feature pipeline may update keyed aggregates continuously. If a task manager dies, the job cannot restart from empty memory and pretend nothing happened.',
         'The first requirement is simple to state: after failure, the job should resume from a consistent point. The operator state, timers, and source positions must describe the same logical stream cut. If state is from 10:05 but Kafka offsets are from 10:02, replay will double count. If offsets are from 10:05 but state is from 10:02, records are lost. Fault tolerance is the agreement between state and input progress.',
         'The second requirement is harder: the pipeline should keep running while snapshots are taken. Stopping the whole job for every backup would destroy the low-latency reason to use streaming in the first place. Flink uses checkpoint barriers to mark consistent cuts inside the stream, so state can be snapshotted while records continue to flow.',
+        {type:'callout', text:'A checkpoint is reliable only when operator state, timers, source offsets, and sink effects agree on the same stream cut.'},
       ],
     },
     {

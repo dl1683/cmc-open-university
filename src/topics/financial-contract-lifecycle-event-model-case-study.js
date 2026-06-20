@@ -258,6 +258,7 @@ export const article = {
         'The contract-state-machine view shows a directed graph where each node is a legally meaningful state: terms, parties, trade event, position state, schedule, obligations, settlement, amendment, and event log. Active (highlighted) nodes mark the current phase of the lifecycle. Found markers on the event log mean that transition has been durably recorded with audit evidence.',
         'The oracle-and-policy view shows the decision pipeline for a single proposed lifecycle event. Follow the path from event input through facts and rules into the oracle, then to decision, and finally to either append (accepted) or review (ambiguous). The audit node lights up when evidence is stored regardless of outcome.',
         'At each frame, ask: what state existed before this transition, what event triggered the move, and what evidence justifies it.',
+        {type:'callout', text:'A contract lifecycle engine is useful only when every state transition carries the evidence that makes it replayable.'},
       ],
     },
     {

@@ -198,6 +198,7 @@ export const article = {
       paragraphs: [
         'A normal Kubernetes rollout can replace pods gradually, but readiness probes only prove that a container started and answered its health check. They do not prove that the new revision handles real traffic, preserves latency, keeps error rates low, or avoids breaking a downstream dependency.',
         'Progressive delivery adds a control loop around the rollout. Flagger watches a workload, sends a small slice of traffic to the candidate, measures behavior, then either increases exposure, promotes the candidate, or rolls traffic back to the stable version.',
+        {type:'callout', text:'Progressive delivery turns rollout into a measured control loop where traffic advances only after evidence passes.'},
       ],
     },
     {

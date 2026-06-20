@@ -233,6 +233,7 @@ export const article = {
       paragraphs: [
         'Vector search rarely means search the whole corpus. A user asks for the closest passage inside one tenant, one legal matter, one permission boundary, one language, one document type, one date range, or one product catalog slice. The vector distance is a ranking signal. The filter is often a correctness rule. If a RAG system retrieves a semantically perfect document from the wrong tenant, the result is not a better answer. It is a data leak.',
         'Filtered vector search exists because semantic indexes and database predicates solve different parts of the problem. Approximate nearest-neighbor indexes organize points by geometry. Metadata filters organize ids by set membership. A production query needs both: find near vectors, but only among documents the user is allowed to see and the task actually wants. The design problem is to combine those structures without destroying recall, latency, or security.',
+        {type:'callout', text:'Filtered vector search is a two-index contract: geometry ranks candidates only after metadata defines the legal answer set.'},
       ],
     },
     {

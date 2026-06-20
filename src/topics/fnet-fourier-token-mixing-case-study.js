@@ -329,6 +329,8 @@ export const article = {
       paragraphs: [
         'FNet exists because self-attention is powerful but expensive. In a Transformer encoder, each layer can build an n by n token-routing table. That table lets token 3 read token 97 strongly in one sentence and ignore it in the next sentence. The cost is that sequence length appears twice: longer inputs create many more pairwise scores, more memory traffic, and more intermediate state.',
         'Lee-Thorp, Ainslie, Eckstein, and Ontanon asked whether every encoder workload needs learned token routing. Their answer was FNet: replace the self-attention sublayer with an unparameterized Fourier transform that mixes tokens globally. The rest of the block stays familiar. Embeddings, position information, residual paths, normalization, feed-forward layers, and task heads still learn. The mixer is the part that becomes fixed.',
+        {type:'callout', text:'FNet separates global communication from learned routing: a fixed Fourier mixer spreads token information while learned layers decide what matters.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/51/Fourier_unit_pulse.svg', alt:'Fourier transform plots for unit pulse functions.', caption:'Fourier transforms of the unit pulse function by Slawomir Bialy and IkamusumeFan, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

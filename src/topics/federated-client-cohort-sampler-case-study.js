@@ -197,6 +197,8 @@ export const article = {
         'A federated client cohort sampler chooses which devices participate in each training round. It is part scheduler, part privacy guardrail, part fairness control, and part experiment ledger. The sampler has to pick enough eligible clients while avoiding battery drain, data-plan surprises, repeated participation, and population skew.',
         'Federated Averaging showed that decentralized clients can train a shared model through local updates and server aggregation. In real deployments, the sampling process decides which local updates exist in the first place. A biased cohort can make the model converge faster on the wrong population.',
         'This topic sits between machine learning and fleet operations. The optimizer only sees updates from clients the sampler admitted. The privacy accountant only spends budget for clients that participated. The product only benefits if the participating clients resemble the users the model is supposed to serve.',
+        {type:'callout', text:'Client selection is part of the training distribution, so the sampler is a model-quality control surface rather than neutral scheduling plumbing.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/11/Centralized_federated_learning_protocol.png', alt:'Diagram of a central server coordinating federated learning clients.', caption:'Centralized federated learning protocol by MarcT0K, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

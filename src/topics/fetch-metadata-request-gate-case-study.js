@@ -172,6 +172,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Fetch Metadata Request Gate. How Sec-Fetch-Site, Mode, Dest, User, route classes, allowlists, CSRF defense, logging, and browser request context produce a server-side gate..",
+        {type:"callout", text:"Fetch Metadata works when browser-supplied request context is joined to server-owned route intent before business logic runs."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
