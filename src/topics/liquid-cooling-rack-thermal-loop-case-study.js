@@ -249,6 +249,8 @@ export const article = {
         'Dense AI racks turn heat into a scheduling constraint. The rack can have enough GPUs and enough power, but a job is still unsafe if the cooling path cannot carry the heat out under sustained load.',
         'Air cooling becomes difficult when power density rises and heat must be removed from tightly packed accelerators. Liquid cooling moves heat through cold plates, manifolds, coolant distribution units, facility water, and heat rejection equipment. That loop is now part of the compute system.',
         'A liquid-cooling thermal loop models that path explicitly: chips, cold plates, manifolds, CDU, facility water, heat rejection, sensors, and derating policy. NVIDIA GB200 rack documentation treats liquid cooling and rack-level infrastructure as part of the system design, not an optional add-on: https://docs.nvidia.com/dgx/dgxgb200-user-guide/hardware.html.',
+        {type: 'callout', text: 'A dense AI rack is schedulable only when the full heat path from chip to facility loop has enough measured capacity.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/22/Post_-_Whitepaper_DC_of_the_Future_-_Temperature_Chaining.jpg', alt: 'Diagram showing temperature chaining across data center cooling stages', caption: 'Temperature chaining diagram for datacentre heat flow. Rolf Brink, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

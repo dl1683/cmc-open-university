@@ -182,6 +182,8 @@ export const article = {
       paragraphs: [
         'The Linux block layer sits between filesystems, memory management, and storage drivers. Higher layers submit bios that describe memory pages and disk ranges. Drivers need concrete requests that can be dispatched to hardware and completed later. The block layer has to merge, schedule, route, limit, and complete that work without becoming the bottleneck.',
         'The old single-queue model was built for a world where disks were slow and a central queue was a reasonable coordination point. Modern systems have many CPUs submitting I/O at the same time and devices such as NVMe SSDs that can process many commands in parallel. A single shared software queue makes the CPU side fight over locks and makes the device side look narrower than it really is.',
+        {type: 'callout', text: 'blk-mq scales storage by separating CPU-local request staging from hardware dispatch capacity, with tags acting as both inflight identity and backpressure.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/68/SATA_Express_interface.svg', alt: 'Diagram of storage software layers showing applications, filesystem, AHCI, NVMe, PCIe, and SATA paths', caption: 'SATA Express software architecture showing AHCI and NVMe paths. V4711, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

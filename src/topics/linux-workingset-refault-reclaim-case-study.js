@@ -187,6 +187,8 @@ export const article = {
       paragraphs: [
         'Linux uses spare RAM as cache because a page already in memory is much faster than a page that must be read from storage. Under pressure, that same cache becomes a battlefield: file cache, anonymous memory, dirty pages, mapped files, and cgroups all compete for one memory budget.',
         'The hard part is not evicting something. The hard part is evicting the right thing. A backup job may stream through millions of pages once. A database index may reuse a smaller set constantly. A policy that treats both as equally valuable turns one cold scan into a performance outage.',
+        {type: 'callout', text: 'Workingset reclaim protects data that proves reuse after eviction, not data that only looked recent during a scan.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/88/Lruexample.png', alt: 'Diagram of LRU cache replacement steps across a short access sequence', caption: 'LRU cache example showing eviction by recent use; Linux refault logic adds shadow evidence to resist one-pass scans. Advaitjavadekar, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

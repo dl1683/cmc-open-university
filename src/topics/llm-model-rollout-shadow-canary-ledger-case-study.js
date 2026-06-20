@@ -352,6 +352,7 @@ export const article = {
         ]},
         {type: 'note', text: 'The key visual contrast across views is between measurement (shadow) and exposure (canary). Shadow mode lets the candidate fail without harming users. Canary mode bounds harm to a small, stable cohort. Rollback proves the system returned to known-good state. All three depend on the same release ledger.'},
         'At each frame, ask: what evidence supports this rollout decision, and could you reconstruct the full state of every user cohort from the ledger alone?',
+        {type: 'callout', text: 'A model rollout is safe only when exposure, measurement, versioned cache boundaries, and rollback proof share one release ledger.'},
       ],
     },
     {

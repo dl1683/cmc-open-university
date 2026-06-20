@@ -302,6 +302,7 @@ export const article = {
       paragraphs: [
         `Training creates a model, but serving buys every answer one request at a time. Each answer spends accelerator memory, memory bandwidth, scheduler capacity, network hops, cache state, and sometimes verifier calls. LLM inference scaling is the work of getting more accepted answers per dollar and second without breaking quality.`,
         `This playbook exists because LLM serving is not one bottleneck. A chat product, code assistant, RAG workflow, and batch summarizer can fail for different reasons. The useful habit is to profile the request mix, pick the lowest tier that attacks the current wall, and exit only when latency, quality, and cost improve together.`,
+        {type: `callout`, text: `A scaling playbook works by spending the lowest effective tier of serving complexity and exiting only when quality, latency, and cost improve together.`},
       ],
     },
     {

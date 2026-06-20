@@ -207,6 +207,7 @@ export const article = {
           ],
         },
         'In the matrix views, watch the "act" column in the attack class queue -- it shows whether a risk class is actively running, waiting to be added, or blocked. In the coverage matrix, red (fail) cells are known failures; "gap" cells are untested boundaries that may be hiding failures.',
+        {type: 'callout', text: 'A red-team prompt becomes durable safety evidence only when it is linked to a taxonomy, surface, severity, owner, and rerun proof.'},
         {
           type: 'note',
           text: 'The animation uses five attack classes and five surfaces for readability. Production red-team programs track 20-50 attack families across 5-15 product surfaces, with hundreds of individual test cases per family. The data structure is the same -- a queue of taxonomy-linked cases with severity, ownership, and rerun proof -- but the matrix grows with product complexity.',

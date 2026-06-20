@@ -374,6 +374,7 @@ export const article = {
       paragraphs: [
         'An LLM judge calibration and drift monitor exists because automated evaluation is useful only when the evaluator is also evaluated. A judge model can grade thousands of candidate answers, but a grade from a model is not ground truth. It is a measurement produced by a fallible instrument. The monitor stores the evidence needed to decide when that instrument is reliable enough to use.',
         'The core job is to connect judge scores with human anchor labels, rubric versions, slice tags, bias probes, drift alerts, and release gates. That turns a vague statement like "the judge says this model is better" into a traceable claim: on these cases, under this rubric, for these slices, with these known biases, the judge agreed with humans often enough to automate this part of the workflow.',
+        {type: 'callout', text: 'An LLM judge is trustworthy only when its scores are calibrated against stable human anchors and monitored for bias and drift.'},
       ],
     },
     {

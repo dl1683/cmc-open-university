@@ -201,6 +201,8 @@ export const article = {
       paragraphs: [
         'The animation traces two paths through the Linux page cache. The "file offset lookup" view follows a buffered read from process to VFS to the file mapping to the XArray to cached folios. The "dirty tags and reclaim" view follows a buffered write through dirty marking, writeback, and memory reclaim.',
         'Active nodes are the current decision point in the kernel path. Found markers indicate state that is now guaranteed -- a folio that is confirmed uptodate, or a dirty tag that writeback has cleared. Compare markers show the contrasting subsystem: disk when the cache serves a hit, LRU when the XArray handles lookup.',
+        {type: 'callout', text: 'The page cache works because each file mapping owns a sparse ordered index of folios, while dirty and writeback tags turn lookup state into reclaim and durability policy.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/Radix_tree.svg', alt: 'Radix tree diagram with word prefixes branching from a root node', caption: 'Radix tree example for sparse ordered indexing. Cmglee, Wikimedia Commons, CC BY-SA 4.0.'},
         {
           type: 'note',
           text: 'Inference rule: if a folio is present in the XArray and its uptodate flag is set, the kernel can serve a read from memory without issuing storage I/O. If the folio is absent, the kernel must allocate, fill from disk, and then set uptodate before the read can complete.',
