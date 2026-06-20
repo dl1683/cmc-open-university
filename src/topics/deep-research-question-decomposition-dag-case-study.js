@@ -213,6 +213,8 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A deep research question decomposition DAG is the planning layer between a user request and the evidence workflow. Nodes are subquestions. Edges are dependencies. Each node stores scope, expected artifact, candidate tool, risk, cost, and stop rule. The frontier is the set of dependency-ready nodes the agent should work on next.',
+        {type:'callout', text:'A decomposition DAG turns an open research request into dependency-ordered evidence work, so synthesis waits for supported branches instead of racing to prose.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt:'Directed acyclic graph with arrows flowing from earlier nodes to later dependent nodes.', caption:'Directed acyclic graph. Source: Wikimedia Commons, David W., public domain.'},
         'This sits between Deep Research Agent Architecture and Claim Graph & Source Ledger. The architecture module explains the full research loop. The claim ledger stores evidence after discovery. The decomposition DAG decides what evidence should be sought in the first place.',
       ],
     },

@@ -331,6 +331,7 @@ export const article = {
       paragraphs: [
         'A deep research evaluation system tests agents that browse, read files, run tools, compare sources, and write long answers. It is not a style contest for polished reports. Its job is to decide whether the agent actually did the research work: found relevant sources, weighted them correctly, read the right spans, noticed contradictions, used tools when calculation was required, and connected every important claim to evidence that can be inspected later.',
         'The evaluation system treats a research answer as the final object produced by a larger process. That process includes the original task, the allowed tools, the pages and files available at the time, the actions the agent took, the claims it extracted, the contradictions it faced, and the scorer decisions that turned all of that into a pass or fail. For curriculum purposes, this is the key shift: evaluate research as a data pipeline with durable artifacts, not as an isolated paragraph of text.',
+        {type:'callout', text:'Deep research quality becomes measurable only when the evidence path is logged as durable task records, claim ledgers, trace events, and regression gates.'},
       ],
     },
     {

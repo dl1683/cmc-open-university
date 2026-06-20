@@ -196,6 +196,7 @@ export const article = {
         'A real-time renderer has to solve two large problems every frame: which surfaces are visible, and how those surfaces should be lit. Forward rendering solves both while drawing each object. It rasterizes a mesh, runs the material shader, evaluates the relevant lights, and writes the final color.',
         'That direct model is easy to understand and still widely used, but it can repeat work in scenes with many opaque objects and many lights. The renderer keeps asking which lights affect which object, then performs lighting while geometry is still being processed. As light counts rise, object-by-object shading can become hard to scale.',
         'Deferred rendering separates visibility from lighting. First, a geometry pass records the visible opaque surface at each pixel. Then a lighting pass reads those recorded surface samples in screen space and computes lighting. The G-buffer is the set of textures that carries the surface records between those passes.',
+        {type:'callout', text:'Deferred rendering wins by turning visible geometry into a screen-space schema so lighting and post effects can consume pixels instead of rewalking scene objects.'},
       ],
     },
     {

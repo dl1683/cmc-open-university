@@ -234,6 +234,8 @@ export const article = {
         },
         'Molecular docking asks where a small molecule (the ligand) sits inside a protein binding pocket. The answer is a 3D pose: a position, an orientation, and a set of torsion angles around rotatable bonds. That pose determines whether the molecule can bind, inhibit, activate, or fail. The output is a geometric hypothesis that chemists inspect, simulate around, or send to an assay.',
         'A ligand pose couples several degrees of freedom. Position is three Cartesian coordinates. Orientation lives on the rotation group SO(3). Each rotatable bond adds a torsion angle on the circle. The protein pocket adds steric constraints, charge patterns, and residue geometry. A plausible pose must satisfy all of these simultaneously.',
+        {type:'callout', text:'DiffDock samples ranked hypotheses on the pose manifold, not forcing a non-Euclidean, multimodal binding problem into one coordinate regression.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/97/Docking_representation_2.png', alt:'Schematic of a small molecule ligand docking into a protein target.', caption:'Molecular docking representation. Source: Wikimedia Commons, Scigenis, CC BY-SA 4.0.'},
         {
           type: 'table',
           headers: ['Degree of freedom', 'Space', 'What it controls'],

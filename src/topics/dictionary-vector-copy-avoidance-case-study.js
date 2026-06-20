@@ -212,6 +212,7 @@ export const article = {
           text: 'Dictionary encoding in Velox is not a storage optimization -- it is a first-class execution representation that allows operators to share base data and compose index mappings without copying payloads.',
         },
         'A dictionary vector turns "make a new column" into "make an index buffer over an existing column." It is an execution-engine idea, not a file-format trick. Storage dictionaries compress repeated values on disk; execution dictionaries let live operators pass logical vectors backed by existing memory.',
+        {type:'callout', text:'Dictionary vectors decouple logical row shape from physical value storage, so filters, sorts, and join fanout can move indices before the engine pays to copy payloads.'},
       ],
     },
     {

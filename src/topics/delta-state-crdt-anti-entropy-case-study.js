@@ -300,6 +300,7 @@ export const article = {
       paragraphs: [
         `State-based CRDTs are attractive because they converge through a simple rule: merge states with a join operation that is associative, commutative, and idempotent. If two replicas keep exchanging full states, duplicates and reordering are harmless. The painful part is bandwidth. A one-key change in a large map can force the sender to ship the whole object again.`,
         `Delta-state CRDTs exist to keep the robustness of state-based merge while sending only the state fragment caused by a recent update. The fragment is smaller than the full object, but it is still CRDT state. That detail matters because the receiver can merge it with the same join rule instead of replaying a fragile command.`,
+        {type:'callout', text:'Delta-state CRDTs save bandwidth only because every small fragment remains joinable state protected by anti-entropy, peer frontiers, and causal guards.'},
       ],
     },
     {

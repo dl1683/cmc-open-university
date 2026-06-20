@@ -253,6 +253,7 @@ export const article = {
       paragraphs: [
         'Many prediction systems act before the label exists. An ad server shows an impression now, a recommender ranks a feed now, a notification system sends a message now, and the user response may arrive seconds, minutes, hours, or days later. If the learner treats every missing response as a negative label immediately, it trains on false negatives.',
         'Delayed feedback is therefore not just an analytics inconvenience. It is a data-structure and streaming-systems problem. The system must remember predictions, match later feedback to the right prediction, decide when enough time has passed, emit labels in a reproducible order, and handle late corrections without corrupting training data or offline evaluation.',
+        {type:'callout', text:'A delayed-feedback join is a label policy encoded as state: predictions remain pending until event-time windows make positives, negatives, and corrections reproducible.'},
       ],
     },
     {

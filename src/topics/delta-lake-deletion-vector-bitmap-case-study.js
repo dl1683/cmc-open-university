@@ -214,6 +214,7 @@ export const article = {
         'Delta Lake deletion vectors exist because lakehouse tables are built from large immutable columnar files, but users still expect row-level deletes, updates, and merges. Parquet is excellent when a query scans columns from large files. It is awkward when a job needs to remove three rows from a one-gigabyte file.',
         'The table has two different duties. It must make the row disappear from the current logical table quickly, and it must eventually remove old bytes when storage, privacy, or compliance policy requires physical cleanup. Treating those as the same operation makes every small mutation pay the cost of a full file rewrite.',
         'A deletion vector separates the two duties. The Delta transaction log commits a small descriptor that points to a compressed bitmap of invalid row positions. Readers apply that bitmap as part of snapshot reconstruction. Later maintenance can rewrite files and vacuum old data under normal retention rules.',
+        {type:'callout', text:'Deletion vectors split logical visibility from physical cleanup, making sparse row mutations cheap while preserving a later purge path for the old bytes.'},
       ],
     },
     {

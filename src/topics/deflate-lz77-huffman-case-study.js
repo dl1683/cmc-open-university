@@ -211,7 +211,9 @@ export const article = {
       paragraphs: [
         "DEFLATE exists because general-purpose compression needs a practical balance. It must find repeated byte sequences, represent them compactly, decode in a streaming way, and run on ordinary machines. It cannot depend on a giant model, random access to the whole file, or a decoder that guesses the encoder strategy.",
         "The format became durable because it composes two simple ideas well. LZ77 turns repeated text into length-distance references. Huffman coding gives short bit patterns to common symbols. Together they became the compression core behind ZIP, gzip, zlib streams, PNG image data, and many older protocols and containers.",
-        "The most important distinction is between the format and the compressor. DEFLATE defines a bitstream grammar that every decoder must understand. Encoders are free to spend little or lots of CPU finding matches, splitting blocks, and choosing Huffman tables. Different encoders can produce different valid streams for the same input."
+        "The most important distinction is between the format and the compressor. DEFLATE defines a bitstream grammar that every decoder must understand. Encoders are free to spend little or lots of CPU finding matches, splitting blocks, and choosing Huffman tables. Different encoders can produce different valid streams for the same input.",
+        {type:'callout', text:'DEFLATE separates match modeling from entropy coding so encoders can innovate while every decoder follows the same block grammar.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/82/Huffman_tree_2.svg', alt:'Huffman coding tree with weighted internal nodes and character-frequency leaves.', caption:'Huffman tree from example text. Source: Wikimedia Commons, Meteficha, public domain.'}
       ],
     },
     {

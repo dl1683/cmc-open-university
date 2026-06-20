@@ -232,6 +232,8 @@ export const article = {
       paragraphs: [
         `DeepSeek-R1 is useful as a case study because it separates two questions that are often blurred together. DeepSeek-V3 is the base-model and architecture layer, with Mixture-of-Experts routing and Multi-Head Latent Attention. R1 is the post-training layer. It asks how a model can learn to spend more computation on reasoning when many tasks have answers that can be checked automatically.`,
         `The pressure comes from the cost of human demonstrations. Supervised fine-tuning can teach a model to imitate polished chains of thought, but high-quality reasoning traces are expensive, biased toward the annotator's style, and hard to scale across math, code, and STEM tasks. Reinforcement learning with verifiable rewards, or RLVR, tries to move the expensive part from "write the whole solution" to "check whether the result satisfies an objective rule." The DeepSeek-R1 paper argues that large-scale RL can incentivize self-verification, reflection, and strategy changes on verifiable tasks: https://arxiv.org/abs/2501.12948.`,
+        {type:'callout', text:'The R1 architectural lesson is that verifiable rewards make reasoning trainable only where the verifier defines a real environment, not just a prettier imitation target.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1b/Reinforcement_learning_diagram.svg', alt:'Reinforcement learning loop showing an agent taking actions in an environment and receiving state and reward feedback.', caption:'Reinforcement learning system diagram. Source: Wikimedia Commons, Megajuice, CC0.'},
       ],
     },
     {
