@@ -188,6 +188,7 @@ export const article = {
           ],
         },
         'The third-party-discharge view traces a cross-service proof. The storage service delegates an identity check to an authorization service. The client collects a discharge token, binds it to the root macaroon, and presents both. Watch the bind node: it prevents the discharge from being replayed against a different root token.',
+        {type:'callout', text:'Macaroons make delegation safer by letting any holder add restrictions while making removal cryptographically infeasible.'},
         {
           type: 'note',
           text: 'If an edge is active, the cryptographic state is changing. If a node is found, the verifier has confirmed that link. If a node is in compare state, it is a constraint the request has not yet satisfied.',

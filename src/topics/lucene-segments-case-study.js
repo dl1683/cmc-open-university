@@ -196,6 +196,7 @@ export const article = {
       paragraphs: [
         'The "segment lifecycle" view traces a document from arrival through IndexWriter, flush, commit point, and searcher. Active nodes are the current stage of the write path. Found nodes are durable artifacts that survive a crash. Compare nodes are consumers waiting for the next generation of segments.',
         'The "merge economics" view shows the cost reconciliation loop. Active nodes are segments entering the merge. Found nodes are the resulting larger segment. Compare nodes are the writer and searcher whose performance changes as merge geometry shifts.',
+        {type:'callout', text:'Lucene gets concurrency by publishing immutable segment generations, then paying merge debt in the background.'},
         {
           type: 'note',
           text: 'The safe inference at each frame: if a segment node is active, it is an immutable, complete, searchable index. If a commit-point node is active, it names the set of segments a searcher may open. No segment is ever modified after flush -- only replaced by a merge or hidden by a delete marker.',

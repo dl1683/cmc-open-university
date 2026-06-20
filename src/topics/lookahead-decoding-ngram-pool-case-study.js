@@ -197,6 +197,7 @@ export const article = {
       paragraphs: [
         'Lookahead decoding exists because autoregressive generation wastes wall-clock time on an awkward dependency. The target model can only emit token t + 1 after token t is known, so decoding often becomes a long serial loop. Even when the GPU has spare parallel compute, the next-token dependency keeps the serving path waiting on one small step after another.',
         'Speculative decoding attacks the same bottleneck with a draft model. A smaller model proposes future tokens, and the target model verifies them. Lookahead decoding is different: it tries to get some of the benefit without a separate draft model. It uses parallel lanes to generate candidate n-grams, stores reusable continuations in a pool, and verifies those continuations against the target model before any token becomes output.',
+        {type:'callout', text:'Lookahead turns unused decode parallelism into exact speed only when every proposed token remains subordinate to target-model verification.'},
         'The important point is that Lookahead is not a new language model and not a shortcut around correctness. It is a runtime strategy for finding safe parallel work around a serial process. The target model still owns the emitted text. The pool only offers guesses that might let one verification step accept several tokens.',
       ],
     },

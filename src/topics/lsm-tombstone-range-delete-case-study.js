@@ -243,6 +243,7 @@ export const article = {
       paragraphs: [
         `A tombstone is a deletion record. In a log-structured merge tree, old data usually lives inside immutable sorted-string tables, so a delete cannot reach into every old file and erase bytes in place. The storage engine writes a newer record that says the older value is no longer visible. Reads must treat that marker as part of the version history, and compaction later removes both the marker and the data it shadows when it is safe.`,
         `A range tombstone is the same idea applied to an interval of keys. Instead of writing one delete marker for every key under a tenant prefix, time window, table id, or shard range, the engine writes one versioned interval such as delete every key in [a, z). That makes the delete cheap to issue, but it creates a harder read and cleanup problem: every future lookup, scan, and compaction has to know whether a key version is covered by a newer interval.`,
+        {type:'callout', text:`Range tombstones turn deletion into versioned interval metadata so reads become correct immediately while compaction earns the disk space back later.`},
       ],
     },
     {

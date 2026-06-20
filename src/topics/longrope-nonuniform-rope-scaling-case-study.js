@@ -324,6 +324,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for LongRoPE Non-Uniform RoPE Scaling Case Study. LongRoPE extends context by searching non-uniform RoPE rescaling factors, progressively stretching context, and readjusting short-context behavior..",
+        {type:"callout", text:"LongRoPE treats context length as a searched position-encoding table, not a single multiplier or product knob."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",

@@ -362,6 +362,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Read the animation as the operations pipeline for managing LoRA adapters from registration through serving. The registry view validates adapter identity before anything touches the decode path. The merge path view shows when and how an adapter becomes a permanent checkpoint. The serving view shows the runtime: per-request adapter selection, cache residency, batch grouping, and rollout gates.',
+        {type:'callout', text:'The registry is the safety boundary: an adapter is a typed patch tied to one base model, not a loose weight file.'},
         'Active nodes mark the current decision boundary. Compare nodes mark the alternative path or the state being checked against. Found nodes mark outcomes that are now locked in -- a rollout promoted, a cache slot pinned, a merge committed.',
         {
           type: 'note',

@@ -208,6 +208,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Lost in the Middle is a long-context failure mode: a language model may answer correctly when relevant evidence appears near the beginning or end of its context, but miss the same evidence when it appears in the middle. The point is not that the context window is too small. The point is that usable recall can be position-dependent even inside the advertised window.',
+        {type:'callout', text:'A long context window is capacity, not recall; reliable systems must foreground and test evidence across position, length, and distractor pressure.'},
         'The TACL paper "Lost in the Middle" tested multi-document question answering and key-value retrieval while moving relevant information to different positions in the input. It found that performance often peaks near the beginning or end and drops when the relevant item is in the middle: https://aclanthology.org/2024.tacl-1.9/ and https://arxiv.org/abs/2307.03172. The accompanying repository includes data and experiment scripts: https://github.com/nelson-liu/lost-in-the-middle.',
         'The topic exists because long-context products are easy to misread. A 128K or 1M token window is an input capacity claim. It is not a guarantee that the model will use every span equally well, preserve every dependency, or retrieve buried evidence under pressure.',
       ],

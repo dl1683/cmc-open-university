@@ -196,6 +196,8 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The word-count view traces a three-document job through all three MapReduce phases. Active nodes are the stage currently executing. Found edges mark data that has reached its destination. Watch how records start organized by input split and end organized by key -- that reorganization is the shuffle, and it is where the real cost lives.',
+        {type:'callout', text:'MapReduce scales batch work by making user code local and moving all global coordination into the shuffle boundary.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b6/MapReduce.svg', alt:'Diagram of input key-value pairs flowing through map tasks, shuffle, reduce tasks, and output.', caption:'MapReduce execution diagram by Joseba Alberdi, Wikimedia Commons, CC BY-SA 3.0 / GFDL.'},
         'The failure view removes a map worker mid-job. The removed node shows intermediate output that disappeared. The runtime response -- rerun the map from durable input -- is the core fault-tolerance mechanism. Active nodes are healthy tasks; found nodes are tasks whose output is committed.',
       ],
     },

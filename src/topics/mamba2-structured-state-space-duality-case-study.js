@@ -234,6 +234,7 @@ export const article = {
       paragraphs: [
         'Long-context sequence models have a basic resource problem. Full attention gives each token a direct path to every earlier token, but the prefill work grows with all pairs and the decode cache grows with context length. Recurrent models keep a compact state, but old recurrent designs often lost too much detail or trained poorly on accelerator hardware. The useful question is not "attention or recurrence". The useful question is what memory form preserves enough information while staying cheap to train and serve.',
         'Mamba-2 matters because it turns that question into a duality lesson. Structured state space duality, or SSD, shows that some state-space recurrences can also be viewed as structured attention-like matrices. The recurrence view explains streaming decode and compact state. The matrix view explains parallel training and relation to attention. The shared object is a structured matrix with semiseparable form. That is the data structure at the center of the topic.',
+        {type:'callout', text:'Mamba-2 is a data-structure lesson: the useful object is the semiseparable matrix that unifies compact recurrence with parallel block execution.'},
       ],
     },
     {

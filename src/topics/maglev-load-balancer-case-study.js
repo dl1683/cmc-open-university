@@ -163,6 +163,7 @@ export const article = {
       paragraphs: [
         'Maglev is Google\'s software network load balancer, described in an NSDI 2016 paper. It balances packets for virtual IPs using a fleet of commodity servers rather than a fixed hardware appliance. The problem is harsh: the hot path must process packets at very high speed, preserve connection affinity, react to backend failures, and scale as traffic grows.',
         'The case study matters because it combines simple data structures with serious production constraints. Routers use ECMP to spread packets across Maglev machines. Each Maglev machine maps a flow to a backend using a precomputed lookup table. Health checking and table updates happen off the hot path. The result is a low-level load balancer that is fast because the per-packet decision is almost trivial.',
+        {type:'callout', text:'Maglev keeps the packet path fast by moving service policy into a shared deterministic table built off the hot path.'},
       ],
     },
     {
