@@ -221,6 +221,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Environment randomization treats the runtime interface as part of the training distribution. The goal is not noise for its own sake — it is to teach the agent the stable operation behind many valid wrappers: inspect, edit, run, interpret failure, revise, stop. An agent that only knows one shell is not a coding agent; it is a shell macro.'},
         `A coding agent can look competent because it learned one runtime too well. It may know the exact shell, edit command, test convention, path layout, retry budget, and error format used during training. Move the same agent to PowerShell, a different patch grammar, a monorepo, a package-manager mismatch, or a tighter budget, and the apparent coding skill can collapse into interface confusion.`,
         `Environment randomization tries to prevent that failure before evaluation. It treats the runtime interface as part of the training distribution. The goal is not to make tasks noisy for their own sake. The goal is to teach the agent the stable operation behind many valid wrappers: inspect, edit, run, interpret failure, revise, and stop.`,
       ],

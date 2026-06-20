@@ -200,6 +200,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'A candidate patch search DAG turns repair from a chat transcript into a search data structure. Nodes represent repository states, candidate diffs, verifier observations, and merged lessons. A branch can die, but the reason it died stays available. That is the difference between retrying and learning.'},
         "Coding agents fail differently from ordinary autocomplete. They are not choosing one next token and stopping. They inspect a repository, form a diagnosis, edit files, run tools, read failures, and try again. If each retry overwrites the last one, the agent loses the most expensive thing it bought: evidence.",
         "A candidate patch search DAG exists to make that evidence explicit. Nodes represent repository states, candidate diffs, verifier observations, merged lessons, and final proof records. Edges show ancestry. A branch can die, but the reason it died remains available. That turns repair from a chat transcript into a search data structure.",
       ],

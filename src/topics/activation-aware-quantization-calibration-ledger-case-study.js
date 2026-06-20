@@ -339,6 +339,8 @@ const activationAwareQuantizationArticleSections = [
   {
     heading: 'Why this exists',
     paragraphs: [
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt:'Processor die shot showing compute units', caption:'Quantization trades numerical precision for throughput — fewer bits per weight means more operations per second on the same silicon. Source: Wikimedia Commons, KL/Intel, Public domain'},
+      {type:'callout', text:'Activation-aware quantization does not just compress weights — it calibrates the quantization grid using real activation distributions from representative prompts. The calibration data determines whether the quantized model preserves behavior or collapses.'},
       'Basic quantization asks how many bits are needed to store a model. Activation-aware quantization asks a harder production question: which low-bit representation preserves behavior on the prompts the model will actually see, and can the serving stack execute that representation quickly? Large language models are often limited by weight memory, memory bandwidth, and device RAM. A 4-bit checkpoint can make a model fit where fp16 cannot. The danger is that a bit-width label hides the evidence that created the checkpoint. Two int4 models can differ in calibration data, group size, protected channels, scale rules, zero-points, packing layout, and kernel support. This case study exists because production quantization is not just compression. It is a ledger of measurements and decisions.',
     ],
   },

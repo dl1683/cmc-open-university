@@ -321,6 +321,7 @@ export const article = {
     {
       heading: 'Why AdaTape exists',
       paragraphs: [
+        {type:'callout', text:'AdaTape’s key insight: instead of making the model deeper for hard inputs, make the input longer. Append a variable number of auxiliary tape tokens to the sequence. Easy examples get few extra tokens; hard examples get more. The transformer stays fixed-depth, but the input is elastic — giving adaptive compute without dynamic depth or early exit.'},
         'AdaTape is a way to give a neural network a variable compute budget without changing the depth of the main model. A standard transformer spends the same sequence budget on every example after tokenization or patching. A simple image, a cluttered image, and an algorithmic input with hidden structure all travel through the same number of blocks with the same input length. That is clean for batching, but it wastes compute on easy cases and under-serves hard cases.',
         'The ICML 2023 paper Adaptive Computation with Elastic Input Sequence proposes a different knob. Instead of asking an example to run for more layers, AdaTape appends a variable number of auxiliary tape tokens to the input. Easy examples can receive few extra tokens. Hard examples can receive more. The model still uses a shared transformer, but the sequence entering that transformer is elastic.',
       ],

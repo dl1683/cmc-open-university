@@ -328,6 +328,7 @@ export const article = {
           text: 'A fluent agent request is not payment authorization.',
           attribution: 'AP2 security model design principle',
         },
+        {type:'callout', text:'When a human clicks Buy, the click is the authorization signal. When an AI agent initiates a purchase, that signal disappears. AP2 exists to restore three properties human-present commerce gets for free: authorization (did the user approve this exact purchase?), authenticity (does the request reflect true intent, not a manipulated agent?), and accountability (what evidence exists if disputed?).'},
         'When a human clicks "Buy" on a website, the browser, the merchant checkout page, and the payment form are all visible to the person spending money. The click itself is the authorization signal. When an AI agent initiates a purchase, that signal disappears. The agent may have been prompt-injected, confused by a misleading product listing, or simply operating outside the user\'s actual intent. No human is present to inspect the final cart.',
         'AP2 (Agent Payments Protocol) exists to restore three properties that human-present commerce gets for free: authorization (did the user approve this exact purchase?), authenticity (does the request reflect true intent, not a manipulated agent?), and accountability (what evidence exists if the transaction is disputed?).',
         {

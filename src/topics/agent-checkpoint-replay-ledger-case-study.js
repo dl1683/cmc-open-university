@@ -219,6 +219,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'The fundamental gap: a short LLM call is stateless, but a long-running agent builds state across dozens of graph nodes over minutes. If the worker dies mid-run, the agent must resume from a known-good checkpoint — not guess what happened by re-reading the conversation. This is the same problem databases solve with write-ahead logs, adapted for non-deterministic model calls and human-in-the-loop interrupts.'},
         'A short LLM call is stateless: request in, response out, nothing to recover. A long-running agent is not. It calls tools over minutes, waits for human approvals, accumulates budget, and builds state across dozens of graph nodes. If the worker dies mid-run, the agent must resume from a known-good boundary -- not guess what happened by re-reading the conversation.',
         {
           type: 'quote',
