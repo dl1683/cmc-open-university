@@ -249,6 +249,7 @@ export const article = {
       paragraphs: [
         'A hierarchy-aligned embedding prefix is an embedding design where shorter prefixes of the vector are useful on purpose. The first 64 or 128 dimensions are expected to answer coarse questions such as language, domain, topic, or broad intent. Longer prefixes keep those decisions and add finer distinctions: entity identity, product variant, legal clause, visual detail, or answer-level relevance. The full vector is still available, but the system is not forced to pay full-vector cost for every decision.',
         'This is stronger than saying a vector can be truncated. In many ordinary embeddings, information is spread across dimensions in a way that makes the first slice arbitrary. A hierarchy-aligned prefix is a contract between training, indexing, and serving. The short prefix must be good enough for coarse retrieval or routing; the middle prefix must be good enough for candidate selection; the long prefix must be good enough for precision. If the contract holds, one embedding can support several latency and memory budgets.',
+        {type:'callout', text:'Prefix embeddings are useful only when dimension order is an audited contract: short prefixes preserve recall and longer prefixes buy precision.'},
       ],
     },
     {

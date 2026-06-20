@@ -197,6 +197,7 @@ export const article = {
       paragraphs: [
         `GraphQL exists because many clients need a shaped view of server data, and fixed REST endpoints often force a bad choice. One endpoint may underfetch and require follow-up calls. Another may overfetch and ship fields the screen does not need. A mobile app, dashboard, or CMS page wants to ask for a nested shape and receive that shape back.`,
         `The server still needs control. It must parse the request, validate it against a schema, execute resolver functions, enforce authorization, batch backend access, preserve response paths, and report errors in a way the client can understand. The request is a tree, but the work behind it is often a graph of databases, services, caches, indexes, policy checks, and traces.`,
+        {type:`callout`, text:`GraphQL flexibility comes from splitting response shape from execution work: the query tree defines output, while the resolver plan controls batching, policy, and errors.`},
       ],
     },
     {

@@ -197,6 +197,7 @@ export const article = {
         'gRPC exists because distributed systems need something more disciplined than hand-written HTTP calls with loosely shaped JSON. Services need typed contracts, generated clients, streaming, deadlines, cancellation, status codes, metadata, load balancing, tracing, and backpressure.',
         'HTTP/2 matters because it lets many logical streams share one connection. A client can run many calls without opening a new TCP connection for each one, and a single call can carry a sequence of messages instead of just one request and one response.',
         'The case study is useful because gRPC is not just an interface definition. It is a live state machine: channels, streams, protobuf frames, flow-control windows, deadlines, cancellation handles, application queues, and final status trailers all have to agree.',
+        {type:'callout', text:'gRPC is a stream lifecycle discipline: contracts, frames, windows, deadlines, cancellation, and status must remain consistent across one shared transport.'},
       ],
     },
     {

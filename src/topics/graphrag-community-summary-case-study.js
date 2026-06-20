@@ -225,6 +225,8 @@ export const article = {
       paragraphs: [
         `Ordinary vector RAG is good at finding passages similar to a question. It is weaker when the question asks for structure across a whole corpus: main themes, recurring risks, common actors, hidden clusters, or relationships that appear across many documents. There may be no single nearest chunk that answers the question.`,
         `GraphRAG exists to move more organization into the index before the user asks. It extracts entities, relationships, and claims from text, builds a graph, detects communities, writes community reports, and then uses those reports and graph neighborhoods during retrieval. The goal is not to replace source evidence. The goal is to create a retrieval surface for broad questions that chunk search alone handles poorly.`,
+        {type:`callout`, text:`GraphRAG moves structure into the index: entities, relationships, communities, and summaries become retrieval artifacts before the query arrives.`},
+        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/8/82/Louvain_Step2.png`, alt:`Network graph with nodes grouped into colored communities.`, caption:`Louvain community detection step. Wikimedia Commons, Louvain_Step2.png.`},
       ],
     },
     {

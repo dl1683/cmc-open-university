@@ -214,6 +214,8 @@ export const article = {
         'HBM exists because accelerators need far more memory bandwidth than ordinary off-package DRAM paths can provide. Transformer training, inference decode, graph analytics, stencil kernels, and vector databases can all become memory-bandwidth problems before they become arithmetic problems.',
         'The mistake is to imagine HBM as one giant fast bucket. A request is not sent to HBM in the abstract. It is mapped through a hierarchy: stack, channel, pseudo-channel, bank group, bank, row, and controller queue. Peak bandwidth appears only when requests spread across those independently schedulable resources.',
         'That makes this a data-structure topic, not just a hardware topic. The controller is maintaining queues, address maps, row state, refresh debt, fairness counters, and thermal limits. If those structures line up with the workload, the accelerator sees bandwidth. If they do not, advertised bandwidth stays theoretical.',
+        {type:'callout', text:'HBM bandwidth is earned by scheduling independent resources well: address maps, queues, banks, rows, refresh, and thermals decide whether peak throughput appears.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/62/AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg', alt:'Radeon R9 Nano graphics card showing GPU package and HBM memory stacks.', caption:'AMD Radeon R9 Nano package with HBM memory. Fritzchens Fritz, Wikimedia Commons, CC0.'},
       ],
     },
     {

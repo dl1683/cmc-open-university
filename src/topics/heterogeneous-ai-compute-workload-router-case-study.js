@@ -299,6 +299,8 @@ export const article = {
       paragraphs: [
         'AI infrastructure is no longer one workload. A single product may contain dense transformer matmuls, memory-bound decode, vector search, sparse filters, graph expansion, agent tool calls, policy checks, and branch-heavy verification.',
         'A heterogeneous compute router exists because those phases do not want the same hardware. The goal is not to say "GPU good" or "ASIC good." The goal is to route work from measured shape to a device, with fallback rules and evidence.',
+        {type:'callout', text:'Heterogeneous routing works only when placement follows measured workload shape: dense math, sparse access, branching, memory movement, and tail latency need different devices.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/99/TPU_v4.png', alt:'TPU v4 board with liquid-cooled packages and interconnect connectors.', caption:'TPU v4 package and board. Norman P. Jouppi et al., Wikimedia Commons, CC BY 4.0.'},
       ],
     },
     {

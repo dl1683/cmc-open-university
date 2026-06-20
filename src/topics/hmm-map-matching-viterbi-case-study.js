@@ -205,6 +205,7 @@ export const article = {
         'A map app receives points, not roads. Each GPS sample has sensor noise, clock gaps, and a location that may fall between lanes, beside a highway, inside a building, or several meters away from the vehicle.',
         'The product needs a road sequence. ETA, tolling, traffic inference, mileage, turn-by-turn replay, and fleet compliance all depend on knowing which edge in the road graph the vehicle used. A dot on a map is not enough.',
         'The problem is hard because geometry and legality are different things. Two roads can be close in latitude and longitude while being separated by a barrier, elevation, one-way rule, private-access restriction, or missing turn. Map matching exists to turn noisy observations into a plausible path through the road graph, not merely to draw points on nearby lines.',
+        {type:'callout', text:'HMM map matching wins by scoring whole paths, not isolated points: emissions explain local GPS fit while transitions enforce route plausibility.'},
       ],
     },
     {

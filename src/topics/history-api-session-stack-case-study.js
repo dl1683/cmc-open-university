@@ -168,6 +168,7 @@ export const article = {
       paragraphs: [
         'Single-page apps can change screens without asking the browser to load a new document. That is useful, but it creates a contract problem: users still expect Back, Forward, refresh, links, bookmarks, scroll restoration, and accessibility semantics to behave like real navigation.',
         'The History API is the bridge between app-rendered views and the browser-owned session history. Its job is not just changing the address bar. Its job is keeping a rendered view aligned with a stack the user, browser, and page can all move through.',
+        {type:'callout', text:'The History API is a browser-owned navigation stack: apps may add entries, but rendered state must follow the active cursor.'},
       ],
     },
     {

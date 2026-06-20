@@ -214,6 +214,8 @@ export const article = {
       paragraphs: [
         'Many graph algorithms look different in pointer form but similar in algebra form. A traversal scans neighbors. PageRank repeatedly combines scores over edges. Triangle counting intersects neighborhoods. Shortest-path relaxations combine candidate distances. GraphBLAS exists to express those patterns as sparse matrix and vector operations.',
         'The point is not to make graphs look mathematical for style. It is to reuse decades of sparse linear algebra engineering: compressed storage, parallel kernels, masks, reductions, and hardware-conscious traversal. A graph becomes an adjacency matrix. Frontiers, visited sets, labels, and scores become vectors or masks.',
+        {type:'callout', text:'GraphBLAS turns graph traversal into sparse linear algebra: storage stays in matrices while algorithm state moves through vectors, masks, and semirings.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b5/AdjacencyMatrixGraphBLASBFS.png', alt:'Graph and adjacency matrix showing one BFS step computed by matrix-vector multiplication.', caption:'GraphBLAS BFS over an adjacency matrix. Jeremy Kepner, Wikimedia Commons, CC BY 4.0.'},
       ],
     },
     {
