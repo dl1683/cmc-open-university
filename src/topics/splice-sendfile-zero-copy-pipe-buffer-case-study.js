@@ -179,6 +179,7 @@ export const article = {
       paragraphs: [
         'A static file server often needs to move bytes from disk cache to a socket. The content already sits in the kernel page cache, and the destination is also in the kernel networking path. Copying the bytes into a user-space buffer just to copy them back into the kernel wastes CPU cycles, memory bandwidth, and cache space.',
         'sendfile and splice exist to remove that unnecessary user-space copy. They do not remove all work. The kernel still manages page references, pipe buffers, socket queues, offsets, lifetimes, and backpressure. The win is that the application can move ownership and references instead of touching every byte.',
+        {type:'callout', text:'The fast path moves page references through bounded kernel queues, so lifetime and backpressure matter as much as copy avoidance.'},
       ],
     },
     {

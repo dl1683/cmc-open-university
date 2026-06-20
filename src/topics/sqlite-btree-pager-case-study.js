@@ -215,6 +215,8 @@ export const article = {
         'SQLite exists for the many cases where an application needs a real SQL database but does not want to run a separate database server. A mobile app, browser, desktop tool, embedded product, test runner, or edge cache may need indexes, transactions, crash recovery, and queries inside one ordinary file.',
         'That constraint makes SQLite an unusually good teaching case. There is no server process to hide the machinery. A logical row becomes a record inside a B-tree cell, inside a page, inside a database file. The pager is the layer that turns page changes into durable, transactional file updates.',
         'The point is not that every database should look like SQLite. The point is that SQLite makes storage architecture visible. B-trees, page caches, journals, WAL files, locks, and checkpoints become concrete engineering objects rather than abstract database vocabulary.',
+        {type:'callout', text:'SQLite becomes teachable because logical B-trees and physical crash safety meet at the pager page boundary.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt:'Small B-tree with a root node and three child nodes containing sorted keys.', caption:'Small 3-5 B-tree example. CyHawk, Wikimedia Commons, CC BY-SA 3.0 or GFDL.'},
       ],
     },
     {

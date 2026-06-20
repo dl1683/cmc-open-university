@@ -182,6 +182,8 @@ export const article = {
       paragraphs: [
         'The "format decision" view traces the compiler decision from workload to kernel. Active nodes are the current stage of format selection. Found nodes are outcomes determined by the choice. Compare nodes are upstream constraints that shaped the decision but are no longer being evaluated.',
         'The "lowering pipeline" view traces a sparse tensor through compiler lowering: from high-level tensor description through level encodings, dimension-to-level maps, IR generation, buffer materialization, loop synthesis, and final code emission. Active nodes are the stage being lowered. Found nodes are buffers already materialized. Compare nodes are upstream abstractions that the lowering has consumed.',
+        {type:'callout', text:'A sparse format is a compilation contract because it fixes the metadata, loop nest, and kernel family that make an operation correct and fast.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt:'Black nonzero entries forming a sparse matrix pattern from a finite element problem.', caption:'Finite element sparse matrix with nonzero entries in black. Oleg Alexandrov; later version by Vojtak, Wikimedia Commons, public domain.'},
         {
           type: 'note',
           text: 'The safe inference at each frame: if a node is active and its incoming edge is highlighted, that stage has received input and is producing output. If a downstream node is not yet active, no code or buffer has been generated for it. The format decision is not advisory -- it determines the physical buffers, loop structure, and kernel family for the rest of compilation.',

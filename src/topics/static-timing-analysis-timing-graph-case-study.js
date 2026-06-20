@@ -216,6 +216,8 @@ export const article = {
       paragraphs: [
         'Static timing analysis exists because a digital design can be logically correct and still fail in silicon. Signals must arrive early enough for setup, not too early for hold, with acceptable slew and load, across process, voltage, temperature, clock, and mode corners.',
         'Exhaustive simulation cannot cover every input vector and timing path in a large chip. STA turns the design into a timing graph and checks timing constraints without simulating functional behavior. It asks whether every modeled path has enough timing margin.',
+        {type:'callout', text:'STA turns timing closure into graph propagation, where every slack number is evidence from arrival, required time, constraints, and corner state.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/6b/SPI_timing_diagram2.svg', alt:'SPI digital timing diagram showing clock and data waveforms over time.', caption:'SPI bus timing diagram. Cburnett; derivative by Jordsan, Wikimedia Commons, CC BY-SA 3.0 or GFDL.'},
       ],
     },
     {

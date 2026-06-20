@@ -203,6 +203,7 @@ export const article = {
       paragraphs: [
         'A speculative decoding runtime controller is the serving policy layer that decides whether a request should use a draft model, Medusa, EAGLE, Lookahead, n-gram or suffix speculation, or plain target decoding. It sits above the token-level algorithm. Its job is to decide which acceleration method is worth trying for this request, under current traffic, memory, batching, quality, and tail-latency conditions.',
         'Speculative decoding is attractive because the expensive target model can verify several proposed tokens in one pass. But the method is useful only when the proposed tokens are accepted often enough to outweigh the draft work, extra memory, scheduler complexity, and rollback cost. The controller makes that tradeoff explicit instead of assuming one paper result applies to every endpoint.',
+        {type:'callout', text:'The controller treats speculation as a reversible route, spending draft work only on traffic slices where acceptance and tail latency justify it.'},
       ],
     },
     {

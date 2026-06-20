@@ -346,6 +346,8 @@ export const article = {
       paragraphs: [
         'The dictionary-learning view traces a dense residual-stream activation through the SAE pipeline: encoder, top-k sparsity gate, sparse feature code, decoder, and reconstruction. Active nodes show which stage currently holds data. Compare nodes mark the dictionary or sparsity gate that shaped the code. Found nodes mark the reconstructed output, the downstream artifact that carries the SAE approximation forward.',
         'The feature-audit view traces the evidence pipeline from raw activations to a versioned feature catalog. Active nodes show the current audit stage. Compare nodes mark the steering path, a parallel intervention channel. Found nodes mark the catalog, the artifact that accumulates only features with causal evidence.',
+        {type:'callout', text:'The sparse code is valuable because it turns an opaque activation vector into stable feature IDs that can be searched, tested, and versioned.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/83/Autoencoder_sparso.png', alt:'Diagram of a sparse autoencoder with input nodes, hidden nodes, and reconstructed outputs.', caption:'Single layer sparse autoencoder. Michela Massi, Wikimedia Commons, CC BY-SA 4.0.'},
         {
           type: 'note',
           text: 'At each frame, ask: what representation changed, what information was lost or gained, and whether the current step is producing evidence or just producing labels. A feature name without a causal test is a hypothesis, not a finding.',

@@ -237,6 +237,7 @@ export const article = {
       paragraphs: [
         'SPLADE, the Sparse Lexical and Expansion Model, attacks a central retrieval problem: exact words are efficient but brittle, while dense vectors are semantic but harder to inspect and serve with classic search infrastructure. BM25 can retrieve documents quickly through an inverted index, but it struggles when a query and a relevant document use different vocabulary. Dense retrieval can close vocabulary gaps, but it usually depends on approximate nearest-neighbor indexes and opaque embedding dimensions.',
         'SPLADE sits between those worlds. It uses a Transformer to produce vocabulary-sized sparse vectors for queries and documents. The active coordinates are terms. The weights are learned. Some active terms may be literal words from the text; others may be expansion terms implied by context. The result behaves like weighted keyword retrieval, but the keywords and weights come from a neural model.',
+        {type:'callout', text:'SPLADE works by letting a neural model choose sparse vocabulary coordinates while the serving path remains an inverted-index query.'},
       ],
     },
     {

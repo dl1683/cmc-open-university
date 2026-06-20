@@ -229,6 +229,8 @@ export const article = {
         `A synthesized netlist tells us which standard cells and macros exist and which pins are connected. It does not tell the foundry where those cells sit. Placement turns logical connectivity into coordinates on a real chip floorplan: rows have fixed heights, sites have legal x positions, macros and blockages occupy space, power rails impose orientation rules, and routing layers above the cells have limited capacity.`,
         `The placement stage matters because later tools inherit its geometry. Static timing sees wire delay from physical distance. Clock-tree synthesis sees where sequential elements live. Global routing sees crowded macro channels. Power and thermal analysis see whether switching activity has been packed into one region.`,
         `The reason placement is split into phases is that one phase cannot solve every constraint at full detail. Global placement uses approximate continuous coordinates and coarse density models. Legalization and detailed placement convert those targets into manufacturable row and site assignments.`,
+        {type:'callout', text:`Placement succeeds by separating continuous optimization from discrete row legality, then measuring how much the repair moved the design.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/aa/Silicon_chip_3d.png', alt:'3D rendering of metal and polysilicon structures in a small standard cell.', caption:'3D view of a small integrated circuit standard cell. David Carron, Wikimedia Commons, public domain.'},
       ],
     },
     {

@@ -277,6 +277,7 @@ export const article = {
       paragraphs: [
         'Autoregressive decoding is latency-bound because the target model normally produces one token per expensive forward pass. The next pass cannot start until the previous token is known, so the largest model sits on the critical path for every output token.',
         'Speculative decoding tries to shorten that path without changing the target model contract. A cheaper draft path proposes several future tokens, and the target path verifies those tokens in one parallel pass.',
+        {type:'callout', text:'The ledger protects exactness by making every draft token either target-approved, target-repaired, or discarded before the cache advances.'},
       ],
     },
     {
