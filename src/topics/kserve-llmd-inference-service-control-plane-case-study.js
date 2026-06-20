@@ -223,6 +223,7 @@ export const article = {
       paragraphs: [
         'KServe LLMInferenceService plus llm-d is a Kubernetes-native control-plane pattern for production generative inference. KServe gives platform teams a declarative service object for model lifecycle, runtime configuration, routing, rollout, autoscaling, and status. llm-d adds LLM-specific scheduling intelligence: KV-cache locality, prefill/decode separation, load-aware routing, and SLO-aware placement.',
         'This topic complements NVIDIA Dynamo. Dynamo teaches a distributed inference framework and its fleet-level control plane. KServe/llm-d teaches what that world looks like when the operating surface is Kubernetes: CRDs, controllers, Gateway API, runtime pods, status fields, scheduler policy, metrics, and rollbacks.',
+        {type:'callout', text:'A production LLM serving API needs both declared service state and per-request routing evidence, because cache locality and SLO pressure are part of the control plane.'},
       ],
     },
     {

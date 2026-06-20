@@ -336,6 +336,8 @@ export const article = {
       paragraphs: [
         'A moving system is never observed directly. A vehicle, drone, robot arm, satellite, or phone has noisy measurements and an imperfect motion model. The system needs one best estimate now, not a pile of contradictory sensor readings.',
         'A Kalman filter is a recursive estimator. It carries a state vector `x` and an uncertainty covariance `P`, predicts them forward with a model, then corrects them when a measurement arrives.',
+        {type:'callout', text:'Kalman filtering works because the estimate carries uncertainty, so each sensor residual is weighted by what the system already believes it does not know.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a0/Kalman_filter_model_2.svg', alt:'Diagram of a Kalman filter model showing hidden state, observations, transition noise, and measurement noise across time steps.', caption:'Kalman filter state model, by Headlessplatter on Wikimedia Commons, public domain.'},
       ],
     },
     {

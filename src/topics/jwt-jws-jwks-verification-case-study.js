@@ -198,6 +198,7 @@ export const article = {
       paragraphs: [
         "The compact-token view shows a JWT as three base64url segments flowing from an issuer through header, payload, and signature into a single compact string, then into a verifier that consults a JWKS key set. Active nodes are the current decision point. Found nodes are facts now proven. The verifier node decides between the API (allow) and deny paths.",
         "The verification-path view traces the gate sequence: split, parse, algorithm allowlist, kid lookup, JWKS cache, signature check, claim validation, and policy decision. Active markers show which gate is executing. Found markers show gates already passed. If a gate rejects, the pipeline stops and the token is denied.",
+        {type:"callout", text:"Verification is a policy pipeline: the token proposes structure, keys, and claims, but the verifier decides which facts become trusted authorization context."},
         "At each frame, ask: what input is the gate checking, what would cause rejection, and which attack class does this gate block?",
       ],
     },

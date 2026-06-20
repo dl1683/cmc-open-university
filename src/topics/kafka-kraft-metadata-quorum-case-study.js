@@ -202,6 +202,7 @@ export const article = {
       paragraphs: [
         'Kafka began with a split control plane. User records lived in Kafka logs on brokers, but cluster metadata lived in ZooKeeper. ZooKeeper tracked brokers, topics, partition leadership, configs, and coordination state. This worked for many years, but it meant operators had to run two distributed systems with different data models, tooling, scaling limits, and failure modes. Kafka could be healthy while ZooKeeper was unhealthy, and ZooKeeper problems could still stop Kafka control-plane progress.',
         'KRaft exists to bring Kafka metadata into Kafka itself. In KRaft mode, a self-managed controller quorum stores cluster metadata in a replicated log. That shift removes the external ZooKeeper dependency and makes metadata follow Kafka-style principles: append records, replicate them, commit them through a quorum, replay them into an image, and use snapshots to bound recovery. The important lesson is not only that one dependency disappears. The deeper lesson is that the control plane becomes a log-structured distributed system.',
+        {type:'callout', text:'KRaft turns Kafka metadata into an ordered replicated log so every controller and broker can rebuild the same cluster image from committed records.'},
       ],
     },
     {

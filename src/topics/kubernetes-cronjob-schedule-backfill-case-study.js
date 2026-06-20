@@ -193,6 +193,7 @@ export const article = {
       paragraphs: [
         'Many production tasks are finite but repeated: nightly backups, hourly reports, certificate refreshes, cleanup passes, and scheduled exports. A plain Job can run one occurrence, but it does not remember the next due time.',
         'A CronJob adds a schedule ledger around Jobs. It stores the cron expression, evaluates due ticks, creates Jobs from a template, and keeps enough history to debug recent successes and failures.',
+        {type:'callout', text:'A CronJob is a schedule ledger, not a running loop: each due tick is judged against cursor, deadline, concurrency, and history policy before a Job is created.'},
       ],
     },
     {

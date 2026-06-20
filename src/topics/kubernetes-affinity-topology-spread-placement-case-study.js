@@ -192,6 +192,7 @@ export const article = {
       paragraphs: [
         'A Kubernetes scheduler cannot treat every node as interchangeable. CPU and memory fit are necessary, but they do not capture failure domains, hardware needs, storage locality, latency, compliance boundaries, or the risk of putting every replica on the same host. A Pod can fit perfectly on a node and still be a bad placement.',
         'Affinity, anti-affinity, and topology spread constraints give the scheduler structured placement rules. Node affinity talks about node labels. Pod affinity and anti-affinity talk about existing Pods in topology domains. Topology spread constraints count matching Pods across domains such as hostname, zone, or region and try to keep skew bounded. The case study is useful because it turns vague placement goals into filter and score data structures.',
+        {type:'callout', text:'Kubernetes placement is a two-phase ledger: hard rules define the feasible nodes and soft rules rank the survivors by resilience, locality, and policy.'},
       ],
     },
     {

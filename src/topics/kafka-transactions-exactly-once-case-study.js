@@ -186,7 +186,8 @@ export const article = {
       paragraphs: [
         `Kafka is often used for read-process-write pipelines. An application consumes records from an input topic, computes derived records, writes those records to an output topic, and advances its consumer offsets so it does not process the same input again. The hard part is that the output write and the offset commit are two different pieces of state.`,
         `If the app writes output and crashes before committing offsets, it will process the same input again after restart and may write duplicate output. If it commits offsets first and crashes before writing output, it can lose the result. If a producer retries after a broker timeout, the same batch can be appended more than once unless Kafka can recognize the retry as a duplicate. If an old app instance keeps running after a replacement starts, both can write as if they own the same task.`,
-        `Kafka transactions exist to close those windows for pipelines whose input offsets and output records live in Kafka. The guarantee is not magic exactly-once delivery to every system in the world. It is a protocol that makes Kafka output records and Kafka consumer offsets commit together, while read_committed consumers see only committed transactional output.`
+        `Kafka transactions exist to close those windows for pipelines whose input offsets and output records live in Kafka. The guarantee is not magic exactly-once delivery to every system in the world. It is a protocol that makes Kafka output records and Kafka consumer offsets commit together, while read_committed consumers see only committed transactional output.`,
+        {type:`callout`, text:`Exactly-once inside Kafka means output records and consumed offsets share one transaction, while external side effects still need their own idempotency boundary.`}
       ],
     },
     {

@@ -328,6 +328,7 @@ export const article = {
       paragraphs: [
         'Kafka request purgatory is the broker-side structure for requests that cannot be answered now but may become answerable soon. A produce request with acks=all may have appended to the leader log but still be waiting for in-sync replicas. A fetch request may have found the partition but not enough bytes to satisfy the consumer minimum. The broker should not block a request-handler thread for each wait, and it should not force clients to spin.',
         'The structure combines two ideas. Watcher lists wake delayed operations when relevant partition or coordinator state changes. A timer path expires them if the condition never becomes true. Kafka calls these delayed operations purgatory because they are neither done nor lost; they are parked with enough information to recheck completion later.',
+        {type:'callout', text:'Request purgatory is a pair of indexes: watcher lists for useful events and timer buckets for deadlines, with one idempotent completion path.'},
       ],
     },
     {

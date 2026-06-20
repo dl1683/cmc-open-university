@@ -213,6 +213,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Kafka Log Case Study. Kafka as a production log: partition ordering, offsets, consumer groups, retention, compaction, and backpressure..",
+        {type:"callout", text:"Kafka separates the durable record from each reader position, which makes one partition log serve transport, storage, replay, and independent fanout."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",

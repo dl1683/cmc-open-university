@@ -185,6 +185,7 @@ export const article = {
       paragraphs: [
         'The Kubernetes API server is the shared doorway to the cluster. Every controller, scheduler, operator, kubectl user, and workload automation path depends on it. If a noisy client fills that doorway, unrelated control loops stop making progress.',
         'API Priority and Fairness exists because overload is a control-plane correctness problem, not just a latency problem. A tenant that loops on expensive list requests can delay node heartbeats, deployment rollouts, admission decisions, and cleanup controllers unless the API server has a fair way to queue, reject, and dispatch requests.',
+        {type:'callout', text:'API Priority and Fairness protects the control plane by turning each request into classified, budgeted, queueable work before it can consume server capacity.'},
       ],
     },
     {
