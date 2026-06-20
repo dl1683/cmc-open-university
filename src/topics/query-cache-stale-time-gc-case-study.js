@@ -204,6 +204,7 @@ export const article = {
       paragraphs: [
         'Client apps often need the same server data in several places: a list, a badge, a detail drawer, and a chart. If every component owns its own fetch, the app wastes network work and can show inconsistent copies of the same server fact.',
         'A query cache exists because server state is shared, remote, and time-sensitive. It needs identity, observers, freshness rules, deduped fetches, invalidation, and memory cleanup.',
+        {type:'callout', text:'A query cache is not a fetch helper but a shared identity map with observers, freshness clocks, repair triggers, and retention policy.'},
       ],
     },
     {

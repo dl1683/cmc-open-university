@@ -170,6 +170,7 @@ export const article = {
       paragraphs: [
         'The "lease read" view traces the fast path: a client read that skips the quorum round trip because the leader holds a valid lease. Active nodes are the current decision point. Found nodes are conditions already proven true. Watch the lease, clock, and apply nodes -- all three must be active before the read node lights up.',
         'The "stale leader" view traces the failure case. A partitioned or paused leader still receives client reads but cannot prove leadership. Removed nodes are conditions the system can no longer establish. The critical frames are where the lease becomes ambiguous and the read path blocks or falls back to ReadIndex.',
+        {type:'callout', text:'A lease read is safe only when cached leadership authority and applied-state freshness pass at the same time.'},
         {
           type: 'note',
           text: 'One safe inference rule: if both the lease node and the apply node are active (found) in the same frame, the read is linearizable. If either is missing, the read must not proceed locally.',

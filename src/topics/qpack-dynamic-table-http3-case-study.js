@@ -247,6 +247,7 @@ export const article = {
       paragraphs: [
         'HTTP requests repeat a lot of header fields. Methods, schemes, status codes, content types, cookies, authorization shapes, cache controls, and user-agent prefixes recur across many requests. Sending those fields literally every time wastes bytes and slows down the start of work.',
         'QPACK exists because HTTP/3 still needs indexed header compression, but HTTP/3 no longer has one ordered TCP byte stream. HPACK used that order to keep the encoder and decoder dynamic tables synchronized. QUIC streams can arrive independently, so a request can outrun the table update it references.',
+        {type:'callout', text:'QPACK makes header compression safe over independent QUIC streams by separating table mutation state from request field sections.'},
       ],
     },
     {

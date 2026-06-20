@@ -261,6 +261,7 @@ export const article = {
         'Modern application traffic needs more than "deliver bytes in order." It needs encryption by default, multiplexed requests, loss recovery, flow control, congestion control, fast setup, and a way for mobile clients to survive network changes.',
         'TCP plus TLS plus HTTP/2 solves many of those problems, but the transport still exposes one ordered byte stream. If one TCP segment is missing, later bytes cannot be delivered to the application even when those bytes belong to a different HTTP/2 stream.',
         'QUIC is a UDP-based transport that moves the transport state into the endpoints. It integrates TLS 1.3, stream multiplexing, packet-number-based loss recovery, connection IDs, flow control, and migration into one protocol.',
+        {type:'callout', text:'QUIC separates packet recovery from stream ordering so loss repair does not turn the whole connection into one blocked byte stream.'},
       ],
     },
     {

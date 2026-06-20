@@ -191,6 +191,7 @@ export const article = {
         'Protocol Buffers exists because distributed systems need payloads that are smaller and more explicit than JSON while still surviving schema evolution. A raw positional binary record is compact but brittle. A fully self-describing record is easy to inspect but repeats field names and types constantly.',
         'The Protocol Buffers wire format is a compact tag-value encoding. Each field writes a tag that combines field number and wire type, followed by the encoded value. The schema is not repeated as field names in every message; generated code uses field numbers to interpret bytes.',
         'This is why Protobuf is small and evolvable. Field numbers are the stable identity, wire types let parsers skip unknown fields, and varints make small integers and lengths cheap.',
+        {type:'callout', text:'Protobuf stays compact and evolvable by making field numbers the stable identity and wire types the skip contract.'},
       ],
     },
     {

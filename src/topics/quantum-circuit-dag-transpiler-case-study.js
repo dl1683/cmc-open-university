@@ -183,6 +183,8 @@ export const article = {
         'A quantum circuit drawn in a textbook is an abstract program. It names logical qubits and gates, but real hardware has a small native gate set, limited qubit connectivity, timing constraints, measurement rules, and calibration data that changes over time. A circuit that is mathematically valid can still be impossible or poor to run on a particular machine.',
         'A transpiler is the compiler layer between the abstract circuit and the device. It rewrites the circuit until every operation is expressible in the backend basis, every two-qubit interaction fits the coupling map, and every measurement or classical dependency keeps the same meaning. The hard part is doing that while avoiding unnecessary depth and error.',
         'This topic belongs in a data-structures curriculum because the compiler is not mainly a list rewriter. Its central representation is a dependency graph. Once the circuit is a DAG, ordinary compiler questions become graph questions: what depends on what, what can move, what can cancel, what sits on the critical path, and where hardware routing adds work.',
+        {type:'callout', text:'Quantum transpilation works because circuit order becomes a dependency graph where each rewrite must preserve semantics before optimizing hardware fit.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/dc/Quantum_teleportation_circuit.svg', alt:'Quantum circuit diagram with qubit lines, gates, measurements, and classical control wires.', caption:'Quantum teleportation circuit, by Bender2k14, Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {

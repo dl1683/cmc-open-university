@@ -212,6 +212,7 @@ export const article = {
       paragraphs: [
         `Example tests are necessary, but they prove one story at a time. A developer writes the empty case, the happy path, and the bug they remember. That leaves the unimagined cases: duplicate values, resize boundaries, Unicode normalization, negative zero, interleaved operations, missing keys, old versions, and strange ordering. Many production bugs are not deep algorithmic failures; they are ordinary inputs arriving in a shape nobody wrote by hand.`,
         `Property-based testing exists to turn a rule into a search problem. Instead of saying "this queue works for the three examples I chose," the test says "for any generated sequence of valid queue operations, the observable behavior should match the model." Hypothesis describes this style as writing tests that should pass for all inputs in a described range while the tool chooses examples, including edge cases: https://hypothesis.readthedocs.io/.`,
+        {type:'callout', text:`Property-based testing turns a specification into a search system, and shrinking turns the first failure into the smallest useful debug artifact.`},
       ],
     },
     {

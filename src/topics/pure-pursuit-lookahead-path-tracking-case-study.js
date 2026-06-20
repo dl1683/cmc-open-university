@@ -216,6 +216,7 @@ export const article = {
       paragraphs: [
         'Pure pursuit is a geometric path-tracking controller. It chooses a target point ahead of the robot on the reference path, transforms that point into the robot frame, and computes the curvature of an arc that would drive the robot toward it.',
         'The appeal is that the runtime state is small and inspectable: current pose, path, nearest path index, lookahead distance, target point, curvature command, speed command, and timing. That makes it useful in robots, autonomous vehicles, warehouse platforms, and teaching systems where a controller should be easy to debug under motion.',
+        {type:'callout', text:'Pure pursuit compresses path tracking into one auditable geometry decision: choose a forward target, then command the arc that reaches it.'},
       ],
     },
     {

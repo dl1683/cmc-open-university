@@ -177,6 +177,7 @@ export const article = {
       paragraphs: [
         'A replicated state machine has many copies of the same logical data. Reads are tempting because they do not change the log, but a local copy can be stale. A linearizable read must behave as if it happened at one instant after every write that completed before it began.',
         'ReadIndex is the Raft pattern for serving that kind of read without appending a log entry for every request. It gives the application a log boundary and says: answer locally only after leadership has been confirmed and local apply has reached this boundary.',
+        {type:'callout', text:'ReadIndex avoids writing every read by first proving current leadership, then waiting until local state reaches the proven log boundary.'},
       ],
     },
     {

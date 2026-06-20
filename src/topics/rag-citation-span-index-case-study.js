@@ -234,6 +234,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The span ledger view traces how a document moves from ingestion to a citable span record. The answer audit view traces how a generated claim is checked against those records.',
+        {type:'callout', text:'Span-level citation makes provenance a replayable data structure rather than a decorative link to a retrieved chunk.'},
         {
           type: 'bullets',
           items: [
