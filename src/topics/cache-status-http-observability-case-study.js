@@ -200,7 +200,9 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Cache-Status turns a vague slow-or-fast response into per-cache evidence about which layer hit, missed, forwarded, stored, or collapsed work.'},
         'HTTP caching is a chain of decisions, but developers often see only one response. A request may pass through browser cache, CDN edge, regional shield, reverse proxy, and origin. Any one of those layers can hit, miss, revalidate, collapse a stampede, store a new object, or forward for a reason that is not visible from timing alone.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/67/Reverse_proxy_h2g2bob.svg', alt:'Reverse proxy diagram showing a client request passing through an intermediary before reaching a server', caption:'Reverse proxies and cache layers sit between users and origins; Cache-Status makes each intermediary report the cache decision it made. Source: Wikimedia Commons, H2g2bob, CC0.'},
         'Cache-Status exists to put cache behavior into a structured response header. It gives the response a small evidence trail: which cache handled the object, whether it hit or forwarded, how much freshness remains, whether it was stored, and whether revalidation was collapsed.',
         'That matters because cache failures often masquerade as unrelated system failures. A bad key rule looks like origin slowness. A missing freshness header looks like capacity trouble. A revalidation stampede looks like a random latency spike. Per-layer cache evidence keeps those stories separate.',
       ],

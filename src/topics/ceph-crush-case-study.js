@@ -199,8 +199,10 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'CRUSH replaces per-object placement metadata with a deterministic, topology-aware function that every client can compute from the same cluster map.'},
         'A distributed storage system has to decide where every object lives. The easy answer is a central metadata service: ask it for the placement of object X, then read or write the listed replicas. That works until the placement table becomes large, hot, or hard to keep available during failures.',
         'CRUSH, used by Ceph, makes placement a deterministic function. Given an object id, a cluster map, weights, and placement rules, clients and storage daemons can compute the replica set locally. The system avoids storing a per-object placement table while still respecting capacity and failure-domain constraints.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/3e/Ceph_components.svg', alt:'Ceph component diagram showing applications, kernel, monitors, metadata daemon, object storage daemon, and disks', caption:'Ceph distributes storage across monitors, metadata services, OSDs, and disks; CRUSH is the placement function that maps objects into that storage fabric without a per-object lookup table. Source: Wikimedia Commons, V4711, CC BY-SA 4.0.'},
       ],
     },
     {

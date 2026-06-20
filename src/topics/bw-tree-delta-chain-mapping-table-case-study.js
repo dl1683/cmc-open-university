@@ -350,7 +350,9 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'The Bw-tree keeps B+ tree order but moves physical mutation behind a mapping-table CAS, so logical pages stay stable while updates become replayable deltas.'},
         'A B+ tree is a strong ordered index because it keeps sorted keys in pages and routes searches through separators. The hard part is concurrency. A hot leaf, root, or internal page can force many cores to wait on the same latch even when each operation only wants to insert, delete, or read one key.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt:'Diagram of a B-tree with sorted keys in internal and leaf nodes', caption:'A B-tree stores sorted keys through a balanced page hierarchy; the Bw-tree keeps that logical shape while replacing in-place mutation with mapping-table indirection and delta chains. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0/GFDL.'},
         'The Bw-tree exists to ask a specific systems question: can an ordered B+ tree avoid in-place page mutation and still behave like a searchable index? Its answer is indirection. Tree edges name logical page ids, a mapping table turns each id into a physical page chain, and updates publish new delta records with compare-and-swap.',
       ],
     },

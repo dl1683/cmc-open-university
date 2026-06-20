@@ -164,7 +164,9 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Stale-while-revalidate changes expiration from a latency cliff into a bounded stale window guarded by one refresh path.'},
         'stale-while-revalidate exists because freshness should not always be a cliff. At scale, one popular object expiring can force many users to wait for the same origin validation at the same time.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/26/NCDN_-_CDN.svg', alt:'Diagram comparing a single origin server with a content delivery network', caption:'A CDN spreads cached copies across edge locations; stale-while-revalidate and shields prevent one expired object from turning every edge into origin traffic. Source: Wikimedia Commons, D. Ilyin after Kanoha, CC0.'},
         'The directive gives the cache a bounded grace period. During that period it may serve the stale object immediately while one background revalidation refreshes the shared cache record.',
         'stale-if-error solves a related availability problem: if origin is unhealthy, bounded stale content may be better than an outage for resources where old content is acceptable.',
       ],

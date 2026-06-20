@@ -217,6 +217,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Cardinality estimates are planner evidence; once the first row-count guess is badly wrong, every downstream join, memory, and cost choice can look rational but run terribly.'},
         'SQL lets a user describe the result, not the physical path. The database has to choose scan methods, join order, join algorithms, memory grants, parallelism, and sometimes distributed shuffle plans before it has executed the query. Those choices need a shared unit of comparison. In relational optimizers, that unit is usually estimated row count plus a cost model built on top of it.',
         'Cardinality estimation is the row-count prediction layer. It asks how many rows a predicate will keep, how many rows a join will produce, how many groups an aggregate will make, and how large each intermediate result will be. The answer is not a cosmetic number in an EXPLAIN plan. It is the input that makes one physical strategy look cheap and another look expensive.',
         'This topic exists because many query failures are not caused by a bad hash join, a bad B-tree, or a bad dynamic-programming enumerator. The optimizer can have strong algorithms and still choose a terrible plan when the estimates describe a different database from the one that will run. Plan debugging often starts by finding the first large gap between estimated and actual rows.',

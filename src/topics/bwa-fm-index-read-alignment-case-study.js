@@ -208,6 +208,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'The BWA FM-index turns genome alignment from scanning billions of bases into repeatedly narrowing a compressed suffix-array interval.'},
         'A single Illumina sequencing run produces hundreds of millions of short reads, each 100-300 bases long. Every read must be placed onto a reference genome that is 3.2 billion bases for human. The mapper answers the same question for each read: where in the reference did this fragment come from?',
         {
           type: 'quote',
@@ -265,6 +266,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The Burrows-Wheeler Transform rearranges the reference text so that repeated substrings cluster together, making the transformed text highly compressible. But the BWT is not just a compression trick. Combined with two auxiliary tables, it supports exact pattern search without ever consulting the original suffix array.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/ca/Bwt.jpg', alt:'Burrows-Wheeler transform table showing cyclic rotations and the final BWT column', caption:'The Burrows-Wheeler Transform groups cyclic rotations so the final column can support compressed search; BWA builds its FM-index on this transformation. Source: Wikimedia Commons, Msaberi, CC BY-SA 4.0.'},
         {
           type: 'diagram',
           label: 'FM-index components',

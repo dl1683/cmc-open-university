@@ -202,6 +202,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Versioned precaching treats the offline shell as a release-sized key set that must install completely before it becomes the active cache.'},
         'An offline-capable web app needs a stable shell: HTML, JavaScript chunks, CSS, fonts, and small assets that should be available before the network answers. The browser HTTP cache can help, but it is not an application-owned deployment ledger. It does not tell the service worker which exact release files must move together.',
         'Cache Storage gives a service worker named Request-to-Response maps. Versioned precaching turns those maps into release namespaces. A manifest names the required key set, install fills the new namespace, fetch reads from the active namespace, and activate deletes namespaces that are no longer safe.',
         'MDN describes CacheStorage.open as returning a named Cache and creating it when needed: https://developer.mozilla.org/en-US/docs/Web/API/CacheStorage. MDN Cache.addAll documents the install-time bulk fill pattern for a list of URLs: https://developer.mozilla.org/en-US/docs/Web/API/Cache/addAll.',

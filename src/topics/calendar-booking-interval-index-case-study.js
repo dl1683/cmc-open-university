@@ -218,7 +218,9 @@ export const article = {
     {
       heading: 'Why scheduling is an interval-index problem',
       paragraphs: [
+        {type:'callout', text:'A calendar booking system is an interval overlap index until the user clicks book, then it becomes a serialized check-and-insert problem.'},
         'Scheduling looks simple until the system has to prevent two clients from booking the same room, expand recurring meetings across daylight saving time, hide private event details, and still answer free/busy queries quickly.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/73/Pert_example_gantt_chart.gif', alt:'Gantt chart showing tasks as horizontal intervals on a time axis', caption:'A Gantt chart draws work as intervals on a time axis; calendar booking uses the same interval shape but adds overlap checks, privacy, recurrence, and atomic reservation. Source: Wikimedia Commons, Dbsheajr, CC BY-SA 3.0/GFDL.'},
         'The core data question is narrow: does this proposed interval overlap any existing busy interval for the same resource? If the answer is yes, reject or propose another slot. If the answer is no, the system may proceed to reservation, but only with a consistency boundary around the write.',
         'That makes calendar booking a practical interval-index problem wrapped in product rules, privacy rules, and transaction rules.',
       ],

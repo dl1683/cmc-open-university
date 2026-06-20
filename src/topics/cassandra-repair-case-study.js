@@ -178,6 +178,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Cassandra repair uses Merkle trees to make replica drift searchable, pruning equal token subranges and streaming only where digests disagree.'},
         'Cassandra chooses availability and partition tolerance over one global synchronous copy of the data. That choice lets replicas accept work during outages, but it also means replicas can drift when a node is down, a partition delays traffic, hinted handoff expires, or reads do not touch every owner of a token range.',
         'Repair is the deliberate anti-entropy path. It is the mechanism that says: for this token range and this replica set, prove which subranges match, find the subranges that do not, and stream the missing or stale rows until the replicas converge.',
       ],
@@ -193,6 +194,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A Merkle tree turns comparison into pruning. Each replica hashes rows into leaves for a token range and combines those hashes upward. If two subtree hashes match, the whole subrange can be skipped. If they differ, repair descends only into that subrange.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Merkle hash tree with data blocks at leaves and combined hashes up to the root', caption:'A Merkle tree summarizes large state with nested hashes; Cassandra repair compares these summaries top down to find only the token subranges that differ. Source: Wikimedia Commons, David Gothberg and Azaghal, CC0.'},
         'The invariant is simple: a matching hash stands for matching contents under that subtree, assuming the hash function does not collide in practice. Repair spends detailed work only where the digest proves that two replicas disagree.',
       ],
     },

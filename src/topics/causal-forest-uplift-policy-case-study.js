@@ -242,6 +242,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'A causal forest is useful only when it ranks incremental treatment effect, not raw outcome likelihood, and the policy keeps testing that ranking against held-out causality.'},
         'A subscription company has 100,000 users approaching renewal and budget for 20,000 coupons. Marketing wants to send coupons to the users most likely to churn. Finance wants to send them to the users where coupons actually change behavior. These are different lists.',
         {type: 'quote', text: 'The fundamental problem of causal inference is that we can never observe the same unit in both the treated and untreated state at the same time.', attribution: 'Holland, "Statistics and Causal Inference" (1986)'},
         'A user either receives the coupon or does not. The counterfactual outcome -- what would have happened under the other assignment -- is never observed. Causal forests exist to estimate that missing counterfactual by finding the right comparison group for each individual user, not just the population average.',
@@ -275,6 +276,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A causal forest uses tree structure not to predict outcomes but to partition the covariate space into regions where treatment effects are locally homogeneous. Each leaf is an adaptive neighborhood: a group of training examples similar enough that the local difference between treated and control means is a credible estimate of the conditional average treatment effect (CATE).',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/ff/Decision_tree_model.png', alt:'Decision tree model splitting examples by outlook, humidity, and wind', caption:'A causal forest is an ensemble of tree neighborhoods, but the target is local treatment effect rather than ordinary outcome classification. Source: Wikimedia Commons, T-kita, public domain.'},
         {type: 'diagram', text: '  Logs (T, Y, X)\n       |\n       +--- split sample ---> Split Set (choose tree structure)\n       |                          |\n       +--- estimate sample --> Estimate Set (compute CATE in leaves)\n       |\n       +--- nuisance ---------> m(x) = E[Y|X],  e(x) = P(T=1|X)\n                                     |\n                              Residualize: Y - m(x),  T - e(x)\n                                     |\n                              Forest of honest trees\n                                     |\n                              CATE(x) = weighted local comparison\n                                     |\n                              Policy: rank by CATE - cost, apply constraints', label: 'The generalized random forest pipeline from logs to policy'},
         'The key word is "honest." An honest tree uses one sample to decide where to split and a separate sample to estimate effects within the chosen leaves. This prevents the tree from both hunting for noisy effect patterns and then claiming that same noise as evidence -- the statistical analogue of grading your own homework.',
       ],
