@@ -235,6 +235,12 @@ export const article = {
           attribution: 'ClickHouse Documentation, "Why ClickHouse is So Fast"',
         },
         'Analytical workloads scan billions of rows but read few columns. A product dashboard asks: "for tenant X, between 2pm and 3pm yesterday, sum metric by event type." That query touches three columns out of thirty and needs rows from one tenant and one hour out of weeks of data. The work is dominated by how much irrelevant data the engine can avoid reading.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Column_vs_row.svg/800px-Column_vs_row.svg.png',
+          alt: 'Row-oriented vs column-oriented storage layout comparison',
+          caption: 'Row stores pack entire rows together on each page. Column stores pack all values of one column together, so a query touching three columns out of thirty reads only those three compressed streams instead of loading every field from every row.',
+        },
         'Row stores like PostgreSQL or MySQL pack entire rows together on disk pages. Reading three columns forces the engine to load all thirty columns from every touched page, then discard twenty-seven. A dense B-tree index can locate individual rows, but once the query needs thousands of rows for aggregation, the per-row pointer chasing becomes the bottleneck.',
         'ClickHouse MergeTree solves this by storing each column in a separate compressed file, sorting all rows by a user-chosen ORDER BY key, and indexing only granule boundaries rather than individual rows. The result is a storage engine shaped for the analytical access pattern: skip irrelevant row ranges by sorted order, read only the columns the query needs, and decompress compact columnar blocks with vectorized execution.',
         {
@@ -257,6 +263,12 @@ export const article = {
       paragraphs: [
         'The obvious approach from OLTP experience is a B-tree index on every filterable column. Each index entry points to an exact row. The query plan walks one or more indexes, intersects the row sets, and fetches matching rows.',
         'This works well when queries touch a handful of rows. It breaks when queries aggregate thousands or millions of rows, because each row fetch is a random I/O into a row-oriented page. The index that is precise at pointing becomes expensive to traverse at volume.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/B-tree.svg/800px-B-tree.svg.png',
+          alt: 'B-tree index structure showing internal and leaf nodes',
+          caption: 'A B-tree gives O(log n) point lookups by branching through sorted internal nodes to a leaf containing the target key. This precision is invaluable for OLTP -- fetching one customer, one order, one row. But analytical queries need thousands of rows for aggregation, and each leaf-to-row pointer chase is a separate random I/O.',
+        },
         {
           type: 'diagram',
           text: 'Row store with B-tree index (OLTP pattern):\n\n  B-tree index on tenant_id\n    |-> row 17  (all 30 columns packed together)\n    |-> row 4,201\n    |-> row 8,992\n    |-> ... (thousands of random row fetches)\n\n  Each fetch loads the full row: 30 columns read, 3 used.\n  Random I/O dominates once result set exceeds a few hundred rows.',
@@ -281,9 +293,19 @@ export const article = {
         'The wall is the tension between index precision and scan efficiency at analytical scale. A dense index gives row-level precision but costs O(n) memory and maintenance for n rows. At a billion rows with a 16-byte key, the index alone is 16 GB before any row data. Every insert must update the index. Every merge must rebuild it.',
         'An append log avoids that cost but gives zero skip capability. Between these extremes, the question is: what is the right unit of indexing for analytical queries?',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/OLAP_drill_up%26down.png/800px-OLAP_drill_up%26down.png',
+          alt: 'OLAP cube drill-down showing hierarchical analytical aggregation',
+          caption: 'OLAP workloads aggregate across dimensions -- drilling into tenant, time, geography. The access pattern is fundamentally different from OLTP point lookups: each query touches millions of rows but only a few columns, and the value of an index depends on how many row groups it can skip, not how precisely it can point.',
+        },
+        {
           type: 'diagram',
           text: 'Dense index at 1 billion rows:\n  1B entries * 16 bytes/key = 16 GB index memory\n  Every insert updates the index\n  Every merge rebuilds it\n  The query reads 3 columns but the index points at full rows\n\nSparse index at 1 billion rows (8,192 rows/granule):\n  ~122K entries * 16 bytes/key = ~2 MB index memory\n  One entry per granule boundary, not per row\n  Fits entirely in L3 cache on modern hardware\n  Binary search over 122K entries: ~17 comparisons',
           label: 'Memory cost: dense vs. sparse indexing at scale',
+        },
+        {
+          type: 'callout',
+          text: 'The fundamental tradeoff: a dense index costs 16 GB of RAM per billion rows and gives row-level precision the query does not need. A sparse granule index costs 2 MB per billion rows and gives block-level precision that is sufficient for analytical scans. That is an 8,000x reduction in index memory.',
         },
         'The answer MergeTree gives: index granule boundaries, not rows. A granule is a contiguous block of 8,192 rows (default) sorted by the ORDER BY key. The sparse primary index stores only the first key value of each granule. At a billion rows, this is ~122,000 index entries instead of a billion. The index fits in CPU cache. The tradeoff is that the engine cannot pinpoint a single row from the index alone -- it can only identify which granules might contain matching rows, then scan those granules column by column.',
         {
@@ -298,6 +320,12 @@ export const article = {
         'Sort rows by the columns that queries filter on most. Store each column separately. Index only the boundaries between fixed-size row groups (granules). Accept that the index cannot identify individual rows -- it identifies candidate granules that might contain matches. Then scan those candidate granules using only the columns the query needs.',
         'This is a bet on two properties of analytical workloads: queries read few columns out of many, and queries filter on dimensions that benefit from sorted physical order. When both hold, MergeTree reads a small fraction of the stored data.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Merge_sort_algorithm_diagram.svg/600px-Merge_sort_algorithm_diagram.svg.png',
+          alt: 'Merge sort algorithm diagram showing divide and merge phases',
+          caption: 'The merge in MergeTree is literally merge sort. Each INSERT creates a new sorted run (a "part"). Background compaction k-way merges multiple sorted parts into one larger sorted part -- the same operation shown here, but applied to on-disk columnar files instead of in-memory arrays.',
+        },
+        {
           type: 'diagram',
           text: 'Data part on disk (one part, three columns shown):\n\n  primary.idx:    [tenant=1,t=00:00] [tenant=1,t=04:12] [tenant=3,t=01:00] ...\n                   granule 0           granule 1           granule 2\n\n  tenant_id.bin:  |#### g0 ####|#### g1 ####|#### g2 ####| ...  (compressed)\n  event_time.bin: |#### g0 ####|#### g1 ####|#### g2 ####| ...  (compressed)\n  metric.bin:     |#### g0 ####|#### g1 ####|#### g2 ####| ...  (compressed)\n  payload.bin:    |#### g0 ####|#### g1 ####|#### g2 ####| ...  (not read)\n\n  marks file:     [offset_g0] [offset_g1] [offset_g2] ...  (per column)\n\n  Query: WHERE tenant_id = 3 AND event_time > 01:00\n  -> primary.idx binary search -> granule 2 is candidate\n  -> marks[2] gives byte offset in tenant_id.bin, event_time.bin, metric.bin\n  -> decompress only granule 2 of those three columns\n  -> payload.bin is never touched',
           label: 'Sparse index narrows to granules; marks jump into column files',
@@ -308,7 +336,7 @@ export const article = {
           text: '-- The ORDER BY key is NOT a uniqueness constraint.\n-- It defines physical sort order and sparse index structure.\nCREATE TABLE events (\n    tenant_id   UInt32,\n    event_time  DateTime,\n    event_type  LowCardinality(String),\n    url         String,\n    country     LowCardinality(String),\n    payload     String,\n    metric      Float64\n) ENGINE = MergeTree()\nPARTITION BY toYYYYMM(event_time)\nORDER BY (tenant_id, event_time)\nSETTINGS index_granularity = 8192;',
         },
         {
-          type: 'note',
+          type: 'callout',
           text: 'ClickHouse primary keys do not enforce uniqueness. Duplicate ORDER BY values are legal. The primary key defines sparse index order and physical clustering for reads, not entity identity. This is the single most common misunderstanding for engineers coming from OLTP databases.',
         },
       ],
@@ -317,6 +345,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The system has two paths: the write path that creates parts, and the read path that skips granules.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Log-structured_merge-tree_-_overview.svg/800px-Log-structured_merge-tree_-_overview.svg.png',
+          alt: 'Log-structured merge tree overview showing memtable flush and level compaction',
+          caption: 'MergeTree borrows its write path from LSM trees: new data arrives as small sorted runs, and background compaction merges them into larger sorted files. The key difference is that MergeTree parts are columnar -- each column is a separate compressed stream within the part, enabling column pruning at read time.',
+        },
         {
           type: 'code',
           language: 'text',
@@ -340,6 +374,12 @@ export const article = {
             ['Count', 'count.txt', 'Total row count in the part', 'Query planning and part selection'],
             ['Partition info', 'partition.dat', 'Partition key value for this part', 'Partition pruning at query time'],
           ],
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Sorted_binary_tree_ALL_RGB.svg/600px-Sorted_binary_tree_ALL_RGB.svg.png',
+          alt: 'Binary search tree showing sorted traversal order',
+          caption: 'The binary search over primary.idx is conceptually the same operation as walking a balanced BST: each comparison eliminates half the remaining granules. With ~122K granule entries for a billion rows, the search depth is about 17 -- the entire index lookup finishes in microseconds.',
         },
         'Background merges run continuously. The merge selector picks parts within the same partition, reads their sorted rows, performs a k-way merge sort, and writes a new larger part. The old parts are marked inactive and later removed. Merges reduce part count, improve compression (longer runs of similar values), and compact the sparse index.',
         {
@@ -366,6 +406,12 @@ export const article = {
           text: 'The primary index is loaded entirely into memory. It contains one entry per granule rather than one entry per row. For 100 million rows, the primary index fits easily in memory even on small machines.',
           attribution: 'ClickHouse Documentation, "Primary Keys and Indexes in Queries"',
         },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/800px-Camponotus_flavomarginatus_ant.jpg',
+          alt: 'Close-up photograph of an ant carrying material',
+          caption: 'Background merges are like ant colony logistics: each merge worker independently picks up small parts and consolidates them into larger structures. No central coordinator is needed. Writers and readers operate concurrently because parts are immutable -- the switch from old parts to a new merged part is a single atomic metadata update.',
+        },
         'Immutable parts simplify concurrency. Writers create new parts without locking readers. Merges write new parts while queries continue reading old ones. The switch from old parts to the new merged part is an atomic metadata update. If the server crashes mid-merge, the incomplete new part is discarded on restart and the old parts remain valid.',
         {
           type: 'note',
@@ -390,7 +436,10 @@ export const article = {
           ],
         },
         'Read cost is the product of three factors: how many granules the primary index cannot skip (depends on ORDER BY alignment with predicates), how many columns the query reads (depends on schema width and query selectivity), and how many parts exist (depends on insert frequency and merge throughput). A well-designed table reads fewer than 1% of stored granules for a typical dashboard query.',
-        'Write amplification from merges is the main hidden cost. Each row may be rewritten 3-5 times across merge levels before reaching a large final part. This is the same tradeoff as LSM trees: fast ingestion in exchange for background compaction work. If the ingest rate exceeds the merge rate, part count grows until the "too many parts" error halts inserts.',
+        {
+          type: 'callout',
+          text: 'Write amplification from merges is the main hidden cost. Each row may be rewritten 3-5 times across merge levels before reaching a large final part. This is the same tradeoff as LSM trees: fast ingestion in exchange for background compaction work. If the ingest rate exceeds the merge rate, part count grows until the "too many parts" error halts inserts.',
+        },
         {
           type: 'note',
           text: 'Practical benchmark: a single ClickHouse node can ingest 1-2 million rows/second and serve analytical queries over billions of rows with sub-second latency -- when ORDER BY matches the query predicates. With a mismatched key, the same hardware scans 10-100x more data per query.',

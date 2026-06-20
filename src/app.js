@@ -309,10 +309,42 @@ function appendStudyBlock(body, block, excludeId) {
   if (block.type === 'note' && typeof block.text === 'string') {
     const aside = document.createElement('aside');
     aside.className = 'study-note';
+    if (block.label) {
+      const lbl = document.createElement('strong');
+      lbl.className = 'study-note-label';
+      lbl.textContent = block.label;
+      aside.appendChild(lbl);
+    }
     const p = document.createElement('p');
     renderLinkedText(p, block.text, excludeId);
     aside.appendChild(p);
     body.appendChild(aside);
+    return;
+  }
+  if (block.type === 'image') {
+    const figure = document.createElement('figure');
+    figure.className = 'study-image';
+    const img = document.createElement('img');
+    img.src = block.src;
+    img.alt = block.alt || '';
+    img.loading = 'lazy';
+    if (block.width) img.style.maxWidth = block.width;
+    figure.appendChild(img);
+    if (block.caption) {
+      const cap = document.createElement('figcaption');
+      renderLinkedText(cap, block.caption, excludeId);
+      figure.appendChild(cap);
+    }
+    body.appendChild(figure);
+    return;
+  }
+  if (block.type === 'callout' && typeof block.text === 'string') {
+    const div = document.createElement('div');
+    div.className = 'study-callout';
+    const p = document.createElement('p');
+    renderLinkedText(p, block.text, excludeId);
+    div.appendChild(p);
+    body.appendChild(div);
     return;
   }
   if (typeof block.text === 'string') {
@@ -1102,8 +1134,35 @@ function renderArticle(container, article, topicId, compactMode = true) {
     sections.appendChild(articleSection);
   }
 
-  if (title) title.after(nav, sections);
-  else container.append(nav, sections);
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'study-copy-btn';
+  copyBtn.textContent = 'Copy Article';
+  copyBtn.title = 'Copy full article to clipboard (paste into Substack, Medium, Google Docs, etc.)';
+  copyBtn.addEventListener('click', () => {
+    const allDetails = sections.querySelectorAll('details.study-section');
+    allDetails.forEach(d => d.open = true);
+    const range = document.createRange();
+    range.selectNodeContents(sections);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html': new Blob([sections.innerHTML], { type: 'text/html' }),
+        'text/plain': new Blob([sections.innerText], { type: 'text/plain' }),
+      }),
+    ]).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy Article'; }, 2000);
+    }).catch(() => {
+      document.execCommand('copy');
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy Article'; }, 2000);
+    });
+  });
+
+  if (title) title.after(copyBtn, nav, sections);
+  else container.append(copyBtn, nav, sections);
   container.hidden = false;
 }
 

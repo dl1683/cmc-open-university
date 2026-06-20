@@ -197,9 +197,15 @@ export const article = {
   references: [
     { title: 'RFC 9111 -- HTTP Caching', url: 'https://www.rfc-editor.org/rfc/rfc9111' },
     { title: 'RFC 9110 -- HTTP Semantics', url: 'https://www.rfc-editor.org/rfc/rfc9110' },
+    { title: 'RFC 8246 -- HTTP Immutable Responses', url: 'https://www.rfc-editor.org/rfc/rfc8246' },
+    { title: 'RFC 5861 -- HTTP Cache-Control Extensions for Stale Content', url: 'https://www.rfc-editor.org/rfc/rfc5861' },
+    { title: 'RFC 9211 -- The Cache-Status HTTP Response Header Field', url: 'https://www.rfc-editor.org/rfc/rfc9211' },
     { title: 'RFC 7232 -- Conditional Requests (historical, consolidated into RFC 9110)', url: 'https://www.rfc-editor.org/rfc/rfc7232' },
+    { title: 'HTTP Archive Web Almanac 2025 -- Performance', url: 'https://almanac.httparchive.org/en/2025/performance' },
+    { title: 'MDN: HTTP caching', url: 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching' },
     { title: 'MDN: Cache-Control', url: 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control' },
     { title: 'MDN: ETag', url: 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag' },
+    { title: 'web.dev: Prevent unnecessary network requests with the HTTP cache', url: 'https://web.dev/articles/http-cache' },
   ],
   sections: [
     {
@@ -207,13 +213,23 @@ export const article = {
       paragraphs: [
         'The graph traces a request through four decision points: the page, the browser cache, the CDN, and the origin server. The ETag node floats above the main path because the validator is metadata about the body, not the body itself.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Client-server-model.svg/250px-Client-server-model.svg.png',
+          alt: 'Client computers communicating with a server through the Internet',
+          caption: 'HTTP starts as a client-server request-response exchange. Caching adds a local decision point before the request reaches the origin. Source: Wikimedia Commons, File: Client-server-model.svg.',
+        },
+        {
           type: 'bullets',
           items: [
             'Found nodes are participants that satisfy the request without forwarding it further. A fresh cache hit lights up the browser node and removes everything downstream.',
             'Active nodes are participants currently evaluating or forwarding the request. When the cache is stale, the active path runs from browser through ETag to origin.',
-            'Removed nodes are participants whose work is skipped. On a 304, the body node disappears because no bytes transfer. On a fresh hit, CDN and origin both disappear.',
+            'Removed nodes are participants whose work is skipped. On a 304, the body node disappears because no response body transfers. On a fresh hit, CDN and origin both disappear.',
             'Compare nodes are intermediate states waiting for resolution -- a CDN deciding whether its own copy is fresh, or an origin comparing validators.',
           ],
+        },
+        {
+          type: 'callout',
+          text: 'The safe inference in every frame is this: a cache can reuse bytes only when either freshness proves the server already allowed reuse, or validation proves the current origin representation still matches the stored one.',
         },
         {
           type: 'note',
@@ -224,23 +240,30 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Every resource on the web has a URL that stays the same while the bytes behind it change. /index.html points at one document today and a different document after a deploy. /api/profile/42 returns one JSON body before a name change and another body after. The URL is stable; the representation is not.',
+        'Every resource on the web has two identities that are easy to confuse. The URL names the place to ask. The representation is the bytes returned for one request at one moment. /index.html keeps the same URL across deploys. /api/profile/42 keeps the same URL across profile edits. The name is stable; the answer is not.',
         {
-          type: 'quote',
-          text: 'A cache MUST NOT reuse a stored response unless it is fresh with respect to the origin server, or it has been successfully validated.',
-          attribution: 'RFC 9111, Section 4',
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Proxy_concept_en.svg/330px-Proxy_concept_en.svg.png',
+          alt: 'Two computers communicating through an intermediary proxy server',
+          caption: 'A cache is often an intermediary: it can answer on behalf of the origin only when HTTP metadata says that reuse is allowed. Source: Wikimedia Commons, File: Proxy_concept_en.svg.',
         },
-        'Without revalidation, a cache has two choices for stable URLs: always fetch the full body (correct but slow), or trust a timer and risk serving stale bytes (fast but wrong). Revalidation adds a third option: ask the server whether the cached copy is still valid, and skip the body transfer if it is.',
+        'RFC 9111 draws the governing boundary: a cache can construct a response from storage only when the stored response is fresh, when validation succeeds, or when the protocol explicitly allows a stale response under defined conditions. Revalidation is the common validation path for stable URLs.',
+        'Without revalidation, a cache has two choices for mutable stable URLs: always fetch the full body, which is correct but slow, or trust a timer, which is fast until the bytes change early. Revalidation adds a third option: ask the server whether the cached copy is still current, and skip the body transfer when it is.',
         {
           type: 'table',
           headers: ['Strategy', 'Latency on hit', 'Bandwidth', 'Staleness risk'],
           rows: [
             ['Always fetch', 'Full round trip + body', '100% of body every time', 'None'],
-            ['Timer-only (max-age)', 'Zero while fresh', 'Zero while fresh', 'Stale after expiry until next fetch'],
-            ['Revalidation (ETag + 304)', 'One round trip, no body', 'Headers only on 304', 'None -- server confirms'],
+            ['Timer-only (max-age)', 'Zero while fresh', 'Zero while fresh', 'Stale until freshness expires if bytes changed early'],
+            ['Revalidation (ETag + 304)', 'One round trip, no response body', 'Request + response headers only on 304', 'None after successful validation'],
           ],
         },
-        'A 2019 HTTP Archive analysis found that median web page weight was 1.9 MB across 70+ requests. On a news site where the HTML shell is 85 KB and changes every few minutes, revalidation saves the 85 KB body transfer on every navigation where the shell has not changed. Over millions of page views, that is terabytes of bandwidth and measurable reduction in Time to First Contentful Paint.',
+        {
+          type: 'callout',
+          text: 'The first-principles problem is not "make requests faster." It is "avoid moving bytes whose identity has already been proven." Freshness proves this by time. Revalidation proves it by server comparison.',
+        },
+        'The performance stakes are visible in real web data. The 2025 HTTP Archive Web Almanac reports that secondary pages had better Core Web Vitals pass rates than home pages: 61% vs. 47% on desktop and 56% vs. 45% on mobile. The report names cached information as one contributor. That is the practical payoff: repeat navigations can skip work that the first navigation already paid for.',
+        'For a single 85 KB HTML shell, a 304 response saves 85 KB of body transfer every time the shell is unchanged. Across 100,000 repeat navigations, that is about 8.5 GB of response body avoided. The exact latency benefit depends on RTT and protocol overhead, but the bandwidth arithmetic is not subtle.',
         {
           type: 'note',
           text: 'Revalidation is not about caching everything. It is about separating three states: fresh enough to reuse locally, stale but worth checking, and too sensitive to store at all. Each state needs a different Cache-Control directive.',
@@ -257,7 +280,8 @@ export const article = {
           text: 'Cache-Control: max-age=3600',
           label: 'Cache for one hour, then refetch the full body',
         },
-        'This works well for resources that change predictably. A stock price feed that updates hourly can use max-age=3600 safely. But most stable URLs -- HTML pages, user profiles, RSS feeds, API documents -- change at unpredictable times driven by deploys, user edits, or external events.',
+        'This is not a bad idea. Freshness is a lease: the origin says the stored response can be reused for a bounded interval without asking again. For a logo, a font file, a published release artifact, or a feed that intentionally updates on a clock, a freshness lease can be exactly the right tool.',
+        'The trouble starts when the update process is not clock-shaped. HTML pages change on deploy. User profiles change on edits. RSS feeds change on publication. API documents change when data mutates. A cache timer measures elapsed seconds, but the hidden variable is representation identity.',
         'The problem surfaces after a deploy. The HTML shell at /index.html references JavaScript bundles by content hash: app.8f31a2.js. After a deploy, the new shell references app.c7e4b1.js. But browsers with a cached copy of the old shell keep requesting app.8f31a2.js -- a file that no longer exists. The user sees a blank screen until the timer expires.',
         {
           type: 'diagram',
@@ -279,9 +303,13 @@ export const article = {
           items: [
             'Short max-age (e.g. 60s) reduces the stale window but does not eliminate it, and still requires a full body download on every miss.',
             'Long max-age (e.g. 86400s) gives excellent hit rates but creates a 24-hour window where stale HTML can break the app.',
-            'max-age=0 forces revalidation on every request but without a validator, the server must send the full body every time.',
+            'max-age=0 or no-cache can force validation on every reuse, but without ETag or Last-Modified the server has no cheap validator to compare and must send a normal 200 body.',
             'Content-hashed filenames solve the problem for build artifacts but cannot apply to stable URLs that users bookmark, share, or link to.',
           ],
+        },
+        {
+          type: 'callout',
+          text: 'A max-age value is a guess about future change. An ETag is a test of actual change. Stable mutable URLs need the test.',
         },
       ],
     },
@@ -304,14 +332,20 @@ export const article = {
             '                  +-----------+',
             '',
             '  no-cache + ETag +-----------+     One round trip, but only',
-            '                  | 304 (0 B) |     ~200 bytes of headers',
+            '                  | 304       |     headers and 0 response body',
             '                  | or        |     when unchanged; full body',
             '                  | 200 (85K) |     only when actually new',
             '                  +-----------+',
           ].join('\n'),
           label: 'Timer-only caching cannot be both correct and efficient for stable URLs',
         },
-        'A timer knows when time passes. It does not know when bytes change. The server knows when bytes change but cannot push that knowledge to every cache. The gap between these two knowledge boundaries is the wall.',
+        'A timer knows when time passes. It does not know when bytes change. The server knows when bytes change, but it cannot push that knowledge to every browser cache, CDN edge, proxy, service worker, and package manager cache that might hold a copy. The gap between these knowledge boundaries is the wall.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Reverse_proxy_h2g2bob.svg/330px-Reverse_proxy_h2g2bob.svg.png',
+          alt: 'Reverse proxy forwarding Internet requests to an internal web server',
+          caption: 'Reverse proxies and CDN edges sit between users and origins. Revalidation matters because these intermediaries can answer only when their stored representation is still valid for the request. Source: Wikimedia Commons, File: Reverse_proxy_h2g2bob.svg.',
+        },
         {
           type: 'table',
           headers: ['Failure', 'Mechanism', 'Consequence'],
@@ -323,15 +357,15 @@ export const article = {
           ],
         },
         {
-          type: 'note',
-          text: 'The invariant is: a cache may reuse a stored response only if freshness or successful validation proves the representation is current for the exact request variant. Every cell in the failure table above violates one clause of this invariant.',
+          type: 'callout',
+          text: 'The invariant is: a cache may reuse a stored response only if freshness or successful validation proves the representation is current for the exact request variant. Every failure above breaks freshness, identity, variant selection, or storage policy.',
         },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A cached response carries a validator -- an opaque token chosen by the server that identifies the representation. When the cache needs to check freshness, it sends the validator back to the server in a conditional request header. The server compares the token against the current representation and answers with either "still valid" (304, no body) or "replaced" (200, new body, new token).',
+        'A cached response can carry a validator -- an opaque token chosen by the server that identifies the selected representation. When the cache needs to check freshness, it sends the validator back to the server in a conditional request header. The server compares the token against the current representation and answers with either "still valid" (304, no response body) or "replaced" (200, new body, new token).',
         {
           type: 'diagram',
           text: [
@@ -354,17 +388,21 @@ export const article = {
           ].join('\n'),
           label: 'The validator turns "is my copy still good?" into a yes/no question the server answers cheaply',
         },
-        'The insight is that identity comparison is cheaper than content transfer. An ETag is typically 16-64 bytes. The body it validates can be kilobytes, megabytes, or more. The 304 response contains only headers -- typically 200-400 bytes total. The cache pays one round trip but saves the entire body transfer when the representation has not changed.',
+        'The insight is that identity comparison is cheaper than content transfer. An ETag is often tens of bytes. The body it validates can be kilobytes, megabytes, or more. A 304 response still has status, headers, framing, and connection costs, but it has no response body. The cache pays a round trip and saves the dominant payload when the representation has not changed.',
+        {
+          type: 'callout',
+          text: 'ETags are opaque by design. The client does not interpret "v12" as a version number or hash. The server owns the equality rule, and the client only asks whether the validator still matches.',
+        },
         {
           type: 'note',
-          text: 'ETags are opaque. A client must not parse "v12" to extract a version number or content hash. The server alone defines what makes two representations equivalent. A strong ETag guarantees byte-for-byte identity. A weak ETag (W/"v12") guarantees only semantic equivalence -- the bodies may differ in whitespace, encoding, or metadata.',
+          text: 'RFC 9110 distinguishes strong and weak validators. A strong ETag requires byte-for-byte identity for the selected representation. A weak ETag such as W/"v12" allows semantic equivalence and is fine for cache validation, but it is not strong enough for byte-range resume with If-Range.',
         },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The cache evaluates a stored response through a decision chain with three gates: storage policy, freshness, and validation.',
+        'The cache evaluates a stored response through four gates: storage policy, cache key, freshness, and validation. Skipping any gate is how cache bugs become user-visible correctness bugs.',
         {
           type: 'diagram',
           text: [
@@ -402,14 +440,19 @@ export const article = {
           label: 'The full cache decision tree from request to response',
         },
         {
+          type: 'callout',
+          text: 'The cache key is not just the URL. RFC 9111 starts with method plus target URI, then Vary can add request headers such as Accept-Encoding or Accept-Language. If the key is wrong, a perfect ETag still protects the wrong object.',
+        },
+        {
           type: 'table',
           headers: ['Step', 'Cache action', 'Network cost', 'State change'],
           rows: [
-            ['1. Lookup', 'Hash URI + Vary-selected request headers into cache key', 'None', 'Find or miss stored entry'],
-            ['2. Freshness', 'Compare response age against max-age or Expires', 'None', 'Decide: serve or validate'],
-            ['3. Conditional request', 'Add If-None-Match: <ETag> to outgoing GET', '1 round trip, request headers only', 'Server receives validator'],
-            ['4a. 304 path', 'Update stored metadata (Date, Cache-Control, Vary)', '~200-400 bytes response', 'Body unchanged, freshness reset'],
-            ['4b. 200 path', 'Replace stored body, headers, and validator', 'Full response body', 'New representation cached'],
+            ['1. Storage policy', 'Reject no-store, unsafe shared-cache cases, and uncacheable methods/statuses', 'None', 'Decide whether storage is allowed'],
+            ['2. Lookup', 'Hash method + target URI + Vary-selected request headers into cache key', 'None', 'Find or miss stored entry'],
+            ['3. Freshness', 'Compare response age against max-age, s-maxage, Expires, or heuristic freshness', 'None', 'Decide: serve or validate'],
+            ['4. Conditional request', 'Add If-None-Match: <ETag> or If-Modified-Since to outgoing GET/HEAD', '1 round trip, request headers only', 'Server receives validator'],
+            ['5a. 304 path', 'Update stored metadata (Date, Cache-Control, Expires, ETag, Vary)', 'Headers and framing only', 'Body unchanged, freshness reset'],
+            ['5b. 200 path', 'Replace stored body, headers, and validator', 'Full response body', 'New representation cached'],
           ],
         },
         'Freshness is computed from response headers. RFC 9111 defines the calculation: freshness_lifetime comes from max-age (or s-maxage for shared caches, or Expires as fallback). current_age accounts for transit time and time since the response was stored. The response is fresh when current_age < freshness_lifetime.',
@@ -432,7 +475,7 @@ export const article = {
         },
         {
           type: 'note',
-          text: 'no-cache does not mean "do not cache." It means "store the response but always revalidate before reuse." no-store means "do not store the response at all." This naming confusion has caused more cache bugs than any other single HTTP detail.',
+          text: 'In a response, no-cache does not mean "do not cache." It means "store the response, but do not reuse it without successful validation." no-store means "do not store the response at all." This naming confusion has caused more cache bugs than any other single HTTP detail.',
         },
       ],
     },
@@ -446,14 +489,13 @@ export const article = {
             'Monotonic freshness: a response can only move from fresh to stale, never backward, unless the server explicitly refreshes it via a successful revalidation.',
             'Scoped identity: the ETag is bound to a specific representation of a specific resource. Different Vary variants of the same URL carry different ETags.',
             'Fail-safe default: if a cache has no validator and the response is stale, it must fetch the full body. Revalidation is an optimization available only when the server provides a validator.',
-            'Weak comparison safety: If-None-Match uses weak comparison by default (RFC 9110, Section 8.8.3.2), so W/"v7" matches W/"v7". This is safe for cache validation because the question is "is this representation still usable?" not "are these bytes identical?"',
+            'Weak comparison safety: RFC 9110 uses weak comparison for If-None-Match, so W/"v7" can match W/"v7". This is safe for cache validation because the question is "is this representation still usable?" not "are these bytes identical enough for a byte range?"',
           ],
         },
         'The correctness argument reduces to: a cached response is served only on one of two paths. Path 1: freshness_lifetime has not expired, meaning the server explicitly authorized reuse for this duration. Path 2: the server confirmed via 304 that the validator still matches current truth. Both paths require server authorization. The cache never unilaterally decides a stale response is good enough.',
         {
-          type: 'quote',
-          text: 'A conditional request that includes an If-None-Match header field with a list of entity-tags indicates that the client is willing to accept a 304 (Not Modified) response if one of those tags matches the current entity-tag for the selected representation.',
-          attribution: 'RFC 9110, Section 13.1.2',
+          type: 'callout',
+          text: 'A 304 is not a miniature 200. It is a proof that the stored body remains usable, plus fresh metadata that extends or updates the cache entry.',
         },
         {
           type: 'note',
@@ -470,11 +512,12 @@ export const article = {
           headers: ['Outcome', 'Network cost', 'Origin CPU', 'Body transfer', 'Typical latency'],
           rows: [
             ['Fresh hit (local)', '0 bytes', 'None', 'None', '<1 ms (disk/memory read)'],
-            ['304 Not Modified', '~600-800 B request + ~300 B response', 'ETag comparison', 'None', '1 RTT (50-200 ms)'],
-            ['200 OK (full)', '~600-800 B request + full response', 'Full render/query', 'Full body', '1 RTT + transfer time'],
+            ['304 Not Modified', 'Conditional request + response headers', 'Validator lookup and comparison', 'None', '1 RTT plus server think time'],
+            ['200 OK (full)', 'Request + response headers + full response', 'Full render/query or storage read', 'Full body', '1 RTT + transfer time'],
           ],
         },
-        'The 304 path saves body transfer but still pays a round trip. For a 50 ms RTT and an 85 KB HTML shell, the 304 saves about 85 KB of transfer but costs 50 ms of latency. For a 500 KB API response, the savings are much larger. For a 200-byte JSON health check, the savings are negligible and the round trip dominates.',
+        'The 304 path saves body transfer but still pays a round trip. For a 50 ms RTT and an 85 KB HTML shell, the 304 saves about 85 KB of transfer but still costs at least the RTT. For a 500 KB API response, the savings are much larger. For a 200-byte JSON health check, the saved bytes are smaller than the validation overhead and the round trip dominates.',
+        'The 2025 Web Almanac shows why that round trip matters: only 55% of desktop sites and 44% of mobile sites had good Time to First Byte, while 12% of desktop sites and 17% of mobile sites were poor. Revalidation is not free latency. It is a trade: pay one server-confirmed trip to avoid moving the body.',
         {
           type: 'diagram',
           text: [
@@ -492,7 +535,11 @@ export const article = {
           ].join('\n'),
           label: 'Revalidation value scales with body size; tiny resources may not justify the round trip',
         },
-        'At CDN scale, validator computation matters. If generating the ETag requires reading the full response body from storage, the origin saves bandwidth but not CPU. Efficient implementations compute ETags from content hashes stored in metadata at write time, making the comparison a 32-byte string match.',
+        {
+          type: 'callout',
+          text: 'A 304 is worth it when saved body bytes or avoided origin work dominate one RTT. It is the wrong default for tiny, cheap, frequently requested resources where the conditional trip costs more than the body.',
+        },
+        'At CDN scale, validator computation matters. If generating the ETag requires reading the full response body from storage, the origin saves bandwidth but not CPU. Efficient implementations compute validators from stored content hashes, version ids, revision numbers, or object metadata at write time, making revalidation a small lookup and comparison rather than a full render.',
         {
           type: 'note',
           text: 'stale-while-revalidate (RFC 5861) adds a fourth outcome: serve the stale response immediately while revalidating in the background. The user sees instant response; the cache updates asynchronously. This trades consistency for perceived performance.',
@@ -528,7 +575,7 @@ export const article = {
           label: 'Four resources, four policies: validate, immutable, bounded+SWR, no-store',
         },
         'The user loads the app. The browser fetches /index.html, gets the shell with ETag "shell-v12" and no-cache. It stores the body. On the next navigation, the browser sends If-None-Match: "shell-v12". No deploy has happened, so the server returns 304 with updated Date and the same ETag. The browser reuses the stored 85 KB shell -- zero body bytes transferred.',
-        'The shell references /assets/app.8f31a2.js. Because the URL contains the content hash, the server sends max-age=31536000, immutable. The browser caches this for a year and never revalidates. When a deploy produces a new bundle, the new shell references /assets/app.c7e4b1.js -- a different URL. The old bundle is eventually evicted; the new one is fetched fresh.',
+        'The shell references /assets/app.8f31a2.js. Because the URL contains the content hash, the server sends max-age=31536000, immutable. RFC 8246 defines immutable as a promise that the representation will not change during its freshness lifetime. The browser can skip even user-driven revalidation while the entry remains fresh. When a deploy produces a new bundle, the new shell references /assets/app.c7e4b1.js -- a different URL. The old bundle is eventually evicted; the new one is fetched fresh.',
         {
           type: 'table',
           headers: ['Resource', 'After deploy (no HTML change)', 'After deploy (HTML changed)', 'After profile edit'],
@@ -541,8 +588,8 @@ export const article = {
           ],
         },
         {
-          type: 'note',
-          text: 'The key architectural insight: change the URL when the bytes are immutable (content-hashed bundles), keep the URL stable when users need a persistent link (HTML, avatars, feeds), and attach a validator to every stable URL so stale copies can ask before reusing.',
+          type: 'callout',
+          text: 'Change the URL when the bytes are immutable. Keep the URL stable when people need a durable link. Attach a validator to every stable mutable URL so stale copies can ask before reusing.',
         },
       ],
     },
@@ -550,6 +597,12 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'ETag revalidation earns its cost when stable URLs carry medium-to-large bodies that change at unpredictable times.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/26/NCDN_-_CDN.svg/250px-NCDN_-_CDN.svg.png',
+          alt: 'Single server distribution compared with CDN distribution',
+          caption: 'CDN distribution moves cached copies closer to users. Validators decide when each edge copy can keep answering and when it has to ask origin again. Source: Wikimedia Commons, File: NCDN_-_CDN.svg.',
+        },
         {
           type: 'table',
           headers: ['Use case', 'Typical body size', 'Why revalidation fits'],
@@ -582,8 +635,12 @@ export const article = {
           label: 'CDN shields origin from redundant revalidation requests',
         },
         {
+          type: 'callout',
+          text: 'Layered caches turn one origin validation into many downstream wins. The protocol value is multiplicative: browser cache saves the user trip; CDN cache saves the origin trip; origin validator saves the body.',
+        },
+        {
           type: 'note',
-          text: 'Conditional requests also power safe concurrent writes via If-Match. A client editing a wiki page sends If-Match: "v12" with its PUT. If another editor already saved v13, the server returns 412 Precondition Failed instead of silently overwriting. Same validator, different conditional header, different purpose.',
+          text: 'Conditional requests also power safe concurrent writes via If-Match. A client editing a wiki page sends If-Match: "v12" with its PUT. If another editor already saved v13, the server returns 412 Precondition Failed instead of silently overwriting. Same validator model, different conditional header, different purpose.',
         },
       ],
     },
@@ -591,6 +648,12 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Revalidation has specific failure modes, each caused by a mismatch between cache policy and resource semantics.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Open_proxy_h2g2bob.svg/330px-Open_proxy_h2g2bob.svg.png',
+          alt: 'Open proxy forwarding requests between a client and the Internet',
+          caption: 'Shared intermediaries are useful only when response metadata prevents cross-user and cross-variant reuse mistakes. Source: Wikimedia Commons, File: Open_proxy_h2g2bob.svg.',
+        },
         {
           type: 'table',
           headers: ['Mistake', 'Why it fails', 'Better decision'],
@@ -604,7 +667,7 @@ export const article = {
             ['Missing private directive', 'User-specific response stored in shared CDN cache', 'Cache-Control: private for personalized responses'],
           ],
         },
-        'The Vary trap deserves special attention. If the origin serves different bodies for Accept-Encoding: gzip vs. Accept-Encoding: br but omits Vary: Accept-Encoding, a shared cache stores the gzip version and serves it to a client that asked for Brotli. The ETag matches because both variants came from the same content -- but the encoding is wrong. The client may receive garbled bytes.',
+        'The Vary trap deserves special attention. If the origin serves different coded representations for Accept-Encoding: gzip vs. Accept-Encoding: br but omits Vary: Accept-Encoding, a shared cache can store the gzip response under a key that is too broad and later serve it to a client that asked for Brotli. A validator can be perfectly stable and still validate the wrong cache entry if the key omitted the variant dimension.',
         {
           type: 'code',
           language: 'text',
@@ -635,8 +698,8 @@ export const article = {
           ],
         },
         {
-          type: 'note',
-          text: 'The single most common deployment bug is a blanket Cache-Control policy applied to all routes. HTML, bundles, API responses, and private data need different headers. One policy is usually either too slow (short max-age on immutable assets), too stale (long max-age on mutable HTML), or unsafe (missing private/no-store on sensitive data).',
+          type: 'callout',
+          text: 'Most cache disasters are policy-shape errors, not protocol mystery. HTML, bundles, API responses, avatars, and private data have different identities and therefore need different headers.',
         },
       ],
     },
@@ -649,7 +712,10 @@ export const article = {
           rows: [
             ['RFC 9111 -- HTTP Caching', 'Freshness calculation, age computation, Cache-Control directives, storage and reuse rules'],
             ['RFC 9110 -- HTTP Semantics', 'ETag definition, conditional request headers (If-None-Match, If-Match, If-Modified-Since), weak vs. strong comparison'],
+            ['RFC 8246 -- immutable', 'The immutable Cache-Control extension for versioned URLs whose bytes will not change during the freshness lifetime'],
             ['RFC 5861 -- stale-while-revalidate and stale-if-error', 'Background revalidation extensions to Cache-Control'],
+            ['RFC 9211 -- Cache-Status', 'Response header for explaining which cache layer served, forwarded, stored, or revalidated a response'],
+            ['HTTP Archive Web Almanac 2025 -- Performance', 'Real web performance context for TTFB, cached secondary navigations, and Core Web Vitals'],
             ['MDN: HTTP Caching', 'Practical guide to Cache-Control, ETag, and browser behavior with examples'],
             ['web.dev: "Prevent unnecessary network requests with the HTTP cache"', 'Decision flowchart for choosing cache headers per resource type'],
           ],
@@ -670,4 +736,3 @@ export const article = {
     },
   ],
 };
-

@@ -398,7 +398,17 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Databases store rows on fixed-size pages, typically 4 KB, 8 KB, or 16 KB. A query like SELECT * FROM orders WHERE customer_id = 42 AND created_at BETWEEN June 1 AND June 30 ORDER BY created_at must find a needle in potentially billions of rows, then return its neighbors in sorted order, all without reading the entire table.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/0/02/Cylinder_Head_Sector.svg',
+          alt: 'Hard disk drive platter layout showing cylinders, heads, and sectors',
+          caption: 'The physical constraint behind B+ trees: disk reads transfer entire sectors and pages. Each I/O operation that does not contribute to the answer is wasted mechanical movement. Source: Wikimedia Commons.',
+        },
         'The constraint is page-granularity I/O. Disk and SSD reads transfer whole pages regardless of how many bytes you need. Every page read that does not contribute to the answer is wasted. The index must minimize total page reads for both point lookups (find one key) and range scans (find a contiguous slice of sorted keys).',
+        {
+          type: 'callout',
+          text: 'A B+ tree exists because no simpler structure solves both point lookups and range scans at page granularity. It separates routing keys from data, keeps all data at the leaves, and links leaves for sequential traversal.',
+        },
         {
           type: 'table',
           headers: ['Operation', 'Without index', 'With B+ tree index'],
@@ -408,7 +418,7 @@ export const article = {
             ['Ordered pagination (LIMIT 20 OFFSET 200)', 'Sort 10M rows, skip 200', 'Seek + walk 11 leaf slots'],
           ],
         },
-        'A B+ tree exists because no simpler structure solves both problems at page granularity. It separates routing keys from data entries, keeps all data at the leaf level, and links leaves for sequential traversal. That three-part design makes point lookups logarithmic in the page fanout and range scans proportional to the result size, not the table size.',
+        'That three-part design makes point lookups logarithmic in the page fanout and range scans proportional to the result size, not the table size.',
       ],
     },
     {
@@ -417,12 +427,24 @@ export const article = {
         'The first reasonable attempt is a sorted file with binary search. It works well for static data: store rows in key order across pages, binary-search the page directory, read the target page. Read cost is O(log2 n) page reads. For a million-page file, that is about 20 page reads per lookup -- acceptable.',
         'The second reasonable attempt is a binary search tree in memory. Each node holds one key and two child pointers. Lookup is O(log2 n) comparisons. Updates are straightforward. Balanced variants (AVL, red-black) keep the tree shallow.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/da/Binary_search_tree.svg',
+          alt: 'A binary search tree with 9 nodes rooted at 8',
+          caption: 'A binary search tree: each node holds one key and two child pointers. The shape is compact in diagrams but wasteful on disk -- a 4 KB page that could hold 200 keys stores just one. Source: Wikimedia Commons.',
+        },
+        {
           type: 'bullets',
           items: [
             'Sorted file: fast reads, but inserting a row in the middle requires rewriting half the file. Deletion leaves gaps that fragment over time.',
             'Binary search tree: fast updates, but each node is tiny (one key, two pointers). A 4 KB page that could hold 200 keys instead holds one. The tree becomes 7-8 times taller than necessary, and every level is a potential cache miss or disk seek.',
             'Hash index: O(1) point lookup, but no sorted order at all. Range scans, ORDER BY, and prefix queries are impossible without a full scan.',
           ],
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg',
+          alt: 'Hash table with chaining showing keys mapped through a hash function to buckets',
+          caption: 'A hash table with separate chaining. It provides O(1) point lookups but has no concept of key ordering -- range scans, ORDER BY, and prefix queries are impossible. Source: Wikimedia Commons.',
         },
         'All three approaches work for some access pattern. None of them simultaneously handle equality lookup, range scan, ordered traversal, and online updates across page-sized storage.',
       ],
@@ -458,7 +480,10 @@ export const article = {
           ].join('\n'),
         },
         'The hash index breaks on order. It answers "is key X present?" in O(1) but cannot answer "give me every key between A and B in sorted order" without scanning the entire hash table. Range queries, ORDER BY, MIN/MAX, and cursor pagination all need sorted access.',
-        'The wall is the combination: an index must be wide (high fanout for shallow lookup), sorted (for range scans), and mutable (for online inserts and deletes) -- all at page granularity. The B+ tree is the structure that satisfies all three.',
+        {
+          type: 'callout',
+          text: 'The wall is the combination: an index must be wide (high fanout for shallow lookup), sorted (for range scans), and mutable (for online inserts and deletes) -- all at page granularity. The B+ tree is the structure that satisfies all three.',
+        },
       ],
     },
     {
@@ -470,6 +495,12 @@ export const article = {
           text: 'The index organization described is, in several respects, for any given set of keys, not unique. Variants are possible depending on a parameter -- the page size -- and the order of insertion.',
         },
         'The core insight has two parts. First: make each node as wide as a disk page, so one I/O decision eliminates hundreds of key ranges instead of one. Second: push all data entries to the leaves and link the leaves in key order, so a range scan never needs to return to internal nodes after the initial descent.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/3/37/Bplustree.png',
+          alt: 'B+ tree structure showing internal nodes with search keys and leaf nodes linked together',
+          caption: 'A B+ tree with branching factor 4. Internal nodes hold separator keys for routing; leaf nodes hold data pointers and are linked left-to-right for sequential scan. This linked-leaf structure is the defining difference from a plain B-tree. Source: Wikimedia Commons.',
+        },
         'The invariant is: every key in the index appears exactly once, at a leaf. Internal nodes hold only separator keys that route searches downward. The leaf chain is a doubly- or singly-linked list in key order. After seeking to any leaf, the cursor can walk forward (or backward) through the entire sorted index without touching a single internal page.',
         {
           type: 'note',
@@ -481,6 +512,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A B+ tree has three node types: the root, internal pages, and leaf pages. Each internal page contains sorted separator keys and child-page pointers. If an internal page has k separator keys, it has k+1 child pointers. The separator at position i divides keys that belong in child i (left, strictly less) from keys that belong in child i+1 (right, greater or equal).',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
+          alt: 'B-tree with three levels showing internal node key routing and leaf nodes',
+          caption: 'A B-tree showing the multi-way branching structure. Each node holds multiple keys and child pointers, packing far more routing decisions into a single page read than a binary tree ever could. In a B+ tree variant, all data entries move down to the leaves and the leaves gain sibling pointers. Source: Wikimedia Commons.',
+        },
         {
           type: 'code',
           language: 'text',
@@ -584,6 +621,10 @@ export const article = {
           ].join('\n'),
         },
         'If the parent is also full, it splits too, pushing a separator further up. A root split creates a new root and increases tree height by one. Because fanout is so high, root splits are extremely rare: a tree with fanout 500 does not grow past height 4 until it exceeds 500^3 = 125 million leaf pages.',
+        {
+          type: 'callout',
+          text: 'The sibling chain is not optional -- it is the correctness backstop. Even if the parent has not yet learned about a new leaf after a crash, a sequential scan through the leaf chain will still visit every key.',
+        },
         'Crash safety requires strict ordering of writes. The standard protocol for a leaf split:',
         {
           type: 'bullets',
@@ -595,7 +636,7 @@ export const article = {
             'If the system crashes between steps 3 and 4, the leaf chain is still intact -- a range scan will find all keys via sibling links. The parent just has a "missing" shortcut. Recovery replays the WAL and completes the parent update.',
           ],
         },
-        'This is why the sibling chain is not optional. It provides a safety net: even if the parent has not yet learned about the new leaf, a sequential scan through the leaf chain will still visit every key. The parent separator is a performance optimization (it lets point lookups skip directly to the right leaf) but the sibling chain is the correctness backstop.',
+        'The parent separator is a performance optimization (it lets point lookups skip directly to the right leaf) but the sibling chain is what makes the structure correct even under partial failure.',
       ],
     },
     {
@@ -611,6 +652,12 @@ export const article = {
           ],
         },
         'Preservation through split: before the split, leaf L contains keys [k1...kn] in sorted order. After the split, L retains [k1...km] and a new leaf R gets [k_{m+1}...kn]. The chain is rewired: L.next = R, R.next = L.old_next. Separator k_{m+1} is copied into the parent. Completeness is preserved because every key is in exactly one of L or R. Order is preserved because the split point respects sorted order. Depth is unchanged because both L and R remain at the same level.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/66/B%2B-tree-organization.png',
+          alt: 'B+ tree organization showing root, internal nodes, and leaf node relationships',
+          caption: 'B+ tree organization: the root and internal nodes form a routing hierarchy, while the leaf level holds all data entries linked in key order. A split preserves depth uniformity -- the tree grows at the root, not at the leaves. Source: Wikimedia Commons.',
+        },
         'Preservation through root split: when the root splits, a new root is created with one separator and two children (the old root halves). Depth increases by one, but uniformly -- all leaves are still at the same depth. No leaf moves; only the root level changes.',
         {
           type: 'note',
@@ -654,6 +701,12 @@ export const article = {
         'An e-commerce platform stores orders in a table: order_id (bigint PK), customer_id (int), created_at (timestamp), total_cents (int), status (varchar(20)), and items_json (jsonb, avg 2 KB). The table has 50 million rows, ~120 GB on disk with 8 KB pages.',
         'The product dashboard runs: SELECT total_cents, status FROM orders WHERE customer_id = 42 AND created_at >= \'2026-01-01\' AND created_at < \'2026-04-01\' ORDER BY created_at;',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/PostgreSQL_B-tree.svg',
+          alt: 'PostgreSQL B-tree index structure showing hierarchical node organization',
+          caption: 'PostgreSQL B-tree index structure, based on the Lehmann-Yao concurrent access protocol. In a real system like PostgreSQL, the B+ tree is not just a textbook diagram -- it must handle concurrent readers, writers, and crash recovery simultaneously. Source: Wikimedia Commons.',
+        },
+        {
           type: 'code',
           language: 'sql',
           body: [
@@ -684,6 +737,10 @@ export const article = {
           ].join('\n'),
         },
         'What happens page by page: the engine reads the root (cached), descends through one internal page (likely cached), and lands on the first leaf whose key range includes (42, 2026-01-01). It scans forward through leaf siblings, emitting (total_cents, status) from each matching entry. Because the index INCLUDEs those columns, it never touches the 120 GB heap table. If customer 42 has 200 orders in Q1, the scan reads about 2-3 leaf pages sequentially.',
+        {
+          type: 'callout',
+          text: 'A covering index eliminates heap fetches entirely. The leaf entries carry enough data to answer the query without ever touching the base table. This turns a 200-random-read problem into a 2-3 sequential page scan.',
+        },
         'Contrast with a non-covering variant: CREATE INDEX idx_orders_cust_date_nc ON orders (customer_id, created_at); Now the engine must follow each leaf TID back to the heap to fetch total_cents and status. Those 200 heap fetches may hit 200 different 8 KB pages scattered across the 120 GB table. The leaf scan is fast; the heap fetches dominate.',
         {
           type: 'table',
@@ -728,6 +785,12 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Every B+ tree index is a write amplification tax. An INSERT into a table with 5 indexes must update 5 separate B+ trees plus the heap, each generating WAL records. Write-heavy workloads (event logging, time-series ingestion, IoT telemetry) often prefer LSM trees, which batch writes into sorted runs and merge them later. LSM trades read amplification (checking multiple levels on lookup) for lower write amplification.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/LSM_Tree.png',
+          alt: 'Log-structured merge tree showing memtable and progressively larger sorted run levels with compaction',
+          caption: 'An LSM tree: the write-optimized alternative to B+ trees. Writes go to an in-memory buffer (memtable), then flush to sorted runs on disk. Compaction merges runs to maintain read performance. LSM trades read amplification for lower write amplification. Source: Wikimedia Commons.',
+        },
         {
           type: 'table',
           headers: ['Failure mode', 'Mechanism', 'Mitigation'],

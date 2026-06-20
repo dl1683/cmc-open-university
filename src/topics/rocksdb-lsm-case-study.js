@@ -228,19 +228,35 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Distributed systems that look like single services from the outside -- TiKV, CockroachDB, Apache Flink, Kafka Streams, MyRocks -- rely on a local embedded key-value store inside each node. When that embedded engine stalls, amplifies writes, fills cache, or burns CPU, the surrounding service inherits the pain as tail latency, backpressure, checkpoint cost, or storage pressure. RocksDB is the most widely deployed instance of that embedded engine, running across hundreds of millions of instances at Meta alone.',
+        'Distributed systems that look like single services from the outside -- TiKV, CockroachDB, Apache Flink, Kafka Streams, MyRocks -- rely on a local embedded key-value store inside each node. When that embedded engine stalls, amplifies writes, fills cache, or burns CPU, the surrounding service inherits the pain as tail latency, backpressure, checkpoint cost, or storage pressure. RocksDB is the most widely deployed instance of that embedded engine, used across 30+ Meta applications storing hundreds of petabytes (FAST 2021, Table 1).',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/LSM_Tree.png/800px-LSM_Tree.png',
+          alt: 'LSM tree architecture showing memtable, immutable memtable, and SSTable levels',
+          caption: 'The LSM tree architecture: writes go to an in-memory memtable, then flush to sorted on-disk SSTables that are periodically merged via compaction. Source: Wikimedia Commons.',
+        },
         {
           type: 'quote',
           text: 'RocksDB is widely used as a storage engine in production environments. It is used as a storage engine for a distributed database (MyRocks and its variants), a streaming engine (Flink), and other products.',
           attribution: 'Dong et al., "RocksDB: Evolution of Development Priorities in a Key-value Store Serving Large-scale Applications," USENIX FAST 2021, Section 1',
         },
         'The case study is not "LSM trees are good for writes." It is a production lesson about moving bottlenecks. Early deployments fought write amplification because SSD endurance was scarce. Later, space amplification dominated as data volumes grew. Then CPU became limiting as compression, checksums, and filters consumed cores that fast NVMe drives no longer kept busy. The same engine, the same code, three different bottlenecks across three hardware generations.',
+        {
+          type: 'callout',
+          text: 'RocksDB is not a database. It is the embedded storage engine inside hundreds of databases, stream processors, and caches. When it stalls, every system built on top inherits the pain.',
+        },
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
         'The first reasonable design for durable key-value storage is a B-tree with write-ahead logging. InnoDB, WiredTiger, and LMDB all follow this pattern. A put finds the correct page, modifies it in place, and writes it back. Reads follow a short, balanced path. The tree stays sorted at all times.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/B-tree.svg/800px-B-tree.svg.png',
+          alt: 'B-tree data structure with internal nodes containing sorted keys and child pointers',
+          caption: 'A B-tree keeps data sorted across wide disk pages. Updates find the correct page, modify it in place, and write the dirty page back. This is fast for reads (O(log n) page traversals) but expensive for writes on flash storage, where even a small update dirties an entire multi-kilobyte page. Source: Wikimedia Commons.',
+        },
         {
           type: 'table',
           headers: ['Property', 'B-tree (update-in-place)', 'Append-only log'],
@@ -253,6 +269,10 @@ export const article = {
           ],
         },
         'B-trees excel for read-heavy workloads. But under heavy random writes, each small update can dirty an entire 4-16 KB page. On flash storage, this means write amplification at the device level on top of the application-level amplification. A 100-byte update that rewrites a 16 KB page has already amplified writes 160x before the SSD controller does its own rewriting.',
+        {
+          type: 'callout',
+          text: 'Write amplification stacks: application-level amplification (100 bytes -> 16 KB page) multiplied by device-level amplification (page -> erase block) multiplied by FTL garbage collection. Sequential writes avoid this entire stack because they fill blocks cleanly.',
+        },
         'The second reasonable design is an append-only log with an in-memory hash index -- the Bitcask model. Writes are sequential and fast, but every live key needs a pointer in memory, and recovery requires scanning the entire log. Without a disciplined cleaning strategy, the log grows without bound.',
         'RocksDB sits between these two extremes: writes are sequential like a log, but the data is organized into sorted levels so reads do not require a full scan.',
       ],
@@ -277,6 +297,12 @@ export const article = {
             '                                  Cost: CPU, SSD bandwidth, cache churn',
           ].join('\n'),
           label: 'The LSM bargain: foreground writes are cheap because background compaction pays later',
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Write-ahead_logging_-_before_and_after.svg/800px-Write-ahead_logging_-_before_and_after.svg.png',
+          alt: 'Write-ahead logging diagram showing log entries written before data pages are modified',
+          caption: 'Write-ahead logging (WAL): every mutation is first appended to a sequential log for crash recovery, then applied to the in-memory data structure. This pattern is the durability foundation beneath every RocksDB write. The WAL can be replayed after a crash to reconstruct any memtable entries that had not yet been flushed to SSTables. Source: Wikimedia Commons.',
         },
         'A storage engine is therefore also a scheduler. Compaction competes with foreground reads and writes for CPU, SSD bandwidth, memory bandwidth, block cache, and write endurance. If compaction falls behind, L0 files pile up and RocksDB may stall writes entirely. If compaction is too aggressive, it steals bandwidth from foreground reads and spikes tail latency. The hard part is not choosing a data structure. It is controlling when delayed work is paid and which resource becomes the bottleneck.',
       ],
@@ -342,6 +368,12 @@ export const article = {
         },
         'A flush converts an immutable memtable into an SSTable on disk. Each SSTable stores sorted key-value entries in data blocks (default 4 KB), a metadata block with key range and file statistics, an index block mapping key prefixes to data block offsets, a Bloom filter block for point-lookup acceleration, and a CRC32 checksum per block for integrity. The SSTable lands in L0.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/81/SkipList.svg/800px-SkipList.svg.png',
+          alt: 'Skip list data structure with multiple levels of linked lists providing O(log n) search',
+          caption: 'A skip list: the default memtable implementation in RocksDB. Multiple levels of forward pointers give O(log n) insert and lookup without the rebalancing overhead of a balanced tree. Concurrent inserts use lock-free CAS operations on the tower pointers. Source: Wikimedia Commons.',
+        },
+        {
           type: 'diagram',
           text: [
             '  SSTable internal layout:',
@@ -379,7 +411,18 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because it separates the fast path from the maintenance path, and each path is matched to what storage hardware does well.',
+        'The design works because it separates the fast path from the maintenance path, and each path is matched to what storage hardware does well. But "works" means two things: it is fast, and it is correct. The correctness argument is often skipped in LSM tutorials, so let us make it explicit.',
+        {
+          type: 'callout',
+          text: 'Correctness invariant: a read for key K returns the value with the highest sequence number <= the reader\'s snapshot sequence number. Compaction may rearrange and delete entries, but it must never delete an entry visible to any active snapshot.',
+        },
+        'Every write in RocksDB gets a monotonically increasing sequence number. When a reader opens a snapshot, it records the current sequence number. A get checks components in freshness order (memtable, then L0, then L1...Ln) and returns the first entry for key K whose sequence number is <= the snapshot. Compaction merges sorted runs and discards entries whose sequence numbers are below the oldest active snapshot -- those entries are provably invisible to every reader. This is why snapshot pinning can bloat space: a long-lived snapshot prevents compaction from discarding old versions.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/800px-Bloom_filter.svg.png',
+          alt: 'Bloom filter diagram showing hash functions mapping elements to a bit array',
+          caption: 'A Bloom filter: the structure that makes LSM reads survivable. Each key is hashed to k bit positions. If any bit is zero, the key is definitely absent -- no disk read needed. RocksDB builds a Bloom filter per SSTable, typically using 10 bits per key for a ~1% false positive rate. Source: Wikimedia Commons.',
+        },
         {
           type: 'bullets',
           items: [
@@ -392,7 +435,7 @@ export const article = {
         'The deeper reason is that the design trades write amplification (total bytes written to storage vs. bytes of user data) for lower space amplification and lower read amplification. Leveled compaction rewrites data roughly once per level transition, producing write amplification of about size_ratio * (num_levels - 1). With a size ratio of 10 and 5 levels, that is roughly 40x. But each level is sorted and non-overlapping, so a point read touches at most one file per level -- read amplification stays bounded.',
         {
           type: 'note',
-          text: 'The three amplification metrics are zero-sum in an LSM engine. You cannot minimize all three simultaneously. Leveled compaction minimizes read and space amplification at the cost of write amplification. Universal (tiered) compaction reduces write amplification but tolerates higher space and read amplification. The operator must decide which amplification the workload can afford, and that decision changes as hardware and scale change.',
+          text: 'The three amplification metrics are tightly constrained in an LSM engine -- not literally zero-sum, but you cannot minimize all three simultaneously. Leveled compaction minimizes read and space amplification at the cost of write amplification. Universal (tiered) compaction reduces write amplification but tolerates higher space and read amplification. The FAST 2021 paper reports concrete numbers: leveled WA ~16x, tiered ~4.8x, FIFO ~2.1x across their deployments. The operator must decide which amplification the workload can afford, and that decision changes as hardware and scale change.',
         },
         'Meta\'s experience paper documents this evolution. In 2012-2015, SSD write endurance was the binding constraint, so write amplification dominated tuning. By 2016-2018, data volumes had grown enough that space amplification (and thus storage cost) became the primary concern. By 2019-2021, NVMe SSDs were fast enough that CPU -- spent on compression, decompression, checksum verification, Bloom filter probes, and comparator calls -- became the bottleneck. The same engine, retuned three times for three different hardware generations.',
       ],
@@ -454,6 +497,12 @@ export const article = {
             ['Space amplification', 'Total storage used / size of live data', '~1.1x', 'Up to 2x during compaction', 'Tombstone accumulation, long-lived snapshots, delete-heavy workloads'],
           ],
         },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Merge_sort_algorithm_diagram.svg/800px-Merge_sort_algorithm_diagram.svg.png',
+          alt: 'Merge sort diagram showing recursive divide-and-conquer with sorted merge steps',
+          caption: 'Merge sort: the algorithm at the heart of LSM compaction. Files from adjacent levels are merge-sorted -- the same pattern shown here, applied to sorted runs on disk instead of arrays in memory. Each compaction reads input files sequentially, merges them, and writes sorted output files sequentially. This SSD-friendly I/O pattern is why compaction can sustain high throughput. Source: Wikimedia Commons.',
+        },
         'CPU is the less obvious cost. On a modern NVMe SSD capable of 3+ GB/s sequential throughput, the CPU spent on LZ4 or Zstd compression, CRC32c checksums, Bloom filter probes (one hash + k bit lookups per filter), memtable comparator calls, and merge-sort operations during compaction can saturate cores before the SSD saturates bandwidth. Meta reported that CPU became the dominant bottleneck in their UDB (social graph) workload as they moved from SATA to NVMe.',
         {
           type: 'code',
@@ -496,7 +545,11 @@ export const article = {
           ],
         },
         'RocksDB wins when a system needs durable local key-value state with heavy writes and is willing to manage background compaction as a first-class operational concern. The host application owns replication, sharding, consensus, and routing. RocksDB owns local persistence, ordering, and the amplification tradeoff.',
-        'It is especially strong when the access pattern has high write volume, moderate read volume, and keys that update repeatedly (allowing compaction to discard old versions aggressively). It also wins when the operator instruments amplification metrics and tunes per-workload, rather than assuming one configuration fits all services.',
+        {
+          type: 'callout',
+          text: 'RocksDB is especially strong when keys update repeatedly. Compaction discards old versions aggressively, so a workload with high key-overlap can achieve much lower actual write amplification than the theoretical worst case.',
+        },
+        'It also wins when the operator instruments amplification metrics and tunes per-workload, rather than assuming one configuration fits all services.',
       ],
     },
     {
@@ -512,6 +565,12 @@ export const article = {
             'Small datasets: if the entire dataset fits in a few megabytes, the LSM machinery -- WAL, memtable, flush, compaction, Bloom filters, block cache -- adds complexity with no benefit over a simple sorted array or B-tree.',
             'Large sequential scans: iterating over a large key range must merge multiple sorted runs. Without careful prefetching and iterator management, scan throughput can be 2-5x worse than a B-tree that stores data in one sorted structure.',
           ],
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Hash_table_4_1_1_0_0_1_0_LL.svg/800px-Hash_table_4_1_1_0_0_1_0_LL.svg.png',
+          alt: 'Hash table with separate chaining showing buckets and linked lists of key-value pairs',
+          caption: 'For exact-key lookups without ordering requirements, a simple hash table often outperforms an LSM engine. RocksDB pays for sorted order, Bloom filters, and compaction machinery -- overhead that is wasted if the workload never needs range scans, prefix iteration, or ordered traversal. Source: Wikimedia Commons.',
         },
         'The subtlest failure mode is configuration fragility. RocksDB has over 100 tunable parameters. A configuration that works well at 10 GB can fail at 1 TB (too many levels, compaction cannot keep up). A configuration tuned for SATA SSDs can waste CPU on NVMe. Teams that copy configurations from blog posts without measuring their own workload\'s amplification metrics often discover the mismatch during an incident.',
       ],
