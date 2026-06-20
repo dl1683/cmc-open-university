@@ -177,150 +177,378 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Macaroon Caveat Chain Case Study. A cryptographic authorization case study: root macaroons, chained HMAC signatures, first-party caveats, third-party caveats, discharge tokens, and verifier checks..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The caveat-chain view traces the life of a macaroon from root secret to verified request. Active nodes are the current operation: key derivation, caveat attachment, or signature check. Found nodes are steps whose cryptographic contract is already satisfied. Compare nodes are constraints not yet evaluated.',
+        {
+          type: 'bullets',
+          items: [
+            'Root key to mac: the service mints a bearer credential by computing HMAC(root_key, identifier).',
+            'Mac to caveats: each caveat rewrites the running signature. The arrow direction matters -- caveats chain forward, never backward.',
+            'Caveats to sig: the final signature commits to every caveat in order. Deleting one changes the hash.',
+            'Sig to verify: the verifier recomputes the entire chain from the root secret and compares.',
+          ],
+        },
+        'The third-party-discharge view traces a cross-service proof. The storage service delegates an identity check to an authorization service. The client collects a discharge token, binds it to the root macaroon, and presents both. Watch the bind node: it prevents the discharge from being replayed against a different root token.',
+        {
+          type: 'note',
+          text: 'If an edge is active, the cryptographic state is changing. If a node is found, the verifier has confirmed that link. If a node is in compare state, it is a constraint the request has not yet satisfied.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A macaroon is a bearer authorization credential with embedded caveats. It starts from a service secret and an identifier, then chains caveats into the credential signature. Holders can attenuate authority by adding more caveats, but they cannot remove caveats without invalidating the token.',
-        'The Google research paper introduces macaroons as flexible authorization credentials for decentralized delegation in cloud systems: https://research.google/pubs/macaroons-cookies-with-contextual-caveats-for-decentralized-authorization-in-the-cloud/.',
-      ],
-    },
-    {
-      heading: 'Data structure model',
-      paragraphs: [
-        'The core structure is an ordered list of caveats plus a chained MAC signature. A first-party caveat is checked by the target service against request context. A third-party caveat requires a discharge macaroon from another service. Verification walks the caveat list, recomputes the signature, checks discharge bindings, and evaluates all predicates.',
-        'This makes macaroons a concrete version of Capability Security & Attenuation for bearer credentials. They are not pure object references, but they support a similar idea: authority should be easy to narrow before it is delegated.',
+        'Distributed systems hand credentials to intermediaries constantly. A web frontend passes a token to a CDN. A CDN passes it to a storage backend. A storage backend passes it to a billing service. At each hop, the intermediary holds more authority than it needs. The security question is: can the delegator narrow the token before handing it off, without calling the original issuer?',
+        {
+          type: 'quote',
+          text: 'Macaroons are flexible authorization credentials for Cloud services that support decentralized delegation between principals. Macaroons are based on a construction that uses nested, chained MACs in a manner similar to the way cookies are used on the Web.',
+          attribution: 'Birgisson, Politz, Erlingsson, Taly, Vrable, Lentczner -- "Macaroons: Cookies with Contextual Caveats for Decentralized Authorization in the Cloud" (NDSS 2014)',
+        },
+        'A JWT or OAuth token is sealed at issue time. Its claims are fixed. If a photo service issues a token granting read access to all albums, and the frontend only needs album 123 for the next ten minutes, the frontend must either use the overpowered token or ask the issuer for a narrower one. Macaroons solve this by letting any holder append restrictions -- caveats -- that the verifier must enforce, without any round trip to the issuer.',
+        {
+          type: 'note',
+          text: 'The name "macaroon" is a play on "cookie." Both are bearer credentials. The difference is that a macaroon carries a chain of restrictions that any holder can extend but nobody can remove.',
+        },
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious authorization token is a signed blob of claims issued by a central service. That works when all authority is known at issue time. It becomes awkward when a holder needs to delegate a narrower token later, such as only this path, only this method, only before 5pm, only after another service approves identity.',
-        'Another obvious approach is to ask the issuer for a new token every time authority must narrow. That keeps policy central, but it couples every delegation to the issuer and can make offline or cross-service workflows brittle. Macaroons let holders add restrictions locally while preserving tamper evidence.',
+        'The standard approach to authorization tokens is a signed claim set. The issuer decides the full set of permissions at mint time, signs them, and the verifier checks the signature and reads the claims.',
+        {
+          type: 'code',
+          language: 'json',
+          text: [
+            '{',
+            '  "sub": "user-7042",',
+            '  "scope": "read:albums",',
+            '  "exp": 1718745600,',
+            '  "iss": "photos.example.com"',
+            '}',
+          ].join('\n'),
+          label: 'A typical JWT payload: claims fixed at issue time',
+        },
+        'This works when the issuer knows exactly what authority is needed. It breaks in three scenarios:',
+        {
+          type: 'bullets',
+          items: [
+            'Downstream narrowing: the frontend needs to pass a token to a thumbnail worker that should only access one album, one HTTP method, for five minutes. The JWT grants read:albums with no path restriction. The frontend cannot narrow it.',
+            'Offline delegation: a mobile client collects a token while online but needs to hand a restricted version to an offline peer. Minting a new token requires the issuer to be reachable.',
+            'Cross-service proof: the storage service needs the client to prove identity through a separate auth service, but the storage service does not want to share its root secret with the auth service.',
+          ],
+        },
+        'The workaround is to call the issuer for a new, narrower token at every delegation point. That couples every hop to the issuer, adds latency, and fails when the issuer is unreachable.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Signed tokens are sealed envelopes. The signature covers the entire claim set, so modifying any claim -- even to reduce authority -- invalidates the token. There is no cryptographic mechanism for a non-issuer to produce a valid token with fewer permissions.',
+        {
+          type: 'diagram',
+          text: [
+            '  Issuer mints:  {scope: "read:albums", exp: 1h}  sig=HMAC(secret, claims)',
+            '       |',
+            '       v',
+            '  Frontend receives token. Needs to narrow:',
+            '       scope: "read:albums/123"   method: GET   exp: 10m',
+            '       |',
+            '       X  Cannot re-sign: does not have the secret',
+            '       X  Cannot edit claims: signature breaks',
+            '       X  Cannot append: no chaining mechanism',
+            '       |',
+            '       v',
+            '  Must call issuer for a new token  -->  latency + availability dependency',
+          ].join('\n'),
+          label: 'The wall: sealed signatures prevent non-issuer attenuation',
+        },
+        'The invariant that breaks is: authority can only decrease along a delegation chain, and it should be possible without the issuer. Sealed tokens cannot satisfy this because their signature scheme has no concept of additive restriction.',
+        {
+          type: 'note',
+          text: 'This is not a flaw in JWTs. JWTs were designed for a different threat model where the issuer is always reachable and claims are known at mint time. The wall appears specifically when you need decentralized, offline-capable attenuation.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is monotonic attenuation. A macaroon holder can only make the credential weaker by adding caveats. Because each caveat changes the chained MAC, removing or editing a caveat breaks verification. That gives delegation without allowing privilege expansion.',
-        'Third-party caveats add decentralized checks. The original service can say this token also requires proof from an identity service. The client collects a discharge macaroon from that service, binds it to the root token, and presents both. The verifier gets narrow authorization without every service sharing the same secret.',
+        'Macaroons replace a single signature with a chain of HMACs. Each caveat is folded into the running signature, so the signature after n caveats commits to every caveat before it. Anyone can extend the chain -- appending a caveat only requires the current signature, not the root secret -- but nobody can shorten it without recomputing from the root.',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            'sig_0 = HMAC(root_key, identifier)',
+            'sig_1 = HMAC(sig_0, caveat_1)        // e.g. "path = /albums/123"',
+            'sig_2 = HMAC(sig_1, caveat_2)        // e.g. "method = GET"',
+            'sig_3 = HMAC(sig_2, caveat_3)        // e.g. "time < 2026-06-19T18:00Z"',
+            '',
+            'macaroon = { identifier, [caveat_1, caveat_2, caveat_3], sig_3 }',
+          ].join('\n'),
+          label: 'Chained HMAC: each caveat updates the running signature',
+        },
+        'This is monotonic attenuation. The holder can only make the credential weaker. Adding a caveat is easy: compute HMAC(current_sig, new_caveat) and append. Removing a caveat is hard: it requires the previous signature, which requires either the root secret or the ability to invert HMAC.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Who can do it', 'Why'],
+          rows: [
+            ['Mint root macaroon', 'Service (holds root key)', 'sig_0 = HMAC(root_key, id) requires the root secret'],
+            ['Add a caveat', 'Any holder', 'Only needs current sig, not root key'],
+            ['Remove a caveat', 'Nobody (without root key)', 'Recomputing the chain requires the root secret'],
+            ['Verify the chain', 'Service (holds root key)', 'Recomputes from root_key through all caveats, compares final sig'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The asymmetry is the whole point. Extending authority is hard (needs root key). Restricting authority is easy (needs current signature). This is the opposite of most systems where granting is easy and restricting requires policy changes.',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'In the caveat-chain view, follow root key to macaroon to caveats to signature. The caveats are not comments; they are predicates that must be checked against trusted request data. The signature node shows why a holder can add restrictions but cannot remove or edit them without detection.',
-        'In the third-party-discharge view, the root service delegates one check to another service. The client collects a discharge proof, then the verifier checks both tokens and their binding. The failure mode to watch is replay: a discharge collected for one root token should not unlock another.',
-        'The comparison table is the design map. JWTs are signed claims fixed at issue time. OAuth tokens are usually ecosystem flow credentials. Macaroons are valuable when authority must be narrowed after issue. UCANs push delegation into public-key proof chains. The right choice depends on who must attenuate authority and who can verify it.',
+        'A macaroon has three parts: an identifier (opaque to the holder, meaningful to the issuer), an ordered list of caveats, and a signature. The identifier lets the verifier look up the root key. The caveats are predicates. The signature proves the chain is intact.',
+        {
+          type: 'diagram',
+          text: [
+            '  Macaroon structure:',
+            '  +--------------------------------------------------+',
+            '  | identifier: "session-a8f3e2"                     |',
+            '  |                                                  |',
+            '  | caveats:                                         |',
+            '  |   [0] "account = acct-7042"        (first-party) |',
+            '  |   [1] "path startsWith /albums/123" (first-party)|',
+            '  |   [2] "method = GET"                (first-party)|',
+            '  |   [3] "time < 2026-06-19T18:00Z"   (first-party) |',
+            '  |   [4] third-party: authz.example    (third-party)|',
+            '  |                                                  |',
+            '  | signature: 7c9a...f2e1 (HMAC chain output)       |',
+            '  +--------------------------------------------------+',
+          ].join('\n'),
+          label: 'Anatomy of a macaroon with four first-party and one third-party caveat',
+        },
+        'First-party caveats are predicates the target service evaluates against trusted request context: the clock, the URL, the HTTP method, the authenticated account. The verifier parses each caveat string, matches it against a known predicate type, and checks it against the request.',
+        'Third-party caveats delegate one check to another service. The macaroon says "this token is valid only if authz.example supplies a discharge macaroon proving the user is logged in." The holder must collect that discharge, bind it to the root macaroon, and present both.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Verification pseudocode',
+            'function verify(macaroon, rootKey, discharges, request) {',
+            '  let sig = hmac(rootKey, macaroon.identifier);',
+            '  for (const caveat of macaroon.caveats) {',
+            '    if (caveat.isFirstParty) {',
+            '      sig = hmac(sig, caveat.predicate);',
+            '      if (!evaluatePredicate(caveat, request)) return DENY;',
+            '    } else {',
+            '      const discharge = findDischarge(discharges, caveat);',
+            '      if (!discharge) return DENY;',
+            '      sig = hmac(sig, caveat.verificationKeyId);',
+            '      if (!verifyDischarge(discharge, caveat, macaroon.signature))',
+            '        return DENY;',
+            '    }',
+            '  }',
+            '  if (sig !== macaroon.signature) return DENY;',
+            '  return ALLOW;',
+            '}',
+          ].join('\n'),
+          label: 'The verifier recomputes the HMAC chain and evaluates every predicate',
+        },
+        {
+          type: 'note',
+          text: 'The signature check and the predicate checks are both required. The signature proves the caveat list was not tampered with. The predicate checks prove the current request satisfies the caveats. Passing one without the other is not verification.',
+        },
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Macaroons work because HMAC chaining turns caveat order into cryptographic state. The verifier starts from the root secret and recomputes the chain over the identifier and caveats. If any caveat has been removed, changed, or reordered in a way the construction rejects, the final signature will not match.',
-        'The authorization model works because the verifier checks two things: cryptographic validity and predicate truth. The MAC proves the caveat list was not weakened. The request-context checks prove the current request satisfies the list. Both are required.',
+        'Correctness rests on two properties of HMAC chaining.',
+        {
+          type: 'bullets',
+          items: [
+            'Tamper evidence: HMAC is a pseudorandom function. Changing, removing, or reordering any caveat in the chain produces a different final signature. The verifier, who holds the root key, recomputes the chain independently and rejects mismatches.',
+            'Monotonic attenuation: appending a caveat only requires the current signature, not the root key. But shortening the chain requires recomputing from the root. Since HMAC is not invertible without the key, a holder cannot remove caveats.',
+          ],
+        },
+        'The authorization model adds a second layer: predicate truth. Even if the signature is valid, the verifier evaluates every caveat against trusted request data. A macaroon with "time < 5pm" and a valid signature is still rejected at 6pm.',
+        {
+          type: 'table',
+          headers: ['Check', 'What it proves', 'Failure mode if skipped'],
+          rows: [
+            ['Signature recomputation', 'Caveat list was not weakened or altered', 'Attacker removes caveats, gains broader authority'],
+            ['Predicate evaluation', 'Current request satisfies all restrictions', 'Expired or out-of-scope requests are accepted'],
+            ['Discharge verification', 'Third-party conditions were met', 'Cross-service checks are bypassed entirely'],
+            ['Discharge binding', 'Discharge is tied to this specific root token', 'Discharge is replayed across unrelated tokens'],
+          ],
+        },
+        {
+          type: 'quote',
+          text: 'Because macaroons use chained HMAC, adding a caveat is a one-way operation: it can be performed by anyone holding the macaroon, but it cannot be undone without knowledge of the root key.',
+          attribution: 'Birgisson et al., NDSS 2014',
+        },
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A photo storage service issues a macaroon that grants read access to a user album. A web frontend adds caveats: path starts with /albums/123, method is GET, expiry is in ten minutes, and size is below a threshold. The client can pass this credential to an image resizing worker without giving the worker full account access.',
-        'For a private album, the service adds a third-party caveat requiring an identity provider discharge. The client obtains a discharge macaroon proving the current user is signed in. The storage service verifies the root macaroon, verifies the discharge, checks binding, and then evaluates path, method, expiry, and identity caveats before serving bytes.',
+        'A photo storage service issues a root macaroon to a web frontend. The frontend needs to delegate a narrow slice of authority to an image-resizing worker.',
+        {
+          type: 'table',
+          headers: ['Step', 'Actor', 'Action', 'Macaroon state'],
+          rows: [
+            ['1', 'Storage service', 'Mint root macaroon for user acct-7042', 'id="sess-a8f3", caveats=[], sig=HMAC(root, id)'],
+            ['2', 'Frontend', 'Add caveat: path startsWith /albums/123', 'caveats=[path], sig=HMAC(sig_0, path)'],
+            ['3', 'Frontend', 'Add caveat: method = GET', 'caveats=[path, method], sig=HMAC(sig_1, method)'],
+            ['4', 'Frontend', 'Add caveat: time < now+10min', 'caveats=[path, method, time], sig=HMAC(sig_2, time)'],
+            ['5', 'Frontend', 'Hand attenuated macaroon to resize worker', 'Worker holds a token that can only GET /albums/123 for 10 minutes'],
+            ['6', 'Worker', 'Present macaroon to storage service', 'Service recomputes chain, checks all 3 predicates'],
+          ],
+        },
+        'The worker cannot escalate. It holds a macaroon with three caveats, and removing any one would change the signature. The storage service verifies by recomputing HMAC(root_key, id), then chaining through path, method, and time caveats, then comparing the final signature. If all match and the predicates pass against the request, the worker gets the bytes.',
+        'Now add a third-party caveat. The storage service wants proof that the user is logged in, but it does not run an identity service.',
+        {
+          type: 'diagram',
+          text: [
+            '  Storage              Frontend            AuthZ Service',
+            '    |                     |                      |',
+            '    |-- root macaroon --->|                      |',
+            '    |  (+ 3rd-party       |                      |',
+            '    |   caveat: ask       |                      |',
+            '    |   authz.example)    |                      |',
+            '    |                     |--- prove identity -->|',
+            '    |                     |                      |',
+            '    |                     |<-- discharge token --|',
+            '    |                     |                      |',
+            '    |                     | bind(discharge,      |',
+            '    |                     |      root_mac.sig)   |',
+            '    |                     |                      |',
+            '    |<-- root_mac +       |                      |',
+            '    |    bound discharge  |                      |',
+            '    |                     |                      |',
+            '    | verify root chain   |                      |',
+            '    | verify discharge    |                      |',
+            '    | check binding       |                      |',
+            '    | evaluate predicates |                      |',
+            '    | --> ALLOW or DENY   |                      |',
+          ].join('\n'),
+          label: 'Third-party discharge flow: storage never shares its root secret with the auth service',
+        },
+        'The binding step is critical. Without it, a discharge collected for one macaroon could be replayed against a different root token. The bind operation typically hashes the discharge signature with the root macaroon signature, producing a value that is only valid for this specific pair.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In code, treat caveat verification as a registry of typed predicates rather than a pile of string checks. A caveat such as time < 2026-06-13T18:00Z, path starts /albums/123, or method = GET should parse into a known predicate with trusted request fields. Unknown caveats should fail closed unless the protocol explicitly says otherwise.',
-        'The audit record should include token identifier, caveat names, discharge identities, verifier version, decision, and trace id, but not raw secrets. This connects macaroons to Distributed Tracing and LLM Guardrail Policy Engine: a narrow credential is only useful operationally if failures can be explained and replayed safely.',
-        'A production verifier should separate parsing, signature verification, discharge verification, predicate evaluation, and decision logging. That separation makes it harder for a new caveat type or identity integration to bypass the rest of the chain accidentally.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Macaroons buy delegation flexibility with verifier complexity. Every service that accepts them needs a precise caveat language, trusted request context, clock handling, discharge binding, and safe failure behavior. A simple signed token can be easier to operate when authority never needs downstream attenuation.',
-        'Third-party caveats add availability dependencies. If the identity service or discharge issuer is down, clients may be unable to satisfy otherwise valid tokens. Short expirations and narrow caveats reduce blast radius, but they also increase the number of credentials and discharges clients must refresh.',
+        'Macaroon verification is cheap in CPU but expensive in design surface.',
+        {
+          type: 'table',
+          headers: ['Cost', 'Magnitude', 'What drives it'],
+          rows: [
+            ['Signature check', 'O(n) HMAC calls, n = number of caveats', 'Each caveat requires one HMAC. 5 caveats = 5 HMAC calls, sub-microsecond total'],
+            ['Predicate evaluation', 'O(n) predicate checks', 'Each predicate is a comparison against request context: clock, URL, method'],
+            ['Discharge verification', 'O(d) per discharge', 'Each third-party caveat adds one discharge to verify, each with its own chain'],
+            ['Token size', 'Grows linearly with caveats', 'Each caveat adds its string plus HMAC overhead. Tens of caveats are fine; thousands are a design smell'],
+            ['Verifier complexity', 'High', 'Must implement a caveat parser, predicate registry, clock handling, discharge binding, and fail-closed logic'],
+          ],
+        },
+        'The runtime cost is negligible. HMAC-SHA256 runs at millions of operations per second. The real cost is the verification code: every service that accepts macaroons must implement a correct caveat language, handle unknown caveats safely, manage clock skew, and audit decisions.',
+        {
+          type: 'note',
+          text: 'Adding a caveat is free for the holder: one HMAC call, no network round trip. This is the economic insight. Attenuation is cheap, so it gets used. When attenuation is expensive (call the issuer, wait for a response), it gets skipped, and over-privileged tokens proliferate.',
+        },
+        'Third-party caveats add availability cost. The client must contact the third-party service to collect a discharge before presenting the macaroon. If the auth service is down, the token is unusable even if its signature and first-party caveats are valid.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Macaroons are useful for delegated storage access, object download URLs, service-to-service attenuated credentials, temporary upload permissions, and workflows where one holder must narrow a credential before passing it to another component. They shine when least privilege must be applied after the original issuer is out of the path.',
-        'They are less useful when policy is fully centralized, when verifiers cannot parse caveats safely, or when revocation needs to be immediate and global. In those cases, short-lived OAuth-style tokens, centralized authorization checks, or capability systems with explicit revocation may be easier to reason about.',
+        {
+          type: 'table',
+          headers: ['System', 'How macaroons are used', 'Why the fit is good'],
+          rows: [
+            ['Google (original paper)', 'Authorization across internal cloud services', 'Services delegate narrow credentials to intermediaries without sharing root secrets'],
+            ['Lightning Network (lnd)', 'API authentication for Lightning node RPCs', 'Operators mint admin macaroons, then attenuate to read-only or invoice-only for apps'],
+            ['Hyperdex/HyperDex', 'Distributed data store authorization', 'Caveats restrict operations per-key-range without centralized policy'],
+            ['Charm (Go library)', 'General-purpose auth in Go microservices', 'First-party caveats for path/method/time, third-party for cross-service identity'],
+            ['Loop (Lightning Labs)', 'Submarine swap authorization', 'Attenuated credentials for swap-specific operations with time bounds'],
+          ],
+        },
+        'The Lightning Network is the most visible production deployment. Every lnd node uses macaroons as its authentication system. The admin macaroon grants full control. Operators derive narrower macaroons -- read-only, invoice-only, specific-IP-only -- by appending caveats, then hand those to wallet apps or monitoring tools.',
+        {
+          type: 'code',
+          language: 'bash',
+          text: [
+            '# lnd: bake a read-only macaroon with IP restriction',
+            'lncli bakemacaroon info:read offchain:read onchain:read \\',
+            '  --save_to readonly.macaroon',
+            '',
+            '# Add a caveat restricting to a specific IP (using macaroon-bakery)',
+            '# The resulting token can only be used from 10.0.0.5',
+            '# and cannot read invoices or send payments',
+          ].join('\n'),
+          label: 'Lightning Network lnd: operators attenuate macaroons per-application',
+        },
+        'Macaroons fit when: (1) the token crosses trust boundaries, (2) intermediaries need less authority than the original grant, (3) calling the issuer for every narrowing is too slow or unavailable, and (4) the verifier can implement a caveat language.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Macaroons are bearer credentials. If an attacker steals a valid macaroon and all required discharge tokens, the attacker may use them until caveats stop them. Use short expiry, narrow scope, TLS, careful storage, and audit logging. Do not treat caveat strings as harmless comments; they are policy inputs and need precise parsers.',
-        'Another mistake is believing caveats remove the need for server-side verification. The service must recompute signatures, bind discharges, and evaluate caveats against trusted request context. A token with a caveat is only as safe as the verifier that enforces it. Unknown caveats, string parsing quirks, and clock skew should be treated as security issues, not edge-case cleanup.',
-        'A final mistake is adding caveats nobody observes. If the verifier does not know a caveat type, the safe behavior is denial. Silent ignore turns attenuation into decoration and can accidentally expand authority.',
+        'Macaroons are bearer credentials. Stealing the token is stealing the authority. Every caveat is a policy input, not a comment.',
+        {
+          type: 'table',
+          headers: ['Failure', 'Mechanism', 'Mitigation'],
+          rows: [
+            ['Token theft', 'Bearer credential: possession = authority', 'Short expiry, TLS everywhere, secure storage, audit logging'],
+            ['Unknown caveat ignored', 'Verifier skips caveat types it does not recognize', 'Fail closed: reject any macaroon with an unknown caveat type'],
+            ['Clock skew', 'Time-based caveats checked against divergent clocks', 'NTP sync, bounded skew tolerance, prefer short windows'],
+            ['No revocation', 'Macaroons have no built-in revocation channel', 'Short TTL, server-side token denylist, discharge expiry'],
+            ['Discharge replay', 'Discharge used against a different root token', 'Bind discharge to root signature before presenting'],
+            ['Caveat parser bugs', 'String parsing errors accept overly broad predicates', 'Typed predicate registry, not string matching'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The most dangerous mistake is treating unknown caveats as "not my problem." If the verifier silently ignores a caveat it does not understand, the attenuation is decorative. The token passes verification with broader authority than intended. Fail-closed is the only safe default.',
+        },
+        'Revocation is the structural weakness. Because any holder can extend a macaroon offline, the issuer has no way to enumerate all derived tokens. Revoking the root key invalidates every macaroon derived from it, including valid ones. There is no surgical revocation of a single derived credential without a server-side denylist.',
+        {
+          type: 'bullets',
+          items: [
+            'Macaroons are the wrong tool when policy is fully centralized and the issuer is always reachable.',
+            'They are the wrong tool when immediate, global revocation of individual credentials is required.',
+            'They are the wrong tool when verifiers cannot implement a safe caveat parser -- a sloppy parser is worse than no attenuation.',
+            'They add unnecessary complexity when tokens never need downstream narrowing.',
+          ],
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Google Research macaroon overview at https://research.google/pubs/macaroons-cookies-with-contextual-caveats-for-decentralized-authorization-in-the-cloud/, NDSS paper PDF at https://www.ndss-symposium.org/wp-content/uploads/2017/09/04_3_1.pdf, and the Stanford-hosted paper copy at https://theory.stanford.edu/~ataly/Papers/macaroons.pdf. Study Capability Security & Attenuation, OAuth PKCE Token Lifecycle Case Study, JWT Verification, UCAN Delegation Proof Chain, Zanzibar Authorization Case Study, Hash Table, and Distributed Tracing next.',
-        'Then implement one caveat parser and test that unknown caveats fail closed.',
-        'That small test captures the whole security posture.',
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Birgisson et al., "Macaroons: Cookies with Contextual Caveats" (NDSS 2014)', 'Original paper: construction, formal model, Google deployment experience'],
+            ['Stanford copy: theory.stanford.edu/~ataly/Papers/macaroons.pdf', 'Same paper, stable academic link'],
+            ['lnd documentation: docs.lightning.engineering', 'Production macaroon deployment in Lightning Network nodes'],
+            ['libmacaroons (C library by Robert Escriva)', 'Reference implementation of the core HMAC chaining construction'],
+            ['go-macaroon (Go library)', 'Idiomatic Go implementation with third-party caveat support'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Hash Table -- understand HMAC as a keyed hash before reasoning about chaining.',
+            'Prerequisite: Capability Security and Attenuation -- the authorization model macaroons implement.',
+            'Extension: UCAN Delegation Proof Chain -- public-key delegation chains, a different answer to the same problem.',
+            'Contrast: JWT Verification -- sealed claim sets, the approach macaroons replace for attenuable credentials.',
+            'Related: OAuth PKCE Token Lifecycle Case Study -- ecosystem-level authorization flow.',
+            'Related: Zanzibar Authorization Case Study -- centralized relationship-based authorization, a different architecture.',
+          ],
+        },
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for macaroon-caveat-chain-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

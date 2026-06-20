@@ -200,173 +200,228 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for AudioLDM Latent Audio Diffusion Case Study. Text-to-audio generation with latent diffusion: CLAP conditioning, audio latents, denoising, waveform decoding, edit masks, and evaluation ledgers..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "latent pipeline" view traces the forward path of text-to-audio generation: a text prompt enters CLAP-T for embedding, the latent space is noised, the denoiser iterates conditioned on the text embedding, and the result decodes through a mel spectrogram into a waveform. Active (green) nodes are the current processing stage. Found (blue) marks the latent and noise tensors that become reachable once CLAP conditioning is established.',
+        'The "audio edits" view shows how latent structure enables post-generation editing: inpainting masks, style transfer, super-resolution, and stem mixing. Active items are the mask-condition pair being applied. Compare (orange) marks the evaluation metrics that judge the result.',
+        {
+          type: 'note',
+          text: 'The matrix frames use label encoding. The "shape" column shows the tensor geometry; the "job" column shows what that representation does in the pipeline. The energy plot shows event placement over time -- a test of whether generation captures temporal structure, not just label presence.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Text-to-audio generation asks for more than assigning a label to a clip. The output has to contain plausible acoustic events, timing, texture, dynamics, and scene consistency. "Rain in a metal warehouse with distant thunder" is not just rain plus thunder; it is reverberation, material, distance, and temporal placement.',
-        'Generating raw waveform samples directly is expensive because audio has high temporal resolution. A few seconds of sound contain far more sample positions than a small image contains pixels, and tiny waveform errors can become audible artifacts.',
+        'Text-to-audio generation must produce acoustic scenes, not labels. "Rain in a metal warehouse with distant thunder" requires reverberant metal surfaces, continuous rain texture at steady energy, a transient thunder event placed at a plausible time, and distance cues that separate the thunder from the foreground rain. A classifier can tag "rain" and "thunder." A generative model must compose them into a physically coherent sound field.',
+        {
+          type: 'quote',
+          text: 'We propose AudioLDM, a text-to-audio generation framework that leverages a latent space trained with audio data only, while conditioning is provided by CLAP text embeddings at inference.',
+          attribution: 'Liu et al., AudioLDM (ICML 2023)',
+        },
+        'The core tension: audio has extreme temporal resolution. At 16 kHz mono, a 10-second clip is 160,000 samples. At 48 kHz stereo, the same clip is 960,000 samples. Generating each sample autoregressively or diffusing directly in waveform space makes the sequence length problem orders of magnitude harder than image generation, where a 256x256 image is only 65,536 pixels.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The straightforward path is waveform-domain diffusion: train a denoising model that operates directly on raw audio samples. WaveGrad and DiffWave demonstrated this works -- the model iteratively refines a noise signal into a clean waveform.',
+        'This approach has real merit. It avoids lossy compression, preserves phase information, and needs no separate decoder. For short, single-speaker utterances, waveform diffusion produces high-fidelity results.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Strength', 'Scaling wall'],
+          rows: [
+            ['Waveform diffusion', 'No compression loss; preserves phase', 'Sequence length explodes with duration and sample rate'],
+            ['Autoregressive waveform (WaveNet)', 'Exact likelihood; high fidelity', 'O(n) sequential generation; cannot parallelize'],
+            ['Clip retrieval + concatenation', 'Perfect fidelity for known assets', 'Cannot compose novel scenes; catalog size limits vocabulary'],
+            ['Spectrogram generation + vocoder', 'Shorter sequence than raw audio', 'Phase reconstruction artifacts; vocoder quality ceiling'],
+          ],
+        },
+        'Teams reach for waveform diffusion because it feels like the honest approach: generate the thing you actually want. The problem is that "the thing you actually want" is a very long sequence with strict perceptual constraints.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious way to generate sound is to predict waveform samples directly. That gives maximum fidelity in principle, but it makes the model operate on a long, fragile sequence where small errors can become audible clicks, noise, or timing artifacts.',
-        'Another obvious route is to retrieve a matching clip from a library. Retrieval is reliable when the exact asset exists, but it cannot compose new scenes, edit a selected region, or satisfy unusual prompts without a very large catalog. AudioLDM sits between those extremes: generate new audio, but do the slow denoising in a compressed latent representation.',
-      ],
-    },
-    {
-      heading: 'Why latent diffusion',
-      paragraphs: [
-        'AudioLDM moves the denoising problem into a learned latent space. The sampler does not repeatedly predict every waveform sample. It denoises a compact continuous audio representation, then a decoder renders the result back into an audible waveform path.',
-        'The original AudioLDM paper frames this as text-to-audio generation with latent diffusion and CLAP-style language-audio embeddings. The project page describes training latent diffusion models with audio embeddings while using text embeddings as the condition during sampling.',
-      ],
-    },
-    {
-      heading: 'Representation stack',
-      paragraphs: [
-        'A production pipeline stores several different objects: prompt text, text embeddings, audio embeddings, latent tensors, timestep noise levels, denoised latents, spectrogram-like representations, waveform samples, edit masks, seeds, sampler settings, and evaluation records.',
-        'Each representation has a job. Text embeddings carry semantic intent. Audio embeddings align the training signal with audio examples. Latents make diffusion cheaper. Spectrogram-like features preserve time-frequency structure. Waveforms are the final playback artifact.',
-      ],
-    },
-    {
-      heading: 'Training versus sampling',
-      paragraphs: [
-        'During training, the model learns to reverse noise in latent audio space. The training target is not "the word thunder"; it is a distribution over latent audio states that can reconstruct real sound and align with language-audio representations.',
-        'During sampling, the prompt is embedded and used as conditioning while the denoiser gradually turns noise into a latent audio sample. Guidance can push the sample toward the prompt, but too much guidance can make the result harsh, repetitive, or less natural.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A sound-design tool receives "rain in a metal warehouse with distant thunder." It encodes the prompt, samples a latent plan for the sound scene, decodes the latent into audio, and stores the seed, prompt, sampler settings, model version, and output path.',
-        'A useful output keeps low, dense rain energy throughout the clip, places a thunder event at a plausible time, and gives the scene a metallic reverberant tail. A weak output may contain rain and thunder labels in some metric while still sounding flat, clipped, mistimed, or spatially wrong.',
-      ],
-    },
-    {
-      heading: 'Text-guided edits',
-      paragraphs: [
-        'Latent diffusion also supports edit operations because the state has spatial and temporal structure. A mask can protect known context while a selected time span or frequency band is regenerated. Style transfer, inpainting, and super-resolution become constrained denoising problems rather than full restarts.',
-        'For the warehouse clip, the editor can mask two seconds and ask for a louder thunder hit. The system keeps surrounding context fixed, noises the masked latent region, denoises under the new prompt condition, and records the mask and seed so the edit can be reproduced.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The method works because the model separates three hard jobs. A representation model compresses audio into a latent space, contrastive audio-language training supplies a conditioning bridge, and diffusion provides an iterative generative process that can trade diversity for prompt adherence.',
-        'The separation is not perfect. If the latent space discards details, the decoder cannot recover them. If the embedding model has shallow semantic coverage, the prompt may steer toward the wrong sound. If the sampler is tuned poorly, plausible latents can become unnatural audio.',
-      ],
-    },
-    {
-      heading: 'Evaluation',
-      paragraphs: [
-        'Audio evaluation needs a ledger, not one score. Distribution metrics can catch broad realism problems. Text-audio similarity can catch prompt mismatch. Human preference can catch timing, texture, and annoyance. Safety review can catch speech, identity, copyrighted style, or harmful content concerns.',
-        'The evaluation record should include latency and reproducibility data too: model version, seed, prompt, negative prompt if used, guidance scale, sampler steps, duration, sample rate, and post-processing. Without that ledger, product teams cannot compare failures or reproduce a bad generation.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Latent diffusion is cheaper than direct waveform diffusion, but it is still an iterative sampler. More steps usually cost more latency. Longer clips enlarge the latent grid. Higher sample rates and stereo outputs increase decode and storage costs.',
-        'Serving systems often need separate routes for preview, final render, and edit mode. Preview may use fewer steps and lower duration. Final render may spend more compute. Edit mode may preserve context and regenerate only masked regions.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Prompt match can be shallow. The model may produce a generic ambience that scores as "rain" but lacks warehouse acoustics or distant thunder timing. It may also smear transients, loop textures, clip peaks, hallucinate speech, or produce unstable loudness.',
-        'Editing has its own failures. A masked region can create seams at the boundary, change ambience outside the intended span, or ignore the existing rhythm. Good tools need crossfades, loudness normalization, and audit trails for what was regenerated.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'AudioLDM-style systems fit sound design, game ambience, video prototyping, accessibility audio sketches, dataset augmentation, and creative exploration where plausible generated sound is useful and human review is acceptable.',
-        'They fit less well when exact reproduction is required: legal evidence, medical audio, safety alarms, music licensing-sensitive production, voice identity, and low-latency interactive instruments. In those domains, generated plausibility can be a liability.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The latent pipeline view shows the representation handoffs: text to CLAP text embedding, audio examples to audio embeddings, latent noise through the denoiser, then decoded spectrogram-like structure and waveform output.',
-        'The audio edits view shows why masks and evaluation matter. The mask decides what can change, the prompt decides the new condition, and the evaluation ledger catches failures that a single text-match score would miss.',
+        'Waveform diffusion hits a compute-fidelity wall as duration or sample rate increases. A 10-second clip at 16 kHz requires the denoiser to operate on a 160,000-length sequence at every diffusion step. With 200 denoising steps, that is 32 million forward-pass sample positions for one generation. Doubling the sample rate doubles the sequence. Adding stereo doubles it again.',
+        {
+          type: 'bullets',
+          items: [
+            'Memory: the U-Net must hold the full waveform tensor plus intermediate activations at each step. A 10-second 48 kHz stereo clip at fp32 is ~3.7 MB just for the input tensor, multiplied by batch size, model width, and activation checkpointing overhead.',
+            'Latency: each denoising step processes the entire sequence. More steps improve quality but multiply wall-clock time linearly.',
+            'Conditioning mismatch: text embeddings are semantic (hundreds of dimensions). Waveform samples are acoustic (tens of thousands of time points). The cross-attention bridge between these scales is expensive and often shallow -- the model learns to match broad categories rather than fine temporal placement.',
+            'Training data: paired text-audio datasets are small compared to image-text datasets. AudioCaps has ~50,000 clips. LAION-Audio-630K helped, but even 630K is modest for training a model that must generalize across environmental sounds, music, speech, and effects.',
+          ],
+        },
+        'The wall is not that waveform diffusion produces bad audio. It produces good audio slowly, at high cost, and with difficulty scaling to the durations and sample rates that production sound design requires.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Audio generation becomes tractable when the system separates semantic control, compact acoustic representation, and waveform rendering. Text embeddings say what the user wants. Latent diffusion searches a compressed sound space. The decoder turns the chosen latent trajectory back into audible samples.',
-        'That separation also explains the failures. A bad text-audio embedding loses intent, a weak latent representation loses acoustic detail, and a poor decoder turns a plausible latent into noisy playback. The pipeline is only as strong as the interfaces between those representations.',
+        'Compress audio into a learned latent space first. Run diffusion in that compact space. Decode back to audio only once, at the end.',
+        {
+          type: 'diagram',
+          label: 'AudioLDM three-stage pipeline',
+          text: 'Stage 1: Audio compression (trained separately)\n  waveform --> mel spectrogram --> VAE encoder --> latent z\n  latent z --> VAE decoder --> mel spectrogram --> HiFi-GAN --> waveform\n\nStage 2: Latent diffusion (the generative model)\n  z_0 (clean latent) --> add noise --> z_T (pure noise)\n  z_T --> denoise with U-Net conditioned on CLAP text embedding --> z_0\n\nStage 3: Conditioning bridge (CLAP)\n  (text, audio) pairs --> contrastive pretraining --> shared embedding space\n  At inference: text --> CLAP text encoder --> condition vector for U-Net',
+        },
+        'The latent space is the key compression. A 10-second mel spectrogram at 16 kHz might be shaped [1, 64, 624] (64 mel bins, 624 time frames). The VAE compresses this to, say, [1, 8, 78] -- an 8-channel latent with 78 time steps. The diffusion model now operates on 624 values per channel instead of 160,000 waveform samples. That is a ~256x reduction in sequence length.',
+        {
+          type: 'note',
+          text: 'AudioLDM borrows this architecture from Stable Diffusion (Rombach et al., 2022), which proved latent diffusion for images. The insight transfers: if you can train a good autoencoder for the target domain, you can run diffusion in the bottleneck and recover full-resolution output through the decoder.',
+        },
+        'The second insight is the conditioning trick. AudioLDM trains the latent diffusion model using CLAP audio embeddings as the condition -- not text. At inference time, it substitutes CLAP text embeddings instead, because CLAP was trained to align text and audio into the same vector space. This means the diffusion model never sees a text-audio pair during training. It only needs audio and the corresponding CLAP audio embedding. Text enters only at inference through the shared CLAP space.',
       ],
     },
     {
-      heading: 'Rule of thumb',
+      heading: 'How it works',
       paragraphs: [
-        'Use AudioLDM-style generation for creative sound drafts, ambience, prototyping, and controlled edits where a human can judge the result. Keep seeds, prompts, model versions, and sampler settings because reproducibility is part of the creative workflow.',
-        'Do not treat text-audio similarity as sufficient evaluation. A generated clip can match the words and still fail timing, spatial impression, loudness, transient quality, or safety policy. Audio is experienced over time, so evaluation needs listening and context.',
+        'AudioLDM has three independently trained components. Understanding the pipeline means understanding each one and the interfaces between them.',
+        {
+          type: 'table',
+          headers: ['Component', 'Input', 'Output', 'Trained on'],
+          rows: [
+            ['VAE (audio autoencoder)', 'Mel spectrogram', 'Latent z (compact tensor)', 'Audio reconstruction loss + KL regularization'],
+            ['Latent diffusion U-Net', 'Noised latent z_t + CLAP condition', 'Predicted noise (or denoised z_0)', 'Noise prediction loss in latent space'],
+            ['CLAP', 'Text or audio', 'Embedding vector', 'Contrastive text-audio pairs'],
+            ['HiFi-GAN vocoder', 'Mel spectrogram', 'Waveform', 'Adversarial + mel reconstruction loss'],
+          ],
+        },
+        'The forward pass at inference:',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Pseudocode: AudioLDM inference\ndef generate(prompt, steps=200, guidance_scale=2.5, seed=42):\n    # 1. Encode text prompt via CLAP text encoder\n    c_text = clap.encode_text(prompt)        # shape: [1, 512]\n\n    # 2. Sample pure noise in latent space\n    z_T = torch.randn(1, 8, 78, generator=seed)  # latent shape\n\n    # 3. Iterative denoising conditioned on text embedding\n    z_t = z_T\n    for t in reversed(range(steps)):\n        # Classifier-free guidance: blend conditional and unconditional\n        noise_cond = unet(z_t, t, condition=c_text)\n        noise_uncond = unet(z_t, t, condition=null_embedding)\n        noise_pred = noise_uncond + guidance_scale * (noise_cond - noise_uncond)\n        z_t = scheduler.step(noise_pred, t, z_t)\n\n    # 4. Decode latent to mel spectrogram\n    mel = vae.decode(z_t)                    # shape: [1, 64, 624]\n\n    # 5. Vocoder: mel spectrogram to waveform\n    waveform = hifigan(mel)                  # shape: [1, 160000]\n    return waveform',
+        },
+        {
+          type: 'note',
+          text: 'The classifier-free guidance trick is critical. During training, the condition embedding is randomly dropped (replaced with a null vector) some fraction of the time. At inference, the model generates both a conditioned and unconditioned noise prediction, then amplifies the difference. Higher guidance_scale pushes the output harder toward the prompt but can hurt naturalness.',
+        },
+        'The VAE is trained first and frozen. Its encoder maps mel spectrograms to a compact latent distribution; its decoder reconstructs mel spectrograms from latent samples. The diffusion U-Net is trained second, operating entirely in this frozen latent space. CLAP is also pretrained and frozen. This modular design means each component can be improved or replaced independently.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: AudioLDM at https://proceedings.mlr.press/v202/liu23f.html, AudioLDM project page at https://audioldm.github.io/, and the paper PDF at https://proceedings.mlr.press/v202/liu23f/liu23f.pdf.',
-        'Study Diffusion Models for the denoising loop, Variational Autoencoders for latent compression, Embeddings & Similarity for text-audio alignment, Convolution for time-frequency feature extraction, and Product Quantization for a different view of compressed representation search.',
+        'Three properties make the pipeline correct.',
+        {
+          type: 'bullets',
+          items: [
+            'Reconstruction fidelity: the VAE preserves enough acoustic structure that decoding a clean latent produces recognizable audio. The mel spectrogram intermediate representation already discards phase (which HiFi-GAN reconstructs), so the VAE only needs to compress magnitude-frequency information -- a smoother, lower-dimensional signal than raw waveforms.',
+            'Conditioning alignment: CLAP maps text and audio into a shared embedding space via contrastive learning. Because "the sound of rain" and an actual rain recording land near each other in CLAP space, the diffusion model trained on audio embeddings responds meaningfully to text embeddings at inference.',
+            'Iterative refinement: diffusion provides a gradual denoising trajectory. Early steps establish coarse structure (is this rain or music?). Later steps refine texture and timing. Guidance can steer the trajectory toward the prompt without requiring the model to produce the right answer in a single forward pass.',
+          ],
+        },
+        'The training trick -- conditioning on CLAP audio embeddings, then swapping in CLAP text embeddings at inference -- works because CLAP was specifically trained to close the modality gap. If the CLAP text encoder maps "thunder" far from actual thunder audio embeddings, the substitution fails and the generated audio drifts from the prompt.',
+        {
+          type: 'quote',
+          text: 'AudioLDM achieves state-of-the-art text-to-audio generation with latent diffusion models trained on audio embeddings without utilizing text data during training.',
+          attribution: 'Liu et al., AudioLDM abstract',
+        },
       ],
     },
-      {
-      heading: 'The obvious approach',
+    {
+      heading: 'Worked example',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'Prompt: "rain in a metal warehouse with distant thunder."',
+        {
+          type: 'table',
+          headers: ['Step', 'Operation', 'Tensor shape', 'What happens'],
+          rows: [
+            ['1', 'CLAP text encode', '[1, 512]', 'Prompt mapped to a vector near rain/metal/thunder audio embeddings in CLAP space'],
+            ['2', 'Sample noise', '[1, 8, 78]', 'Pure Gaussian noise in the 8-channel latent space; 78 time frames cover ~10 seconds'],
+            ['3', 'Denoise (200 steps)', '[1, 8, 78]', 'U-Net gradually shapes noise into a latent with rain-like energy distribution and a transient peak around frame 40'],
+            ['4', 'VAE decode', '[1, 64, 624]', 'Latent expands to a 64-bin mel spectrogram with 624 time frames'],
+            ['5', 'HiFi-GAN vocoder', '[1, 160000]', 'Mel spectrogram converted to 16 kHz waveform; phase reconstructed by the vocoder'],
+          ],
+        },
+        'A successful generation shows continuous broadband rain energy, a reverberant character consistent with an enclosed metal space, and a thunder transient that rises and decays over ~1-2 seconds at a plausible time offset. A failed generation might produce generic outdoor rain (no warehouse reverb), place thunder as a sharp click instead of a rolling transient, or generate steady-state noise with no event structure at all.',
+        {
+          type: 'note',
+          text: 'The guidance scale controls the tradeoff. At guidance_scale=1.0 (no guidance), the output is diverse but may ignore the prompt. At guidance_scale=5.0, the output adheres more tightly to "rain" and "thunder" but may sound harsh or repetitive. AudioLDM reports best results around guidance_scale=2.5 for general audio.',
+        },
       ],
     },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for audioldm-latent-audio-diffusion-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Parameter', 'Effect on cost', 'Typical range'],
+          rows: [
+            ['Denoising steps', 'Linear increase in latency per generation', '50 (fast preview) to 200 (high quality)'],
+            ['Guidance scale', 'No extra denoising steps, but 2x U-Net calls per step (conditional + unconditional)', '1.0 to 5.0; paper default 2.5'],
+            ['Audio duration', 'Increases latent time dimension; memory and compute scale proportionally', '2s to 10s typical; longer requires chunking'],
+            ['Sample rate', 'Higher rate increases mel resolution and vocoder cost; does not change latent diffusion cost if VAE is retrained', '16 kHz (AudioLDM default), 48 kHz (AudioLDM 2)'],
+            ['Batch size', 'Linear memory scaling; enables best-of-N selection', '1 (interactive) to 16 (batch evaluation)'],
+          ],
+        },
+        'Latent diffusion reduces the sequence length by ~256x compared to waveform diffusion, but the denoising loop still dominates wall-clock time. A 200-step generation takes seconds on a GPU, not milliseconds. The VAE decode and vocoder are single forward passes and comparatively cheap.',
+        'For production serving, teams often run three quality tiers:',
+        {
+          type: 'bullets',
+          items: [
+            'Preview: 50 steps, guidance 2.0, 4-second clips. Enough to judge prompt relevance. Sub-second on a modern GPU.',
+            'Standard: 200 steps, guidance 2.5, 10-second clips. Publication quality for most use cases.',
+            'Edit mode: same step count but only denoises the masked latent region. Surrounding context is fixed, so the cost scales with mask size, not clip length.',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Domain', 'Use case', 'Why latent audio diffusion fits'],
+          rows: [
+            ['Game development', 'Procedural ambience and foley', 'Infinite variation from text prompts; no need to license every asset'],
+            ['Film/video prototyping', 'Scratch audio for rough cuts', 'Directors hear a scene concept before commissioning final sound design'],
+            ['Accessibility', 'Audio descriptions and sonification', 'Generate illustrative sounds from text descriptions for visually impaired users'],
+            ['Dataset augmentation', 'Training data for audio classifiers', 'Expand rare event categories (glass breaking, specific bird calls) without field recording'],
+            ['Interactive art', 'Generative soundscapes', 'Real-time audience interaction with evolving audio scenes'],
+          ],
+        },
+        'AudioLDM 2 (2024) extended the architecture to handle audio, music, and speech in a unified model by adding a GPT-2-based "language of audio" intermediate representation. This expanded the domain from environmental sounds to a broader range of audio types, though music and speech remain harder than ambience.',
+        'Latent audio editing is a distinct product surface. A sound designer generates a 10-second clip, likes 8 seconds of it, masks the 2-second gap, and regenerates just that region under a refined prompt. The latent structure makes this natural because the mask operates on a small tensor, not 32,000 waveform samples.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Shallow prompt adherence: the model matches broad categories ("rain," "thunder") but misses compositional detail ("metallic reverb," "distant"). CLAP embeddings compress rich text descriptions into a single 512-d vector, losing spatial and relational nuance.',
+            'Transient smearing: diffusion models tend to blur sharp events. A thunderclap or gunshot may spread across multiple time frames, losing the attack sharpness that makes it sound real.',
+            'Texture looping: steady-state sounds (rain, wind, traffic) can develop audible repetition patterns when the latent space has limited temporal capacity.',
+            'Phase artifacts: the mel spectrogram discards phase information. HiFi-GAN reconstructs plausible phase, but the result can sound slightly "synthetic" on careful listening, especially for tonal content.',
+            'Training data bias: AudioLDM was trained primarily on AudioCaps and environmental sound datasets. Prompts outside that distribution (specific musical instruments, non-English speech, industrial machinery) produce unreliable results.',
+            'Edit boundary seams: latent inpainting can create audible discontinuities at mask edges. The transition between preserved and regenerated regions needs careful crossfading that the raw model does not guarantee.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The Frechet Audio Distance (FAD) metric commonly used to evaluate audio generation correlates poorly with human preference for individual clips. A model can achieve good FAD (distribution-level realism) while producing individual clips that sound wrong. Production evaluation requires listening tests, not just aggregate statistics.',
+        },
+        'Latent audio generation is inappropriate for domains requiring exact acoustic fidelity: forensic audio evidence, medical auscultation, safety-critical alarms, voice identity, and music production where licensing and timbral accuracy matter. In those domains, "plausible but not real" is a liability.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'AudioLDM paper (ICML 2023): https://proceedings.mlr.press/v202/liu23f.html -- the core architecture, CLAP conditioning trick, and AudioCaps/AudioSet evaluation.',
+            'AudioLDM project page: https://audioldm.github.io/ -- audio samples, model weights, and comparison with DiffSound and other baselines.',
+            'Stable Diffusion / Latent Diffusion (Rombach et al., CVPR 2022): https://arxiv.org/abs/2112.10752 -- the image-domain predecessor that AudioLDM adapts for audio.',
+            'CLAP (LAION): https://arxiv.org/abs/2211.06687 -- contrastive language-audio pretraining that provides the text-audio embedding bridge.',
+            'HiFi-GAN (Kong et al., NeurIPS 2020): https://arxiv.org/abs/2010.05646 -- the mel-to-waveform vocoder used in AudioLDM decoding.',
+          ],
+        },
+        'Prerequisite: study Diffusion Models for the denoising loop mechanics (noise schedules, score matching, classifier-free guidance). Study Variational Autoencoders for the latent compression stage (encoder-decoder, KL regularization, reconstruction loss).',
+        'Extension: AudioLDM 2 unifies audio, music, and speech generation by adding a GPT-2-based semantic planning stage before latent diffusion. Study that for how the architecture evolves beyond environmental sounds.',
+        'Contrast: WaveNet and WaveGrad generate audio directly in waveform space -- no latent compression, no vocoder. Comparing them to AudioLDM clarifies exactly what latent compression buys (speed, scalability) and what it costs (reconstruction fidelity, phase artifacts).',
+      ],
+    },
   ],
-      },
-],
 };

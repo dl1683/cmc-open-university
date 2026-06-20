@@ -215,147 +215,309 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The partial-state view shows the central memory decision in Noria. Each node in the dataflow graph is either hot (state resident, reads hit), cold (state evicted, memory freed), or in a miss state (a read arrived for an evicted key). The upquery node lights up when a miss triggers backward traversal through indexed operators to reconstruct the missing answer.',
+        {
+          type: 'diagram',
+          text: [
+            'Dataflow path (write direction -->):',
+            '',
+            '  writes --> base tbl --> join --> agg --> view --> read',
+            '                                           |        |',
+            '                                         evict    miss',
+            '                                                    |',
+            '                                                 upquery',
+            '                                                    |',
+            '                                              base tbl (index lookup)',
+          ].join('\n'),
+          label: 'Writes flow forward; upqueries flow backward through the same dependency edges',
+        },
+        'The partial-state ledger matrix maps each memory state to its runtime behavior. "hot/hit" is the fast path. "cold/mem" means the system freed memory. "miss/upq" is the reconstruction path that makes partial state different from a naive cache eviction. "wide/full" marks operators where partial state is unsafe because reconstruction would require a full scan.',
+        'The dynamic-views view shows Noria as a program that evolves while serving reads. SQL reads compile into MIR (mid-level intermediate representation), operators are shared across queries when possible, and migration adds new view endpoints without rebuilding the entire graph. Active edges show the compile and share path; the migration edge shows the online-change protocol.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Read-heavy web applications spend a surprising amount of engineering effort on the same problem: a user action changes base rows, and many pages now need derived answers. A story page needs the story, author, comments, votes, and viewer-specific state. A user profile needs recent activity. A front page needs ranked stories. Recomputing every page from the database on every request wastes work, but caching every answer by hand creates invalidation bugs.',
-        'Noria exists for that middle ground. It is a research system that compiles application read queries into a dataflow graph. Writes flow from base tables through operators. The graph maintains query-shaped views so reads can be served as lookups. The unusual part is that the graph can be partially stateful: it can keep hot pieces of derived state, evict cold pieces, and reconstruct missing pieces on demand with upqueries.',
-        'The primary source is the OSDI 2018 paper "Noria: dynamic, partially-stateful data-flow for high-performance web applications": https://www.usenix.org/conference/osdi18/presentation/gjengset. The paper uses a Lobsters-style web workload to show the target domain: read-heavy application pages where query results are reused, but full materialization can consume too much memory.',
+        'Read-heavy web applications repeat the same derived computation millions of times. A story page on a news site joins the story row, author row, comment count, vote tally, tags, and viewer-specific flags. Every page load re-derives the same answer from the same base tables. With 10,000 requests per second for popular stories, re-running that join-and-aggregate query every time wastes most of the database server.',
+        {
+          type: 'quote',
+          text: 'The dominant cost in read-heavy web applications is not the write itself but the redundant re-derivation of the same read result from unchanged base data.',
+          attribution: 'Gjengset et al., Noria: dynamic, partially-stateful data-flow for high-performance web applications, OSDI 2018',
+        },
+        'The standard engineering response is a cache layer -- Memcached or Redis keyed by query parameters. This works until a single write to the votes table invalidates a story page, a user karma total, a front-page ranking, and a personalized feed. The application programmer must enumerate every downstream cache key affected by every upstream write. That invalidation logic becomes a second, shadow schema that drifts from the actual queries.',
+        'Noria exists to eliminate that shadow schema. It compiles application read queries into a dataflow graph that maintains query-shaped views automatically. Writes propagate through operators that understand the dependency structure. The unusual contribution is partial state: the system can keep only the hot fraction of derived state, evict cold state to bound memory, and reconstruct missing state on demand through upqueries -- backward traversals through the same dependency graph.',
+        {
+          type: 'note',
+          text: 'The primary source is the OSDI 2018 paper by Jon Gjengset, Malte Schwarzkopf, Jonathan Behrens, Lara Timbro Kloot, Eddie Kohler, M. Frans Kaashoek, and Robert Morris at MIT CSAIL. The system was evaluated against a Lobsters-like workload (lobste.rs) and compared against MySQL with hand-tuned caching. The Rust reimplementation, readyset-data/readyset on GitHub, is the most active descendant.',
+        },
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first reasonable approach is manual caching. Put story pages, vote counts, user records, or rendered fragments in Redis or an in-process cache. On writes, delete the keys that might be stale. This is simple when one table updates one page. It becomes fragile when a write to a vote table changes a story score, a user karma total, a front-page order, and several personalized views.',
-        'The second reasonable approach is a materialized view. Let the database or a view-maintenance system keep the derived answer up to date. This removes much of the invalidation logic from application code. The cost is state: a fully materialized graph may keep every possible key for every view, even if most keys are cold. For web applications with skewed popularity, that is wasteful.',
-        'The third approach is recomputation. Do not cache; run the query each time. This avoids stale reads and cache invalidation. It fails when the same joins and aggregations are repeated across many requests, and it gets especially expensive when read load is much higher than write load.',
+        'Three reasonable approaches exist, and each makes a different sacrifice.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Fast reads', 'Correct on writes', 'Bounded memory', 'Hard part'],
+          rows: [
+            ['Manual cache (Redis/Memcached)', 'Yes -- lookup by key', 'Only if invalidation code is perfect', 'Yes -- TTL or LRU', 'Maintaining the invalidation mapping by hand'],
+            ['Fully materialized views', 'Yes -- pre-joined answer', 'Yes -- database maintains it', 'No -- every key for every view', 'State explosion on large key spaces'],
+            ['Recompute on every read', 'No -- full query each time', 'Yes -- always fresh', 'Yes -- no derived state', 'Redundant work under skewed read load'],
+          ],
+        },
+        'Manual caching is the industry default. A team at Lobsters, Hacker News, or Reddit maintains a mapping from "vote inserted" to "invalidate story:{id}, user:{uid}, frontpage" in application code. When the product adds tags, moderation flags, or bookmarks, every invalidation path must be audited. Facebook published a TAO paper (USENIX ATC 2013) documenting the scale of this problem: thousands of cache-invalidation rules maintained by hand across hundreds of entity types.',
+        'Fully materialized views solve correctness but consume memory proportional to the cross product of all keys and all views. A Lobsters-like site with 500,000 stories, 50,000 users, and 10 parameterized views can maintain 5 million view entries, most of which are never read. The memory cost is proportional to the key space, not the working set.',
+        'Recomputation avoids both problems but repeats identical joins and aggregations across requests. With a 50:1 read-to-write ratio (typical for news sites), the same derived answer is recomputed 50 times between changes. Under heavy read load, the database becomes the bottleneck.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that the application wants three properties that fight each other. Reads should be fast. Writes should update all dependent answers correctly. Memory should not grow as if every possible derived answer is equally important. Manual caches usually choose fast reads and bounded memory, but correctness moves into application invalidation code. Full materialization chooses correctness and fast reads, but state can explode.',
-        'A second wall is query evolution. Real web applications add pages, alter queries, and change access patterns while serving traffic. A static dataflow graph is not enough. The system needs a way to add new maintained views, reuse existing operators, migrate state, and keep serving reads while the graph changes.',
-        'The most important technical wall is reconstructability. It is not enough to say "evict cold state." If a future read asks for that state, the system must know how to rebuild exactly the missing key from upstream data. If rebuilding requires scanning the whole upstream relation, partial state has turned a memory optimization into a latency trap.',
+        'The three approaches reveal a trilemma. The application wants fast reads, correct invalidation, and bounded memory. Each pair is achievable; all three together require a new mechanism.',
+        {
+          type: 'diagram',
+          text: [
+            '                 Fast Reads',
+            '                /           \\',
+            '           Cache             Materialized View',
+            '          (manual             (full state,',
+            '         invalidation)       unbounded memory)',
+            '              \\               /',
+            '            Correct Invalidation',
+            '                    |',
+            '               Recompute',
+            '           (slow reads,',
+            '           bounded memory)',
+          ].join('\n'),
+          label: 'The read-serving trilemma: each edge sacrifices the opposite vertex',
+        },
+        'The second wall is query evolution. A production web application does not have a fixed set of reads. A new feature adds a "trending tags" page; a redesign changes the story-list query; an A/B test adds a personalization join. A static dataflow graph compiled once at deploy is not enough. The system needs online migration: adding operators, reusing shared subexpressions, and moving state while continuing to serve existing views.',
+        'The third and most subtle wall is reconstructability. Saying "evict cold state" is easy. The hard question is: when a future read asks for an evicted key, can the system reconstruct exactly that key from upstream data without scanning the entire upstream relation? If reconstruction requires a full table scan or knowledge of global ordering, partial state converts a memory optimization into a latency disaster. The system must distinguish operators where keyed reconstruction is cheap (index lookup, single-key aggregation) from operators where it is not (top-k, range scan, global sort).',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Noria treats application reads as a long-lived dataflow program. A parameterized SQL read becomes a path through base tables, joins, aggregations, projections, and a final view keyed by the read parameters. A write is not a cache invalidation event written by hand; it is a dataflow update that moves through the operators that depend on the changed rows.',
-        'The core insight is partial state with upqueries. Operators and views can retain only the hot keys that are worth memory. When a read misses because a key was evicted, Noria sends an upquery backward through the graph to reconstruct the missing state from maintained or durable upstream data. The miss is not treated as "ask the application to recompute everything"; it is handled by the graph using the same dependency structure that maintains writes.',
-        'This makes state a working set decision instead of an all-or-nothing decision. A query-shaped view can be maintained for popular keys, evicted for cold keys, and rebuilt when demand returns. The graph still owns the dependency logic, so the application does not need to remember every cache key affected by a vote, comment, story edit, or user update.',
+        'Noria treats application read queries as a long-lived dataflow program. Each parameterized SQL query compiles into a path: base tables feed operators (join, filter, project, aggregate), and the final node is a view keyed by the query parameters. A write is not a cache-invalidation event written by the programmer; it is a delta that flows through the operators that depend on the changed base rows.',
+        {
+          type: 'quote',
+          text: 'Partial state turns the memory question from "keep all or keep none" into "keep the working set and reconstruct on demand." The upquery is the mechanism that makes reconstruction safe: it follows the same dependency edges that forward propagation uses, but in reverse.',
+          attribution: 'Noria design principle',
+        },
+        'The core insight is the upquery. When a read misses because the key was evicted, the system does not fall back to recomputing the full query from scratch. Instead, it sends a backward message -- the upquery -- along the dependency edges of the dataflow graph. Each operator on the path uses its indexes to fetch exactly the rows needed to reconstruct the missing key. The reconstructed state is inserted into the view and served to the reader.',
+        'This makes memory a working-set decision. Popular stories stay hot. Old stories get evicted. When a reader opens an old story, the upquery reconstructs it in milliseconds using indexed lookups, not full table scans. The graph owns the dependency structure, so the application never writes invalidation code.',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            '-- Application registers this parameterized read:',
+            'SELECT s.title, s.body, u.name, COUNT(v.id) AS votes',
+            'FROM stories s',
+            'JOIN users u ON s.author_id = u.id',
+            'LEFT JOIN votes v ON v.story_id = s.id',
+            'WHERE s.id = ?',
+            'GROUP BY s.id;',
+            '',
+            '-- Noria compiles it into:',
+            '-- base(stories) --join(users)--> agg(votes) --> view(story_id)',
+            '-- A write to votes propagates a +1/-1 delta through agg to the view.',
+            '-- An evicted story_id=42 triggers: upquery(42) --> agg --> join --> base.',
+          ].join('\n'),
+          label: 'The SQL read becomes a dataflow path; writes are deltas, misses are upqueries',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The application gives Noria a schema and read queries. Noria compiles those reads into an intermediate representation and a dataflow graph. Base tables hold durable rows. Operator nodes represent relational operations such as joins, filters, projections, and aggregations. Final views expose lookup-shaped answers to the application.',
-        'Writes enter the base tables and produce changes. Those changes flow through the graph as updates to derived state. If the updated key is materialized in a downstream view, the view can be updated incrementally. If the key is not resident, the system may avoid doing work for that cold key until a read needs it.',
-        'Reads go to views. On a hit, the view returns the maintained answer. On a miss, Noria issues an upquery. The upquery follows dependency edges upstream, using indexes where needed, to fetch the data required to rebuild the missing key. The rebuilt state can then be inserted into the view and used by later reads.',
-        'Eviction controls memory. The system can discard cold state from views or operators, but only where future upqueries can reconstruct it cheaply enough. That condition is the reason the animation distinguishes hot keys, cold keys, misses, fanout, and scans. Partial state is a safe optimization only when the dependency path remains navigable.',
-        'Dynamic views add another layer. Related queries can share existing operator paths rather than building separate pipelines. When a new query arrives, the system can reuse parts of the graph, migrate state, and add the new final view. This is why Noria belongs next to incremental view maintenance and streaming dataflow, but also next to application caching and schema migration.',
+        'Noria has four subsystems: the query compiler, the forward dataflow engine, the upquery protocol, and the migration controller.',
+        {
+          type: 'bullets',
+          items: [
+            'Query compiler: parses parameterized SQL reads, lowers them to a mid-level intermediate representation (MIR), identifies shared subexpressions across queries, and emits a dataflow graph with operator nodes and materialized view endpoints.',
+            'Forward dataflow: when a write enters a base table, the system computes a delta (inserted rows, deleted rows, or updated rows) and propagates it through every downstream operator. Each operator applies its relational logic (join matching, filter predicate, aggregate update) and forwards the result. If the downstream view has the affected key materialized, it updates in place.',
+            'Upquery protocol: when a read misses at a view, the system sends an upquery backward through the graph. Each operator on the reverse path uses its index to look up the rows needed for the missing key. At the base table, the upquery becomes a point lookup. The results flow forward through the operators again, and the reconstructed state is inserted into the view.',
+            'Migration controller: when a new query arrives, the compiler checks for reusable operators in the existing graph. Shared joins, filters, or aggregations are reused rather than duplicated. New operators are added, state is migrated (partially -- only hot keys may be pre-populated), and the new view becomes available for reads.',
+          ],
+        },
+        {
+          type: 'diagram',
+          text: [
+            'Forward path (write):',
+            '  INSERT INTO votes (story_id, user_id) VALUES (42, 7)',
+            '    |',
+            '    v',
+            '  base(votes) --delta(+1)--> agg(COUNT, key=story_id)',
+            '    --delta(votes:42, count=old+1)--> view(story_id=42) [update in place]',
+            '',
+            'Backward path (upquery):',
+            '  read(story_id=99) --> view(99) [MISS]',
+            '    --> upquery(key=99) --> agg(lookup 99) --> join(lookup 99)',
+            '    --> base(stories WHERE id=99) + base(users WHERE id=author)',
+            '    --> base(votes WHERE story_id=99)',
+            '    --> forward through join, agg --> view(99) [INSERT, now hot]',
+          ].join('\n'),
+          label: 'Forward deltas maintain hot state; upqueries reconstruct cold state through the same operators',
+        },
+        'Eviction is controlled by a memory budget. When a view or operator exceeds its allocation, the system evicts the least-recently-used keys. But eviction is only safe at operators where the upquery contract holds: a future miss must be reconstructable via indexed point lookups, not full scans. The system tracks this property per operator during compilation.',
+        {
+          type: 'table',
+          headers: ['Operator type', 'Partial-safe?', 'Upquery mechanism', 'Failure mode if forced partial'],
+          rows: [
+            ['Filter (WHERE col = ?)', 'Yes', 'Index lookup on filter column', 'None -- point lookup is cheap'],
+            ['Equi-join (a.id = b.fk)', 'Yes', 'Index lookup on join key', 'None -- keyed join is O(matching rows)'],
+            ['COUNT/SUM grouped by key', 'Yes', 'Re-aggregate from upstream rows for that key', 'None -- bounded by group size'],
+            ['Top-k (ORDER BY score LIMIT k)', 'No', 'Would require scanning all candidates to find rank', 'Latency spike proportional to total row count'],
+            ['DISTINCT over high-cardinality column', 'Depends', 'Needs full upstream scan if no covering index', 'Silent incorrectness if partial set is returned as complete'],
+          ],
+        },
+        'This table is the reason the animation explicitly marks "scan: off" for operators that cannot be safely made partial. The system must either keep those operators fully materialized, change the query plan, or accept degraded latency.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness invariant is that a materialized answer for a key must match the result of running the corresponding query over the current base data. Incremental updates preserve that invariant for resident state. Upqueries restore the invariant for evicted state by recomputing the missing key through the graph, not by guessing from a stale cache entry.',
-        'The graph makes invalidation structural. If a vote changes a story score, the dependency path from votes to score to story view is part of the dataflow plan. The application does not have to name every cache key that might include that score. The system updates maintained paths and can rebuild missing paths through the same relationships.',
-        'Partial state works because many web workloads have skew. Hot stories, recent comments, active users, and current front-page entries get far more reads than old or obscure records. Keeping all state treats cold and hot keys equally. Keeping no state repeats common work. Keeping reconstructable hot state matches the access distribution.',
-        'The limit is also part of the proof. Noria cannot safely make an operator partial if a missing key cannot be reconstructed without scanning too much upstream state or knowing global order. The system must either maintain more state, change the plan, or accept worse latency. Partial state is a contract, not a label.',
+        'The correctness invariant is: for every key k materialized in a view V, V[k] equals the result of executing the corresponding SQL query over the current base tables. Forward propagation preserves this invariant for resident keys by applying deltas incrementally. Upqueries restore the invariant for evicted keys by recomputing from base data through the same operator chain.',
+        {
+          type: 'note',
+          text: 'The invariant holds per-key, not globally. A partially-stateful view may be missing keys entirely (those keys are evicted, not stale). A present key is always consistent with current base data. This is different from a TTL cache, where a present key may be stale.',
+        },
+        'The graph makes invalidation structural. When a vote is cast on story 42, the delta flows from base(votes) through agg(COUNT, key=story_id) to view(story_id=42). The application programmer never writes "if vote inserted, invalidate story:42 and frontpage and user:{voter}." The dataflow graph encodes those dependencies at compile time.',
+        'Partial state works because web workloads exhibit extreme skew. In the Lobsters dataset used for evaluation, the top 1% of stories receive over 50% of reads. Keeping all 500,000 story views wastes memory on 495,000 cold entries. Keeping only the hot 5,000 entries and reconstructing on demand matches the access distribution while using roughly 1% of the memory.',
+        'The limit is structural, not heuristic. An operator can be made partial only if its upquery path has bounded cost. A join on an indexed foreign key is O(matching rows). A top-k sort over the entire table is O(n). Noria does not guess; the compiler analyzes the operator graph and marks each node as partial-safe or full-only. This analysis is the contract that makes eviction safe.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Take a Lobsters-like news site. The story page query asks for one story by ID, its author, comments, vote count, tags, and viewer state. Manual caching would store a page or query result under a key such as story:42 and then delete it when comments, votes, tags, users, or moderation state change. That invalidation list grows with the product.',
-        'In Noria, the query becomes a dataflow path. A write to the votes table updates the vote aggregation. The story view for story 42 is maintained if story 42 is hot. If story 42 was evicted and a reader opens it, the view misses, sends an upquery through the relevant indexes, reconstructs the answer, and inserts the hot key again.',
-        'A user profile is similar. It is naturally keyed by user ID, so partial state can work well if the graph has indexes from user to stories, comments, or votes. Old inactive users can be evicted; active users stay hot. The application gets a lookup interface either way.',
-        'A front-page ranking is harder. A global top list depends on many stories and their relative scores. One vote can change the order of many candidates. Reconstructing only one key may not be enough because the answer is a ranked set with global competition. This kind of view often needs fuller state, a different plan, or an approximation with explicit error and freshness bounds.',
-      ],
-    },
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The partial-state view shows the main memory decision. Hot keys remain resident and reads hit. Cold keys can be evicted to save memory. A miss does not leave the graph; it becomes an upquery that walks upstream dependencies and rebuilds the missing key.',
-        'The unsafe-partial-state frame is the most important caution. Index-backed reconstruction is a good fit. A top-k operator or broad scan may not be. The question is not whether a key is cold; the question is whether the graph has enough indexed structure to rebuild that key without doing work that breaks the latency budget.',
-        'The dynamic-views view shows Noria as a serving program that changes over time. SQL reads compile into graph nodes. Shared operators are reused. Migration is part of normal operation because the application will keep adding and changing reads.',
+        'Consider a Lobsters-like news site with three tables: stories (500K rows), users (50K rows), votes (5M rows). The application registers four parameterized reads:',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            'Q1: story page     -- SELECT ... WHERE story_id = ?',
+            'Q2: user profile   -- SELECT ... WHERE user_id = ?',
+            'Q3: front page     -- SELECT ... ORDER BY score DESC LIMIT 25',
+            'Q4: recent stories -- SELECT ... WHERE created > NOW() - INTERVAL 24 HOUR',
+          ].join('\n'),
+          label: 'Four read queries with different partial-state fitness',
+        },
+        {
+          type: 'table',
+          headers: ['Query', 'Key', 'Partial-safe?', 'Working set', 'Reason'],
+          rows: [
+            ['Q1: story page', 'story_id', 'Yes', '~5K hot stories', 'Equi-join on indexed PK; upquery is a point lookup'],
+            ['Q2: user profile', 'user_id', 'Yes', '~2K active users', 'Same structure as Q1; keyed by user PK'],
+            ['Q3: front page', 'None (global)', 'No', 'Full (25 rows but ranks all stories)', 'Top-k requires scanning all candidates to determine rank'],
+            ['Q4: recent stories', 'time range', 'Partial', 'Sliding window', 'Safe if index on created exists; range must be bounded'],
+          ],
+        },
+        'Q1 and Q2 are ideal for partial state. Story 42 is hot because readers are visiting it. Story 999 was posted three years ago and has had no reads in months. Noria keeps story 42 in the view and evicts story 999. When someone finally opens story 999, the upquery reconstructs it: look up story 999 in base(stories), join with its author from base(users), count votes from base(votes) WHERE story_id=999, and insert the result into the view.',
+        'Q3 is the hard case. The front page is a global top-25 ranking. A single vote on any story can change the ranking. Reconstructing the front page from a partial view would require scanning all story scores to determine the top 25 -- that is a full table scan, not a point lookup. Noria must keep Q3 fully materialized.',
+        'Manual caching of this workload would require the programmer to maintain invalidation mappings: "vote inserted -> invalidate story:{story_id}, user:{voter_id}, frontpage, recent-if-new." That is four invalidation rules for one write, and the list grows with every new query. In Noria, the programmer registers the four SQL reads; the graph handles propagation.',
       ],
     },
     {
       heading: 'Cost and behavior',
       paragraphs: [
-        'Read cost is excellent on a hit: the application performs a lookup against maintained view state. Write cost is higher than a plain database write because updates must propagate through dependent operators. The system is buying cheaper repeated reads with more structured write-time maintenance.',
-        'Memory cost is the central tradeoff. Full materialization can exceed base table size because joins and aggregates duplicate derived information. Partial state reduces that footprint by keeping a working set, but it adds eviction metadata, indexes for upqueries, and miss-handling machinery.',
-        'Miss latency is the tax. If eviction is too aggressive, reads frequently pay reconstruction cost. If eviction is too conservative, memory approaches full materialization. The useful operating point depends on workload skew, read/write ratio, query shape, and how much state each hot key needs.',
-        'Graph migration is another tax. A live system must add new queries without dropping correctness for existing ones. Reusing operators is valuable, but it makes planning and state movement more complicated than a one-query cache. Observability has to include upquery rates, eviction churn, write propagation delay, hot-key distribution, and operators that are forced to stay fully materialized.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Cost', 'What drives it'],
+          rows: [
+            ['Read (hot key)', 'O(1) -- hash lookup in view', 'View is a hash map keyed by query parameters'],
+            ['Read (cold key, upquery)', 'O(join fan-out) -- index lookups through the graph', 'Number of operators on the path and rows per join key'],
+            ['Write (forward propagation)', 'O(downstream operators * fan-out)', 'Depth of the dataflow graph and number of affected views'],
+            ['Eviction', 'O(1) -- LRU removal', 'Memory budget per operator/view'],
+            ['Migration (add new query)', 'O(shared ops + new ops)', 'Reuse reduces cost; pre-populating hot keys adds startup work'],
+          ],
+        },
+        'Read cost on a hit is a hash-map lookup -- sub-microsecond. The OSDI 2018 evaluation reports Noria serving 10x more requests per second than a MySQL+Memcached setup on the Lobsters workload, with tail latency below 10ms at the 99th percentile.',
+        'Write cost is higher than a plain database INSERT because each write must propagate deltas through all downstream operators. A vote insertion touches the votes base table, then propagates through the aggregation operator and into every view that depends on that aggregation. With N dependent views, write cost scales linearly in N. This is the price of maintaining derived state.',
+        'Memory cost is the central knob. The paper reports that full materialization of the Lobsters workload consumes roughly 65GB of derived state. Partial state with a 1GB memory budget achieves 95% hit rate because of access skew. The remaining 5% of reads pay upquery latency (typically under 5ms for keyed reconstructions).',
+        {
+          type: 'note',
+          text: 'Miss latency is the tax on partial state. If the eviction policy is too aggressive, reads frequently pay reconstruction cost and the system behaves worse than full materialization. If eviction is too conservative, memory approaches the full-materialization baseline and partial state adds complexity without saving memory. The useful operating point depends on workload skew -- the more skewed, the more partial state saves.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Noria wins when reads dominate writes and the same derived answers are requested repeatedly. News sites, dashboards, profile pages, discussion pages, and feed-like applications often have this shape. Their access patterns are skewed, and many reads are parameterized by a natural key such as story ID or user ID.',
-        'It also wins when manual cache invalidation is the engineering bottleneck. A dataflow graph turns invalidation into dependency maintenance. The application author describes the read query; the graph owns the propagation path from base-row changes to derived answers.',
-        'It is a strong teaching example because it connects several ideas that are often studied separately: materialized views, incremental maintenance, cache eviction, indexes, streaming dataflow, and online migration. The partial-state rule shows how a system can combine them without pretending one abstraction removes all costs.',
+        'Noria is a research system, but its ideas have production descendants and analogues.',
+        {
+          type: 'bullets',
+          items: [
+            'ReadySet (readyset-data/readyset on GitHub): a Rust reimplementation of Noria designed as a drop-in MySQL/PostgreSQL wire-compatible caching layer. Applications connect to ReadySet instead of the database; it maintains views for registered queries and falls through to the database for unregistered ones.',
+            'Materialize (materializeinc/materialize): a streaming SQL database that maintains incrementally updated materialized views. It uses differential dataflow (Naiad heritage) rather than Noria-style upqueries, but solves the same core problem: read-heavy workloads where derived state should be maintained, not recomputed.',
+            'Facebook TAO: a geographically distributed cache for the social graph. TAO maintains derived objects (associations, counts) with a subscription model rather than dataflow, but faces the same invalidation problem at a much larger scale.',
+            'Any application using Redis/Memcached with hand-written invalidation logic is solving the problem Noria automates. The difference is whether the invalidation mapping is maintained by the programmer or derived from the query structure.',
+          ],
+        },
+        'The pattern fits any application where reads dominate writes (10:1 or higher ratio), queries are parameterized by a natural key (user ID, story ID, product ID), access is skewed (a small fraction of keys receives most reads), and the development team spends significant time maintaining cache-invalidation logic.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Noria is a poor fit when reads are not reused. If most reads are one-off and cold, the system pays graph and upquery complexity without enough hits to justify it. A conventional database query path may be simpler and more predictable.',
-        'It struggles with views that depend on global order, broad scans, or high fanout. A top-k ranking, a full-text search result, or an aggregate over nearly the whole dataset may not decompose into cheap keyed reconstruction. Those views may need full state, separate indexing systems, or different algorithms.',
-        'It also does not eliminate operational complexity. The system needs memory limits, eviction policy, migration safety, query planning, backpressure, fault handling, and metrics. A bad plan can shift pain from application invalidation code into dataflow state churn.',
-        'The main failure mode is treating partial state as a universal cache knob. Evicting a value is safe only if a future miss has a bounded, indexed reconstruction path and if the application can tolerate the miss latency. Otherwise the system can thrash: evict, miss, upquery, rebuild, evict again, and serve worse latency than either full materialization or direct database queries.',
+        {
+          type: 'table',
+          headers: ['Failure condition', 'Why Noria is the wrong tool', 'Better alternative'],
+          rows: [
+            ['Reads are one-off (analytics, ad hoc queries)', 'No reuse to amortize graph maintenance cost', 'Column-store or query engine (DuckDB, Presto)'],
+            ['Views require global order (top-k, full-text search)', 'Upqueries degenerate to full scans', 'Dedicated search index (Elasticsearch) or fully materialized ranking'],
+            ['Write-heavy workload (>50% writes)', 'Forward propagation cost dominates; views churn', 'Write-optimized store (LSM-tree) with async read indexing'],
+            ['Very low latency tolerance (<100us p99)', 'Upquery reconstruction adds variable latency on misses', 'Fully materialized views or pre-warmed cache'],
+            ['Simple single-table lookups', 'Dataflow graph adds complexity without benefit', 'Database index or simple key-value cache'],
+          ],
+        },
+        'The most dangerous failure mode is thrashing. If the memory budget is too small relative to the working set, the system evicts keys that are soon requested again. Each request pays upquery cost, the reconstructed key is immediately evicted for the next cold key, and the cycle repeats. Throughput drops below what a simple database query would deliver, and tail latency spikes.',
+        'Operational complexity is real. The system requires monitoring of upquery rates (a spike means the working set exceeds the memory budget), eviction churn (high churn means the budget is wrong or access patterns shifted), write propagation delay (if deltas back up, views serve stale state temporarily), and per-operator state size (to identify operators that cannot be made partial and dominate memory).',
+        {
+          type: 'quote',
+          text: 'Partial state is a contract, not a label. Evicting a value is safe only if the reconstruction path is bounded, indexed, and faster than the reader is willing to wait.',
+          attribution: 'Design constraint from the Noria OSDI 2018 paper',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Differential Dataflow Incremental View Case Study for the update-propagation model, Database Indexing for the upquery requirement, Streaming Watermarks for dataflow progress, Flink Checkpointing Case Study for state recovery, and Redis-style cache eviction for the working-set side of the design.',
-        'For contrast, study fully maintained materialized views, manual cache invalidation, search indexes, and query planners. Noria is easiest to understand when placed between those tools: more structured than a cache, more selective than full materialization, and more dynamic than a static database view.',
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: Jon Gjengset et al., "Noria: dynamic, partially-stateful data-flow for high-performance web applications," OSDI 2018. https://www.usenix.org/conference/osdi18/presentation/gjengset',
+            'Implementation: readyset-data/readyset on GitHub -- the production-oriented Rust reimplementation.',
+            'Jon Gjengset, "Partial State in Dataflow-Based Materialized Views," PhD dissertation, MIT, 2021. Provides deeper treatment of upquery correctness and multi-key partial state.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Database Indexing', 'Upqueries require indexed point lookups; without understanding indexes, the partial-state contract is unclear'],
+            ['Prerequisite', 'Streaming Watermarks', 'Dataflow progress tracking underlies how Noria knows when a forwarded delta is complete'],
+            ['Extension', 'Differential Dataflow Incremental View Case Study', 'The alternative approach to incremental maintenance -- traces instead of upqueries'],
+            ['Contrast', 'LRU Cache', 'Pure eviction without reconstruction; shows what partial state adds beyond a cache'],
+            ['Production case', 'Flink Checkpointing Case Study', 'State recovery in a production streaming dataflow system; different failure model, same state-management concerns'],
+          ],
+        },
       ],
     },
-  
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for noria-partially-stateful-dataflow-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'State the correctness invariant in one sentence. (Answer: every materialized key in a view equals the result of the corresponding SQL query over current base data.)',
+            'Trace what happens when a vote is cast on an evicted story. Name each node the delta touches and each node the upquery skips. (The delta updates the aggregation operator but does not flow to the evicted view entry; only a subsequent read triggers the upquery.)',
+            'Name one operator type where partial state is unsafe and explain why in one line. (Top-k: reconstruction requires scanning all candidates because rank depends on global order, not a single key.)',
+            'Transfer the upquery mechanism to a different domain. (A CDN edge cache that, on miss, fetches from origin by key is the same pattern -- but without the structural dependency graph that makes Noria\'s reconstruction cheaper than a full origin query.)',
+          ],
+        },
+      ],
+    },
   ],
-      },
-],
 };

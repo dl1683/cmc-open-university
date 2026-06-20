@@ -322,185 +322,354 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for RocksDB Write Stalls & Compaction Debt. A production LSM case study: immutable memtables, L0 files, pending compaction bytes, delayed writes, hard stalls, and recovery levers..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The stall cascade view traces how a write enters RocksDB and where debt accumulates along the path from WAL through memtable, immutable memtable, L0, lower levels, and the compaction workers that service them. Active nodes are the current pressure point. Found nodes are outcomes the engine has committed to. The edge from stall back to writers is the backpressure signal that makes the whole system visible.',
+        'The recovery loop view reverses the direction: measurement feeds diagnosis, diagnosis identifies the active gate, and the gate dictates which lever family to adjust. If you skip the first frame and jump to knobs, you are tuning blind.',
+        {
+          type: 'note',
+          text: 'At each frame, ask: which queue is growing, which resource is saturated, and what evidence would prove the backlog is draining? If you cannot answer the third question, the stall has not been diagnosed.',
+        },
       ],
     },
     {
-      heading: 'Why write stalls exist',
+      heading: 'Why this exists',
       paragraphs: [
-        'A RocksDB write stall exists because an LSM tree is a deferred-work machine. Foreground writes are fast because they append to the WAL and update a memtable. They do not immediately reorganize the whole on-disk index. That bargain only works if flush and compaction later clean up the files created by those writes.',
-        'When cleanup falls behind, RocksDB has to protect itself. It can slow writers, delay writes, or stop writes temporarily. This is painful for applications, but the alternative is worse: unbounded immutable memtables, too many overlapping L0 files, runaway pending compaction bytes, disk bloat, read amplification, and eventually an engine that cannot make progress.',
-        'A write stall is not the root cause. It is the safety valve. The root cause is compaction debt: work that the foreground write path created but the background system has not yet paid.',
+        'An LSM tree trades write speed for deferred cleanup. Foreground writes are fast because they only append to a write-ahead log and insert into an in-memory buffer. They do not reorganize the on-disk sorted structure at write time. That bargain creates an implicit contract: background flush and compaction must eventually pay the reorganization cost that writes deferred.',
+        'When background work falls behind, the deferred cost accumulates as compaction debt. Without a safety mechanism, debt grows without bound: immutable memtables consume RAM, L0 files overlap and degrade reads, pending compaction bytes bloat disk, and recovery after crash takes longer. The engine needs a way to signal that the contract is in danger.',
+        {
+          type: 'quote',
+          attribution: 'RocksDB Wiki, Write Stalls',
+          text: 'Whenever write stalls are triggered, RocksDB reduces the write rate to delayed_write_rate and may eventually stop accepting writes entirely until compaction catches up.',
+        },
+        'Write stalls are that signal. They are not the disease. They are the immune response. The disease is a sustained imbalance between the rate at which foreground writes create work and the rate at which background compaction retires it.',
       ],
     },
     {
-      heading: 'The normal write path',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A write enters RocksDB through a write batch. The engine appends it to the write-ahead log for durability and applies it to the current mutable memtable. When the memtable fills, RocksDB makes it immutable and creates a new mutable memtable for incoming writes. A background flush turns the immutable memtable into an L0 SST file.',
-        'L0 is special. Files in lower levels are usually organized with limited overlap, depending on the compaction style. L0 files come directly from flushes and can overlap heavily. If too many L0 files accumulate, a point lookup may have to check many files, and compaction from L0 to lower levels becomes more urgent and more expensive.',
-        'Compaction then merges files, discards obsolete versions when safe, preserves needed tombstones, and writes new SST files. This background work consumes disk bandwidth, CPU, cache, and file metadata capacity. The healthy system keeps ingest and cleanup in rough balance.',
+        'The first instinct when writes slow down is to raise the thresholds. If RocksDB stalls at 20 L0 files, set the limit to 40. If it stalls at 5 immutable memtables, allow 10. If it stalls at 64 GB of pending compaction bytes, set the soft limit to 128 GB. This is reasonable because it worked for short bursts: a higher threshold absorbs a bigger spike before the gate fires.',
+        {
+          type: 'table',
+          headers: ['Knob raised', 'Short-term effect', 'Long-term risk'],
+          rows: [
+            ['level0_slowdown_writes_trigger', 'Absorbs more L0 files before throttling', 'Read amplification climbs because more overlapping files must be probed per lookup'],
+            ['max_write_buffer_number', 'Absorbs more memtable rotations', 'RAM pressure grows; crash recovery replays more WAL'],
+            ['soft_pending_compaction_bytes_limit', 'Delays throttle onset', 'Disk bloat continues; hard stall when it arrives is more severe'],
+          ],
+        },
+        'Raising thresholds does not create disk bandwidth, CPU cycles, or compaction throughput. It borrows time. If the workload is bursty and the burst ends before the new threshold fires, the loan is repaid. If the workload is sustained, the higher threshold only makes the eventual stall deeper and the recovery longer.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The naive assumption is that background compaction will eventually catch up because it is background work. That is only true when the device, CPU, thread configuration, and compaction policy have enough sustained capacity. A short ingest burst may be absorbed by buffers. A long burst becomes debt.',
-        'Another naive assumption is that a stall can be fixed by raising thresholds. Larger write buffers, more L0 files before slowdown, or larger pending-byte limits can hide the symptom for longer. They do not create disk bandwidth. If the workload keeps producing debt faster than RocksDB can compact it, larger cushions only make the eventual incident bigger.',
-        'The wall appears when the engine can no longer pretend that deferred work is safely deferred. Immutable memtables queue up. L0 file count rises. Estimated pending compaction bytes rise. Reads become more expensive. Disk runs hot. Then RocksDB gates foreground writes to stop the backlog from becoming unrecoverable.',
+        'The wall is a sustained write rate that exceeds the compaction throughput of the hardware and configuration. No amount of threshold tuning changes this inequality. Consider the arithmetic: a 64 MB write buffer with 4 write buffers produces up to 256 MB of memtable data before stalling. If the flush rate is 200 MB/s but the sustained compaction throughput to lower levels is only 150 MB/s, the 50 MB/s surplus accumulates as debt every second.',
+        {
+          type: 'code',
+          language: 'text',
+          body: `Ingest rate:     200 MB/s (sustained)
+Flush throughput: 200 MB/s (memtable -> L0 SST)
+Compaction rate:  150 MB/s (L0 -> L1 -> L2 -> ...)
+Surplus:           50 MB/s  accumulates as pending compaction bytes
+
+After 60 seconds:  3 GB of compaction debt
+After 300 seconds: 15 GB of compaction debt
+Soft limit (64 GB): hit in ~21 minutes
+Hard limit (256 GB): hit in ~85 minutes`,
+        },
+        'The arithmetic is simple but the failure is not. Each level of the LSM multiplies the write: with a size ratio of 10, one byte written to L0 may cause 10 bytes of I/O at L1, 10 more at L2, and so on. This is write amplification, and it means the effective cost of a foreground write is far larger than the foreground byte count suggests. The wall appears when write amplification times ingest rate exceeds sustained device bandwidth.',
+        {
+          type: 'note',
+          text: 'Write amplification in leveled compaction is typically 10-30x for write-heavy workloads. A 100 MB/s foreground ingest rate can require 1-3 GB/s of sustained disk bandwidth for compaction alone. Most SSDs deliver 500 MB/s to 3 GB/s of sustained sequential write. The margin is often smaller than it appears.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The first trigger family is immutable memtables. If too many full memtables wait for flush, memory pressure and recovery risk rise. A full memtable is normal. Too many unflushed immutable memtables mean the flush path is behind the write path. The relevant levers include write-buffer size, number of write buffers, flush threads, and device throughput.',
-        'The second trigger family is L0 files. Too many L0 files can cause write slowdown and eventually write stop. This protects the system from unbounded overlap. L0 pressure often means flush is creating files faster than compaction can move them into lower levels. It can also mean files are too small, compaction is underprovisioned, or the lower-level shape is expensive for the workload.',
-        'The third trigger family is estimated pending compaction bytes. This is the deeper debt signal. It says the engine estimates that too much data must be compacted to restore healthy level sizes. A pending-byte stall is not just a memtable problem or a local L0 count problem. It means the lower tree has accumulated work.',
+        'RocksDB protects itself through three independent trigger families. Each monitors a different queue in the write-to-disk pipeline, and each can independently slow or stop writers.',
+        {
+          type: 'table',
+          headers: ['Trigger family', 'What it monitors', 'Soft action', 'Hard action', 'Default soft / hard'],
+          rows: [
+            ['Immutable memtables', 'Count of full memtables waiting for flush', 'N/A', 'Stop all writes until flush completes', 'max_write_buffer_number (default 2)'],
+            ['L0 file count', 'Number of L0 SST files', 'Delay writes (reduce to delayed_write_rate)', 'Stop writes until L0 compaction drains', '20 / 36'],
+            ['Pending compaction bytes', 'Estimated bytes needing compaction across all levels', 'Delay writes proportionally', 'Stop writes', '64 GB / 256 GB'],
+          ],
+        },
+        'The critical detail is that these gates are per-column-family but the effect is per-database. When one column family hits a stall condition, writes to every column family in the same DB instance are affected. A single hot column family running a bulk import can stall unrelated, well-behaved column families that share the instance. This is the blast-radius problem.',
+        {
+          type: 'diagram',
+          alt: 'Three independent stall trigger queues feeding a single write gate',
+          label: 'Stall trigger pipeline',
+          body: `Writers ---> WAL ---> MemTable ---> Immutable MemTable(s) ---> Flush ---> L0
+                                                       |                                  |
+                                          Gate 1: too many immutables          Gate 2: too many L0 files
+                                                                                          |
+                                                                                    Compaction ---> L1 ---> L2 ---> ...
+                                                                                          |
+                                                                              Gate 3: pending bytes too high
+                                                                                          |
+                                                                                  All three gates --->  STALL / DELAY
+                                                                                                            |
+                                                                                                     backpressure to Writers`,
+          text: `Writers ---> WAL ---> MemTable ---> Immutable MemTable(s) ---> Flush ---> L0
+                                                       |                                  |
+                                          Gate 1: too many immutables          Gate 2: too many L0 files
+                                                                                          |
+                                                                                    Compaction ---> L1 ---> L2 ---> ...
+                                                                                          |
+                                                                              Gate 3: pending bytes too high
+                                                                                          |
+                                                                                  All three gates --->  STALL / DELAY
+                                                                                                            |
+                                                                                                     backpressure to Writers`,
+        },
+        'The insight is not that stalls exist. It is that each gate monitors a different timescale. Immutable memtables measure seconds of flush lag. L0 file count measures minutes of compaction lag. Pending compaction bytes measure hours of structural debt. A fix that addresses the wrong timescale does not fix the incident.',
       ],
     },
     {
-      heading: 'Concrete incident path',
+      heading: 'How it works',
       paragraphs: [
-        'Consider a stream-processing job that keeps keyed state in RocksDB. During normal traffic, each task writes updates into its local state store, and compaction keeps up. A backfill starts. The write rate doubles, then triples. Memtables rotate faster. Flush creates L0 files faster. L0 files overlap because each flush covers a broad key range. Reads and checkpoints begin touching more files.',
-        'At first, the service only sees mild latency. Then RocksDB begins delaying writes because L0 count or pending compaction bytes passed a soft threshold. The application sees p99 spikes. If ingest continues, a hard threshold stops writes until compaction drains enough debt. The stream processor reports backpressure or missed checkpoints, but RocksDB did exactly what it was designed to do: protect the storage engine from collapse.',
-        'The incident is solved only when debt drains. That may happen because the backfill is paced, because compaction capacity is increased, because write buffers are adjusted, because hot state is split across column families or instances, or because the workload changes. A setting that clears the stall counter while pending bytes keep rising has not solved the incident.',
+        'The stall mechanism operates as a state machine with three states: normal, delayed, and stopped.',
+        {
+          type: 'table',
+          headers: ['State', 'Condition', 'Behavior', 'Transition out'],
+          rows: [
+            ['Normal', 'All triggers below soft thresholds', 'Writes proceed at full speed', 'Any trigger crosses soft threshold -> Delayed'],
+            ['Delayed', 'At least one trigger above soft, all below hard', 'Write rate reduced to delayed_write_rate (default 16 MB/s); rate decreases linearly as trigger approaches hard limit', 'All triggers below soft -> Normal; any trigger crosses hard -> Stopped'],
+            ['Stopped', 'At least one trigger above hard threshold', 'All writes blocked; threads sleep on a condition variable', 'Compaction drains trigger below hard -> Delayed or Normal'],
+          ],
+        },
+        'When a write thread calls DB::Put, the engine checks stall conditions before accepting the write. If the engine is in the stopped state, the write thread sleeps on a condition variable. When a compaction or flush job completes, it signals the condition variable, and sleeping writers re-check the stall conditions.',
+        {
+          type: 'code',
+          language: 'cpp',
+          body: `// Simplified from RocksDB column_family.cc RecalculateWriteStallConditions
+if (imm()->NumNotFlushed() >= max_write_buffer_number) {
+  write_controller->StopAll();  // Gate 1: hard stop
+} else if (vstorage->l0_delay_trigger_count() >=
+           level0_stop_writes_trigger) {
+  write_controller->StopAll();  // Gate 2: hard stop
+} else if (estimated_compaction_needed_bytes >=
+           hard_pending_compaction_bytes_limit) {
+  write_controller->StopAll();  // Gate 3: hard stop
+} else if (l0_count >= level0_slowdown_writes_trigger) {
+  // Gate 2: soft delay -- rate decreases linearly toward hard limit
+  uint64_t rate = CalculateDelayedWriteRate(l0_count, ...);
+  write_controller->DelayWrite(rate);
+} else if (estimated_compaction_needed_bytes >=
+           soft_pending_compaction_bytes_limit) {
+  // Gate 3: soft delay
+  uint64_t rate = CalculateDelayedWriteRate(bytes, ...);
+  write_controller->DelayWrite(rate);
+}`,
+        },
+        'The delayed write rate is not constant. Between the soft and hard thresholds, RocksDB interpolates: as the trigger value approaches the hard limit, the allowed write rate drops toward zero. This creates progressive backpressure rather than a cliff.',
       ],
     },
     {
-      heading: 'Diagnosis before tuning',
+      heading: 'Why it works',
       paragraphs: [
-        'Start by naming the active gate. RocksDB LOG messages, statistics, stall counters, `rocksdb.num-immutable-mem-table`, L0 file count, estimated pending compaction bytes, compaction stats, write-stall micros, Perf Context, and host I/O metrics are the evidence. Without that evidence, tuning is guesswork.',
-        'If immutable memtables are the gate, inspect flush capacity and write-buffer configuration. If L0 file count is the gate, inspect L0 slowdown and stop thresholds, file size, flush rate, compaction from L0 to L1, and whether lower levels are blocking progress. If pending compaction bytes are the gate, inspect deeper level sizing, compaction style, disk bandwidth, compaction priority, and whether the workload has changed shape.',
-        'Also look above RocksDB. A single hot column family can affect writes to the whole DB. One tenant, partition, backfill, or bulk load can create debt that spills into unrelated requests. The fix may need service-level admission control, tenant quotas, source pacing, or isolation, not only storage-engine knobs.',
+        'The stall mechanism preserves a fundamental invariant: the total amount of uncompacted data in the LSM tree remains bounded. Without this bound, three things break simultaneously.',
+        {
+          type: 'bullets',
+          items: [
+            'Read amplification: a point lookup in L0 must check every overlapping file. With 100 L0 files, a single Get may read 100 index blocks and 100 data blocks. The read path degrades linearly with L0 count.',
+            'Space amplification: uncompacted data retains obsolete versions and tombstones. A key updated 50 times occupies 50 entries across levels until compaction merges them. Disk usage can reach multiples of the logical data size.',
+            'Recovery time: after a crash, RocksDB replays the WAL from the last flushed memtable. More immutable memtables in flight means more WAL to replay. With 10 unflushed memtables of 64 MB each, recovery must replay 640 MB of WAL sequentially before the database is ready to serve.',
+          ],
+        },
+        'The correctness argument is a conservation law. Every byte written to the memtable eventually reaches a stable level through flush and compaction. The stall gates bound the amount of data in transit at each stage. Because each gate independently bounds its queue, the total in-transit data is bounded by the sum of all gate limits. The system cannot accumulate unbounded debt as long as the gates are enforced.',
+        {
+          type: 'note',
+          text: 'The stall does not guarantee that compaction will catch up. It only guarantees that writers cannot make the debt grow past a fixed bound. If the sustained compaction rate is truly below the sustained ingest rate even with full device bandwidth, the engine will spend an increasing fraction of time in the stopped state. The only resolution is reducing ingest, increasing device throughput, or changing the compaction style to reduce write amplification.',
+        },
       ],
     },
     {
-      heading: 'Recovery levers',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Buffer levers change burst absorption. Larger write buffers and more write buffers can reduce how often memtables rotate, but they use more memory and can create larger flushes. They help when bursts are temporary. They hurt when they hide a sustained capacity mismatch.',
-        'Compaction levers change cleanup capacity and shape. More background jobs can help if CPU and disk have headroom. A rate limiter can smooth I/O and protect foreground reads, but it can also slow debt repayment if set too low. Changing leveled, universal, FIFO, or time-windowed compaction changes the amplification tradeoff. This is a table design decision, not a cosmetic setting.',
-        'Service levers reduce incoming debt. Pace backfills. Bound queues. Reject or defer low-priority writes. Split hot data. Isolate tenants or column families when blast radius matters. The cleanest RocksDB incident response is often outside RocksDB: stop feeding the engine more work than the hardware and compaction policy can digest.',
+        'The cost of write stalls is measured in latency variance, not throughput loss. A system averaging 100 MB/s writes over an hour may achieve that average with smooth 100 MB/s sustained, or with 200 MB/s for 30 minutes followed by 30 minutes of stall. The average is identical. The tail latency is not.',
+        {
+          type: 'table',
+          headers: ['Metric', 'Normal state', 'Delayed state', 'Stopped state'],
+          rows: [
+            ['Write latency (p50)', '5-50 us', '50-500 us', 'Unbounded (seconds to minutes)'],
+            ['Write throughput', 'Full device speed', 'delayed_write_rate (default 16 MB/s)', '0 MB/s'],
+            ['Read latency impact', 'Minimal', 'L0 overlap growing', 'L0 overlap at maximum; compaction competing for I/O'],
+            ['Memory pressure', 'Baseline', 'More immutable memtables buffered', 'Maximum immutable memtable count'],
+            ['Recovery time after crash', 'WAL replay of 1-2 memtables', 'WAL replay of multiple memtables', 'Maximum WAL replay'],
+          ],
+        },
+        'Write amplification dominates the practical cost. In leveled compaction with a size ratio of 10, a write to L0 may be rewritten log2(N/L0_size) / log2(10) times as it moves through levels. For a 1 TB database with 64 MB L0 files, that is roughly 4 levels, each amplifying by up to 10x. The total write amplification can reach 10-40x, meaning each byte of foreground write costs 10-40 bytes of disk I/O.',
+        'The space cost of pending compaction is linear: every byte of pending compaction is a byte of disk occupied by data that will eventually be rewritten or deleted. A 50 GB pending compaction debt means 50 GB of disk space is consumed by transient data that the compaction pipeline has not yet processed.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not disable or bypass stalls as if they were the bug. Stalls are unpleasant because they reveal a real limit. Removing the guard can trade visible write latency for invisible corruption of performance: huge L0 overlap, disk exhaustion, read amplification, or recovery that takes too long after restart.',
-        'Do not blindly raise thresholds. Larger limits can be correct when the device has headroom and the workload is bursty. They are dangerous when the workload is sustained. More pending bytes mean more future compaction. More L0 files mean more overlap. More immutable memtables mean more memory pressure.',
-        'Do not optimize one metric alone. Lower write amplification may increase read amplification. More compaction workers may fight foreground reads for I/O. Larger buffers may improve ingest while increasing recovery time. Better p50 write latency may hide worse p99 when hard stalls arrive. The target is a stable operating envelope, not one heroic benchmark number.',
+        'A Flink streaming job uses RocksDB as its state backend. Default configuration: 64 MB write buffer, 2 write buffers, leveled compaction, L0 slowdown trigger at 20, L0 stop trigger at 36, soft pending bytes limit at 64 GB, hard pending bytes limit at 256 GB. The state store holds 200 GB of keyed state, and normal traffic produces 30 MB/s of state updates.',
+        {
+          type: 'code',
+          language: 'text',
+          body: `T=0   Normal traffic. 30 MB/s ingest. Compaction keeps up at ~35 MB/s.
+      L0 files: 4. Pending bytes: 2 GB. State: NORMAL.
+
+T=5m  Backfill starts. Ingest jumps to 120 MB/s.
+      Memtables rotate every 0.5s. Flush produces L0 files rapidly.
+      L0 files: 8. Pending bytes: 5 GB. State: NORMAL.
+
+T=10m L0 files accumulate because L0->L1 compaction cannot keep pace.
+      L0 files: 15. Pending bytes: 18 GB. State: NORMAL (approaching soft).
+
+T=15m L0 count crosses 20. Soft gate fires.
+      Write rate reduced to 16 MB/s. Application sees p99 write latency
+      jump from 200 us to 50 ms. Flink checkpoint duration increases.
+      L0 files: 22. Pending bytes: 38 GB. State: DELAYED.
+
+T=20m Backfill continues pushing at 120 MB/s but only 16 MB/s accepted.
+      Application-side queue grows. Flink starts backpressuring upstream.
+      L0 files: 28. Pending bytes: 55 GB. State: DELAYED.
+
+T=25m L0 count crosses 36. Hard gate fires.
+      All writes blocked. Flink checkpoint fails (timeout).
+      L0 files: 37. Pending bytes: 62 GB. State: STOPPED.
+
+T=28m Compaction drains L0 below 36. Writes resume at delayed rate.
+      L0 files: 34. Pending bytes: 58 GB. State: DELAYED.
+
+T=35m Operator pauses backfill. Ingest drops to 30 MB/s.
+      Compaction works through debt. L0 files fall steadily.
+      L0 files: 12. Pending bytes: 25 GB. State: DELAYED -> NORMAL.
+
+T=50m Debt fully drained. System returns to steady state.
+      L0 files: 4. Pending bytes: 3 GB. State: NORMAL.`,
+        },
+        {
+          type: 'note',
+          text: 'The incident lasted 35 minutes but the root cause appeared at T=5m when ingest rate exceeded compaction throughput. The stall at T=25m was 20 minutes of accumulated debt becoming visible. The fix was not a setting change -- it was pausing the backfill to let compaction catch up.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'RocksDB appears inside stream processors, distributed databases, metadata services, blockchains, caches, search infrastructure, and embedded applications. In all of those places, write stalls can surface as something else: request latency, checkpoint delay, replica lag, ingestion backpressure, or noisy-neighbor behavior.',
-        'The same pattern applies beyond RocksDB. Any LSM-based system has a version of this problem. Fast appends create cleanup debt. Background merge capacity is finite. When the debt grows faster than repayment, the system must either slow writers, degrade reads, grow space usage, or fail operationally.',
+        'Write stalls appear wherever RocksDB is embedded, which means they surface inside systems that do not mention RocksDB in their user-facing documentation.',
+        {
+          type: 'table',
+          headers: ['System', 'How RocksDB is used', 'How stalls manifest'],
+          rows: [
+            ['Apache Flink', 'State backend for keyed state in streaming jobs', 'Checkpoint timeouts, backpressure spikes, processing lag'],
+            ['CockroachDB', 'Storage engine under each node (Pebble, a RocksDB-inspired Go engine)', 'Raft proposal latency spikes, leaseholder write stalls, follower apply lag'],
+            ['TiKV (TiDB storage)', 'Key-value engine under Raft consensus', 'Region write latency spikes, scheduler pending counts, Raft log apply delays'],
+            ['MyRocks (MySQL)', 'RocksDB as MySQL storage engine replacing InnoDB for write-heavy workloads', 'INSERT/UPDATE latency spikes, replication lag on replicas running compaction'],
+            ['Kafka Streams', 'State store backend (optional RocksDB)', 'Consumer lag, rebalance storms triggered by slow state restoration'],
+          ],
+        },
+        'The pattern generalizes beyond RocksDB. Any system that defers reorganization work to a background process has a version of this problem. B-tree databases defer page splits and vacuum. Log-structured file systems defer segment cleaning. Garbage-collected languages defer heap compaction. The specific triggers differ, but the shape is identical: fast foreground operations create cleanup debt, background capacity is finite, and when debt exceeds capacity, the system must throttle the foreground to survive.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Primary RocksDB sources are the Write Stalls wiki page, the RocksDB Tuning Guide, the Rate Limiter page, and the Compaction wiki. Read them with one question in mind: which backlog is the engine protecting itself from, and what evidence proves that the backlog is draining?',
-        'Next topics in this curriculum: RocksDB LSM Case Study, LSM Compaction Strategies Primer, SSTable Block Index & Filter, RocksDB MANIFEST & VersionSet, LSM Tombstones & Range Deletes, Write-Ahead Log, Rate Limiter, Backpressure & Flow Control, Tail Latency & p99 Thinking, SLO Error-Budget Burn-Rate Alerting, and Database Indexing.',
+        'The stall mechanism has known failure modes that operators must understand.',
+        {
+          type: 'bullets',
+          items: [
+            'Disabling stalls does not remove the problem. Setting level0_stop_writes_trigger to a very large number lets L0 files grow without bound. Read latency degrades continuously. Disk usage grows. Compaction falls further behind because merge cost grows with L0 file count. The incident reappears as a read latency or disk-full crisis instead of a write stall.',
+            'Column family blast radius is unavoidable in a single DB instance. If one column family triggers a stall, all column families in the same DB are affected. The only isolation boundary is a separate DB instance, which means separate WAL, separate memtable pool, and separate file namespace.',
+            'Rate limiter conflicts: RocksDB rate limiter (NewGenericRateLimiter) caps total I/O across compaction and flush. If set too low to protect foreground read I/O, it also throttles compaction, which increases debt, which eventually triggers stalls anyway. The rate limiter must be tuned alongside stall thresholds, not independently.',
+            'Universal compaction trades write amplification for space amplification. It produces fewer write stalls under heavy ingest because it avoids the level-by-level merge cost, but it can cause sudden large compactions (full-sort merges) that temporarily consume large amounts of disk space and I/O bandwidth.',
+            'Threshold tuning is non-portable. Optimal stall thresholds depend on device bandwidth, CPU count, memtable size, key-value size distribution, compression ratio, and workload burstiness. Settings that work on NVMe SSDs will stall immediately on network-attached storage. Settings tuned for 100-byte values will behave differently with 10 KB values.',
+          ],
+        },
+        'The deepest failure is treating stalls as a tuning problem when they are a capacity problem. If sustained ingest rate times write amplification exceeds sustained device bandwidth, no configuration change can prevent stalls. The options are: reduce ingest rate, reduce write amplification (change compaction style or reduce size ratio), increase device bandwidth (faster disks, more instances), or accept periodic stalls as normal operating behavior and design the application to tolerate them.',
       ],
     },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
     {
-      heading: 'The obvious approach',
+      heading: 'Worked example: diagnosis',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'Given an active write stall, the diagnosis procedure follows a fixed order.',
+        {
+          type: 'code',
+          language: 'text',
+          body: `Step 1: Identify the active gate
+  $ grep -i "stall" LOG | tail -20
+  > 2024-03-15T14:22:03 Stalling writes because we have 37 level-0 files
+  Gate identified: L0 file count (hard stop at 36).
+
+Step 2: Measure the debt
+  $ ./ldb --db=/data/rocksdb dump_live_files | grep "^Level" | head
+  > Level 0: 37 files, 2.3 GB
+  > Level 1: 12 files, 640 MB
+  > Level 2: 45 files, 6.1 GB
+  > Level 3: 180 files, 58 GB
+  L0 is 37 files (above 36 stop trigger). L1 is small relative to L2.
+  This suggests L0->L1 compaction is the bottleneck.
+
+Step 3: Check device saturation
+  $ iostat -x 1 5 | grep nvme0n1
+  > nvme0n1  95.2%  wMB/s=480  rMB/s=120
+  Device is near saturation. Compaction I/O is competing with flush I/O.
+
+Step 4: Check compaction stats
+  $ ./ldb --db=/data/rocksdb get_property rocksdb.cfstats
+  > Cumulative compaction: 12.5 GB written, 8.2 GB read
+  > Stall time: 340 seconds (L0 file count)
+  > Write amplification: 18.2
+
+Step 5: Decision
+  Device is saturated. Write amplification is 18x.
+  Effective compaction cost = 120 MB/s ingest * 18 = 2.16 GB/s needed.
+  Device delivers ~500 MB/s write bandwidth.
+  This is a capacity problem, not a threshold problem.
+  Fix: pace ingest to 25-30 MB/s, or split across 4 instances.`,
+        },
+        'The diagnosis reveals that no single knob change fixes this stall. The ingest rate multiplied by write amplification exceeds the device. The correct response is either reducing ingest or distributing the workload across more instances to bring each instance into the sustainable envelope.',
       ],
     },
-
     {
-      heading: 'How it works',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: RocksDB Wiki "Write Stalls" page. Documents all three trigger families, their default thresholds, the delayed-write-rate interpolation, and the per-column-family blast radius.',
+            'Implementation source: column_family.cc RecalculateWriteStallConditions in the RocksDB source code. The actual gate logic is roughly 200 lines and directly readable.',
+            'Tuning guide: RocksDB Tuning Guide wiki page. Covers write buffer sizing, L0 trigger tuning, compaction thread count, rate limiter configuration, and compaction style selection.',
+            'Production case study: "Optimizing RocksDB for Flink" by Ververica. Documents real stall incidents in streaming state backends, with before/after configurations and measurements.',
+            'LSM-tree theory: "The Log-Structured Merge-Tree" by O\'Neil et al. (1996). The original paper defines the merge cost model that explains why write amplification is fundamental, not incidental.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'LSM Compaction Strategies Primer', 'Leveled, universal, and FIFO compaction produce different write amplification, which directly determines when stalls occur'],
+            ['Prerequisite', 'Write-Ahead Log', 'The WAL is the durability mechanism that memtable rotation depends on; understanding WAL replay is necessary for the immutable-memtable gate'],
+            ['Extension', 'Rate Limiter', 'The rate limiter shapes I/O between compaction, flush, and foreground reads; tuning it incorrectly causes the stalls this page diagnoses'],
+            ['Extension', 'Backpressure & Flow Control', 'The stall mechanism is a specific instance of the general backpressure pattern; this topic generalizes the idea'],
+            ['Sibling case study', 'RocksDB LSM Case Study', 'Covers the full LSM structure that this page assumes; start there if the level terminology is unfamiliar'],
+            ['Application', 'Tail Latency & p99 Thinking', 'Write stalls are a primary source of tail latency in storage-backed services; this topic explains why p99 matters'],
+          ],
+        },
       ],
     },
-
     {
-      heading: 'Why it works',
+      heading: 'Micro checks',
       paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
+        {
+          type: 'bullets',
+          items: [
+            'Can you name the three independent stall trigger families and the queue each one monitors?',
+            'Can you explain why raising level0_stop_writes_trigger from 36 to 72 might make an incident worse rather than better?',
+            'Can you calculate whether a given ingest rate is sustainable, given write amplification and device bandwidth?',
+            'Can you explain why a stall in one column family affects writes to all column families in the same DB instance?',
+            'Given a LOG line that says "Stalling writes because we have 5 immutable memtables," can you name the first three things to check?',
+          ],
+        },
       ],
     },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for rocksdb-write-stall-compaction-debt-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

@@ -216,138 +216,258 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Agent Run Trace Span Tree Case Study. An observability case study for agent workflows: trace roots, agent spans, generation spans, tool spans, handoffs, guardrails, approvals, checkpoints, cost, and replay links..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. "Span tree" shows the structural skeleton of a single agent run: trace root, agent span, generation span, tool span, handoff, guardrail, approval, checkpoint, cost aggregation, output, and debug dashboard. "Debug loop" shows the incident workflow: alert, filter, span search, state retrieval, root cause, fix, replay, eval, and ship.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the current focus: which span is being created, which filter is narrowing, or which gate is deciding.',
+            'Compare nodes show the alternative path or the span that would have caught the bug earlier.',
+            'Found nodes are confirmed outcomes: a shipped fix, a verified replay, or a root cause identified.',
+          ],
+        },
+        'In the matrix views, rows are span types or failure classes, columns are properties (fields stored, reason for the field, fix category). Watch the "why" column in the span tree matrix: every field must justify its storage cost.',
+        {
+          type: 'note',
+          text: 'The animation uses a small fixed graph for readability. Production span trees grow to hundreds of spans per run. The data structure is the same -- a rooted tree with typed nodes and shared ids -- but the branching factor, depth, and field count scale with agent complexity.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A useful agent does not just call a model. It plans, delegates, calls tools, pauses for approval, trips guardrails, resumes from checkpoints, retries, spends tokens, and finally produces an outcome. When that outcome is wrong or expensive, a flat log line is not enough. The team needs to know which decision led to which action.',
-        'An agent run trace span tree gives that workflow a shape. The trace root names the run. Child spans show agent invocations, model generations, tool calls, handoffs, guardrail checks, human approvals, checkpoints, replay links, costs, and final output. It turns an agent run from a story people reconstruct by memory into a structured execution record.',
+        {
+          type: 'quote',
+          text: 'An agent application is really just a loop of calling the LLM, executing tools, and getting more input. In production, you need to know what happened inside that loop.',
+          attribution: 'OpenAI Agents SDK documentation, "Tracing" (2025)',
+        },
+        'An agent does not just call a model and return a string. A single customer-support run might invoke two sub-agents, generate four model calls, execute three tool calls (database lookup, policy check, refund API), pause for human approval, trip a guardrail, resume from a checkpoint, and spend $0.18 in tokens. When that run issues a wrong refund, a flat log line -- "refund processed" -- tells the on-call engineer nothing about which decision was wrong.',
+        {
+          type: 'table',
+          headers: ['What happened', 'What a log line says', 'What a span tree says'],
+          rows: [
+            ['Model hallucinated a policy', '"generation completed"', 'Generation span: model=gpt-4o, prompt_version=v3.2, finish=stop, tokens=342, policy_label=stale_v2'],
+            ['Tool called with bad args', '"tool executed"', 'Tool span: name=issue_refund, args={amount:450, currency:USD}, idempotency_key=abc-123, side_effect=true'],
+            ['Guardrail passed incorrectly', '"check passed"', 'Guardrail span: rule=refund_threshold, input_label=stale_v2, result=pass, should_have_been=fail'],
+            ['Human approval skipped', '(no log)', 'Missing approval child on refund tool span -- the gap is the bug'],
+          ],
+        },
+        'The span tree turns an opaque agent run into a queryable execution record. Every decision has a parent, every side effect has fields, and every gap is visible as a missing child span.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first instinct is to log everything. Dump the full prompt, the full model output, every tool argument, every tool result, and the final answer into a structured log store. This feels safe because nothing is hidden.',
+        {
+          type: 'diagram',
+          text: 'Flat logging approach:\n\n  run_id: abc-123\n  [log] prompt: "You are a support agent..." (2,400 tokens)\n  [log] generation: "I will look up the account..." (890 tokens)\n  [log] tool_call: issue_refund({amount: 450, ...})\n  [log] tool_result: {status: "ok", ref: "TXN-789"}\n  [log] final_answer: "Your refund of $450 has been issued."\n\n  Total: 5 log entries, ~4KB of text, zero structure',
+          label: 'Five log entries tell you what happened but not why or in what order of causation',
+        },
+        'This works for simple request-response APIs. One prompt, one generation, one answer. The log maps directly to the execution because there is only one causal path.',
+        'Teams also reach for existing APM tools -- Datadog, New Relic, Jaeger -- and instrument model calls as HTTP spans. That gives latency, error rates, and throughput dashboards out of the box. For a single-model wrapper service, this is enough.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious approach is to log every prompt, every tool result, and every final answer. That feels safe at first because nothing is hidden. In practice it creates a pile of sensitive, unindexed text. It can leak secrets, bury the important decision, and still fail to answer why the run paused, retried, or handed off to another agent.',
-        'The wall is causality. Agent failures are usually not single events. A bad prompt can produce a bad tool argument, which can create a guardrail escalation, which can resume from stale state, which can lead to a plausible but wrong final answer. Observability has to preserve the parent-child path, not just the individual messages.',
+        'Flat logs break when agents loop, branch, and delegate. A support agent that hands off to a refund agent that calls a policy-check tool that trips a guardrail that requires approval creates a five-level causal chain. In a flat log, these appear as five unrelated entries. The investigator has to reconstruct the parent-child relationships by timestamp ordering, and timestamps do not capture causality -- they capture time.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Flat log symptom', 'Root cause hidden by'],
+          rows: [
+            ['Wrong refund amount', 'Tool args look plausible', 'Missing link to which generation produced the args'],
+            ['Guardrail false pass', 'Check result = pass', 'No record of which policy version the guardrail read'],
+            ['Approval skipped', 'No log entry at all', 'The absence of a log is invisible without a schema that expects it'],
+            ['Stale checkpoint resume', 'Run completed normally', 'No link between checkpoint state and the prompt that read it'],
+            ['Cost explosion', 'Total tokens = 12,000', 'No breakdown by sub-agent, retry loop, or tool-call fan-out'],
+          ],
+        },
+        'The deeper wall is that agent failures are causal chains, not single events. A bad prompt produces a bad tool argument, which produces a guardrail escalation, which resumes from stale state, which produces a plausible but wrong answer. Debugging requires walking the chain. A flat log makes the chain invisible.',
+        {
+          type: 'note',
+          text: 'Standard distributed tracing (OpenTelemetry) solves the parent-child problem for service calls. But agent spans carry semantics that HTTP spans do not: prompt version, token count, guardrail result, approval decision, checkpoint id, handoff reason. The span tree is distributed tracing plus an agent-specific schema.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Treat the run as a tree of obligations. The root promises to complete a workflow. An agent span promises to make progress on a role. A generation span promises a model call happened under a prompt version and schema. A tool span promises a side effect or read occurred. A checkpoint promises the run can resume from a named state.',
-        'That tree is the natural unit of debugging. A span should explain what happened, what input shape was used, what decision was made, what cost was incurred, what state changed, and which child work followed from it. If the agent can act, the trace must explain the action.',
-      ],
-    },
-    {
-      heading: 'Reading the Views',
-      paragraphs: [
-        'In the span tree view, follow the run from the trace root into agent, generation, tool, handoff, guardrail, approval, checkpoint, cost, and output spans. The important detail is not that every box exists. It is that every consequential step has a parent and enough fields to explain its role in the run.',
-        'In the debug loop view, start with the alert and narrow the failure by workflow, model, tool, handoff, approval, checkpoint, or state id. The view shows the ideal incident path: find the suspicious span, connect it to saved state, replay or fork the run, evaluate the fix, then ship only after the traced failure is covered.',
+        'Model the run as a tree of obligations, not a sequence of events. Each node promises something specific, and its children fulfill or extend that promise.',
+        {
+          type: 'diagram',
+          text: 'Obligation tree for a refund workflow:\n\n  trace (run_id=abc, workflow=customer_support)\n    |-- agent (name=triage, model_policy=fast)\n    |     |-- generation (model=gpt-4o-mini, tokens=120, prompt_v=2.1)\n    |     |-- handoff (to=refund_agent, reason="refund_detected")\n    |\n    |-- agent (name=refund, model_policy=careful)\n          |-- generation (model=gpt-4o, tokens=342, prompt_v=3.2)\n          |-- tool (name=check_policy, args={amount:450}, read_only=true)\n          |     |-- guardrail (rule=refund_threshold, result=pass)\n          |\n          |-- tool (name=issue_refund, args={amount:450}, side_effect=true)\n          |     |-- approval (status=pending, approver=human)\n          |     |-- checkpoint (state_id=ckpt-456, resumable=true)\n          |\n          |-- generation (model=gpt-4o, tokens=89, prompt_v=3.2)\n          |-- output (answer="Refund issued", cost=$0.18)',
+          label: 'Every consequential action has a parent span that explains why it happened',
+        },
+        'The key property: if the agent can act, the trace must explain the action. A tool span without a parent generation cannot explain why those arguments were chosen. A generation without a parent agent cannot explain which role and instructions produced it. A guardrail without a parent tool cannot explain what it was protecting.',
+        {
+          type: 'quote',
+          text: 'Traces are the backbone of observability in the Agents SDK. They capture the complete execution flow of your agentic application, including every LLM call, tool invocation, handoff, and guardrail check.',
+          attribution: 'OpenAI Agents SDK documentation, "Tracing" (2025)',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Every run starts with a trace root. The root carries workflow id, user or tenant grouping when allowed, release version, entrypoint, and correlation ids. Each agent invocation becomes a child span with agent name, role, instructions version, available tools, selected model policy, and the reason it was invoked.',
-        'Model generation spans record model, prompt template version, input and output schema names, token counts, latency, finish status, refusal or truncation flags, and compact redacted summaries. Tool spans record tool name, parsed arguments, idempotency key, result summary, error class, retry count, and whether the call read data or caused a side effect.',
-        'Agent-specific spans carry the details ordinary service tracing misses. Handoff spans record source agent, target agent, filtered history, and transfer reason. Guardrail spans record pass, fail, or escalate. Approval spans record interruption id and human decision. Checkpoint spans record state id and resume or fork links. Cost fields let the trace answer whether the path was not only correct, but also worth what it spent.',
+        'The span tree has six node types, each with a specific field contract.',
+        {
+          type: 'table',
+          headers: ['Span type', 'Required fields', 'Why these fields'],
+          rows: [
+            ['Trace root', 'run_id, workflow, entrypoint, release_version, correlation_ids', 'Groups all child spans; links to external request; enables filtering by workflow and release'],
+            ['Agent', 'name, role, instructions_version, model_policy, tools_available, invocation_reason', 'Identifies which agent acted, under what instructions, with what capabilities'],
+            ['Generation', 'model, prompt_template_version, input_schema, output_schema, tokens_in, tokens_out, latency_ms, finish_reason, refusal', 'Makes every model call auditable: what was asked, what was spent, how it ended'],
+            ['Tool', 'tool_name, parsed_args, idempotency_key, result_summary, error_class, retry_count, read_only_or_side_effect', 'Distinguishes reads from writes; enables replay safety; catches argument drift'],
+            ['Guardrail', 'rule_name, input_hash, result (pass/fail/escalate), threshold, actual_value', 'Makes safety decisions auditable; catches false passes and false trips'],
+            ['Checkpoint', 'state_id, serialized_state_hash, resume_link, fork_link, created_at', 'Enables replay and fork; links trace to durable state'],
+          ],
+        },
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Minimal span tree instrumentation (OpenAI Agents SDK style)\nfrom agents import Agent, Runner, trace, agent_span, generation_span, tool_span\n\nasync def run_support(request):\n    with trace("customer_support", metadata={"release": "v2.4.1"}):\n        triage = Agent(name="triage", model="gpt-4o-mini")\n        result = await Runner.run(triage, request)\n\n        # The SDK auto-creates spans for:\n        #   - Each agent invocation (agent_span)\n        #   - Each model call (generation_span)\n        #   - Each tool execution (function_span)\n        #   - Each handoff between agents\n        #   - Each guardrail check\n        # All spans are children of the trace root.\n        # Custom spans can wrap business logic:\n\n        with agent_span("refund_check"):\n            policy = await check_refund_policy(result.amount)\n            with tool_span("issue_refund", input=result.refund_args):\n                if policy.requires_approval:\n                    await request_human_approval(result.refund_args)\n                txn = await issue_refund(result.refund_args)\n        return txn',
+        },
+        'Three additional span types appear in production systems that flat logging never captures.',
+        {
+          type: 'bullets',
+          items: [
+            'Handoff spans record source agent, target agent, filtered conversation history, and the reason for transfer. Without these, multi-agent runs look like disconnected single-agent runs.',
+            'Approval spans record the interruption id, the human decision (approve/reject/modify), wait duration, and the exact state presented to the approver. Without these, human-in-the-loop steps are invisible.',
+            'Cost spans aggregate token counts, model pricing tiers, tool invocation costs, and external API charges per sub-tree. Without these, budget tracking requires post-hoc log aggregation.',
+          ],
+        },
+        'The spans share ids with external systems. A checkpoint span references a durable state store entry. An approval span references a task queue item. A cost span references a billing event. These cross-references are what make the tree useful for replay, audit, and cost attribution -- not just visualization.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The tree preserves causality. A bad final answer can be traced back through the output span, the generation that produced it, the prompt and retrieved context it saw, the tool result it relied on, and the checkpoint state it resumed from. The trace does not prove the agent was right, but it gives investigators a concrete path to test.',
-        'The shared ids matter. A trace without checkpoint links cannot replay the run. A checkpoint without trace links cannot explain why that state exists. A cost ledger without span ids cannot show which tool loop burned the budget. The span tree works because these records point at the same execution, not because any one record is complete by itself.',
+        'The correctness argument rests on one property: the tree preserves the causal chain. Every child span was created because its parent span made a decision. Walking the tree from output to root reconstructs the full decision path without timestamp guessing.',
+        {
+          type: 'diagram',
+          text: 'Causal chain for a wrong refund:\n\n  output: "Refund of $450 issued"\n    <-- generation: produced refund_args with stale policy label\n      <-- agent: refund_agent used prompt_v=3.2\n        <-- handoff: triage detected "refund" intent\n          <-- generation: triage model classified request\n            <-- trace: customer_support workflow v2.4.1\n\n  Root cause: prompt_v=3.2 references policy_label=v2,\n  but policy store updated to v3 after deploy.\n  The guardrail read v2 and passed. The tree shows exactly\n  where the stale reference entered the chain.',
+          label: 'Walking the tree from leaf to root reconstructs the causal chain',
+        },
+        {
+          type: 'table',
+          headers: ['Property', 'How the span tree preserves it'],
+          rows: [
+            ['Causality', 'Parent-child edges encode "this happened because that decided"'],
+            ['Completeness', 'Missing child spans are visible gaps, not silent omissions'],
+            ['Reproducibility', 'Checkpoint + trace = enough state to replay or fork the run'],
+            ['Auditability', 'Every generation, tool call, and guardrail result has fields, not just a pass/fail bit'],
+            ['Cost attribution', 'Token and dollar costs roll up per sub-tree, not just per run'],
+          ],
+        },
+        'The shared-id invariant is what separates a span tree from a pretty log viewer. A trace without checkpoint links cannot replay. A checkpoint without trace links cannot explain why that state exists. A cost ledger without span ids cannot show which tool loop burned the budget. The tree works because these records point at the same execution, not because any single record is self-contained.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'Per-run overhead', 'Scale concern'],
+          rows: [
+            ['Instrumentation', '50-200 lines of SDK integration', 'One-time; auto-instrumented by agent frameworks'],
+            ['Storage', '2-20 KB per run (structured spans)', '1M runs/day = 2-20 GB/day; 10x cheaper than full prompt logging'],
+            ['Indexing', 'B-tree on run_id, workflow, timestamp', 'Standard; existing OLAP or trace backends handle this'],
+            ['Latency overhead', '<1ms per span creation (async flush)', 'Negligible vs. model generation latency (~500ms-5s)'],
+            ['Retention', '7-90 days for normal runs; indefinite for incidents', 'Sampling reduces volume; incident runs get full retention'],
+            ['Sensitive data risk', 'Prompt text, tool args, user data in spans', 'Redaction policy required; store hashes and summaries, not raw text'],
+          ],
+        },
+        'The key cost tradeoff is granularity versus noise. Full prompt and response text in every generation span provides maximum debuggability but creates storage cost, sensitive data risk, and signal-to-noise problems. The practical middle ground: store schema names, token counts, finish reasons, and redacted summaries in the span. Link to the full prompt/response in a secured, access-controlled artifact store for incident investigation.',
+        {
+          type: 'note',
+          text: 'The trace coverage vs. debug time curve has a sweet spot around 70-85% coverage. Below that, too many failures land outside the traced path. Above that, the noise from low-value spans (logging every retrieved document chunk, every retry backoff) buries the signal. The animation plot shows this tradeoff.',
+        },
+        'Sampling is essential for high-volume workflows. Trace 100% of runs that fail, trigger guardrails, or exceed cost thresholds. Sample 1-10% of successful runs for baseline metrics. This reduces storage 10-100x while preserving incident coverage.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A customer support agent issues a refund that should have required approval. The alert says refunds above a threshold rose after a deploy. Without a span tree, the team searches logs for account ids, prompt text, and refund calls. With a span tree, they filter to the refund workflow, the new prompt version, and tool spans whose approval child is missing.',
-        'One trace shows the path: the agent generated a tool call with a stale policy label, the guardrail span passed because it read the old label, the refund tool span executed with an idempotency key, and the checkpoint span points to the exact state before the call. The fix is not guessed. The team updates the policy mapping, replays the checkpoint, verifies that the approval span now interrupts the run, and adds an eval case before rollout.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Tracing has real cost. It adds instrumentation work, storage, indexing, retention policy, UI design, and latency overhead if implemented badly. More detail is not automatically better. Full prompts, raw documents, secrets, customer data, and large tool payloads should not be sprayed into a trace store.',
-        'Production traces should prefer ids, schema names, hashes, redacted arguments, compact summaries, and links to secured artifacts. High-value runs, incidents, approvals, and dangerous tools may need full retention. Low-risk high-volume workflows may need sampling. The target is enough evidence to debug and audit the run without turning observability into a data leak.',
+        'A customer support agent issues a $450 refund that should have required human approval. The alert fires: refunds above $200 increased 3x after yesterday\'s deploy.',
+        {
+          type: 'diagram',
+          text: 'Investigation without span tree:\n\n  1. Search logs for "refund" + account_id     --> 3,200 results\n  2. Grep for amount > 200                     --> 847 results\n  3. Find the prompt text in a separate log     --> wrong log level, missing\n  4. Check if approval was requested            --> no log entry either way\n  5. Guess: maybe the new prompt skipped approval?\n  6. Read the new prompt diff manually          --> 400 lines changed\n  7. Time to root cause: ~4 hours\n\nInvestigation with span tree:\n\n  1. Filter: workflow=customer_support, tool=issue_refund, amount>200\n  2. Sort by: approval child span missing       --> 12 runs, all after deploy\n  3. Open one trace, walk the tree:\n     trace --> triage_agent --> handoff --> refund_agent\n       --> generation (prompt_v=3.2, policy_label=stale_v2)\n       --> tool (check_policy, result=pass, read policy_v2)\n       --> tool (issue_refund, $450, NO approval child)\n  4. Root cause: prompt_v=3.2 hardcodes policy_label=v2;\n     policy store updated to v3; guardrail read stale label\n  5. Time to root cause: ~15 minutes',
+          label: 'The span tree turns a 4-hour grep hunt into a 15-minute tree walk',
+        },
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Fix, replay, verify, ship\n\n# 1. Fix the policy reference\nprompt_v3_3 = update_policy_label(prompt_v3_2, "v3")\n\n# 2. Replay from checkpoint\nckpt = load_checkpoint("ckpt-456")  # exact pre-refund state\nresult = await replay_from(ckpt, prompt_version="3.3")\n\n# 3. Verify: approval span now exists\nassert result.trace.has_child("approval", parent="issue_refund")\nassert result.trace.span("approval").status == "pending"\n\n# 4. Add eval case to prevent regression\neval_suite.add_case(\n    workflow="customer_support",\n    trigger="refund > 200",\n    expected="approval_span_present",\n    source_incident="INC-2025-0142",\n)',
+        },
+        'The fix is not guessed. The team updates the policy mapping, replays the checkpoint, verifies that the approval span now interrupts the run, and adds an eval case. The entire path from alert to verified fix is traceable.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Span trees win when agents perform multi-step work: support refunds, coding changes, document review, research synthesis, data cleanup, workflow automation, and any process with tools, approvals, handoffs, or checkpoints. They let teams measure latency, token cost, retry count, approval burden, tool error rate, guardrail false positives, and handoff confusion by workflow slice.',
-        'They are also useful as a product surface. A customer-facing or internal run history can show why an agent paused, what it is waiting for, which tool it used, and where a human can safely resume. That is different from a developer-only debug log; it is operational state.',
+        {
+          type: 'table',
+          headers: ['Domain', 'Span tree value', 'Key span types used'],
+          rows: [
+            ['Customer support agents', 'Track refund/escalation decisions, approval compliance, cost per resolution', 'Tool, approval, guardrail, cost'],
+            ['Coding agents', 'Trace edit decisions, test results, file access patterns, retry loops', 'Tool (file ops), generation (edit proposals), checkpoint (workspace state)'],
+            ['Research/RAG agents', 'Attribute answers to sources, track retrieval quality, measure citation accuracy', 'Tool (retrieval), generation (synthesis), guardrail (hallucination check)'],
+            ['Multi-agent orchestration', 'Debug handoff failures, measure delegation overhead, find routing errors', 'Handoff, agent, cost (per sub-agent)'],
+            ['Compliance-critical workflows', 'Provide audit trail for regulatory review, prove approval chain', 'Approval, guardrail, checkpoint (full retention)'],
+          ],
+        },
+        'Span trees also serve as a product surface, not just a debug tool. A customer-facing run history can show why an agent paused ("waiting for your approval to process refund"), what tool it used ("looked up order #12345"), and where a human can safely resume. That is operational transparency, not a developer log.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Querying the span tree for operational metrics\nconst metrics = await traceStore.aggregate({\n  workflow: "customer_support",\n  timeRange: "last_7d",\n  groupBy: "agent_name",\n  measures: [\n    "avg(total_tokens)",       // cost per agent\n    "p95(latency_ms)",         // slowest runs\n    "count(guardrail.fail)",   // safety trigger rate\n    "count(approval.pending)", // human bottleneck\n    "avg(tool.retry_count)",   // tool reliability\n  ],\n});',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A trace can still lie by omission. If tool wrappers do not record parsed arguments, if prompts are unversioned, if checkpoints are not linked, or if handoffs hide filtered context, the tree will look complete while the cause remains outside it. Instrumentation has to cover decisions and side effects, not only latency.',
-        'It also fails when teams treat tracing as a substitute for evaluation. A span tree can show exactly how a bad answer happened. It cannot decide that the answer is acceptable. The improvement loop needs replay, tests, evals, and rollout gates connected back to the trace.',
+        {
+          type: 'bullets',
+          items: [
+            'Lies by omission: if tool wrappers do not record parsed arguments, if prompts are unversioned, if checkpoints are unlinked, or if handoffs hide filtered context, the tree looks complete while the root cause sits outside it. Instrumentation must cover decisions and side effects, not only latency.',
+            'Schema drift: span field contracts evolve as agents change. A generation span that recorded "model" but not "prompt_version" in v1 is useless for debugging prompt regressions in v2. Schema versioning for the trace itself is a maintenance cost teams underestimate.',
+            'Sensitive data leakage: tool arguments, model outputs, and user inputs in spans can contain PII, credentials, financial data, or proprietary content. Redaction must be built into the instrumentation layer, not applied as a post-hoc filter.',
+            'Tracing-as-evaluation fallacy: a span tree can show exactly how a bad answer happened. It cannot decide whether the answer is acceptable. Teams that treat trace coverage as a proxy for quality measurement still ship bad outputs -- they just ship them with excellent audit trails.',
+            'Noise at scale: tracing every retry backoff, every embedding lookup, every token in a retrieval pipeline buries the decision-relevant spans. Sampling and span-level importance scoring are necessary, but they introduce their own failure mode: the sampled-out run is the one that fails.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The OpenTelemetry ecosystem provides the transport and storage layer (spans, exporters, collectors, backends). But OpenTelemetry span semantics were designed for service-to-service HTTP calls, not agent reasoning chains. The agent-specific schema -- prompt versions, guardrail results, approval decisions, checkpoint links -- must be layered on top as semantic conventions or custom attributes.',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: OpenAI Agents SDK tracing at https://openai.github.io/openai-agents-python/tracing/, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, Temporal OpenAI Agents integration at https://temporal.io/blog/announcing-openai-agents-sdk-integration, and OpenTelemetry traces at https://opentelemetry.io/docs/concepts/signals/traces/. Study Agent Workflow DAG Compiler Case Study, Agent Checkpoint Replay Ledger Case Study, Human Approval Interrupt Queue Case Study, GenAI Trace Token Cost Ledger Case Study, Distributed Tracing, OpenTelemetry Collector Case Study, and AI Audit Evidence Packet Case Study next.',
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['OpenAI Agents SDK, "Tracing" (2025), openai.github.io/openai-agents-python/tracing/', 'Reference implementation: auto-instrumented spans for agents, generations, tools, handoffs, guardrails'],
+            ['OpenAI Agents SDK overview, developers.openai.com/api/docs/guides/agents', 'Agent primitives: agent loop, tool use, handoffs, guardrails, tracing integration'],
+            ['OpenTelemetry, "Traces" (2025), opentelemetry.io/docs/concepts/signals/traces/', 'Foundation: span model, context propagation, exporters, semantic conventions'],
+            ['Temporal + OpenAI Agents SDK integration (2025), temporal.io/blog/', 'Durable execution: checkpoints, replay, and tracing for long-running agent workflows'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Distributed Tracing and OpenTelemetry Collector Case Study for the transport and storage layer that span trees build on.',
+            'State and replay: study Agent Checkpoint Replay Ledger Case Study for how checkpoints enable the replay-from-trace workflow shown in the debug loop view.',
+            'Human-in-the-loop: study Human Approval Interrupt Queue Case Study for the approval span semantics and how agents pause and resume around human decisions.',
+            'Cost tracking: study GenAI Trace Token Cost Ledger Case Study for per-span cost attribution and budget enforcement across multi-agent runs.',
+            'Audit: study AI Audit Evidence Packet Case Study for how span trees feed compliance and regulatory evidence requirements.',
+            'Orchestration: study Agent Workflow DAG Compiler Case Study for how the workflow structure that the span tree observes gets defined and compiled.',
+          ],
+        },
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for agent-run-trace-span-tree-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };

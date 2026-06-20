@@ -182,154 +182,263 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Trace Context & Baggage Propagation. How traceparent, tracestate, and baggage headers move trace identity and bounded business context through services and async hops..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The header-flow view traces a request from client to downstream service. Active nodes show the current propagation step. Found nodes mark headers that are now committed to the outbound carrier. Compare nodes highlight where a second header type (tracestate, baggage) runs alongside the primary one.',
+        'The baggage-guardrails view shifts focus to what travels inside baggage and what must be stopped at the edge. Found cells mark safe choices. Removed cells mark values that would cause production failures if propagated.',
+        'At each frame, ask: what context crossed a boundary, what carrier moved it, and what breaks if this step is skipped.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A modern request rarely stays inside one process. A checkout call may pass through a gateway, an order service, a payment service, an inventory service, a queue, and a notification worker. If each process logs only its own local request id, the failure looks like disconnected noise.',
-        'Trace context propagation exists so those pieces can be tied back into one causal story. The trace identity travels with the request, and each service adds its own span under the same trace instead of starting a separate universe.',
+        'A single user action in a modern system can cross ten or more processes. A checkout touches a gateway, order service, payment provider, inventory, fraud scorer, notification worker, and analytics pipeline. Each process produces logs, metrics, and errors.',
+        'Without shared identity, those signals are noise. An error in the notification worker looks unrelated to the checkout that caused it. A latency spike in inventory cannot be connected to the payment retry that preceded it. The signals exist, but the causal thread is missing.',
+        {
+          type: 'note',
+          text: 'The problem is not logging. Every service already logs. The problem is that each service logs into its own universe. Trace context propagation gives those universes a shared coordinate system.',
+        },
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The natural first attempt is a service-local request ID. Each process generates a UUID when it receives a request, logs it with every line, and returns it in error responses. Engineers grep for the ID when debugging.',
+        'This works inside one process. It even works across two processes if the caller logs the downstream request ID alongside its own. Teams do this for years and it feels adequate.',
+        {
+          type: 'diagram',
+          label: 'Service-local IDs break at fan-out',
+          text: 'gateway (id: g-001)\n  |-> order-svc (id: o-042)\n  |     |-> payment (id: p-117)   -- which g-001 caused this?\n  |     |-> inventory (id: i-203) -- which o-042 caused this?\n  |     |-> queue.publish(msg)    -- no id at all\n  |           |-> notifier (id: n-009) -- orphan\n  |\n  (grep for "g-001" finds 1 of 5 services)',
+        },
+        'The approach works until fan-out, retries, or async hops appear. When the order service calls payment and inventory in parallel, and both fail, there is no way to tell from timestamps alone which payment call belonged to which order attempt. When a queue sits between producer and consumer, the consumer has no request ID at all unless someone explicitly put one in the message.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious approach is to generate a new request id in every service and search logs by timestamp when something breaks. That works for a single process. It falls apart when retries, queues, parallel calls, and async consumers spread one user action across many machines.',
-        'The wall is causality. Time order is not enough to tell which payment call belonged to which checkout attempt, and service-local ids cannot describe parent-child relationships across network boundaries. A trace needs a portable identity and a standard way to carry it.',
+        'Service-local IDs cannot express parent-child relationships across network boundaries. Time ordering is ambiguous under concurrency: two payment calls at 10:03:22.004 and 10:03:22.007 could belong to the same checkout or to two different ones. Retries make it worse -- the same logical operation produces multiple request IDs that look unrelated.',
+        'The wall is that causality is not a property of individual processes. It is a property of the request path. To reconstruct causality, the identity must travel with the request and survive every boundary: HTTP calls, RPC calls, message queues, thread pool handoffs, and promise chains.',
+        {
+          type: 'quote',
+          text: 'End-to-end tracing infrastructure had to be pervasive and always-on because the problem requires tracing every request in production, not just a sample of interesting ones post-hoc.',
+          attribution: 'Sigelman et al., "Dapper, a Large-Scale Distributed Systems Tracing Infrastructure" (Google, 2010)',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Treat context as data that must cross boundaries deliberately. The trace is not stored only in the tracer, the logger, or the current stack frame. It is extracted from an inbound carrier, stored in request-local context, updated when a span is created, and injected into the next outbound carrier.',
-        'The W3C shape keeps the core trace portable. traceparent carries the trace id, the parent span id, and flags. tracestate lets vendors preserve trace-system metadata. Baggage is separate: it carries small application-defined key-value pairs such as region, tenant tier, or experiment cohort.',
-      ],
-    },
-    {
-      heading: 'What the diagram emphasizes',
-      paragraphs: [
-        'In the header-flow view, follow the lifecycle: inbound request, extract context, create or continue a span, inject headers, then let the downstream service create a child span. The trace id should stay stable while the span id changes at each service boundary.',
-        'In the baggage-guardrails view, look for the policy boundary. Baggage can enrich traces, logs, and selected metrics, but only after filtering. The edge service should drop unknown keys, secrets, personal data, and values that would explode metric cardinality.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works because every service follows the same small protocol. Extract the incoming context from the carrier. Put it into the current execution context. Start a span whose parent is the extracted span. Inject the new context into outbound work.',
-        'That protocol is enough to reconstruct the distributed call tree later. The trace id groups the work. Span ids describe edges. Timestamps and attributes explain where time was spent. Baggage can add business context, but the trace tree does not depend on baggage.',
+        'Context is data that must cross boundaries deliberately, not state that lives inside any single component. The trace identity is not owned by the tracer, the logger, or the HTTP framework. It is extracted from an inbound carrier, stored in request-local context, updated when a new span starts, and injected into the next outbound carrier.',
+        'W3C Trace Context standardizes this into two headers. traceparent carries the version, trace ID, parent span ID, and trace flags. tracestate carries vendor-specific metadata that must be forwarded even by services that do not understand it.',
+        {
+          type: 'code',
+          language: 'http',
+          text: 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\n             ^^                                  ^^                ^^              ^^\n           version            trace-id (16 bytes)    parent-id (8 bytes)    flags (sampled)\n\ntracestate: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7\n            ^^^^^ vendor-specific entries, preserved across services\n\nbaggage: tenant_tier=gold,region=us-east-1\n         ^^^^ application-defined key-value pairs, separate from trace identity',
+        },
+        'Baggage is a third, separate header. It carries small application-defined key-value pairs -- tenant tier, region, experiment cohort -- that downstream services can attach to their own telemetry without recomputing the values.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'HTTP uses headers. RPC systems usually use metadata. Queues use message attributes or envelope fields. In-process async hops use async context propagation rather than network headers. The carrier changes, but the job is the same: move context from the current unit of work into the next one.',
-        'A broken carrier creates a broken trace. If a queue producer forgets to write trace metadata, the consumer starts a new root trace. If an HTTP client strips traceparent, the downstream service looks unrelated. If async context is lost before injection, the wrong parent can be sent.',
+        'Every service follows four steps in sequence: extract, store, create, inject.',
+        {
+          type: 'table',
+          headers: ['Step', 'What happens', 'Carrier'],
+          rows: [
+            ['Extract', 'Read traceparent, tracestate, and baggage from the inbound carrier', 'HTTP headers, gRPC metadata, message attributes'],
+            ['Store', 'Place the parsed context into the current execution context (request-scoped storage)', 'Thread-local, AsyncLocalStorage, Go context.Context'],
+            ['Create', 'Start a new span with the extracted span as parent; generate a new span ID', 'Tracer SDK'],
+            ['Inject', 'Write the updated traceparent (new span ID as parent) plus tracestate and baggage into the outbound carrier', 'HTTP client interceptor, gRPC interceptor, queue producer'],
+          ],
+        },
+        'The trace ID stays stable across every hop. The span ID changes at every service boundary. This is what makes the trace a tree: same root identity, different edge identities.',
+        'Each carrier type has its own mechanics. HTTP uses headers. gRPC uses metadata key-value pairs. Kafka uses record headers. SQS uses message attributes. In-process async hops in Node.js use AsyncLocalStorage; in Go, context.Context; in Java, ThreadLocal with careful executor wrapping.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Node.js: OpenTelemetry auto-instrumentation handles HTTP propagation.\n// Manual propagation for a queue producer:\nconst { context, propagation } = require("@opentelemetry/api");\n\nfunction publishMessage(queue, payload) {\n  const carrier = {};  // empty object to receive headers\n  propagation.inject(context.active(), carrier);\n  // carrier now has { traceparent: "00-...", tracestate: "...", baggage: "..." }\n  queue.send({\n    body: payload,\n    attributes: carrier,  // trace context travels with the message\n  });\n}',
+        },
+        'A broken carrier creates a broken trace. If a queue producer omits trace metadata, the consumer starts a new root trace and the two halves look unrelated. If an HTTP client library strips unknown headers, traceparent vanishes. If async context is lost across a thread pool boundary, the injected parent ID points to the wrong span.',
       ],
     },
     {
-      heading: 'Baggage is not trace identity',
+      heading: 'Why it works',
       paragraphs: [
-        'Baggage is useful because it lets downstream telemetry know something small about the request without recomputing it everywhere. Examples include tenant_tier=enterprise, region=us-east, or experiment=checkout_v3. Those values can make traces and logs easier to filter.',
-        'Baggage is dangerous when treated as trusted state. It is easy to spoof, easy to overgrow, and easy to leak. It should not carry access tokens, emails, card data, full user ids, or arbitrary payloads. It should not become an unbounded metric label source.',
+        'The protocol is correct because it preserves two invariants across every boundary.',
+        {
+          type: 'bullets',
+          items: [
+            'Trace identity invariant: the trace ID is immutable once created. Every span in the trace shares the same 16-byte trace ID, so grouping by trace ID reconstructs the full request.',
+            'Parent-child invariant: each new span records the span ID of its immediate parent. Because span IDs are unique and the parent link is set at creation time, the span collection forms a tree (or forest, if propagation breaks).',
+          ],
+        },
+        'These two invariants are sufficient to reconstruct the distributed call tree after the fact. Timestamps on span start and end events explain where time was spent. Attributes explain what happened. But the tree structure comes entirely from trace ID grouping and parent ID edges.',
+        'Baggage correctness is weaker by design. Baggage is advisory, not structural. A service can drop baggage, modify it, or add keys. The trace tree does not depend on baggage being present or accurate. This separation is deliberate: trace identity is infrastructure-grade; baggage is application-grade.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is plumbing. Every HTTP client, RPC client, message producer, message consumer, framework middleware, worker, and instrumentation layer must participate. One missing propagator can split a trace at the exact place where the incident is happening.',
-        'There is also operational cost. Headers and metadata consume bytes. Baggage requires allowlists and limits. Trace sampling decisions need to be honored consistently. Interoperability improves when teams use standard propagators instead of custom header names.',
+        'The cost is coverage, not performance. traceparent is 55 bytes. tracestate is typically under 256 bytes. Baggage adds a few hundred bytes at most. The per-request overhead of propagation is negligible compared to the network call itself.',
+        'The real cost is plumbing. Every outbound call path must participate: HTTP clients, RPC clients, message producers, message consumers, background job schedulers, cron wrappers, and browser fetch calls. One missing propagator splits the trace at exactly the boundary where the next incident will occur.',
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'Magnitude', 'What it means'],
+          rows: [
+            ['Header bytes', '~55-500 bytes/request', 'Negligible vs. payload; can matter on high-fan-out internal RPCs'],
+            ['Instrumentation effort', 'Every client and server boundary', 'The long tail of queue producers, cron jobs, and thread pools is where traces break'],
+            ['Baggage governance', 'Allowlists, byte caps, cardinality limits', 'Without limits, baggage becomes a vector for header bloat and metric explosions'],
+            ['Sampling consistency', 'Must honor trace-level sampling decisions', 'If service A samples and service B does not, the trace has holes'],
+            ['Migration cost', 'Transitioning from vendor headers to W3C', 'Running dual propagators during migration doubles header overhead temporarily'],
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Baggage: power and danger',
+      paragraphs: [
+        'Baggage solves a specific problem: when downstream services need a small piece of business context to annotate their telemetry, and recomputing that context at every hop is wasteful or impossible.',
+        'A payment service cannot look up the tenant tier of the original request without calling back to the gateway or a shared database. If tenant_tier=gold is in baggage, the payment service can tag its spans and metrics with that value immediately.',
+        {
+          type: 'table',
+          headers: ['Baggage key', 'Cardinality', 'Safe as metric label?', 'Risk'],
+          rows: [
+            ['tenant_tier (free/pro/enterprise)', '3', 'Yes', 'Low -- bounded enum'],
+            ['region (us-east-1, eu-west-1, ...)', '~20', 'Yes', 'Low -- bounded by infrastructure'],
+            ['experiment_cohort (control, variant_a)', '~5', 'Carefully', 'Medium -- grows with active experiments'],
+            ['user_id', 'Millions', 'Never', 'High -- explodes metric cardinality, potential PII'],
+            ['session_token', '1 per session', 'Never', 'Critical -- credential in plaintext across all downstream services'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Baggage travels on every outbound request to every downstream service. A value placed in baggage at the edge reaches the deepest leaf of the call tree. Treat it as broadcast to every service in the mesh, because that is what it is.',
+        },
+        'The production pattern is edge normalization. The edge gateway accepts incoming context, validates baggage against an allowlist of known keys, drops unknown or oversized values, and injects only safe baggage downstream. Interior services should not add arbitrary baggage without coordination.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Trace context wins when debugging latency, retries, fan-out, queue delay, partial failure, and cross-service ownership problems. It lets teams move from "the payment service was slow around 10:03" to "this checkout trace waited 820 ms on inventory, retried payment twice, and then timed out in notification enqueue."',
-        'Baggage wins when a small piece of business context must be attached consistently to traces and selected logs: tenant tier, deployment ring, region, experiment cohort, or product surface. It removes repeated lookup work and keeps observability dimensions consistent.',
+        {
+          type: 'bullets',
+          items: [
+            'Latency debugging: a trace shows that a checkout waited 820 ms on inventory, retried payment twice, and timed out in notification enqueue. Without the trace, each service reports "I was fine" and the incident has no owner.',
+            'Cross-service ownership: the trace tree makes it visible that the root cause is in service X, even though the user-facing error appeared in service Y. Ownership follows the span, not the symptom.',
+            'Tenant-aware SLOs: baggage with tenant_tier lets teams compute p99 latency per tier without enrichment joins. Gold-tier degradation is visible in real time.',
+            'Experiment attribution: baggage with experiment_cohort=variant_a lets analytics pipelines attribute backend behavior to frontend experiments without log correlation.',
+            'Queue delay measurement: trace context on queue messages makes the gap between enqueue and dequeue a measurable span, not a gap between disconnected traces.',
+          ],
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when propagation is partial. Async workers, queues, custom clients, thread pools, native bridges, browser-to-server calls, and scheduled jobs all need explicit thought. A trace that is perfect for simple HTTP can still break at the first queue.',
-        'It also fails when teams confuse correlation with trust. Trace context can show that two spans belong to the same request. It does not prove user identity, authorization, tenant membership, or billing rights.',
+        'Propagation is all-or-nothing per boundary. A trace that is perfect for synchronous HTTP calls still breaks at the first boundary that does not propagate.',
+        {
+          type: 'table',
+          headers: ['Boundary', 'Common failure', 'Consequence'],
+          rows: [
+            ['Message queue', 'Producer does not write trace headers to message attributes', 'Consumer starts a new root trace; queue delay becomes invisible'],
+            ['Thread pool / executor', 'Context is not captured when task is submitted', 'Child spans parent to the wrong span or to no span'],
+            ['Browser-to-server', 'CORS blocks traceparent header', 'Frontend and backend traces are disconnected'],
+            ['Cron / scheduled job', 'No inbound request to extract from', 'Job runs as an orphan trace with no link to the schedule trigger'],
+            ['Native bridge (JNI, FFI)', 'Context does not cross language runtime boundary', 'Native code produces spans in a separate trace'],
+            ['Third-party API call', 'External service ignores or strips traceparent', 'The outbound call has context; the response trace is lost'],
+          ],
+        },
+        'Trace context also fails as a trust mechanism. traceparent proves correlation -- these spans belong to the same request. It does not prove authorization, identity, or tenant membership. A malicious client can forge a traceparent to inject spans into another tenant\'s trace. Do not use trace context for access control.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A checkout request enters the gateway with no incoming trace headers. The gateway creates a traceparent, starts a root span, and adds only allowed baggage: tenant_tier=gold and region=us-east. It calls the order service with traceparent, tracestate, and baggage in HTTP headers.',
-        'The order service extracts the context, starts a child span, logs tenant_tier, and calls inventory and payments in parallel. Inventory uses RPC metadata. Payments uses HTTP headers. Both inject the updated context before making their own downstream calls. Later, the order service publishes a notification message with trace context in message attributes, so the consumer can attach its work to the original checkout trace.',
-        'During an incident, the trace shows that gold-tier checkout failures are not a frontend problem. They wait in the notification queue after payment succeeds. The baggage made the affected tier visible, but the traceparent chain made the causal path visible.',
+        'A checkout request enters the API gateway with no trace headers.',
+        {
+          type: 'code',
+          language: 'text',
+          text: '1. Gateway: no traceparent found\n   -> creates traceparent: 00-abc123...-span01-01\n   -> creates baggage: tenant_tier=gold, region=us-east-1\n   -> starts root span "gateway.checkout"\n\n2. Gateway -> Order Service (HTTP)\n   -> injects traceparent: 00-abc123...-span01-01\n   -> injects baggage: tenant_tier=gold, region=us-east-1\n\n3. Order Service: extracts traceparent, starts child span "order.process"\n   -> span parent = span01\n   -> new span id = span02\n   -> reads baggage, tags span with tenant_tier=gold\n   -> calls Inventory (gRPC) and Payment (HTTP) in parallel\n\n4a. Inventory (gRPC): extracts from metadata\n    -> child span "inventory.reserve", parent = span02, id = span03\n\n4b. Payment (HTTP): extracts from headers\n    -> child span "payment.charge", parent = span02, id = span04\n    -> first attempt fails, retries\n    -> child span "payment.charge.retry", parent = span02, id = span05\n\n5. Order Service -> Notification Queue (Kafka)\n   -> injects traceparent into record headers: 00-abc123...-span02-01\n   -> injects baggage into record headers\n\n6. Notification Worker: extracts from Kafka record headers\n   -> child span "notify.send", parent = span02, id = span06\n   -> 3.2s queue delay is now a measurable gap in the trace',
+        },
+        'During an incident, an engineer queries traces where tenant_tier=gold AND total_duration > 5s. The trace reveals the checkout succeeded at the payment layer but the user saw a timeout because the notification worker was backlogged. The baggage made the tier filterable; the traceparent chain made the causal path from gateway to notification worker reconstructable.',
       ],
     },
     {
       heading: 'Implementation guidance',
       paragraphs: [
-        'Install propagation at framework boundaries first: inbound middleware, outbound HTTP clients, RPC clients, queue producers, queue consumers, and background job wrappers. Application code should rarely hand-copy trace headers; the platform should make the common path automatic.',
-        'Use a single propagator policy per service mesh or runtime stack when possible. Mixing custom headers, W3C headers, and vendor-only headers without a migration plan creates traces that work in one tool and break in another.',
-        'Test propagation with a synthetic request that crosses every carrier you support. Assert that trace id stays stable, parent span relationships make sense, baggage keys are filtered, and unsafe baggage never reaches logs or metric labels. This catches broken async context and queue metadata before an outage.',
+        {
+          type: 'bullets',
+          items: [
+            'Install propagation at framework boundaries first: inbound middleware, outbound HTTP client interceptors, gRPC interceptors, queue producers, queue consumers, and background job wrappers. Application code should never hand-copy trace headers.',
+            'Use a single propagator format per service mesh. Mixing W3C traceparent, B3 (Zipkin), and Jaeger headers without a migration plan creates traces that work in one tool and break in another.',
+            'Enforce baggage governance at the edge: allowlist known keys, set a total byte cap (the W3C Baggage spec recommends 8,192 bytes maximum), and never promote unbounded baggage values to metric labels.',
+            'Test propagation with a synthetic request that crosses every carrier type. Assert that the trace ID is stable end-to-end, parent-child relationships are correct, and unsafe baggage does not appear in downstream logs or metric dimensions.',
+            'Handle async context explicitly. In Node.js, use AsyncLocalStorage. In Java, wrap executors. In Go, pass context.Context. A trace that works for synchronous HTTP and breaks on the first goroutine or promise is not tested.',
+          ],
+        },
+        {
+          type: 'code',
+          language: 'yaml',
+          text: '# OpenTelemetry Collector pipeline config: receive, process, export\nreceivers:\n  otlp:\n    protocols:\n      grpc:\n        endpoint: 0.0.0.0:4317\nprocessors:\n  batch:\n    timeout: 5s\n  attributes:\n    actions:\n      - key: tenant_tier      # promote baggage to span attribute\n        from_context: baggage\n        action: upsert\nexporters:\n  otlp:\n    endpoint: tracing-backend:4317\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [batch, attributes]\n      exporters: [otlp]',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: W3C Trace Context at https://www.w3.org/TR/trace-context/, OpenTelemetry Context Propagation at https://opentelemetry.io/docs/concepts/context-propagation/, OpenTelemetry Baggage concepts at https://opentelemetry.io/docs/concepts/signals/baggage/, and OpenTelemetry Baggage API at https://opentelemetry.io/docs/specs/otel/baggage/api/.',
-        'Study Distributed Tracing for span trees, Async Context Propagation for in-process JavaScript context, OpenTelemetry Collector Case Study for pipeline handling, Message Queue for async carriers, Metric Label Cardinality Control for baggage-to-metric risk, and Metric Exemplars Trace Correlation for metric-to-trace jumps next.',
+        {
+          type: 'bullets',
+          items: [
+            'W3C Trace Context specification (https://www.w3.org/TR/trace-context/) -- the normative definition of traceparent and tracestate header formats, mutation rules, and interoperability requirements.',
+            'W3C Baggage specification (https://www.w3.org/TR/baggage/) -- defines the baggage header format, size limits, and propagation semantics.',
+            'OpenTelemetry Context Propagation (https://opentelemetry.io/docs/concepts/context-propagation/) -- how the OpenTelemetry SDK implements extract, inject, and context storage across languages.',
+            'Sigelman et al., "Dapper, a Large-Scale Distributed Systems Tracing Infrastructure" (Google, 2010) -- the paper that established production-grade distributed tracing and influenced every subsequent tracing system.',
+            'OpenTelemetry Baggage API (https://opentelemetry.io/docs/specs/otel/baggage/api/) -- the programmatic interface for reading and writing baggage entries.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The W3C specs define wire format and propagation rules. OpenTelemetry defines the SDK contract for extract/inject. Dapper defines why the whole system exists. Read them in that order.',
+        },
       ],
     },
-      {
-      heading: 'The obvious approach',
+    {
+      heading: 'Learning map',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Distributed Tracing', 'Understand span trees and trace assembly before studying how context moves between services'],
+            ['Prerequisite', 'Message Queue', 'Queues are the boundary where most trace propagation breaks; understand the carrier semantics'],
+            ['Extension', 'Async Context Propagation', 'In-process context (AsyncLocalStorage, Go context) is the carrier for non-network boundaries'],
+            ['Extension', 'Metric Label Cardinality Control', 'Baggage-to-metric promotion without cardinality control causes metric explosions'],
+            ['Case study', 'OpenTelemetry Collector Case Study', 'How the collector pipeline processes, batches, and exports the spans that propagation creates'],
+            ['Case study', 'Metric Exemplars Trace Correlation', 'How to jump from a metric anomaly to the trace that caused it, using the trace ID that propagation preserved'],
+          ],
+        },
       ],
     },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for trace-context-baggage-propagation-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'State the two invariants that make trace reconstruction possible in one sentence each.',
+            'A queue producer writes the message body but forgets to inject trace headers. Describe the exact downstream consequence.',
+            'Explain why baggage with key user_id is dangerous even though it is useful for debugging.',
+            'A service receives a traceparent header. What new value does it generate, and what value does it preserve unchanged?',
+            'Transfer the extract-store-create-inject pattern to a different domain: how would you propagate a request budget (remaining quota) across service boundaries?',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Trace a single request through the header-flow animation. Before each frame, predict which node becomes active and what the injected traceparent will look like (which field changes, which stays the same). Then switch to the baggage-guardrails view and predict which baggage keys survive edge filtering.',
+        'If your predictions match the animation for both views, move to the Distributed Tracing topic to study how the collected spans are assembled into a trace tree.',
+      ],
+    },
   ],
-      },
-],
 };

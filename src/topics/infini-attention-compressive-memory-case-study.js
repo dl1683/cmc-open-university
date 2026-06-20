@@ -310,149 +310,323 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Cost and behavior',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Infini-attention exists because long-context models face a harsh storage question: should every old token remain exactly available, or should old context be compressed into bounded state? Exact history is attractive because the model can directly compare the current query to old keys and values. The cost is that memory and compute keep growing. Compressed history is cheaper, but compression can forget, blur, or distort details.',
-        'The architecture tries to split the difference. Recent tokens get ordinary masked local attention, preserving exact nearby detail. Older context is stored in a compressive memory that can be read by later segments. The word "infinite" should be read as a bounded-memory design goal, not as a promise of perfect recall across unlimited text.',
+        'The animation shows Infini-attention as a dataflow graph: each segment of input tokens enters the block and splits into two paths. The local-attention path (highlighted active) performs standard masked dot-product attention over the current segment. The memory path reads compressed older context from a bounded matrix M. A learned gate mixes the two outputs, and the combined result exits the block.',
+        'Active nodes are operations happening now. The "found" highlight on the output node marks the final mixed result. When edges from both the local and memory paths converge at the gate, the animation is showing the core contract: recent tokens get exact attention, older tokens get approximate recall from compressed state, and a per-head scalar gate decides how much to trust each source.',
+        {
+          type: 'note',
+          text: 'The word "infinite" in the paper title is aspirational, not literal. The architecture provides bounded-memory processing for unbounded-length inputs. Recall quality degrades with distance -- the question is how gracefully.',
+        },
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Standard Transformer attention stores one key-value pair per token. A 1M-token input at 128-dimensional heads with 8 heads across 12 layers produces a KV cache that grows linearly with sequence length. Doubling the context doubles the memory. At serving time, that cache competes with batch size: more memory per request means fewer concurrent users.',
+        {
+          type: 'table',
+          headers: ['Sequence length', 'KV pairs per head per layer', 'Scaling behavior'],
+          rows: [
+            ['4,096', '4,096', 'Fits comfortably in GPU memory'],
+            ['32,768', '32,768', 'Starts constraining batch size'],
+            ['500,000', '500,000', 'Requires offloading or approximation'],
+            ['1,000,000', '1,000,000', 'Impractical for exact attention serving'],
+          ],
+        },
+        'The constraint is not just memory. Attention computation is quadratic in sequence length: every query attends to every key. Even with FlashAttention and other IO-aware kernels, the fundamental cost curve is hostile to million-token contexts. Infini-attention exists because the field needed a way to carry old context forward without storing every old token exactly.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first naive design is full attention over the entire prefix. It gives the cleanest semantics: every token can attend to every previous token. The wall is resource use. Very long sequences consume large KV caches, large attention computation, and serving capacity that could otherwise support more users or higher throughput.',
-        'The second naive design is a hard sliding window. Keep only the recent past and discard old tokens. That is cheap, but it fails when an old definition, instruction, source quote, or entity mention must be recovered exactly. A model can appear fluent while silently losing the evidence needed for a correct answer.',
-        'The third naive design is an unexamined summary. Summaries help, but they are lossy and often optimize for narrative coherence rather than future retrieval. Infini-attention is more precise: it gives the model a learned memory path that can be updated segment by segment, while preserving exact attention locally.',
+        'Three reasonable strategies existed before Infini-attention, each with a real strength.',
+        {
+          type: 'table',
+          headers: ['Strategy', 'How it works', 'Strength', 'Limitation'],
+          rows: [
+            ['Full attention', 'Keep every KV pair; attend to all', 'Exact recall at any distance', 'O(n) memory, O(n^2) compute'],
+            ['Sliding window', 'Discard tokens older than window size', 'Constant memory cost', 'Old facts vanish silently'],
+            ['Transformer-XL recurrence', 'Carry fixed-length segment cache forward', 'Some old context preserved', 'Cache size still linear in kept segments'],
+          ],
+        },
+        'Full attention is the gold standard for quality but cannot serve million-token contexts economically. Sliding-window attention (used in Mistral and others) is cheap but amnesiac: a definition from chapter one is gone by chapter ten. Transformer-XL caches previous segment hidden states, but the cache grows with the number of segments retained, and gradient flow across segment boundaries is limited.',
+        'A fourth option is retrieval-augmented generation: store old text in an external index and fetch relevant chunks at query time. This works well for factual lookup but adds latency, requires an index, and cannot replace the model\'s internal sense of what came before.',
+        {
+          type: 'note',
+          text: 'None of these approaches is wrong. Each makes a different tradeoff on the same frontier: recall quality versus resource cost. Infini-attention tries to occupy a new point on that frontier by compressing old context into learned state rather than discarding it or storing it exactly.',
+        },
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that every prior bounded-memory scheme either loses old information entirely or carries it as raw tokens that still grow with input length.',
+        'Sliding windows lose information by construction. Once a token leaves the window, no amount of local attention can recover it. Transformer-XL\'s segment cache is better but still linear: keeping the last S segments means storing (d_key + d_value) x H x N x S values, where H is head count and N is segment length. Memorizing Transformers (Wu et al., 2022) go further by keeping an external KV store of past segments, but that store also grows linearly with the number of past segments seen.',
+        {
+          type: 'table',
+          headers: ['Method', 'Memory footprint formula', 'Grows with'],
+          rows: [
+            ['Transformer-XL', '(d_key + d_value) * H * N * l', 'Cached segment count l'],
+            ['Memorizing Transformers', '(d_key + d_value) * H * N * S', 'Stored segment count S'],
+            ['Infini-Transformer', 'd_key * (d_value + 1) * H * l', 'Layer count only (constant per layer)'],
+          ],
+        },
+        'The Infini-Transformer memory footprint has no factor of N (segment length) or S (number of past segments). It stores one d_key x d_value matrix M and one d_key normalization vector z per head per layer. That footprint is fixed regardless of whether the model has seen 10 segments or 10,000.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Old context can be compressed into a fixed-size associative memory matrix that is read with linear attention and updated with an outer-product accumulation rule -- giving every Transformer layer a bounded, learnable long-term memory without changing the local attention mechanism.',
+        {
+          type: 'quote',
+          text: 'Infini-attention incorporates a compressive memory into the vanilla attention mechanism with minimal change to the standard scaled dot-product attention. It builds in both masked local attention and long-term linear attention mechanisms in a single Transformer block.',
+          attribution: 'Munkhdalai, Faruqui, and Gopal, 2024',
+        },
+        'The key mathematical move is treating memory as an associative binding matrix. Writing to memory is an outer product of keys and values. Reading from memory is a matrix-vector product with the query. This is equivalent to linear attention (Katharopoulos et al., 2020) and descends from the fast weight programmer literature (Schmidhuber, 1992). The insight is that this old idea can be grafted onto standard softmax attention as a parallel path, giving the model both exact local recall and approximate long-range recall in the same block.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The block has two paths. The local path performs ordinary causal attention within the current segment. This handles recent syntax, immediate references, and local reasoning with exact token-level evidence. The memory path reads from a bounded memory matrix that summarizes earlier segments. A learned gate or mixing mechanism combines the local-attention output with the memory-read output.',
-        'After processing a segment, the model updates memory with information from that segment. The memory is not a list of old tokens. It is compressed state. Later segments can read from it, but they cannot inspect every old token as an exact row unless another mechanism preserves that evidence.',
-        'This places Infini-attention in a larger family of bounded-context designs: StreamingLLM keeps attention sinks and recent cache, Mamba carries recurrent state, RetNet carries retention state, sliding-window attention keeps a recent band, and retrieval systems fetch old evidence externally. Each design replaces unbounded exact access with a different form of memory budget.',
+        'Each Infini-attention layer processes input in fixed-size segments of N tokens. For each segment s, the layer performs five operations.',
+        {
+          type: 'diagram',
+          text: [
+            'Segment s tokens',
+            '       |',
+            '   +---+---+',
+            '   |       |',
+            '   v       v',
+            ' Q,K,V   sigma(Q)',
+            '   |       |',
+            '   v       v',
+            ' softmax  M_{s-1} read',
+            ' local    +--> A_mem',
+            ' attn     |',
+            '   |      v',
+            '   v    normalize',
+            ' A_dot   by z_{s-1}',
+            '   |       |',
+            '   +---+---+',
+            '       |',
+            '       v',
+            '  gate: sigmoid(beta)',
+            '  A = sig(b)*A_mem + (1-sig(b))*A_dot',
+            '       |',
+            '       v',
+            '    output',
+            '',
+            '  Then update:',
+            '  M_s = M_{s-1} + sigma(K)^T * V',
+            '  z_s = z_{s-1} + sum(sigma(K))',
+          ].join('\n'),
+          label: 'Infini-attention dataflow for one segment',
+        },
+        'Step 1: Compute Q, K, V from the segment tokens using standard linear projections, exactly as in vanilla attention.',
+        'Step 2: Local attention. Compute A_dot = softmax(QK^T / sqrt(d_key)) * V. This is standard masked causal attention over the current segment only. It captures exact token-level relationships within the segment.',
+        'Step 3: Memory retrieval. Compute A_mem = sigma(Q) * M_{s-1} / (sigma(Q) * z_{s-1}), where sigma is the element-wise ELU+1 activation function. This reads from the compressive memory using a linear attention kernel. The normalization vector z prevents the retrieved values from growing unboundedly.',
+        'Step 4: Gating. Combine the two outputs: A = sigmoid(beta) * A_mem + (1 - sigmoid(beta)) * A_dot, where beta is a single learned scalar per attention head. The sigmoid ensures the gate stays in [0, 1]. Some heads learn to favor memory, others favor local attention, and some mix evenly.',
+        'Step 5: Memory update. After reading, write the current segment into memory: M_s = M_{s-1} + sigma(K)^T * V. The normalization counter updates as z_s = z_{s-1} + sum(sigma(K_t)) over the segment tokens. Memory now carries information from all segments seen so far.',
+        {
+          type: 'code',
+          language: 'python',
+          label: 'Pseudocode for one Infini-attention segment step',
+          body: '# sigma = ELU(x) + 1 (element-wise)\ndef infini_attention_segment(Q, K, V, M_prev, z_prev, beta):\n    # Local attention (standard)\n    A_dot = softmax(Q @ K.T / sqrt(d_key)) @ V\n\n    # Memory retrieval (linear attention read)\n    sigma_Q = elu(Q) + 1\n    A_mem = (sigma_Q @ M_prev) / (sigma_Q @ z_prev + eps)\n\n    # Gating\n    g = sigmoid(beta)\n    A = g * A_mem + (1 - g) * A_dot\n\n    # Memory update\n    sigma_K = elu(K) + 1\n    M_new = M_prev + sigma_K.T @ V\n    z_new = z_prev + sigma_K.sum(dim=0)\n\n    return A, M_new, z_new',
+        },
+      ],
+    },
+    {
+      heading: 'The delta update variant',
+      paragraphs: [
+        'The basic update rule M_s = M_{s-1} + sigma(K)^T * V blindly adds new associations on top of old ones. If the same key pattern appears in multiple segments with different values, the memory accumulates conflicting entries.',
+        'The delta variant fixes this by subtracting the existing memory content before writing:',
+        {
+          type: 'code',
+          language: 'text',
+          label: 'Delta memory update rule',
+          body: 'M_s = M_{s-1} + sigma(K)^T * (V - sigma(K) * M_{s-1} / (sigma(K) * z_{s-1}))',
+        },
+        'The term (V - sigma(K) * M_{s-1}) retrieves what memory currently associates with each key, subtracts it from the new value, and writes only the residual. This is the delta rule from the fast weight programmer literature (Schlag et al., 2021). It reduces interference when the same concept is updated across segments.',
+        {
+          type: 'table',
+          headers: ['Update rule', 'PG19 perplexity', 'Arxiv-Math perplexity', 'Interference handling'],
+          rows: [
+            ['Linear (additive)', '9.65', '2.24', 'Accumulates blindly'],
+            ['Linear + Delta', '9.67', '2.23', 'Subtracts old before writing new'],
+          ],
+        },
+        'In practice, the two variants perform comparably on language modeling benchmarks. The delta rule\'s advantage appears more clearly in tasks requiring precise factual updates across long contexts, where additive accumulation would blur old and new values of the same entity.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design can work when many old dependencies do not require exact token replay. A long document contains themes, entities, topics, and state that may be compressible. If the memory learns to preserve the useful signal and local attention handles precise recent details, the model can cover longer inputs without paying full exact-attention cost.',
-        'It can also work because segment processing is a natural production shape. Long inputs are often streamed or chunked: documents, transcripts, logs, codebases, and conversations arrive in pieces. Reading old memory, processing the current segment, and writing updated memory matches that flow. It gives the serving system a bounded object to carry forward instead of an ever-growing list of KV rows.',
-        'The key word is "useful." Compression is justified only if it preserves the information the task needs. A long summarization task may tolerate abstraction. A citation task may not. A model that remembers the gist but forgets the exact clause can be impressive and still wrong for legal, medical, security, or research work.',
+        'Three properties make the design sound.',
+        'First, local attention preserves exact short-range relationships. Within a segment, the model has full softmax attention with the standard quadratic cost but only over N tokens (typically 2,048). Syntax, coreference, and local reasoning stay exact. This is not an approximation.',
+        'Second, the compressive memory acts as a content-addressable store with O(1) read cost per query. The matrix-vector product sigma(Q) * M takes constant time regardless of how many segments have been written into M. The memory does not grow. This is the same principle behind linear attention: replacing the softmax kernel with a decomposable kernel (here, ELU+1) allows the attention computation to be rewritten as a matrix product with an accumulated state.',
+        'Third, the gate allows each head to specialize. The paper\'s analysis of trained models found three distinct head behaviors:',
+        {
+          type: 'table',
+          headers: ['Head type', 'Gate value (sigmoid(beta))', 'Behavior'],
+          rows: [
+            ['Local specialist', 'Near 0', 'Ignores memory; relies on exact segment attention'],
+            ['Memory specialist', 'Near 1', 'Ignores local attention; reads primarily from long-term memory'],
+            ['Mixer', 'Near 0.5', 'Blends both sources roughly equally'],
+          ],
+        },
+        'Every layer contained at least one local-specialist head, ensuring that short-range signal propagation was never blocked by memory noise. This emergent specialization means the architecture does not force all heads to use memory -- it lets each head learn whether old context or recent context matters more for its role.',
+        {
+          type: 'note',
+          text: 'The ELU+1 activation was chosen over alternatives like ReLU or softmax because it never produces zero (ELU(x) + 1 > 0 for all x), which prevents dead entries in the memory matrix, and because it showed stable training dynamics in the linear attention literature (Katharopoulos et al., 2020).',
+        },
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The cost profile has two distinct regimes: within-segment cost (dominated by local attention) and cross-segment cost (dominated by memory operations).',
+        {
+          type: 'table',
+          headers: ['Operation', 'Time complexity', 'Memory complexity'],
+          rows: [
+            ['Local attention (per segment)', 'O(N^2 * d)', 'O(N^2) attention matrix'],
+            ['Memory read (per segment)', 'O(N * d_key * d_value)', 'O(d_key * d_value) for M'],
+            ['Memory update (per segment)', 'O(N * d_key * d_value)', 'O(d_key) for z'],
+            ['Total per segment', 'O(N^2 * d + N * d_key * d_value)', 'O(N^2 + d_key * d_value)'],
+            ['Total for L segments', 'O(L * N^2 * d + L * N * d_key * d_value)', 'O(N^2 + d_key * d_value)'],
+          ],
+        },
+        'The critical property: memory footprint is constant across segments. The matrix M is d_key x d_value per head per layer. With d_key = d_value = 128 and 8 heads across 12 layers, that is 128 * 129 * 8 * 12 = approximately 1.27M parameters of memory state. Compare that to full attention\'s KV cache for 1M tokens: 128 * 2 * 8 * 12 * 1,000,000 = approximately 24.6B values.',
+        'The paper reports a 114x compression ratio over Memorizing Transformers on the PG19 benchmark. That compression is not free: the stored representation is lossy. But for workloads where the cost of storing exact KV pairs is prohibitive, bounded memory is the enabling constraint.',
+        {
+          type: 'note',
+          text: 'Within each segment, Infini-attention still pays the full quadratic cost of softmax attention. The savings come from not extending that quadratic window across the entire sequence. A 1M-token input processed in 2,048-token segments requires 488 segment passes with O(2048^2) local attention each, versus one O(1M^2) full-attention pass.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Infini-attention is a useful study case for bounded long-context architecture. A model reading a long technical manual could keep the current section exact while carrying older chapter themes, definitions, and recurring symbols in memory. A meeting assistant could preserve the current exchange exactly while carrying earlier agenda state and decisions in compressed form.',
-        'The design is also valuable as a bridge between attention and recurrent memory. It keeps the familiar attention block for local context but adds a stateful path for older context. That makes it easier to compare against RetNet, Mamba, StreamingLLM, and retrieval-augmented systems. The curriculum lesson is that "memory" can be exact tokens, learned state, retrieved documents, summaries, or some hybrid.',
-        'In production, the best fit is likely a workload where old context matters statistically but exact old spans can be checked through another path when needed. For example, long-form drafting may benefit from compressive memory, while final source-cited answers should still retrieve and verify the exact evidence.',
+        'The paper validated Infini-attention on three tasks that stress long-range memory differently.',
+        {
+          type: 'table',
+          headers: ['Task', 'Context length', 'Model', 'Result', 'Baseline comparison'],
+          rows: [
+            ['PG19 language modeling', '32K-100K training', '12L/8H', '9.65 perplexity', 'Memorizing Transformers: 11.37'],
+            ['Passkey retrieval', '1M tokens', '1B params', '100% accuracy (after fine-tuning)', 'Zero-shot: 7-8%'],
+            ['BookQA summarization', '500K tokens', '8B params', 'ROUGE-L 17.9', 'PRIMERA+Unlimiformer: 17.2'],
+          ],
+        },
+        'The passkey result is the most striking. A 1B model, continually pre-trained on only 4K-length sequences with 30K steps, then fine-tuned for 400 steps on 5K-length sequences, could retrieve a hidden passkey from anywhere in a 1M-token context. This demonstrates that the compressive memory can carry precise small facts across enormous distances when fine-tuned to do so.',
+        'Long-document processing is the natural production fit. A model reading a 500-page technical manual can keep exact attention over the current 2,048-token window while carrying chapter-level context, recurring definitions, and entity state in memory. Meeting transcription, legal document review, and codebase understanding all share this pattern: local precision matters, but so does awareness of what was established hundreds of pages ago.',
+        {
+          type: 'note',
+          text: 'The continual pre-training strategy is key to practical adoption. Infini-attention does not require training a model from scratch. The paper takes existing pre-trained models and adapts them with relatively short additional training (30K steps), making the approach compatible with the standard foundation-model workflow.',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The main failure is false confidence about old evidence. A compressive memory may preserve the topic but lose the number, quote, name, exception, or negation that makes the answer correct. This is why average language-model loss is not enough. Long-context evaluation needs exact retrieval, position sweeps, distractors, citation checks, and tasks where the decisive fact sits far outside the local segment.',
-        'Another failure is memory interference. Old segments can overwrite or distort each other. A memory update rule that works for one domain may fail under code, tables, math, or adversarial documents. Segment boundaries can create artifacts, and the model may learn to overtrust memory even when local context contradicts it.',
-        'There is also a systems failure mode. If the memory path is expensive, hard to batch, numerically unstable, or difficult to quantize, it may erase its serving advantage. A bounded-state architecture must be judged by quality, peak memory, p95 and p99 latency, batching behavior, and implementation maturity.',
+        'Compressive memory trades exact recall for bounded storage. That tradeoff has concrete failure modes.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Mechanism', 'Example'],
+          rows: [
+            ['Detail erasure', 'Compression discards specifics', 'Remembers a contract existed but loses the dollar amount'],
+            ['Interference', 'Later writes corrupt earlier entries', 'Two characters with similar names blur into one memory entry'],
+            ['Boundary artifacts', 'Segment splits break cross-boundary dependencies', 'A sentence split across segments loses its grammatical coherence in memory'],
+            ['Stale retrieval', 'Memory carries outdated associations', 'An entity redefined in segment 50 still returns its segment-3 definition'],
+            ['False confidence', 'Gate trusts memory for tasks requiring exact recall', 'Model produces a plausible-sounding but fabricated quote from an earlier chapter'],
+          ],
+        },
+        'The zero-shot passkey accuracy of only 7-8% reveals the core limitation: without targeted fine-tuning, the compressive memory does not automatically learn to preserve arbitrary exact facts. The 100% accuracy after fine-tuning shows the mechanism has the capacity, but the training objective must teach the model what to preserve.',
+        'Memory interference is especially dangerous with the additive update rule. If segment 5 and segment 50 both contain information about "the defendant," their key vectors will be similar, and the additive outer product accumulates both value vectors in overlapping memory locations. The delta rule mitigates this but does not eliminate it.',
+        'There is also a systems-level concern. The memory read adds a matrix-vector multiplication per head per layer per segment step. In a deeply pipelined serving system, this additional operation must be batched efficiently and must remain numerically stable under FP16 or INT8 quantization. The paper does not report quantized serving results.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine a model reading a 300-page technical manual. The current segment contains an equation that refers to a symbol introduced in chapter two. Local attention can handle the current equation exactly. The compressive memory may carry the earlier symbol definition, the role of the variable, and the surrounding topic. If the task is to summarize the equation, that may be enough. If the task is to quote the exact definition, compressed memory is not enough by itself.',
-        'A production system can use Infini-attention as the model memory while pairing it with source retrieval. The memory path keeps the model oriented across long text. Retrieval fetches exact old spans when the answer must cite or quote. This division of labor is usually more honest than claiming one learned state can serve every memory need.',
+        'Consider a 4-segment processing of a legal contract. Each segment is 2,048 tokens. The model has d_key = d_value = 4 (simplified for illustration) and one attention head.',
+        {
+          type: 'code',
+          language: 'text',
+          label: 'Segment-by-segment memory evolution',
+          body: 'Segment 0: "Party A agrees to pay $50,000 by March 15..."\n  M_0 = sigma(K_0)^T * V_0       # Initial memory: contract terms\n  z_0 = sum(sigma(K_0))           # Normalization initialized\n\nSegment 1: "Party B shall deliver equipment per Schedule C..."\n  Read:  A_mem = sigma(Q_1) * M_0 / (sigma(Q_1) * z_0)  # Recall: payment terms\n  Local: A_dot = softmax(Q_1 K_1^T / 2) * V_1            # Exact: delivery terms\n  Gate:  A = 0.3 * A_mem + 0.7 * A_dot                   # Head favors local\n  Write: M_1 = M_0 + sigma(K_1)^T * V_1                  # Memory now has both\n\nSegment 2: "Force majeure clause: neither party liable..."\n  Read:  A_mem = sigma(Q_2) * M_1 / (sigma(Q_2) * z_1)  # Recall: terms so far\n  Local: A_dot = softmax(Q_2 K_2^T / 2) * V_2            # Exact: force majeure\n  Gate:  A = 0.6 * A_mem + 0.4 * A_dot                   # Head trusts memory more\n  Write: M_2 = M_1 + sigma(K_2)^T * V_2                  # Three segments compressed\n\nSegment 3: "Amendment: payment revised to $75,000..."\n  Read:  A_mem = sigma(Q_3) * M_2 / (sigma(Q_3) * z_2)  # Recall: old $50K term\n  # CRITICAL: does memory return $50K, $75K, or a blend?\n  # With additive update, both amounts contribute to the same key region.\n  # The delta rule would subtract the old value before writing the new one.',
+        },
+        'This example shows the interference problem concretely. When the payment amount changes from $50,000 to $75,000, the additive memory accumulates both values. A query about "the payment amount" retrieves a weighted blend. The delta variant would first retrieve and subtract the $50,000 association before writing $75,000, producing cleaner updates. But even the delta rule depends on the key vectors being similar enough to trigger the subtraction -- if the amendment is phrased very differently from the original clause, the old entry may persist.',
+      ],
+    },
+    {
+      heading: 'Comparison with related approaches',
+      paragraphs: [
+        'Infini-attention belongs to a family of bounded-state long-context methods. Each makes a different bet about what to keep and what to compress.',
+        {
+          type: 'table',
+          headers: ['Method', 'State type', 'State size', 'Update rule', 'Exact old-token recall?'],
+          rows: [
+            ['Full attention', 'All KV pairs', 'O(n) per layer', 'Append', 'Yes'],
+            ['Sliding window', 'Recent KV pairs', 'O(w) per layer', 'Discard oldest', 'No (outside window)'],
+            ['StreamingLLM', 'Sink tokens + recent', 'O(w + s) per layer', 'Keep sinks, slide window', 'No (outside window + sinks)'],
+            ['Transformer-XL', 'Cached segment states', 'O(N * l) per layer', 'Shift cache', 'Partial (within cache)'],
+            ['Memorizing Transformers', 'External KV store', 'O(n) external', 'Append to store', 'Yes (with retrieval cost)'],
+            ['Mamba (S6)', 'Recurrent hidden state', 'O(d * d) per layer', 'Selective scan', 'No (compressed)'],
+            ['Infini-attention', 'Associative matrix M + z', 'O(d_k * d_v) per layer', 'Outer-product accumulation', 'No (compressed)'],
+          ],
+        },
+        'The unique position of Infini-attention is that it keeps the standard Transformer block shape. The local attention path is unchanged. The memory path is added in parallel, not as a replacement. This means existing pre-trained weights can be reused, and the memory mechanism can be introduced through continual pre-training rather than training from scratch.',
+        {
+          type: 'note',
+          text: 'Mamba and Infini-attention are conceptually similar: both carry fixed-size state forward. The difference is that Mamba replaces attention entirely with a selective state-space model, while Infini-attention keeps softmax attention for local context and adds linear-attention memory alongside it. The hybrid approach preserves the in-context learning capabilities of attention at the cost of higher per-segment compute.',
+        },
       ],
     },
     {
       heading: 'Evaluation checklist',
       paragraphs: [
-        'A useful evaluation should separate gist memory from exact memory. Test long summarization, topic continuity, and entity tracking, but also test needle retrieval, quote fidelity, key-value lookup, old instruction following, and contradiction between local text and old memory. Sweep the decisive evidence across positions rather than testing only the beginning and end.',
-        'The systems checklist should include peak memory, latency by sequence length, batching behavior, quantized serving quality, segment-boundary sensitivity, and comparison against sliding-window, retrieval, and exact-attention baselines. A memory architecture earns adoption only when it improves the full quality-cost curve.',
+        'A credible evaluation of any compressive memory system must separate gist recall from exact recall. Average perplexity can look good while exact-fact retrieval fails.',
+        {
+          type: 'bullets',
+          items: [
+            'Language modeling perplexity on long documents (PG19, Arxiv-Math) -- measures general next-token prediction quality.',
+            'Passkey retrieval across positions -- measures whether a single injected fact survives compression at varying distances.',
+            'Multi-document QA -- measures whether the model can distinguish sources and avoid blurring information across documents.',
+            'Needle-in-a-haystack with distractors -- measures robustness when irrelevant content fills the context.',
+            'Contradiction detection -- measures whether the model notices when recent text contradicts old memory.',
+            'Peak memory measurement at sequence lengths 32K, 128K, 512K, 1M -- verifies the bounded-memory claim empirically.',
+            'Latency breakdown: local attention time vs. memory read/write time vs. gating -- identifies whether the memory path becomes a bottleneck.',
+            'Quantized serving quality (FP16, INT8) -- verifies that the memory matrix remains numerically stable under reduced precision.',
+          ],
+        },
+        'The paper demonstrates the first three convincingly. The systems-level evaluations (latency breakdown, quantized serving, memory profiling at scale) remain open for production adoption.',
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Infini-attention is not magic infinite recall. It is a hybrid memory design: exact local attention for recent tokens plus compressed state for older context. That is a serious idea because most long-context workloads need both recent precision and some durable old signal.',
-        'The design should be evaluated as a memory contract. Ask what remains exact, what becomes compressed, how memory is updated, what old facts are recoverable, how failures are detected, and whether retrieval or citation checks are needed for high-stakes answers.',
-        'The practical lesson is to name the memory tier. Local attention is the exact tier, compressive memory is the learned state tier, and retrieval can be the evidence tier. Once those roles are explicit, students can reason about what the model is likely to remember and what the application must verify.',
+        {
+          type: 'quote',
+          text: 'Leave No Context Behind: Efficient Infinite Context Transformers with Infini-attention.',
+          attribution: 'Munkhdalai, Faruqui, and Gopal, 2024 -- https://arxiv.org/abs/2404.07143',
+        },
+        'The paper builds directly on the linear attention framework of Katharopoulos et al. (2020), "Transformers are RNNs," and the fast weight programmer tradition starting from Schmidhuber (1992). The delta update rule comes from Schlag et al. (2021), "Linear Transformers Are Secretly Fast Weight Programmers."',
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Attention mechanism -- understand scaled dot-product attention before studying its compressive extension'],
+            ['Prerequisite', 'KV Cache -- understand what gets stored and why it grows with sequence length'],
+            ['Contrast', 'StreamingLLM Attention Sinks -- a different bounded-memory strategy that keeps sink tokens instead of compressing'],
+            ['Contrast', 'Selective State Space Models: Mamba -- replaces attention entirely with recurrent state'],
+            ['Extension', 'Hybrid Attention State Budget Case Study -- how to allocate capacity across exact and compressed memory tiers'],
+            ['Evaluation', 'Lost in the Middle -- the position-dependent failure pattern that compressive memory aims to mitigate'],
+          ],
+        },
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary source: Efficient Infinite Context Transformers with Infini-attention at https://arxiv.org/abs/2404.07143.',
-        'Study StreamingLLM Attention Sinks, Sliding-Window Attention Context Policy, KV Cache, Selective State Space Models: Mamba, Test-Time Training Layer Case Study, Hybrid Attention State Budget Case Study, Lost in the Middle, and RAG Claim Verification next.',
-      ],
-    },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-    {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        "The core insight is the smallest idea that changes what can be proven.",
-        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
-        "Everything else in the topic should serve this one sentence.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for infini-attention-compressive-memory-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

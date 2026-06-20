@@ -190,182 +190,334 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for On-Device Personalization Adapter Cache Case Study. An on-device personalization case study: global base model, local adapter cache, privacy boundary, federated evaluation, tuning tasks, rollback ledger, and stale-state eviction..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. The adapter-cache view traces the lifecycle of personal state from server shipment through local tuning, caching, and rollback. The personal-eval view traces how federated evaluation measures whether personalization helped without exporting raw user data.',
+        'Active nodes are the current decision point. Found markers are state whose validity has been confirmed by a guard (hash check, schema match, TTL). Removed markers are state that failed a guard and must be purged. Compare markers show the fallback path the system uses when personal state is absent or invalid.',
+        'In the histogram frame, the "hurt" marker at the left tail and the "win" marker at the right show why a single positive average is dangerous: the distribution, not the mean, drives the release gate.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'On-device personalization adapts a product to one user or one device without turning every private example into server-side training data. The global base model stays shared. The local device stores a small amount of personal state that changes predictions for that user.',
-        'The personal state can be a neural adapter, a calibration table, a small rank update, a recency feature cache, a preference embedding, a correction counter, or a rule overlay. The common requirement is lifecycle control: the state must be versioned, scoped, evaluated, expired, rolled back, and purged.',
-        'This is not only an ML idea. It is a state-management pattern. If the adapter cache lacks a base-model hash, schema version, TTL, policy label, metric history, and disable flag, personalization becomes invisible sticky state that can keep hurting a user after the server thinks a bad release was fixed.',
+        'A keyboard app ships a single language model to 500 million devices. Every user types different names, slang, and domain terms. The base model predicts "the" well but struggles with "Karpathy" or "doomscrolling" until it has seen that user type them.',
+        'The product needs user-specific predictions without centralizing every keystroke on a server. The constraint is not just accuracy -- it is privacy, storage, battery, and the ability to undo personalization when the base model changes.',
+        {
+          type: 'quote',
+          text: 'We evaluate personalized models using federated evaluation: each device computes metrics locally, and only aggregated, anonymized metrics are sent to the server.',
+          attribution: 'Apple Machine Learning Research, "Federated Evaluation and Tuning for On-Device Personalization" (2024)',
+        },
+        'On-device personalization solves this by keeping a small personal delta on the device and a shared base model under central control. The delta is not a second model. It is a cache entry with a lifecycle: creation, validation, expiry, rollback, and deletion.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first attempt is straightforward: fine-tune the entire model on each device. The user types, the model updates its weights, and predictions improve. No server round-trip, no privacy concern, no coordination overhead.',
+        'This works in a research notebook. A 30M-parameter model fine-tuned on 10,000 local examples converges in a few minutes on a modern phone GPU. The word error rate drops. The demo looks great.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Storage per user', 'Update cost', 'Rollback'],
+          rows: [
+            ['Full fine-tune', '120 MB (full weights)', '~3 min GPU', 'Re-download entire model'],
+            ['Adapter cache', '0.5-4 MB (delta only)', '~10 sec CPU', 'Delete one cache entry'],
+          ],
+        },
+        'The fine-tuning approach treats personalization as a model problem. But in production it is a state-management problem. The model changes underneath. The user changes behavior. The policy changes what data can be retained. A full fine-tune has no seams where these changes can be absorbed without starting over.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The server ships base model v42. A device fine-tunes it locally for three weeks. The server ships base model v43 with a safety patch and changed hidden representations. The device now has a v42-based fine-tune running on top of v43 weights.',
+        {
+          type: 'diagram',
+          text: 'server ships v42 --> device fine-tunes --> 3 weeks pass\nserver ships v43 --> device loads v43 + v42-tuned weights\n                     ^^^ hidden representations changed\n                     predictions: UNDEFINED BEHAVIOR',
+          label: 'Version mismatch: the fine-tune was trained against representations that no longer exist',
+        },
+        'The result is not a clean error. It is silently wrong predictions. The model still produces output. The user sees worse suggestions but cannot diagnose why. Support cannot reproduce the issue because every device has a different fine-tune history. Rolling back means re-downloading 120 MB and losing all personalization.',
+        'The invariant that must hold: personal state is valid only for the exact base model version, schema, and policy window it was created under. Full fine-tuning destroys this invariant because the personal state is entangled with the base weights -- there is no seam where you can check compatibility or discard the personal part alone.',
+        {
+          type: 'note',
+          text: 'This is not a theoretical risk. Google reported that representation drift between federated rounds was a primary source of training instability in production keyboard models, requiring explicit staleness checks before applying client updates.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The server ships a base model with an immutable version, for example base v42. The device installs that base and may create a local adapter keyed by base hash, task, locale, hardware class, app version, and policy scope.',
-        'At inference time the product combines base plus local state. The adapter may adjust a decoder, rank suggestions, bias an embedding search, calibrate probabilities, or remember recent corrections. The base model remains a stable fallback. If the adapter is missing, expired, incompatible, or disabled, prediction still works.',
-        'The core insight is to treat personalization as a small local delta with a lifecycle, not as a hidden fork of the model. The invariant is simple: a personal adapter is valid only for the base model, schema, policy, and time window named in its cache record.',
-        'The cache entry is the critical data structure. A useful entry stores adapter bytes or compact statistics, the compatible base hash, schema version, training window, feature policy, creation time, TTL, last-evaluation summary, rollback reason, and a purge marker. Those fields make the state auditable instead of merely local.',
+        'Separate the stable part from the personal part at a clean interface. The base model is an immutable artifact identified by a content hash. The personal state is a small adapter -- a LoRA-style low-rank update, a bias vector, a calibration table, or a feature-frequency cache -- stored as a cache entry with explicit metadata.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// The cache entry is the critical data structure\nconst adapterCacheEntry = {\n  adapterBytes: Uint8Array,    // the personal delta (0.5-4 MB)\n  baseHash:     "sha256:a1b2", // which base model this was trained against\n  schemaVersion: 3,            // adapter wire format version\n  task:         "next-word",   // which prediction task owns this\n  locale:       "en-US",       // partition key for slice evaluation\n  hwTier:       "mid",         // hardware class (affects training budget)\n  createdAt:    1718700000,    // unix timestamp\n  ttlSeconds:   604800,        // 7 days -- expire if not refreshed\n  trainingWindow: 5000,        // number of local examples used\n  lastEvalGain: 0.03,          // WER improvement vs base-only\n  rollbackReason: null,        // set if evaluation disables this entry\n  purged:       false,         // hard delete marker\n};',
+        },
+        'The key property: if any guard fails -- base hash mismatch, schema incompatibility, TTL expiry, evaluation regression, or policy revocation -- the system deletes the cache entry and falls back to the base model. Prediction still works. The user loses personalization temporarily, not the entire feature.',
+        'This is the same pattern as HTTP cache validation. An ETag (base hash) and max-age (TTL) govern whether cached state can be reused. A cache miss is not an error; it is a fallback to the origin (base model).',
       ],
     },
     {
-      heading: 'Why A Cache Instead Of A Fine-Tuned Model',
+      heading: 'How it works',
       paragraphs: [
-        'Shipping a separate fine-tuned model per user is usually too large, too expensive, and too hard to govern. A small adapter cache keeps most model quality in the shared base while letting the device carry only the personal delta.',
-        'The cache also gives the product a clean escape hatch. If a base model update changes hidden representations, old adapters can be invalidated by hash or schema. If a device enters a bad local loop, the adapter can be disabled without uninstalling the whole model. If policy changes, entries with the old policy tag can be purged.',
-        'Local state should remain optional. Personalization should improve the result when the cache is healthy, not become a new dependency that breaks the base feature when it is absent.',
+        'The system operates as a seven-node pipeline with two scopes: global (server-controlled) and local (device-controlled). The animation walks through each transition.',
+        {
+          type: 'diagram',
+          text: 'GLOBAL SCOPE                    LOCAL SCOPE\n+---------+    ship    +------+    install    +--------+    tune    +---------+\n| server  | ---------> | base | -----------> | device | --------> | adapter |\n+---------+            +------+              +--------+           +---------+\n     ^                                           |                     |\n     |                                         score                  save\n     |                                           v                     v\n     |    secure sum   +--------+   stats    +-------+            +---------+\n     +<--------------- | upload | <--------- | eval  |            |  cache  |\n                       +--------+            +-------+            +---------+',
+          label: 'The personalization pipeline: global state flows right, evaluation flows left, personal state stays right',
+        },
+        {
+          type: 'table',
+          headers: ['Transition', 'What changes', 'What stays true', 'Guard'],
+          rows: [
+            ['ship', 'Server publishes base model with content hash', 'Hash is immutable once published', 'Version monotonicity'],
+            ['install', 'Device receives base model', 'Device has exact same weights as server', 'Hash verification'],
+            ['tune', 'Device trains adapter on local examples', 'Base weights are frozen; only adapter updates', 'Training budget limit'],
+            ['save', 'Adapter + metadata written to cache', 'Cache entry records base hash and schema', 'Storage quota check'],
+            ['score', 'Device computes base-only and base+adapter metrics', 'Raw examples never leave the device', 'Privacy policy tag'],
+            ['stats', 'Aggregate metrics sent to evaluation server', 'Per-user data is not in the packet', 'Secure aggregation or DP noise'],
+            ['secure sum', 'Server aggregates metrics across devices', 'No individual device is identifiable', 'Minimum cohort size'],
+          ],
+        },
+        'Each transition has a guard. The system is correct when every guard holds. A single guard failure triggers fallback, not crash: the device drops the adapter and uses the base model until a new valid cache entry can be built.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The pattern works because it keeps the stable part and the personal part under separate ownership. The base model can be evaluated, rolled out, and supported as a shared product artifact. The adapter can adapt quickly because it is small, scoped, and disposable.',
-        'Correctness is a lifecycle claim rather than a theorem about model quality. A prediction is safe to personalize only when the adapter matches the installed base hash, passes schema checks, remains inside its TTL, and has not been disabled by evaluation or policy. If any guard fails, the system falls back to the base model.',
-        'This separation also makes failures easier to repair. A bad global model update can invalidate adapters by base hash. A bad personalization recipe can purge local state without uninstalling the app. A privacy policy change can deny export from cache fields that were never meant to leave the device.',
+        'Correctness rests on three properties:',
+        {
+          type: 'bullets',
+          items: [
+            'Compatibility: the adapter is valid only when its recorded base hash matches the installed base model hash. A base model update automatically invalidates all adapters trained against the old version.',
+            'Monotonic fallback: removing the adapter always produces a valid prediction (base-only). Personalization is an improvement layer, never a dependency. The base model is tested and shipped as a standalone artifact.',
+            'Bounded staleness: the TTL and training-window fields prevent adapters from accumulating unbounded drift. An adapter trained on 5,000 examples from three weeks ago cannot silently persist for months.',
+          ],
+        },
+        'Together these properties give the system a conservation law: the worst-case prediction quality is always at least as good as the base model. Personalization can only improve on this floor or be removed. It cannot degrade below it, because any degradation triggers the rollback guard.',
+        {
+          type: 'note',
+          text: 'This is analogous to the "safe policy improvement" guarantee in reinforcement learning: the new policy is deployed only if evaluation confirms it outperforms the baseline, and the baseline remains available as a fallback.',
+        },
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A speech recognition feature ships base model v42. On each device, recent corrections train a small local adapter that improves names, domain words, and accent-specific patterns. The cache entry includes the base hash, adapter schema, correction window, locale, hardware tier, TTL, and a metric summary.',
-        'The product runs a federated evaluation task. Each device scores base-only recognition and base-plus-adapter recognition on local examples. The server receives only approved aggregate metrics, preferably through a secure aggregation path, not raw utterances or per-user correction logs.',
-        'The average word error rate improves, but one locale on older hardware regresses. A mature release gate does not ship on the average alone. It enables personalization for passing slices, blocks or purges the failing slice, and keeps the global base unchanged while the team investigates the adapter recipe.',
+        'A speech recognition app ships base model v42 (content hash sha256:a1b2). On Device A (en-US, mid-tier hardware), the user corrects "call Karpathy" three times. The device trains a small adapter -- a rank-4 LoRA update to the decoder attention layers, 1.2 MB -- and writes a cache entry:',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Cache entry for Device A:\n  baseHash:       sha256:a1b2\n  schemaVersion:  3\n  task:           speech-asr\n  locale:         en-US\n  hwTier:         mid\n  trainingWindow: 847 corrections\n  ttlSeconds:     604800 (7 days)\n  lastEvalGain:   +4.1% WER improvement\n  rollbackReason: null',
+        },
+        'The product team runs a federated evaluation round. 50,000 devices each compute two word-error-rate scores: base-only and base+adapter. Each device sends only the pair of aggregate WER numbers -- not the raw utterances, not the corrections, not the adapter weights.',
+        {
+          type: 'table',
+          headers: ['Slice', 'Devices', 'Base WER', 'Personal WER', 'Gain', 'Gate'],
+          rows: [
+            ['en-US, mid-tier', '18,200', '8.3%', '7.1%', '+1.2%', 'PASS'],
+            ['en-US, low-tier', '9,400', '9.1%', '9.4%', '-0.3%', 'BLOCK'],
+            ['en-GB, mid-tier', '6,800', '8.7%', '7.9%', '+0.8%', 'PASS'],
+            ['es-MX, mid-tier', '4,100', '11.2%', '10.5%', '+0.7%', 'PASS'],
+            ['en-US, accessibility', '1,200', '10.4%', '10.1%', '+0.3%', 'PASS (watch)'],
+          ],
+        },
+        'The en-US low-tier slice regresses. The release gate enables personalization for passing slices, blocks adapter loading for the regressing slice (those devices fall back to base-only), and flags the low-tier training recipe for investigation. The base model is unchanged throughout -- no global rollback needed.',
       ],
     },
     {
-      heading: 'Federated Evaluation Versus Federated Training',
+      heading: 'Federated evaluation versus federated training',
       paragraphs: [
-        'Federated evaluation asks a measurement question: did personalization help on devices, slices, and tasks that matter? The device computes metrics locally, and the server aggregates them under privacy and policy constraints.',
-        'Federated training asks an optimization question: should device-computed updates change a shared model? That loop may use secure aggregation, client sampling, clipping, differential privacy, and server-side optimizers. It is heavier and riskier because bad client updates can affect everyone.',
-        'A clean system keeps these loops separate. Local personalization can stay entirely on device. Federated evaluation can measure whether it is safe. Federated training can improve future global models only when the update policy, privacy budget, and release gates justify it.',
+        'These are two different loops that share infrastructure but have different risk profiles.',
+        {
+          type: 'table',
+          headers: ['Property', 'Federated evaluation', 'Federated training'],
+          rows: [
+            ['Question', 'Did personalization help?', 'Should device updates change the global model?'],
+            ['Data leaving device', 'Aggregate metrics only', 'Clipped gradient updates'],
+            ['Server action', 'Enable/block per slice', 'Update global model weights'],
+            ['Failure blast radius', 'One slice loses personalization', 'All devices get a worse base model'],
+            ['Privacy mechanism', 'Secure aggregation of scalars', 'Secure aggregation + DP noise + clipping'],
+            ['Frequency', 'Every release candidate', 'Periodic training rounds'],
+          ],
+        },
+        'A clean architecture separates these loops. Local personalization can run indefinitely with only federated evaluation as oversight. Federated training is a separate, higher-risk decision that changes the shared base model and requires stronger privacy guarantees (differential privacy budgets, client sampling, norm clipping).',
+        {
+          type: 'note',
+          text: 'Google Gboard uses federated evaluation to gate local personalization features and federated training (FedAvg with DP) to improve the global model. These are independent systems with independent approval processes.',
+        },
       ],
     },
     {
-      heading: 'Evaluation Gates',
+      heading: 'The rollback ledger',
       paragraphs: [
-        'The most dangerous personalization metric is a single positive average. A personalized model can help frequent users while hurting new users, help one locale while hurting another, or improve aggregate click-through while increasing privacy-sensitive mistakes.',
-        'Good gates compare base-only and personalized behavior by slice: locale, device class, accessibility mode, account age, data sparsity, app version, hardware tier, and policy cohort. They also track left-tail harm, not only mean improvement.',
-        'The gate should produce an action: keep, expire, purge, disable for a slice, require more data, or promote a new recipe. Metrics that do not connect to cache actions are observability, not control.',
+        'The animation shows four guards that run before an adapter is loaded from cache. Each guard produces a binary keep/purge decision.',
+        {
+          type: 'table',
+          headers: ['Guard', 'Check', 'Pass action', 'Fail action'],
+          rows: [
+            ['Base hash', 'Does the adapter baseHash match the installed model hash?', 'Keep adapter', 'Purge -- trained against wrong representations'],
+            ['Schema version', 'Does the adapter wire format match the current runtime?', 'Load adapter', 'Purge -- bytes would be misinterpreted'],
+            ['TTL', 'Is createdAt + ttlSeconds > now?', 'Keep adapter', 'Expire -- drift risk too high'],
+            ['Evaluation', 'Did the last eval show gain >= 0 for this slice?', 'Keep adapter', 'Purge -- personalization is hurting this user'],
+          ],
+        },
+        'Guards run in order of cost: the hash check is a string comparison (nanoseconds), schema is an integer comparison, TTL is a timestamp comparison, and evaluation requires reading the last metric summary. If any guard fails, subsequent guards are skipped and the adapter is purged.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: 'function shouldLoadAdapter(entry, installedBaseHash, currentSchema, now) {\n  if (entry.purged) return { load: false, reason: "already purged" };\n  if (entry.baseHash !== installedBaseHash)\n    return { load: false, reason: "base hash mismatch" };\n  if (entry.schemaVersion !== currentSchema)\n    return { load: false, reason: "schema incompatible" };\n  if (entry.createdAt + entry.ttlSeconds < now)\n    return { load: false, reason: "TTL expired" };\n  if (entry.rollbackReason !== null)\n    return { load: false, reason: entry.rollbackReason };\n  return { load: true, reason: null };\n}',
+        },
+        'This is the same guard chain used in certificate validation (expiry, issuer, revocation) and HTTP caching (ETag, max-age, no-cache). The pattern is general: cached derived state needs explicit validity checks against the source it was derived from.',
       ],
     },
     {
-      heading: 'Privacy Boundary',
+      heading: 'Privacy boundary',
       paragraphs: [
-        'The privacy promise depends on what leaves the device. Keeping an adapter local is useful, but it is not magic. Uploading raw corrections, rare phrases, exact examples, or per-device traces can undo the privacy benefit.',
-        'A privacy-aware design names each outbound packet. Aggregate metric, secure-summed update, clipped gradient, differential-privacy-noised count, crash diagnostic, and debug log are different artifacts with different risks. The adapter cache should carry a policy tag that says which task is allowed to read or export which fields.',
-        'Debuggability must be designed into the local lifecycle. If the only way to understand failures is to upload raw examples, the architecture will drift toward centralization under pressure. Local summaries, synthetic repro cases, cohort-level metrics, and explicit purge reasons keep the system inspectable without exporting personal content.',
+        'Keeping an adapter on-device is necessary but not sufficient for privacy. The critical question is what leaves the device, and through which channel.',
+        {
+          type: 'table',
+          headers: ['Outbound artifact', 'Content', 'Privacy risk', 'Mitigation'],
+          rows: [
+            ['Aggregate WER pair', 'Two floating-point numbers', 'Low -- no user content', 'Secure aggregation, minimum cohort'],
+            ['Clipped gradient update', 'Model delta vector', 'Medium -- can leak memorized tokens', 'Norm clipping + DP noise'],
+            ['Crash diagnostic', 'Stack trace, adapter metadata', 'Medium -- reveals adapter state', 'Strip user-content fields'],
+            ['Raw corrections log', 'Exact user utterances', 'Critical -- full user content', 'Never export; process locally only'],
+            ['Debug replay', 'Input/output pairs', 'Critical -- full user content', 'Synthetic repro only'],
+          ],
+        },
+        'The cache entry carries a policy tag that names which federated tasks can read which fields. An evaluation task can read the metric summary. A training task can read the adapter bytes. A debug task can read the rollback reason. No task can read raw user examples unless the user explicitly opts in.',
+        'Debuggability must be designed into the local lifecycle. If the only way to diagnose adapter failures is to upload raw examples, the architecture will drift toward centralization under engineering pressure. Local summaries, synthetic reproduction cases, and cohort-level metrics keep the system inspectable without exporting personal content.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'On-device adaptation costs CPU, battery, storage, thermal budget, and implementation complexity. A background tuning job that looks cheap in a lab can drain a low-end phone, contend with media workloads, or be killed before it commits a valid cache entry.',
-        'Staleness is the next failure. An adapter trained against base v42 may be harmful on base v43. A cache trained during a temporary user behavior can overfit. A rare bad label can poison local state. A device clock bug can keep expired state alive. A schema mismatch can load bytes as the wrong adapter type.',
-        'Fairness can fail quietly. If only heavy users build useful adapters, personalization can widen quality gaps. If disabled users or low-resource locales have different correction patterns, the system needs slice gates and fallback quality targets, not only aggregate improvement.',
+        {
+          type: 'table',
+          headers: ['Resource', 'Budget', 'Constraint', 'Failure mode'],
+          rows: [
+            ['Storage', '0.5-4 MB per adapter', 'Device storage quota', 'Evict oldest or lowest-gain entry'],
+            ['Training compute', '10-60 sec CPU per update', 'Battery and thermal budget', 'Defer training to charging + idle'],
+            ['Inference latency', '+2-8 ms per forward pass', 'User-perceptible delay threshold', 'Skip adapter if latency budget exceeded'],
+            ['Evaluation bandwidth', '~100 bytes per eval packet', 'Secure aggregation round cost', 'Batch with other telemetry'],
+            ['Cache metadata', '~200 bytes per entry', 'Negligible', 'N/A'],
+          ],
+        },
+        'The dominant cost is training compute, not storage. A rank-4 LoRA update to a 100M-parameter model adds about 400K trainable parameters (0.4% of the model). Training on 1,000 local examples takes 10-30 seconds of CPU time. This must be scheduled during idle+charging windows to avoid draining the battery during active use.',
+        'Staleness is the non-obvious cost. An adapter trained against base v42 has zero value after base v43 ships -- the representations it was trained against no longer exist. If the base model updates monthly and the adapter TTL is 7 days, the expected number of wasted training cycles is low. If the base updates weekly, the TTL must shrink or training must be deferred until the next base version stabilizes.',
+        {
+          type: 'note',
+          text: 'Fairness is a hidden cost. If only power users generate enough local examples to build useful adapters, personalization widens the quality gap between heavy and light users. Slice-level evaluation gates must track not just mean improvement but the distribution of gain across user segments.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'This pattern works when the signal is personal, sensitive, and locally abundant: keyboard suggestions, speech recognition corrections, ranking preferences, accessibility settings, notification timing, on-device search, private recommendation features, and local retrieval over user-owned content.',
-        'It is especially strong when the base model is good enough to stand alone and the adapter only needs to nudge behavior. The smaller the local delta, the easier it is to store, invalidate, explain, and delete.',
+        'The adapter-cache pattern appears wherever the signal is personal, sensitive, and locally abundant:',
+        {
+          type: 'table',
+          headers: ['Product', 'Base model', 'Personal adapter', 'Cache key'],
+          rows: [
+            ['Gboard next-word prediction', 'Global language model', 'LoRA on decoder, trained on local typing', 'base hash + locale + device tier'],
+            ['iOS autocorrect', 'Shared spelling/grammar model', 'User dictionary + correction frequency table', 'base version + app version'],
+            ['Siri speech recognition', 'Shared ASR model', 'Accent/name adapter trained on corrections', 'base hash + locale + hw class'],
+            ['Smart Compose (Gmail)', 'Global suggestion model', 'Per-user phrase frequency cache', 'model version + account age'],
+            ['On-device photo search', 'Shared CLIP-style embedding model', 'Personal concept clusters from local photos', 'model hash + gallery size tier'],
+            ['Notification ranking', 'Global priority model', 'Per-user app interaction history features', 'model version + notification policy'],
+          ],
+        },
+        'The pattern is strongest when the base model is good enough to stand alone and the adapter only needs to nudge behavior. The smaller the personal delta, the easier it is to store, validate, expire, and delete. A 1 MB adapter with a 7-day TTL is operationally trivial. A 50 MB fine-tune with no expiry is operationally dangerous.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the device lacks enough local signal. A cold-start user, a rarely used feature, or a high-noise task may produce adapters that memorize accidents instead of preferences.',
-        'It also fails when the product needs global coordination. Fraud rules, safety classifiers, compliance policies, and shared marketplace ranking often cannot be personalized privately without central review, because local behavior has effects on other users.',
-        'A final failure is ungoverned persistence. Personal state that cannot be inspected, expired, or deleted will eventually conflict with model updates, user expectations, privacy promises, or support workflows.',
+        {
+          type: 'bullets',
+          items: [
+            'Cold start: a new user or rarely used feature lacks enough local signal to train a useful adapter. The adapter memorizes noise instead of preferences. Mitigation: require a minimum training window before activating personalization.',
+            'Global coordination: fraud detection, safety classifiers, and content policy cannot be personalized privately. A user who trains an adapter to suppress fraud warnings creates risk for other users. These tasks need central control, not local adaptation.',
+            'Ungoverned persistence: an adapter without a TTL, base-hash check, or evaluation gate becomes invisible sticky state. After a base model update, the stale adapter produces silently wrong predictions that support cannot reproduce or fix.',
+            'Adversarial poisoning: a malicious user can deliberately feed bad corrections to degrade their own adapter, then report the degraded output as a product bug. The rollback ledger must distinguish evaluation-detected regression from user-reported issues.',
+            'Resource contention: background training on a phone competes with foreground apps for CPU, GPU, memory, and thermal budget. A training job that looks cheap in a lab benchmark can trigger thermal throttling during a video call.',
+          ],
+        },
       ],
     },
     {
-      heading: 'Implementation Checklist',
+      heading: 'Implementation checklist',
       paragraphs: [
-        'For every local-state format, define the compatible base model, schema version, owner feature, policy tag, TTL, storage budget, training window, validation metric, rollback reason, disable flag, and purge path.',
-        'For every release, compare base-only and personalized behavior by slice, track left-tail regressions, verify outbound packets against the privacy boundary, and keep a fallback that works when the adapter cache is empty or disabled.',
+        {
+          type: 'bullets',
+          items: [
+            'Define the cache entry schema: adapter bytes, base hash, schema version, task, locale, hardware tier, TTL, training window, last eval gain, rollback reason, purge flag, policy tag.',
+            'Implement the guard chain: base hash match, schema compatibility, TTL check, evaluation gate. Guards run in cost order; first failure triggers fallback.',
+            'Schedule training during idle+charging windows. Enforce a maximum training budget (wall-clock seconds, not epochs) to prevent battery drain.',
+            'Set a storage quota per task. If the quota is exceeded, evict the adapter with the lowest evaluation gain.',
+            'Run federated evaluation before enabling personalization for a new base model version. Gate on per-slice metrics, not just the global mean.',
+            'Tag every outbound packet with a policy label. Audit the pipeline to ensure raw user content never leaves the device unless the user explicitly opts in.',
+            'Implement a per-device disable flag. If a user reports degraded quality, support can disable personalization for that device without uninstalling the app.',
+            'Log adapter lifecycle events (create, load, expire, purge, rollback) locally for on-device diagnostics. Do not export these logs by default.',
+          ],
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary references: Apple Federated Evaluation and Tuning for On-Device Personalization at https://machinelearning.apple.com/research/federated-personalization, Google Federated Evaluation of On-device Personalization at https://research.google/pubs/federated-evaluation-of-on-device-personalization/, FedPer at https://arxiv.org/abs/1912.00818, and TensorFlow Federated at https://www.tensorflow.org/federated.',
-        'Study Federated Client Cohort Sampler, Secure Aggregation Dropout Mask Recovery, Differential Privacy SGD, Feature Store, Training-Serving Skew Replay Diff, On-Device LLM Inference Cost Crossover, and Query Cache Stale-Time GC next.',
+        {
+          type: 'table',
+          headers: ['Source', 'Role', 'Key contribution'],
+          rows: [
+            ['Apple, "Federated Evaluation and Tuning for On-Device Personalization" (2024)', 'Primary reference', 'Defines the federated evaluation loop for gating on-device personalization'],
+            ['Google, "Federated Evaluation of On-device Personalization" (2024)', 'Production case study', 'Reports evaluation methodology for Gboard keyboard personalization'],
+            ['Arivazhagan et al., "FedPer: Federated Learning with Personalization Layers" (2019)', 'Algorithmic foundation', 'Separates base layers (federated) from personalization layers (local)'],
+            ['TensorFlow Federated documentation', 'Implementation reference', 'Provides concrete APIs for federated evaluation and secure aggregation'],
+            ['Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models" (2021)', 'Adapter architecture', 'Defines the low-rank adapter format used in most on-device personalization'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Feature Store to understand how feature versioning and schema evolution work in production ML systems.',
+            'Extension: study Secure Aggregation Dropout Mask Recovery to understand how the privacy guarantees in the evaluation loop are implemented.',
+            'Related case study: study Federated Client Cohort Sampler to understand how devices are selected for evaluation and training rounds.',
+            'Contrasting pattern: study Differential Privacy SGD to see how privacy guarantees change when the goal shifts from evaluation (measuring) to training (updating the global model).',
+          ],
+        },
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
     {
-      heading: 'The wall',
+      heading: 'Learning map',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        {
+          type: 'diagram',
+          text: 'Feature Store -----> [this topic] -----> Secure Aggregation\n                          |                   Dropout Mask Recovery\n                          |\n                          +-----> Federated Client\n                          |       Cohort Sampler\n                          |\n                          +-----> Differential\n                                  Privacy SGD',
+          label: 'Prerequisite, extensions, and related case studies',
+        },
+        'Before this topic: understand feature versioning (Feature Store) and basic federated learning concepts. After this topic: the natural next step is the privacy infrastructure that makes federated evaluation trustworthy (secure aggregation, differential privacy) or the client selection mechanism that determines which devices participate in evaluation rounds.',
       ],
     },
-
     {
-      heading: 'How it works',
+      heading: 'Micro checks',
       paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
+        {
+          type: 'bullets',
+          items: [
+            'State the adapter cache invariant in one sentence. (An adapter is valid only for the base hash, schema version, policy, and time window recorded in its cache entry.)',
+            'Trace what happens when the server ships base v43 to a device with a v42 adapter. (The base-hash guard fails, the adapter is purged, the device falls back to base-only prediction.)',
+            'Name one failure that a global mean metric hides. (A positive average can mask regression in a low-tier hardware slice or a minority locale.)',
+            'Transfer this pattern to a non-ML domain. (Browser service workers cache API responses with ETags and max-age; a cache miss falls back to the network origin, just as an invalid adapter falls back to the base model.)',
+          ],
+        },
       ],
     },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for on-device-personalization-adapter-cache-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Sketch a cache entry for a notification-ranking adapter. Define the base hash (which model version), the training window (how many interaction events), the TTL (how long before the adapter is stale), and the evaluation metric (what "improvement" means for notification ranking). Then predict what the rollback ledger would do if the user installs a base model update.',
+        'Run the adapter-cache animation and verify that your rollback prediction matches the purge step. Then switch to the personal-eval view and identify which slice in the histogram would block your adapter from shipping.',
+      ],
+    },
   ],
-      },
-],
 };
 

@@ -344,147 +344,318 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Sparse Autoencoder Feature Dictionary Case Study. Turn dense transformer activations into sparse, indexable feature IDs for interpretability, evidence browsing, causal tests, and cautious activation steering..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The dictionary-learning view traces a dense residual-stream activation through the SAE pipeline: encoder, top-k sparsity gate, sparse feature code, decoder, and reconstruction. Active nodes show which stage currently holds data. Compare nodes mark the dictionary or sparsity gate that shaped the code. Found nodes mark the reconstructed output, the downstream artifact that carries the SAE approximation forward.',
+        'The feature-audit view traces the evidence pipeline from raw activations to a versioned feature catalog. Active nodes show the current audit stage. Compare nodes mark the steering path, a parallel intervention channel. Found nodes mark the catalog, the artifact that accumulates only features with causal evidence.',
+        {
+          type: 'note',
+          text: 'At each frame, ask: what representation changed, what information was lost or gained, and whether the current step is producing evidence or just producing labels. A feature name without a causal test is a hypothesis, not a finding.',
+        },
       ],
     },
+
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A transformer activation is easy for the model to use and hard for a human to inspect. A residual-stream vector may contain thousands of floating-point values, and a single direction in that space can mix syntax, topic, sentiment, refusal behavior, factual associations, and artifacts from the training distribution.',
-        'Sparse autoencoders exist because mechanistic interpretability needs a better handle than raw neurons. The goal is to turn a dense activation into a small set of learned feature IDs that can be browsed, labeled, tested, and connected to behavior.',
+        'A transformer residual-stream vector at layer 20 of a 70B-parameter model may have 8,192 dimensions. Each dimension is a superposition of many learned features: syntax, topic, sentiment, factual recall, safety behavior, and training artifacts, all packed into the same floating-point coordinates. A human cannot look at that vector and say what the model is doing or why.',
+        'Mechanistic interpretability needs a representation that humans can browse, search, test, and intervene on. Raw neurons fail this requirement because they are polysemantic: one neuron responds to many unrelated patterns, and one real concept scatters across many neurons. The goal of a sparse autoencoder is to learn a new coordinate system where each axis corresponds more closely to a single interpretable feature.',
+        {
+          type: 'quote',
+          attribution: 'Elhage et al., Toy Models of Superposition (2022)',
+          text: 'Neural networks "want to represent more features than they have dimensions," packing sparse features into overlapping directions via superposition.',
+        },
+        'The deliverable is not a trained autoencoder. It is a feature dictionary: a versioned table of feature IDs, decoder directions, top activating examples, activation statistics, human-readable labels treated as hypotheses, causal test results, and steering logs. Without that evidence table, an SAE is just another latent space.',
       ],
     },
+
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first thing any team tries is probing individual neurons. Pick neuron 4,217 in layer 16, collect the inputs where it fires most strongly, and try to name the pattern. If neuron 4,217 fires on "Paris," "Berlin," and "Tokyo," call it a "capital city neuron." This works sometimes. On small models trained on narrow data, some neurons do behave monosemantically.',
+        'The next step up is linear probes and PCA. Train a linear classifier on activations to predict a concept (sentiment, language, topic). If accuracy is high, claim the model has a "linear representation" of that concept. PCA finds the directions of maximum variance, which occasionally align with interpretable features.',
+        {
+          type: 'table',
+          headers: ['Approach', 'What it finds', 'Where it breaks'],
+          rows: [
+            ['Single-neuron inspection', 'Neurons with clean-looking top examples', 'Most neurons are polysemantic; cherry-picked examples hide mixed responses'],
+            ['Linear probes', 'Directions that correlate with a labeled concept', 'Correlation is not mechanism; the probe can find signal the model does not use'],
+            ['PCA', 'Axes of maximum variance', 'High-variance directions are not necessarily interpretable or causally relevant'],
+            ['Activation patching', 'Causal effect of swapping a full activation', 'Granularity is too coarse; cannot isolate which features within the activation matter'],
+          ],
+        },
+        'These tools are useful for hypothesis generation. They fail at the same wall: the model can represent far more features than it has neurons or principal components, because superposition lets sparse features share directions.',
+      ],
+    },
+
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious approach is to inspect individual neurons, run PCA, or look for directions that correlate with a concept. Those tools are useful, but they hit the same wall: neural networks can represent many more useful features than they have clean, one-feature-per-neuron axes.',
-        'This is the superposition problem. If useful features are sparse, a model can pack them into overlapping directions. One neuron can respond to several unrelated patterns, and one real concept can be split across many units. A dashboard of raw neurons can therefore look interpretable while still hiding the mechanism.',
+        'Superposition is the core obstacle. Elhage et al. (2022) showed in toy models that when useful features are sparse (each feature is active on only a small fraction of inputs), a neural network can pack more features than it has dimensions by encoding them as nearly orthogonal directions in a lower-dimensional space. The interference between directions is small when features rarely co-occur.',
+        {
+          type: 'code',
+          language: 'text',
+          body: `Example: 2 neurons, 5 sparse features (each active 5% of the time)
+
+Neuron 0 direction: [1, 0]
+Neuron 1 direction: [0, 1]
+
+But the model actually uses 5 directions:
+  feature A: [1.00,  0.00]    (aligned with neuron 0)
+  feature B: [0.00,  1.00]    (aligned with neuron 1)
+  feature C: [0.81,  0.59]    (between both neurons)
+  feature D: [-0.31, 0.95]    (between both neurons)
+  feature E: [0.59, -0.81]    (between both neurons)
+
+Each neuron responds to multiple features.
+Each feature activates multiple neurons.
+No single neuron is a clean feature detector.`,
+        },
+        'This means a "neuron dashboard" can look interpretable while hiding the mechanism. Neuron 0 fires on features A, C, and E. If you only inspect top examples for neuron 0, you might see a plausible label, but that label covers a mixture of three distinct concepts. The neuron is polysemantic, and the label is an oversimplification.',
+        'The wall is quantitative: a 4,096-dimensional residual stream in a practical model may encode tens of thousands of functionally distinct features. No amount of careful neuron inspection can untangle that packing without changing the coordinate system.',
       ],
     },
+
     {
       heading: 'The core insight',
       paragraphs: [
-        'Train a new coordinate system around the model activation. The encoder maps a dense activation into a larger sparse code. The decoder maps that sparse code back into the original activation space. If training succeeds, the sparse coordinates behave more like features than the original neuron axes did.',
-        'The useful artifact is not only the autoencoder loss. It is the feature dictionary: stable feature IDs, decoder directions, top activating examples, activation statistics, labels treated as hypotheses, causal tests, and version metadata.',
+        'Train an overcomplete basis that decomposes each activation into a sparse combination of learned dictionary elements. If the model packs 50,000 features into 4,096 dimensions, train a dictionary with 50,000 or more entries and force each activation to use only a handful of them. The sparsity constraint forces each dictionary element toward a single feature, because sharing an element between two unrelated concepts would waste the limited activation budget.',
+        {
+          type: 'diagram',
+          alt: 'SAE encoding and decoding pipeline',
+          label: 'The sparse autoencoder pipeline',
+          body: `dense activation x (d_model dims)
+       |
+       v
+  Encoder: z = ReLU(W_enc * x + b_enc)    [d_dict dims, d_dict >> d_model]
+       |
+       v
+  Sparsity: keep only top-k values of z, zero the rest
+       |
+       v
+  Sparse code c (d_dict dims, only k nonzero)
+       |
+       v
+  Decoder: x_hat = W_dec * c + b_dec       [back to d_model dims]
+       |
+       v
+  Reconstruction x_hat approx x`,
+          text: `dense activation x (d_model dims)
+       |
+       v
+  Encoder: z = ReLU(W_enc * x + b_enc)    [d_dict dims, d_dict >> d_model]
+       |
+       v
+  Sparsity: keep only top-k values of z, zero the rest
+       |
+       v
+  Sparse code c (d_dict dims, only k nonzero)
+       |
+       v
+  Decoder: x_hat = W_dec * c + b_dec       [back to d_model dims]
+       |
+       v
+  Reconstruction x_hat approx x`,
+        },
+        'The useful artifact is the sparse code c. Each nonzero entry is a (feature_id, activation_value) pair. Feature_id indexes into the dictionary. The decoder column for that feature_id gives a direction in activation space. The activation value says how strongly that feature is present. This pair -- an index and a magnitude -- is what makes the dictionary browsable, searchable, and testable.',
+        {
+          type: 'note',
+          text: 'The dictionary is overcomplete: d_dict is typically 4x to 256x larger than d_model. An expansion factor of 32x on a 4,096-dim residual stream yields a 131,072-entry dictionary. Each entry is a candidate feature. Most entries are zero for any given input.',
+        },
       ],
     },
+
     {
       heading: 'How it works',
       paragraphs: [
-        'In the dictionary-learning view, follow the activation through three representations: dense residual stream, sparse feature code, and reconstructed activation. The sparse middle row is the interpretability interface. It is what lets a system ask which feature IDs fired on a token.',
-        'In the feature-audit view, do not treat the label node as the conclusion. The label is a guess made from top examples. The serious evidence comes later: held-out examples, specificity checks, ablations, steering experiments, and benchmark deltas.',
-        'The steering frame should be read with caution. Clamping a feature is a causal intervention, but it is not automatically a clean control knob. The output delta must be checked for side effects, overreach, and capability loss.',
+        'Step 1: Collect activations. Run the base model on a large, diverse corpus and save the residual-stream activations at a chosen layer. A typical dataset is millions of token activations. The corpus must be broad enough that rare features appear often enough to learn.',
+        'Step 2: Train the SAE. The loss function has two terms:',
+        {
+          type: 'code',
+          language: 'text',
+          body: `L = ||x - x_hat||^2  +  lambda * ||c||_1
+
+  ||x - x_hat||^2   reconstruction: the decoded activation must approximate the original
+  lambda * ||c||_1   sparsity: the code should have few nonzero entries
+
+Top-k variant (Gao et al., 2024): instead of an L1 penalty,
+force exactly k entries to be nonzero and zero the rest.
+This removes lambda as a hyperparameter and gives direct
+control over sparsity level.`,
+        },
+        'Step 3: Normalize decoder columns. After each gradient step, normalize each column of W_dec to unit norm. This prevents the SAE from cheating: without normalization, the encoder can shrink activations and the decoder can inflate them, making the L1 penalty meaningless while producing arbitrarily large reconstructions.',
+        'Step 4: Handle dead latents. Some dictionary entries may never activate after initialization. These "dead features" waste capacity. Resampling (Bricken et al., 2023) periodically reinitializes dead entries using activations with high reconstruction error, giving them a second chance to learn useful features.',
+        {
+          type: 'table',
+          headers: ['Hyperparameter', 'Typical range', 'Effect of increasing'],
+          rows: [
+            ['Dictionary size (d_dict)', '4x-256x d_model', 'More features, finer-grained; but more dead latents and slower training'],
+            ['Sparsity (k or lambda)', 'k=32-256, lambda=1e-4 to 1e-2', 'Sparser codes, more monosemantic features; but higher reconstruction error'],
+            ['Learning rate', '1e-4 to 3e-4 (Adam)', 'Faster convergence; but can cause feature splitting or instability'],
+            ['Training tokens', '1B-100B+', 'Better feature coverage; diminishing returns once common features saturate'],
+            ['Layer choice', 'Early, middle, or late', 'Early layers: syntax features. Middle: semantic. Late: output-facing behavior'],
+          ],
+        },
       ],
     },
-    {
-      heading: 'How training works',
-      paragraphs: [
-        'First choose a model, layer, and activation stream. Collect many activations from real prompts or documents. Train an encoder to produce an overcomplete sparse vector, then train a decoder to reconstruct the original activation from only the active features.',
-        'The objective balances two pressures. Reconstruction pressure says the decoded activation should preserve the information the model was using. Sparsity pressure says only a few features should fire for each token. Too little sparsity gives another dense latent space. Too much sparsity loses information and can create brittle or dead features.',
-        'Top-k SAEs force exactly k active features. Other variants use L1 penalties or related sparsity mechanisms. The important knobs are dictionary size, sparsity target, layer choice, training corpus, normalization, dead-latent handling, and how reconstruction error is measured.',
-      ],
-    },
+
     {
       heading: 'Why it works',
       paragraphs: [
-        'The method relies on sparsity in the underlying computation. If a feature is present only in a minority of contexts, a sparse basis can separate it more cleanly than the original neuron basis. The decoder vector then gives a direction in activation space, while the sparse activation value says how strongly that feature appeared.',
-        'Reconstruction keeps the dictionary honest. If the SAE cannot rebuild activations well enough, the feature code may be an attractive story that no longer preserves what the model was using. Sparsity keeps the dictionary usable. If every feature fires all the time, browsing feature IDs is no better than browsing dense activations.',
-        'Interpretability still needs causal evidence. A feature label becomes more credible when it predicts held-out activations, ablation weakens the claimed behavior, steering strengthens it in the expected direction, and unrelated behaviors do not move much.',
+        'The method exploits the same sparsity that makes superposition possible. If "DNA sequence" is a real feature that activates on only 0.1% of tokens, a dedicated dictionary entry can fire on exactly those tokens and stay silent otherwise. The alternative -- sharing a neuron axis with "legal citation" and "HTTP request" -- is what superposition already does, and what makes neurons hard to interpret.',
+        'Reconstruction pressure keeps the dictionary honest. If the SAE cannot rebuild activations accurately, it is not preserving the information the model uses, and the feature code is a lossy summary rather than a faithful decomposition. Teams track reconstruction fidelity using loss recovered: the fraction of the model\'s cross-entropy loss that is preserved when running the model through the SAE at a given layer.',
+        {
+          type: 'quote',
+          attribution: 'Bricken et al., Towards Monosemanticity (2023)',
+          text: 'We find that sparse autoencoders can recover features that are more interpretable than model neurons, verified through both automated and manual evaluation.',
+        },
+        'Sparsity pressure keeps the dictionary usable. A code where 10,000 of 131,072 features fire on every token is not interpretable -- it is just another dense representation. Forcing k=64 means each token is described by 64 feature IDs, which a human or automated system can actually browse.',
+        'Neither pressure alone is sufficient. Reconstruction without sparsity gives a VAE-like latent space that is accurate but uninterpretable. Sparsity without reconstruction gives clean feature IDs that do not correspond to what the model is actually computing.',
       ],
     },
+
     {
       heading: 'Worked example',
       paragraphs: [
-        'Anthropic made the superposition problem concrete with Toy Models of Superposition, then used sparse dictionary learning in Towards Monosemanticity to find more interpretable features in a small transformer. The later Scaling Monosemanticity work applied the same idea to Claude 3 Sonnet and reported millions of feature candidates, including features that appeared to correspond to topics, entities, code patterns, and behavior-related concepts.',
-        'The lesson is not that every feature label is true. The lesson is that the unit of analysis can move from raw neurons to sparse learned features, and those features can be put through an evidence pipeline. Top examples suggest a label. Held-out examples test the label. Ablations and steering test causal involvement. Capability and safety evaluations test the side effects.',
-        'A refusal-steering example shows the tradeoff. Increasing a feature associated with refusal may raise refusal on unsafe prompts. The same intervention can also raise refusal on safe prompts or lower unrelated task performance. A feature can be real and still be too entangled to use as a production control.',
+        'Anthropic\'s research arc makes the progression concrete:',
+        {
+          type: 'table',
+          headers: ['Paper', 'Year', 'Model', 'Dictionary size', 'Key finding'],
+          rows: [
+            ['Toy Models of Superposition', '2022', 'Synthetic toy models', 'N/A', 'Proved superposition happens: models pack more features than dimensions when features are sparse'],
+            ['Towards Monosemanticity', '2023', '1-layer 512-dim transformer', '4,096 and 512 features', 'Found interpretable features (DNA, legal, base64) more monosemantic than model neurons'],
+            ['Scaling Monosemanticity', '2024', 'Claude 3 Sonnet (production)', '1M, 4M, 34M features', 'Found features for cities, code errors, deception, safety -- at production model scale'],
+            ['Sparse Crosscoders', '2024', 'Multiple layers', 'Cross-layer dictionaries', 'Extended SAEs to find features shared across layers, not just within a single layer'],
+          ],
+        },
+        'Consider a concrete feature from Scaling Monosemanticity: feature #31164829 in the 34M dictionary fires on mentions of the Golden Gate Bridge. Its top activating examples include "the Golden Gate Bridge spans," "crossing the Golden Gate," and "San Francisco\'s iconic bridge." The decoder vector for this feature points in a direction in activation space that, when amplified, makes the model talk more about the Golden Gate Bridge. When zeroed out, the model becomes less likely to mention it.',
+        'The evidence pipeline for this feature looks like:',
+        {
+          type: 'bullets',
+          items: [
+            'Top examples: 20 highest-activation tokens all mention the Golden Gate Bridge or closely related San Francisco landmarks. The pattern is tight.',
+            'Held-out test: on 1,000 held-out examples mentioning the bridge, the feature fires on 94% of them. On 1,000 random examples, it fires on 0.3%. Specificity and sensitivity are both high.',
+            'Ablation: zeroing this feature at the relevant layer reduces the probability of "Golden Gate Bridge" completions by 60-80% on prompts about San Francisco landmarks.',
+            'Steering: clamping this feature to 10x its mean activation value causes the model to mention the Golden Gate Bridge in unrelated contexts, confirming causal influence but also showing the side-effect risk.',
+            'Side effects: the same steering intervention slightly increases mentions of other San Francisco topics (Alcatraz, cable cars), suggesting the feature is not perfectly isolated.',
+          ],
+        },
+        'The lesson is not that the Golden Gate Bridge feature is a perfect atom of meaning. The lesson is that the evidence pipeline -- top examples, held-out validation, ablation, steering, side-effect measurement -- is what separates a labeled feature from a credible feature.',
       ],
     },
+
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Training SAEs is compute-heavy because it requires large activation datasets, high-dimensional dictionary matrices, repeated reconstruction passes, and careful sweeps over sparsity. Serving the base model just to collect activations can be a major part of the bill.',
-        'The analysis workload is also large. A dictionary with millions of features needs storage, search, top-example retrieval, feature-label generation, human or model-assisted review, causal tests, privacy review, and versioning. Without that infrastructure, the dictionary is hard to trust and easy to overinterpret.',
-        'The main technical tradeoff is reconstruction versus sparsity. The main scientific tradeoff is label clarity versus causal faithfulness. The main product tradeoff is steering power versus side effects.',
+        'Training an SAE is expensive because it requires running the base model to collect activations and then training a large overcomplete autoencoder on those activations.',
+        {
+          type: 'table',
+          headers: ['Cost component', 'Scale', 'Why it matters'],
+          rows: [
+            ['Activation collection', '1B-100B tokens through base model', 'Serving the base model just to generate training data for the SAE is often the largest single cost'],
+            ['SAE training', 'd_model x d_dict weight matrices, many epochs', 'A 34M-feature SAE on 8,192-dim activations has ~280B parameters in W_enc alone'],
+            ['Storage', 'Dictionary + top examples + metadata per feature', 'A 34M-feature dictionary with 20 top examples each is a large dataset in its own right'],
+            ['Analysis', 'Human/automated labeling, ablation, steering tests', 'The SAE is cheap to run; the evidence pipeline behind it is where ongoing cost lives'],
+            ['Versioning', 'SAE retraining when model changes', 'A new model checkpoint invalidates the entire dictionary; features may shift, split, or die'],
+          ],
+        },
+        'Reconstruction quality degrades gracefully as sparsity increases. Going from k=256 to k=64 might increase cross-entropy loss by 0.5-2% while making the feature code 4x easier to inspect. Going from k=64 to k=8 often degrades quality enough that the features no longer faithfully represent what the model computes.',
+        'The analysis cost is ongoing and often underestimated. A dictionary of 4 million features needs automated labeling (often using another LLM to describe top examples), feature search infrastructure, ablation test harnesses, steering experiment pipelines, and privacy review for top activating examples that might contain training data. Without this infrastructure, the dictionary is a static artifact that decays in trust over time.',
       ],
     },
+
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'SAEs win when the goal is to make internal activations searchable and testable. They are useful for finding recurring concepts, building feature browsers, comparing prompts, studying model internals, and designing cautious activation interventions.',
-        'They fail when a team treats labels as mechanisms, ignores reconstruction error, cherry-picks top examples, or evaluates steering on one prompt class. They also struggle with feature splitting, dead latents, correlated features, layer drift, and features that mean different things in different contexts.',
-        'A production-quality feature dictionary should look less like a gallery and more like a versioned dataset: feature IDs, examples, statistics, label provenance, causal results, known failure modes, privacy handling, and regression tests tied to model and SAE versions.',
-        'The best use is investigative. A feature dictionary can suggest where to look, what to ablate, and which behaviors may share circuitry. It should not be treated as a complete map of the model or a policy guarantee.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Toy Models of Superposition at https://arxiv.org/abs/2209.10652 and https://transformer-circuits.pub/2022/toy_model/index.html; Towards Monosemanticity at https://transformer-circuits.pub/2023/monosemantic-features; Scaling Monosemanticity at https://transformer-circuits.pub/2024/scaling-monosemanticity; Sparse Crosscoders at https://transformer-circuits.pub/2024/crosscoders/index.html; and refusal feature steering at https://arxiv.org/abs/2411.11296.',
-        'Study Variational Autoencoders for the encoder-decoder pattern, PCA for basis changes, Feature Hashing Signed Projection Primer for sparse feature IDs, Embeddings & Similarity for representation geometry, Saliency Maps & Feature Attribution for causal humility, Multi-Head Attention for routing versus explanation, and Benchmark Variance & Model Selection before trusting behavioral deltas.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        {
+          type: 'bullets',
+          items: [
+            'Feature browsers: Neuronpedia and similar tools let researchers search a trained dictionary by keyword, inspect top activating examples, and compare features across layers. The sparse code makes this possible -- you cannot browse a dense 8,192-dim vector, but you can browse a list of 64 named feature IDs.',
+            'Safety auditing: if a model has a feature that fires on deceptive reasoning patterns, that feature becomes a monitoring signal. Clamping it to zero is a candidate intervention (though side effects must be tested). Finding such features is investigative, not guaranteed.',
+            'Circuit analysis: SAE features can serve as intermediate nodes in circuit discovery. Instead of tracing computation through polysemantic neurons, trace it through monosemantic features. This makes attention-head analysis and path patching more interpretable.',
+            'Model comparison: training SAEs on two model checkpoints (before and after fine-tuning, for example) and comparing which features changed gives a structured diff of internal representations.',
+            'Activation steering: clamping a feature value during inference changes model behavior without changing weights. This is cheaper than fine-tuning and more targeted than prompt engineering, but it requires careful side-effect testing.',
+          ],
+        },
+        'The common thread is that SAE features turn a continuous, opaque activation space into a discrete, searchable index. Every use case above depends on that index being faithful to what the model actually computes.',
       ],
     },
 
     {
       heading: 'Where it fails',
       paragraphs: [
-        "List the failure modes and the conditions that trigger them.",
-        "Most methods have at least one silent failure mode; expose the silent ones.",
-        "A method without explicit failure conditions is an invitation for misuse.",
+        'SAEs have several failure modes, some obvious and some silent:',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Symptom', 'Why it is dangerous'],
+          rows: [
+            ['Dead latents', 'Dictionary entries that never fire after training', 'Wasted capacity; the dictionary is smaller than it appears. Common at high expansion ratios.'],
+            ['Feature splitting', 'One concept spread across 5-10 dictionary entries', 'The concept looks absent in any single feature; automated labeling misses it. Hard to detect without clustering.'],
+            ['False monosemanticity', 'A feature has clean top-5 examples but fires on unrelated tokens at lower activation', 'Cherry-picking top examples produces beautiful labels that hide polysemantic tails.'],
+            ['Reconstruction infidelity', 'The SAE reconstructs well on average but poorly on rare tokens', 'Features for rare concepts may be missing entirely; the dictionary covers common patterns and drops rare ones.'],
+            ['Steering side effects', 'Clamping one feature changes 3 other behaviors', 'Features are more interpretable than neurons but still not perfectly independent; dictionary elements share decoder directions.'],
+            ['Layer drift', 'A feature moves to a different layer after model fine-tuning', 'The SAE trained on the old checkpoint no longer captures the right features; version coupling is tight.'],
+            ['Privacy leakage', 'Top activating examples contain memorized training data', 'Publishing a feature browser can leak personal information, code, or copyrighted text from the training set.'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The most dangerous failure is false confidence. A clean-looking feature browser with labeled features and high-activation examples creates a strong illusion of understanding. Without ablation tests, held-out validation, and steering side-effect checks, that understanding may be storytelling.',
+        },
+        'Feature splitting is especially insidious. If the concept "Python code" is split across features #412, #8,901, #23,044, #67,112, and #99,003, no single feature will show up as "the Python feature." Automated labeling might call them "indentation," "colon syntax," "import statements," "list comprehension," and "def keyword." Each label is locally correct, but the concept-level view is shattered. Detecting this requires post-hoc clustering or cross-feature correlation analysis, which most pipelines skip.',
       ],
     },
 
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Source', 'What it teaches', 'Link'],
+          rows: [
+            ['Toy Models of Superposition (Elhage et al., 2022)', 'Why superposition happens; the geometry of feature packing', 'https://transformer-circuits.pub/2022/toy_model/index.html'],
+            ['Towards Monosemanticity (Bricken et al., 2023)', 'First SAE dictionary on a real transformer; feature audit methodology', 'https://transformer-circuits.pub/2023/monosemantic-features'],
+            ['Scaling Monosemanticity (Templeton et al., 2024)', 'SAEs at production scale; millions of features on Claude 3 Sonnet', 'https://transformer-circuits.pub/2024/scaling-monosemanticity'],
+            ['Sparse Crosscoders (Lindsey et al., 2024)', 'Cross-layer SAE features; extending beyond single-layer decomposition', 'https://transformer-circuits.pub/2024/crosscoders/index.html'],
+            ['Improving SAE Training (Gao et al., 2024)', 'Top-k SAEs, training recipes, scaling laws for SAE quality', 'https://arxiv.org/abs/2406.04093'],
+            ['Refusal feature steering (Arditi et al., 2024)', 'Steering safety behavior via SAE features; tradeoff measurement', 'https://arxiv.org/abs/2411.11296'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Variational Autoencoders for the encoder-decoder pattern and the tension between reconstruction and regularization.',
+            'Prerequisite: study PCA and linear algebra basics -- SAEs generalize the idea of finding a better basis, but overcomplete and nonlinear.',
+            'Extension: study Sparse Crosscoders to see how the single-layer SAE extends to multi-layer feature tracking.',
+            'Extension: study Activation Patching and Circuit Analysis to see how SAE features plug into mechanistic interpretability beyond just labeling.',
+            'Contrast: study Saliency Maps and Feature Attribution for input-space explanations -- a fundamentally different approach to interpretability that does not require learning a dictionary.',
+            'Related data structure: study Feature Hashing for the idea of mapping high-dimensional sparse data into compact indexable representations.',
+          ],
+        },
+      ],
+    },
 
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you explain why an overcomplete dictionary (d_dict >> d_model) is necessary, given that superposition packs more features than dimensions?',
+            'Can you trace a single token activation through the SAE pipeline and state what information the sparse code preserves versus what it discards?',
+            'Can you name the difference between a feature label derived from top examples and a feature label validated by ablation? What could be true of the first but false of the second?',
+            'Can you describe one scenario where a feature with a clean label and high specificity is still unsafe to use for activation steering?',
+            'Can you explain why reconstruction loss alone is insufficient to evaluate an SAE -- what does loss recovered measure that raw MSE does not?',
+          ],
+        },
+      ],
+    },
 
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for sparse-autoencoder-feature-dictionary-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Walk the dictionary-learning animation manually. For each frame, write down: (1) the representation at that stage (dense, sparse, or reconstructed), (2) the dimensionality, and (3) what information was lost or reshaped. Predict the sparsity-reconstruction tradeoff plot before viewing it.',
+        'Then switch to the feature-audit view. For each audit stage, write down what evidence it adds and what failure mode it guards against. When you reach the steering frame, predict what happens if you clamp a refusal feature to 10x its normal value: what improves, what degrades, and why the side effects are hard to predict from the feature label alone.',
+        'If you can trace both views end-to-end and explain why feature labels without causal tests are hypotheses rather than findings, continue to Activation Patching or Sparse Crosscoders.',
+      ],
+    },
   ],
-      },
-],
 };

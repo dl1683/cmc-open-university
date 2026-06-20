@@ -313,145 +313,265 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Chain of Draft Reasoning Token Budget Case Study. A concise-reasoning case study: replace verbose chain-of-thought traces with compact draft notes, measure token savings, and route hard cases to verifiers or tools..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. "Draft trace" shows a single request flowing through the Chain of Draft pipeline: prompt, brevity constraint, compact notes, extracted state, final answer, and cost metrics. "Production budget" shows a routing control plane deciding which reasoning tier to use per request, with a verifier gating every answer before it ships.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the current decision point: which field is being written, which route is being selected, or which verifier check is running.',
+            'Compare nodes show the alternative that this step is measured against -- usually Chain of Thought or direct answering.',
+            'Found nodes are confirmed outcomes: a shipped answer, a verified metric, or a route that cleared the quality gate.',
+          ],
+        },
+        'In the matrix views, rows are fields of the draft record or task types, and columns are properties (what is stored, why, fit level, or failure mode). Watch the "quality" column: token savings only count when quality survives.',
+        {
+          type: 'note',
+          text: 'The animation uses small integer arithmetic for readability. Real CoD deployments handle multi-step math, date calculations, symbolic transforms, and structured extraction. The data structure is the same -- a compact state record -- but the fields and verifiers change per domain.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        "Reasoning prompts often buy accuracy with output tokens. A verbose chain-of-thought answer may help on some tasks, but every extra token adds latency, cost, parsing work, and more surface area for irrelevant prose.",
-        "The reasonable first attempts are direct answering and verbose Chain of Thought. Direct answering is cheap but gives the system little intermediate state to check. Verbose reasoning exposes more state, but it can spend hundreds of tokens explaining steps that a solver could represent in a few symbols.",
-        "Chain of Draft exists as a token-budget control surface. It asks the model to keep compact draft notes: the facts, transformations, checks, and final answer needed for the task, without turning the intermediate work into a prose tutorial.",
+        {
+          type: 'quote',
+          text: 'While CoT significantly improves LLM performance on reasoning tasks, it comes with the cost of generating substantially more output tokens.',
+          attribution: 'Xu et al., "Chain of Draft: Thinking Faster by Writing Less" (2025), Section 1',
+        },
+        'Chain of Thought asks a language model to show its work. The intermediate steps help the model arrive at a correct answer on tasks like arithmetic, date reasoning, and symbolic logic. The cost is output tokens: a CoT trace for a simple subtraction problem can run 50-200 tokens of prose explaining each step, even though the decision state is three numbers and one operation.',
+        'Output tokens are the expensive dimension. They drive inference latency (autoregressive generation is sequential), API cost (output tokens typically cost 3-4x input tokens), memory pressure (KV cache grows with sequence length), and downstream parsing complexity. A system that generates 10x the reasoning it needs is paying 10x the cost for the same answer.',
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'How CoT inflates it', 'Scale of the problem'],
+          rows: [
+            ['Latency', 'Sequential token generation', '200 tokens at 50 tok/s = 4s; 20 tokens = 0.4s'],
+            ['API spend', 'Output tokens billed per-token', 'At $15/M output tokens, 10M requests * 180 wasted tokens = $27K'],
+            ['KV cache', 'Longer sequences hold more memory', 'Batch size drops as sequence length grows'],
+            ['Parsing', 'Free-form prose needs extraction', 'Regex/LLM parsing adds latency and failure modes'],
+          ],
+        },
+        'Chain of Draft is a prompting strategy that replaces verbose intermediate reasoning with compact draft notes -- just enough state to solve the problem, written in minimal tokens. The model still reasons step by step, but each step is a few words or symbols instead of a full sentence.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The two obvious approaches are direct answering and full Chain of Thought.',
+        'Direct answering generates only the final result. It is cheap, fast, and easy to parse. It works for tasks where the model has strong pattern-match confidence: simple factual recall, format conversion, straightforward extraction. The problem is that it gives no intermediate state to check. When the model is wrong, there is no trace to debug, no state to route on, and no signal for a verifier.',
+        {
+          type: 'diagram',
+          text: 'Direct answering:\n  Input:  "Jason had 20 lollipops. He gave 12 to Denny. How many does Jason have now?"\n  Output: "8"\n  Tokens: ~1\n  State:  none -- if wrong, no way to see why\n\nChain of Thought:\n  Input:  same\n  Output: "Jason started with 20 lollipops. He gave away 12 lollipops.\n           To find how many he has left, I subtract: 20 - 12 = 8.\n           Therefore, Jason has 8 lollipops now."\n  Tokens: ~40\n  State:  full prose -- correct, but 39 tokens of explanation for one subtraction',
+          label: 'Direct answering has no state; CoT has too much',
+        },
+        'Full CoT scales well for hard tasks -- multi-step proofs, complex code generation, ambiguous planning. But for tasks with compact decision state (a few numbers, a date offset, a symbol transformation), CoT produces dozens of tokens that restate the problem, narrate each step, and summarize the conclusion. That prose does not help the solver; it was generated for a human reader who may not exist.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "The wall is that shorter reasoning can omit the exact premise that would reveal a mistake. A draft trace that says \"20-12=8\" is enough for a simple arithmetic problem. A draft trace that says \"edit parser; tests pass\" is not enough to justify a repository patch.",
-        "The mechanism works best when the useful state is compact: arithmetic, dates, symbolic transformations, simple commonsense checks, and constrained formats. It weakens when correctness depends on broad evidence, repository context, legal scope, medical nuance, citations, or style.",
-        "The production wall is accepted-answer quality, not token count. A method that saves 70 percent of output tokens and loses the cases users care about is not an optimization. It is a cheaper failure mode.",
+        'The wall for direct answering is invisible failures. Without intermediate state, the system cannot verify steps, route on confidence, or debug mistakes. The wall for CoT is cost at scale: verbose reasoning multiplies latency, spend, and cache pressure across every request, including the majority that do not need a paragraph of explanation.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Strength', 'Wall'],
+          rows: [
+            ['Direct', 'Minimal tokens, fast', 'No intermediate state; errors are silent; verifiers have nothing to check'],
+            ['CoT', 'Exposes reasoning; higher accuracy on hard tasks', 'Output tokens scale with explanation length, not problem complexity; most prose is narration, not decision state'],
+            ['CoD', 'Compact state; verifiable; cheap', 'Compression can drop the premise that reveals a mistake; domain-dependent safety'],
+          ],
+        },
+        'The deeper wall is that token count and reasoning quality are not the same axis. A 200-token CoT trace and a 15-token CoD trace can encode the same decision state. The extra 185 tokens in the CoT version are explanation, not computation. But on harder tasks, some of those "extra" tokens carry information the model needs to get the answer right. The question is always: which tokens are load-bearing?',
+        {
+          type: 'note',
+          text: 'The CoD paper (Xu et al., 2025) reports that on GSM8K (grade-school math), CoD matches CoT accuracy while using 7.6% of the output tokens. On sports understanding, CoD uses 92.4% of CoT tokens -- the compression ratio drops sharply when the task needs more context. The wall is domain-shaped, not universal.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A useful draft record stores task type, extracted facts, operations, updated state, lightweight checks, final answer, route id, token count, confidence, and verifier result. For arithmetic, "20 -> 12; 20-12=8; ans 8" preserves the whole state. For a date task, the record might store offset, weekday, calendar rule, and answer.',
-        "For code, the record has to be richer: failing symptom, suspected file, edit intent, compatibility constraint, and required verification. The draft is still compact, but it cannot erase the repo-specific state that makes the patch safe.",
-        "The final answer must be separate from the draft. That separation lets downstream code normalize the answer, count tokens, run validators, compare routes, and decide whether the trace should be expanded or rejected.",
-        'The core insight is that compression is safe only when it preserves the decision state. A good draft is not short because it is vague. It is short because it stores the few variables that determine the answer. The moment a task needs provenance, source support, policy interpretation, or codebase context, the draft format must grow or the router must leave Chain of Draft.',
+        'Compression is safe when it preserves the decision state. A good draft is short because it stores only the variables that determine the answer -- not because it is vague.',
+        {
+          type: 'diagram',
+          text: 'Decision state for "20 lollipops, gave 12, how many left?":\n\n  Variables:  start=20, gave=12\n  Operation:  subtract\n  Result:     8\n\n  CoT encodes this in ~40 tokens of prose.\n  CoD encodes this in ~5 tokens: "20; -12; =8; ans 8"\n\n  Both traces contain the same three variables and one operation.\n  The CoT trace adds 35 tokens of narration around them.',
+          label: 'Same decision state, 8x fewer tokens',
+        },
+        'The CoD prompt teaches the model to write terse intermediate notes -- like a student solving a math problem in the margin, not in an essay. The key constraint is not "be brief." It is "preserve every fact and operation needed to verify the answer, but skip the prose that explains what you are doing."',
+        {
+          type: 'code',
+          language: 'text',
+          text: '# Chain of Draft prompt (adapted from Xu et al., 2025)\n\nThink step by step, but only keep a minimum draft for\neach thinking step, with 5 words at most.\n\nExample:\nQ: Jason had 20 lollipops. He gave Denny some. He has\n   12 now. How many did he give to Denny?\nDraft: 20-12=8\nAnswer: 8\n\nQ: There were 9 computers in the server room. Five more\n   were installed each day, Monday to Thursday. How many\n   are there now?\nDraft: digit extraction not needed;\n       4 days * 5 = 20; 9+20=29\nAnswer: 29',
+        },
+        'The draft record is a small state machine log. For a well-scoped task, it stores: extracted facts, operations applied, updated state, and final answer. For arithmetic, that is three to five tokens. For date reasoning, it might be day-of-week, offset, calendar rule, and result. For code tasks, it needs more: symptom, file, edit intent, compatibility constraint, verification command.',
+        {
+          type: 'note',
+          text: 'The core insight has a boundary condition: when the task requires provenance (which source said X), policy interpretation (does rule Y apply here), or broad codebase context (will this edit break module Z), the decision state is no longer compact. CoD must grow or the router must escalate to a different reasoning tier.',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "A prompt usually gives a few examples of terse intermediate notes and a clear answer separator. The examples teach the model to preserve state without explaining every step in full sentences. A word cap helps, but the real contract is state preservation.",
-        "A production router chooses the reasoning mode. Easy tasks can answer directly. Compact reasoning tasks can use Chain of Draft. Ambiguous or high-stakes tasks should route to fuller reasoning, retrieval, calculators, code execution, citation checks, process reward models, or human review.",
-        "The verifier closes the loop. The verifier may be answer normalization, a calculator, unit tests, schema validation, citation support, a reward model, or a human. Without a verifier, a shorter trace can hide errors instead of reducing cost.",
+        'The mechanism has three layers: the prompt contract, the draft trace format, and the routing/verification loop.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Layer 1: Prompt contract\nconst COD_SYSTEM = `Think step by step. Keep each step\nto 5 words or fewer. Write "Answer:" before the final\nresult. If you cannot solve the problem in compact notes,\nwrite "ESCALATE" instead of guessing.`;\n\n// Layer 2: Draft trace parsing\nfunction parseDraft(output) {\n  const lines = output.split("\\n");\n  const answerLine = lines.find(l => l.startsWith("Answer:"));\n  const draftLines = lines.filter(l => !l.startsWith("Answer:"));\n  return {\n    draft: draftLines.join("; "),\n    answer: answerLine?.replace("Answer:", "").trim(),\n    escalated: output.includes("ESCALATE"),\n    tokens: countTokens(output),\n  };\n}\n\n// Layer 3: Route decision\nfunction routeRequest(task, draftResult) {\n  if (draftResult.escalated) return "cot";     // expand reasoning\n  if (draftResult.answer == null) return "cot"; // parse failure\n  if (verifier(task, draftResult)) return "ship";\n  return "cot";  // verification failed, try verbose\n}',
+        },
+        'The prompt gives few-shot examples of terse notes and a clear answer separator. The examples teach the model the compression pattern: state the facts, apply the operation, write the result. A word cap (typically 5 words per step) enforces brevity, but the real contract is that every load-bearing variable appears in the trace.',
+        'A production router selects the reasoning tier before or after generation. The simplest version: try CoD first, run the verifier, ship if the answer passes. If not, retry with full CoT, a tool call, or human escalation. More sophisticated versions classify the task type up front and skip CoD for domains where compression is known to fail.',
+        {
+          type: 'diagram',
+          text: 'Production routing loop:\n\n  request --> classify task type\n                |\n    +-----------+-----------+-----------+\n    |           |           |           |\n  direct      CoD         CoT        tool\n    |           |           |           |\n    +------> verifier <-----+-----------+\n                |\n          pass? --> ship answer\n          fail? --> escalate to next tier',
+          label: 'CoD is one tier in a multi-strategy pipeline, not a global replacement',
+        },
+        'The verifier is not optional. Without it, shorter traces hide errors instead of reducing cost. Verifier types by domain: answer normalization (does "8" match expected format), calculator (does 20-12 actually equal 8), unit tests (does the code patch pass), schema validation (does the extraction match the schema), citation check (does the claimed source support the answer), reward model (does a trained scorer rate the answer above threshold).',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The reliability claim is narrow: if the task\'s necessary state can be represented compactly, and a verifier can check the final answer, then verbose reasoning is often wasted output. The draft keeps the state; the verifier checks the result.",
-        "The invariant is accepted-answer quality at the target risk level. Token savings count only after the answer passes the same quality gate as the baseline. A draft that fails verification should expand, call a tool, or escalate.",
-        "This is why Chain of Draft belongs in a routing system rather than a global prompt. It is one tier between direct answers and expensive reasoning modes.",
+        'The correctness argument is narrow: if a task has compact decision state, then the verbose tokens in a CoT trace are narration, not computation. Removing narration does not remove reasoning -- it removes the explanation of reasoning. The model still performs the same logical steps internally; it just writes fewer words about each step.',
+        {
+          type: 'quote',
+          text: 'CoD achieves performance comparable to CoT while requiring output tokens as low as only 7.6% of the original.',
+          attribution: 'Xu et al., "Chain of Draft: Thinking Faster by Writing Less" (2025), Abstract',
+        },
+        'The invariant is accepted-answer quality at the target risk level. Token savings count only after the answer passes the same quality gate as the CoT baseline. A draft that fails verification must expand, not ship.',
+        {
+          type: 'table',
+          headers: ['Property', 'How CoD preserves it'],
+          rows: [
+            ['Step-by-step reasoning', 'Draft notes still decompose the problem into sequential steps'],
+            ['Verifiability', 'Final answer is separated; intermediate state is parseable'],
+            ['Accuracy', 'On compact-state tasks, accuracy matches CoT (within ~1-2% on benchmarks)'],
+            ['Escalation path', 'ESCALATE signal or verifier failure triggers fuller reasoning'],
+          ],
+        },
+        'CoD works because most reasoning tasks have a small kernel of decision-relevant state surrounded by a large shell of explanatory prose. The prompt teaches the model to write the kernel and skip the shell. When the kernel is genuinely small (arithmetic, dates, symbol manipulation), the compression is nearly lossless. When the kernel is large (code, legal reasoning, multi-document synthesis), CoD degrades and the system must route elsewhere.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "The original Chain of Draft paper reports near Chain-of-Thought accuracy on several reasoning tasks while using as little as 7.6 percent of the tokens. The strongest savings appear where the intermediate state is small and structured.",
-        "A software-engineering follow-up is the useful caution. Across 300 SWE-bench samples, Chain of Draft variants used fewer tokens than Chain of Thought, with a baseline variant at 55.4 percent of CoT token usage. The savings were smaller because code work needs repository context, compatibility checks, and validation detail.",
-        "The operational cost is policy work. Prompts need examples, outputs need parsing, validators need maintenance, and evaluation must include the slices where compression fails. The right metric is cost per accepted answer, not shortest trace.",
+        {
+          type: 'table',
+          headers: ['Benchmark', 'CoT tokens', 'CoD tokens', 'CoD / CoT ratio', 'Accuracy delta'],
+          rows: [
+            ['GSM8K (math)', '~120', '~9', '7.6%', '-0.7%'],
+            ['Date Understanding', '~80', '~74', '92.4%', '-1.2%'],
+            ['Sports Understanding', '~55', '~22', '40.0%', '-0.4%'],
+            ['Coin Flip (symbolic)', '~65', '~8', '12.3%', '+0.8%'],
+            ['SWE-bench (code)', '~850', '~470', '55.4%', 'varies by variant'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Numbers for GSM8K, Date, Sports, and Coin Flip are from Xu et al. (2025), Table 2, using GPT-4o. SWE-bench numbers are from the SWE-CoD study (arxiv:2506.10987), using a baseline CoD variant. Accuracy deltas are approximate; exact values depend on prompt variant and model.',
+        },
+        'The token savings translate directly to cost and latency. At $15 per million output tokens, a system handling 1M math-reasoning requests per day saves roughly $2,400/day by switching from CoT to CoD on that slice. Latency drops proportionally to output length: 9 tokens generate in ~180ms at 50 tok/s; 120 tokens take ~2.4s.',
+        'The operational cost is not free. CoD requires prompt engineering (few-shot examples, word caps, answer separators), output parsing (extracting the answer from terse notes), verifier maintenance (domain-specific checks), evaluation on failure slices (where does compression break), and routing policy (which tasks use which tier). The right metric is cost per accepted answer, not cost per generated token.',
+        'Doubling request volume doubles inference cost linearly but does not change the compression ratio. Increasing task complexity shifts more requests from CoD to CoT or tool tiers, reducing average savings. The system architect must track the CoD-eligible fraction, not just the per-request ratio.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Trace a multi-step word problem through both CoT and CoD to see where the token savings come from.',
+        {
+          type: 'diagram',
+          text: 'Problem: "A store had 45 apples. It sold 12 in the morning\nand received a shipment of 30 in the afternoon. Then it\nsold 18 before closing. How many apples remain?"\n\nChain of Thought (~75 tokens):\n  "The store started with 45 apples. In the morning, it sold\n   12 apples, leaving 45 - 12 = 33 apples. In the afternoon,\n   it received 30 more apples, bringing the total to\n   33 + 30 = 63 apples. Before closing, it sold 18 apples,\n   leaving 63 - 18 = 45 apples. Therefore, 45 apples remain."\n\nChain of Draft (~12 tokens):\n  "45-12=33; +30=63; -18=45"\n  Answer: 45',
+          label: 'Same 4-variable decision state: 75 tokens vs. 12 tokens',
+        },
+        {
+          type: 'table',
+          headers: ['Step', 'CoT trace', 'CoD trace', 'Decision state'],
+          rows: [
+            ['1. Extract start', '"The store started with 45 apples"', '45', 'start=45'],
+            ['2. Morning sale', '"sold 12 apples, leaving 45-12=33"', '-12=33', 'state=33'],
+            ['3. Shipment', '"received 30 more, total 33+30=63"', '+30=63', 'state=63'],
+            ['4. Evening sale', '"sold 18, leaving 63-18=45"', '-18=45', 'state=45'],
+            ['5. Answer', '"Therefore, 45 apples remain"', 'Answer: 45', 'ans=45'],
+          ],
+        },
+        'Every row in the CoT column contains the same decision state as the CoD column, plus 8-15 tokens of narration ("The store started with," "bringing the total to," "Therefore"). The narration helps a human reader follow the logic but adds no information the model needs to compute the next step.',
+        'Now run the verifier: parse "Answer: 45", evaluate 45-12+30-18 with a calculator, confirm 45=45. The draft passes. Ship the answer. Total cost: 12 output tokens instead of 75, same verified result.',
+        {
+          type: 'note',
+          text: 'If the problem added a constraint -- "apples that are bruised cannot be sold; 5 of the shipment were bruised" -- the decision state grows. The CoD trace must become "45-12=33; +30=63; bruised 5 unsellable; -18=45; stock 45, sellable 40." Compression adapts to state complexity, not to a fixed word count.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "Chain of Draft is useful for arithmetic, date reasoning, symbolic transformations, simple logic, constrained extraction, and support flows where the state fits in a compact record. It also helps when the system needs a cheap first pass before deciding whether to spend more.",
-        'A concrete arithmetic trace can be "given 20, left 12; subtract; ans 8." A concrete date trace can be "start Tue; +3 business; Fri." A concrete code trace should not be that terse; it might be "symptom import fail; file cli.py; guard None; run parser tests."',
-        "In a serving stack, CoD is a budget tier. The router tries a compact trace, runs the verifier, and ships only if the answer clears the quality gate. Otherwise it expands the trace, calls a tool, or escalates.",
-        'A practical deployment should log which tasks use the compact tier and why. The useful report is not average token savings alone. It is accepted answers, rejected drafts, escalation rate, verifier failures, and latency by task slice. That lets teams keep the method where it helps and remove it where it hides too much reasoning state.',
+        {
+          type: 'table',
+          headers: ['Domain', 'CoD fit', 'Draft trace shape', 'Verifier'],
+          rows: [
+            ['Arithmetic word problems', 'Strong', 'nums; ops; result', 'Calculator'],
+            ['Date/calendar reasoning', 'Strong', 'day; offset; rule; result', 'Calendar library'],
+            ['Symbolic logic (coin flip)', 'Strong', 'state; flip; state; ...', 'State simulator'],
+            ['Structured extraction', 'Good', 'field=value; field=value', 'Schema validator'],
+            ['Customer support routing', 'Good', 'intent; entity; action', 'Policy rule engine'],
+            ['Code generation', 'Mixed', 'symptom; file; edit; constraint; test', 'Unit tests, linter'],
+            ['Legal/medical reasoning', 'Weak', 'Needs citations, provenance, exceptions', 'Human review required'],
+            ['Creative writing', 'Poor', 'Style cannot be compressed to state', 'No compact verifier'],
+          ],
+        },
+        'In a serving stack, CoD works as the first reasoning tier. The system tries a compact trace, runs the domain-appropriate verifier, and ships only if the answer clears the quality gate. Otherwise it escalates: retry with CoT, invoke a tool (calculator, code executor, retrieval), or route to human review.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Production budget allocation example\nTIER_CONFIG = {\n    "direct":  {"max_output": 10,   "cost_weight": 1.0},\n    "cod":     {"max_output": 50,   "cost_weight": 1.5},\n    "cot":     {"max_output": 500,  "cost_weight": 3.0},\n    "tool":    {"max_output": 200,  "cost_weight": 5.0},\n    "human":   {"max_output": None, "cost_weight": 50.0},\n}\n\ndef select_tier(task_type, confidence, stakes):\n    if task_type in COMPACT_STATE_TASKS and stakes < 0.7:\n        return "cod"\n    if confidence > 0.95 and stakes < 0.3:\n        return "direct"\n    if task_type in TOOL_TASKS:\n        return "tool"\n    return "cot"  # default to verbose for safety',
+        },
+        'A practical deployment logs accepted answers, rejected drafts, escalation rate, verifier pass/fail by task slice, and latency per tier. The useful report is not average token savings -- it is the quality-adjusted cost per accepted answer, broken down by the task categories that matter to the product.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "The main failure is overcompression. The model keeps the arithmetic-looking part and drops the condition, unit, exception, citation, or compatibility constraint that determines correctness.",
-        "Another failure is using CoD as a blanket replacement for Chain of Thought. High-stakes legal, medical, financial, or code-modifying workflows need independent checks and often need evidence that cannot be compressed into a few tokens.",
-        "Aggregate benchmark accuracy can hide the damage. Track token usage, latency, answer format failures, calibration, verifier failures, task slices, and escalation rate. The important question is where compression breaks.",
-        'A subtle failure is optimizing for hidden traces instead of user value. The user usually needs a clear final answer, not proof that the model used the shortest possible private scratchpad. If compact reasoning saves tokens but creates more retries, more wrong answers, or less useful final communication, the serving system has optimized the wrong layer.',
+        {
+          type: 'bullets',
+          items: [
+            'Overcompression: the model keeps the arithmetic and drops the condition, unit, exception, or constraint that determines correctness. "20-12=8" is fine for lollipops but wrong if 12 is in a different currency and needs conversion first.',
+            'Blanket replacement: using CoD as a global prompt instead of a routing tier. High-stakes legal, medical, financial, or code-modifying workflows need evidence, provenance, and detail that cannot be compressed into 5-word steps.',
+            'Aggregate metric masking: benchmark accuracy averages over easy and hard slices. CoD may match CoT on the easy 80% and fail on the hard 20% that matters most. Track failure slices, not averages.',
+            'Hidden trace optimization: optimizing the private scratchpad for brevity instead of optimizing the final answer for user value. If compact reasoning creates more retries, more wrong answers, or less useful communication, the system optimized the wrong layer.',
+            'Parse fragility: terse output is harder to parse reliably. "33+30=63" and "33 + 30 = 63" and "add 30 to get 63" are all valid CoD outputs but need different parsers. Prompt engineering reduces but does not eliminate format variance.',
+            'Verifier absence: without a verifier, shorter traces hide mistakes instead of reducing cost. The error rate may be unchanged, but the errors are now invisible because the reasoning trace no longer explains itself.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The SWE-CoD study (arxiv:2506.10987) found that on software engineering tasks, CoD saved tokens but the compression was much smaller (55% of CoT tokens, not 7.6%). Code tasks need repository context, compatibility reasoning, and test validation that cannot be safely removed. The domain defines the compression floor.',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Chain of Draft at https://arxiv.org/abs/2502.18600 and the code/data repository at https://github.com/sileix/chain-of-draft. Practical deployment discussion: AWS Chain-of-Draft on Bedrock at https://aws.amazon.com/blogs/machine-learning/move-beyond-chain-of-thought-with-chain-of-draft-on-amazon-bedrock/. Software-engineering caveat: https://arxiv.org/abs/2506.10987. Related training direction: Draft-Thinking at https://arxiv.org/html/2603.00578v1.',
-        'Study Self-Consistency Reasoning Vote for sampling-based checks, Tree of Thoughts Search Case Study for broader exploration, Process Reward Models & Verifier Search for step scoring, Verifier-Guided Inference Control Plane Case Study for routing, LLM Inference Cost Stack Case Study for economics, RAG Context Packing Token Budget Case Study for context tradeoffs, LLM Evaluation Harnesses for measurement, Benchmark Variance & Model Selection for slice analysis, and Softmax & Temperature for sampling behavior.',
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Xu et al., "Chain of Draft" (2025), arxiv:2502.18600', 'Original paper: CoD prompting strategy, benchmarks across 6 reasoning tasks, token reduction measurements'],
+            ['github.com/sileix/chain-of-draft', 'Reference implementation: prompts, evaluation scripts, benchmark data'],
+            ['AWS "Chain-of-Draft on Bedrock" (2025)', 'Production deployment guide: prompt templates, Bedrock integration, cost analysis'],
+            ['SWE-CoD study, arxiv:2506.10987', 'Software engineering extension: CoD on SWE-bench, smaller compression on code tasks'],
+            ['Draft-Thinking, arxiv:2603.00578', 'Training-time approach: teach models to generate compact reasoning during training, not just prompting'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Chain of Thought Prompting to understand the verbose reasoning baseline that CoD compresses.',
+            'Verification layer: study Process Reward Models & Verifier Search for step-level scoring and Verifier-Guided Inference Control Plane Case Study for routing decisions based on verification outcomes.',
+            'Economics: study LLM Inference Cost Stack Case Study for the full cost model that makes token savings matter, and RAG Context Packing Token Budget Case Study for input-side budget tradeoffs.',
+            'Alternatives: study Self-Consistency Reasoning Vote for sampling-based accuracy improvement (orthogonal to CoD), and Tree of Thoughts Search Case Study for broader exploration on harder problems.',
+            'Evaluation: study LLM Evaluation Harnesses for measurement methodology and Benchmark Variance & Model Selection for understanding when aggregate metrics hide slice-level failures.',
+          ],
+        },
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for chain-of-draft-reasoning-token-budget-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

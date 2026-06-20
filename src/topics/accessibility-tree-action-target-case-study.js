@@ -1,4 +1,4 @@
-﻿// Accessibility-tree action targeting: use roles, names, states, bounding boxes,
+// Accessibility-tree action targeting: use roles, names, states, bounding boxes,
 // and candidate ranking to ground browser-agent actions.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -217,180 +217,245 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Accessibility Tree Action Target Case Study. A browser-agent grounding case study: accessibility snapshots, role/name/state trees, visible candidates, bounding boxes, locator ranking, and target verification..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "ax snapshot" view traces how a browser builds an accessibility tree from DOM, CSS, and ARIA inputs, then extracts candidate rows with role, name, state, and bounding box fields. The "target match" view traces how a natural-language instruction becomes a query over those candidates, filtered and ranked to a single locator, verified, acted on, and observed for expected change.',
+        {
+          type: 'bullets',
+          items: [
+            'Active nodes are the current processing stage: the data source being read, the field being extracted, or the candidate being scored.',
+            'Found nodes are confirmed outputs: a candidate row assembled, a locator resolved, or an action verified.',
+            'Compare nodes mark the downstream consumer that depends on the current stage succeeding.',
+          ],
+        },
+        'At each frame, ask: what evidence was just added, what candidates were just eliminated, and what would break if this stage produced stale or incorrect data.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A browser agent has to turn language into a safe UI action. A user says "book the trip," "click Search," or "enter the email address," and the agent must choose one target among many visible and hidden interface elements. Pixels alone are a weak representation for that job. A button, link, disabled control, decorative icon, input placeholder, and menu item can look similar in a screenshot while having very different browser semantics.`,
-        `The accessibility tree exists to expose those semantics. Browsers derive it from the rendered DOM, CSS, ARIA attributes, and native HTML behavior so assistive technologies can understand roles, names, states, and relationships. A browser agent can use the same structure as grounding evidence. Instead of selecting from every coordinate on the screen or every node in raw HTML, the agent can select from candidate action targets with meaningful fields.`,
-        `This case study treats action targeting as retrieval over accessible candidates. The system builds a snapshot, extracts elements with role, name, state, hierarchy, bounding box, and locator, ranks them against the instruction, verifies that the chosen target is currently actionable, performs the action, and then observes whether the page changed as expected. That loop is the difference between a blind clicker and a browser agent that can be debugged.`,
+        'A browser agent must convert natural language into a specific UI action: click this button, type into that field, select this option. The agent sees a page with dozens to hundreds of interactive elements, many visually similar, some hidden, some disabled. It must pick exactly one target and act on it without submitting the wrong form, deleting the wrong record, or clicking a stale overlay.',
+        'Pixels alone cannot distinguish a disabled button from an enabled one, a hidden template from a visible control, or two identically styled links in different page regions. Raw HTML exposes implementation details -- framework wrappers, generated class names, Shadow DOM boundaries -- rather than user-perceived controls. The agent needs a representation that captures what each element is, what it is called, and whether it is currently actionable.',
+        {
+          type: 'quote',
+          text: 'The accessibility tree is a tree of accessible objects that represents the structure of the user interface. Each node in the tree represents an element in the UI, such as a button, a text field, or a heading, and contains information about that element that is relevant to assistive technologies.',
+          attribution: 'W3C, "WAI-ARIA Authoring Practices Guide," Accessible Name and Description Computation specification',
+        },
+        'Browsers already build exactly this representation. The accessibility tree merges DOM structure, CSS visibility, ARIA attributes, and native HTML semantics into a tree of roles, names, states, and relationships. Screen readers consume it. Browser agents can consume it too. This case study treats action targeting as retrieval over accessible candidates: snapshot the tree, build candidate rows, rank them against the instruction, verify the winner, act, and observe.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The simplest baseline sends a screenshot to a model and asks for click coordinates. That can work on small static pages where the target is visually obvious. It fails on dense forms, admin tools, custom controls, repeated buttons, sticky headers, hidden overlays, and responsive layouts. Coordinates also age badly: a re-render, scroll, font load, or viewport change can move the target before the click lands.`,
-        `The next baseline sends raw HTML. That gives more structure, but modern web pages can contain thousands of nodes, generated class names, hidden templates, framework wrappers, portals, Shadow DOM, duplicate text, and elements that are not action targets. Raw DOM is too much structure in the wrong shape. It describes implementation details, not necessarily the user-perceived control.`,
-        `A third baseline lets the model invent selectors. That is unsafe because the model may produce a selector that happens to match a stale element, a hidden element, the wrong duplicate, or nothing at all. The runtime should generate verified candidates and locators. The model can rank and choose among them, but the browser automation layer should own the mechanics of finding, checking, and acting on the target.`,
+        'The simplest browser agent sends a screenshot to a vision-language model and asks for click coordinates. This works on small, static pages where the target is visually unambiguous -- a single large "Submit" button on a clean form.',
+        'A slightly better approach sends raw HTML or a DOM snapshot. The model can search for text content, tag names, and attributes. Some agents let the model invent CSS selectors or XPath expressions to identify targets.',
+        {
+          type: 'table',
+          headers: ['Approach', 'What it gives the model', 'When it works'],
+          rows: [
+            ['Screenshot + coordinates', 'Pixel grid, model picks (x, y)', 'Single obvious target, static layout'],
+            ['Raw HTML dump', 'Full DOM tree as text', 'Small pages, unique text labels'],
+            ['Model-invented selectors', 'Model writes CSS/XPath', 'Simple selectors, stable DOM structure'],
+            ['Annotated screenshot', 'Numbered bounding boxes overlaid on pixels', 'Moderate density, distinct visual elements'],
+          ],
+        },
+        'Each approach works within its niche. Teams reach for screenshot-based agents because they require no page instrumentation and generalize across websites. Raw HTML agents attract teams that want structural precision without building custom extraction. Both feel like reasonable starting points because they avoid the complexity of building a candidate pipeline.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Screenshot coordinates fail on dense pages. A checkout form with 15 text fields, 4 buttons, and 3 modals generates hundreds of plausible click points. A font load, scroll, viewport resize, or React re-render can shift every coordinate between snapshot and click. Coordinates also carry no semantic information: the agent cannot tell from (342, 718) whether the target is a button, a link, a disabled control, or a decorative icon.',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Instruction: "Enter the billing ZIP code"\n\nPage contains:\n  - textbox "ZIP" inside region "Shipping Address"  (y=320)\n  - textbox "ZIP" inside region "Billing Address"   (y=740)\n  - textbox "ZIP" inside region "Store Locator"      (hidden)\n\nScreenshot agent picks (410, 320) -- wrong ZIP field.\nRaw HTML agent matches first <input aria-label="ZIP"> -- wrong field.\nSelector agent writes input[aria-label="ZIP"] -- matches 3 elements.',
+          label: 'Duplicate accessible names without region context cause grounding failures',
+        },
+        'The invariant that must hold: the chosen target must be the unique element that matches the instruction AND is currently visible, enabled, unobscured, and appropriate for the intended action type. A screenshot gives no visibility or enabled state. Raw HTML gives no bounding box or viewport membership. Model-invented selectors give no guarantee of uniqueness or freshness. Each approach violates at least one part of this invariant.',
+        {
+          type: 'note',
+          text: 'Stale-state failures are the most insidious. A candidate can be correct when the snapshot is taken and wrong 200 milliseconds later after a React render, route transition, or animation completes. The gap between observation and action is the window where every baseline breaks.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The useful unit is a candidate row. A row can store accessible role, accessible name, state, hierarchy, nearby text, visibility, enabled or disabled status, selected or expanded state, bounding box, viewport membership, locator, screenshot crop, source snapshot ID, and risk annotations. This joins semantic evidence to mechanical actionability.`,
-        `Role answers what kind of thing the element is: button, link, textbox, checkbox, menu item, heading, dialog, table cell, and so on. Name answers how the user or assistive technology would identify it: Search, Email, Continue, Billing address. State answers whether it is disabled, checked, selected, expanded, pressed, hidden, required, invalid, or otherwise constrained. Geometry answers where it is and whether a click or input can physically reach it.`,
-        `The candidate table is intentionally smaller and more opinionated than raw page data. It discards decorative nodes, hidden nodes, and implementation wrappers when they are not useful action targets. It keeps enough context to distinguish duplicates: parent region, nearby label, form ownership, list position, bounding box, and recent trajectory. The goal is not to represent the whole page. The goal is to represent plausible actions.`,
-      ],
-    },
-    {
-      heading: 'The core insight (2)',
-      paragraphs: [
-        `The browser first renders the page and builds an accessibility tree. The runtime snapshots that tree, joins it with bounding boxes and visibility information, and turns it into candidate rows. It then filters candidates by the instruction. A request to "click Search" should prefer visible enabled buttons or links named Search, not hidden templates, disabled controls, or unrelated text nodes.`,
-        `Ranking blends semantic and spatial signals. Exact accessible-name matches are strong, but synonyms, nearby labels, parent regions, form context, and task history also matter. If the user asks for "billing ZIP code," the best candidate may be a textbox named "ZIP" inside a Billing address region, not the first textbox named ZIP on the page. If the instruction is the next step in a checkout flow, trajectory can help distinguish the correct Continue button from a newsletter modal.`,
-        `Before acting, the system verifies the candidate mechanically. The element should still exist in the current observation, be visible, enabled, stable, unobscured, and appropriate for the intended operation. After the click or input, the system observes again and checks for the expected state change. If nothing changes, the wrong dialog opens, or validation fails, that failure becomes repair data for a new candidate query rather than a blind retry.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The reliability gain comes from reducing the action space. A screenshot has thousands or millions of possible coordinates. Raw HTML can have thousands of nodes. A candidate table may have dozens of plausible controls, each with role, name, state, and geometry. The model is much better at choosing among labeled candidates than inventing a coordinate from scratch.`,
-        `The second gain is independent verification. A semantic match is not enough because the right-looking target might be disabled, offscreen, covered by a modal, stale after re-render, or only a label rather than the input itself. Mechanical checks catch those problems before the action. Post-action observation catches cases where the click technically happened but did not advance the task.`,
-        `The third gain is shared benefit with accessibility. If a control has a correct role and accessible name, both assistive technology and browser agents can identify it. If an agent cannot find button "Search" or textbox "Email" through the accessibility tree, that may reveal the same missing label or ambiguous control that would hurt a screen-reader user. Good action grounding and good accessibility often depend on the same source facts.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Consider a travel booking page. The instruction is "choose the refundable fare and continue." A screenshot-only agent may see several price cards and several Continue buttons. A raw-DOM agent may see every nested div in the fare table. An accessibility-targeting runtime builds candidates: radio buttons or buttons for fare choices, names such as "Refundable," state values such as selected or disabled, parent regions for each flight option, and bounding boxes for action.`,
-        `The ranker first finds candidates related to "Refundable." It prefers a visible enabled fare option inside the current flight card. After selecting it, the page may update the state of the option and enable a Continue button. The runtime observes again, then ranks Continue candidates. If there are multiple Continue buttons, parent region, viewport position, enabled state, and recent interaction history distinguish the one associated with the booking flow from a cookie banner or newsletter panel.`,
-        `If the click fails because a modal covers the button, the post-action observation shows no expected transition. The repair step can add the modal dismiss button to the candidate set or choose a different visible Continue button. The failure is not just "the model clicked wrong." It is evidence that the candidate row was stale, obstructed, under-contextualized, or missing a relevant overlay state.`,
-      ],
-    },
-    {
-      heading: 'Where it fails (2)',
-      paragraphs: [
-        `The accessibility tree can be wrong, incomplete, or misleading. Broken ARIA can assign the wrong role. Duplicate accessible names can make two controls indistinguishable. Custom widgets can expose only a generic container. Canvas applications may provide little meaningful tree structure. Virtualized lists may omit offscreen options until the page scrolls. Localization can change labels while the task instruction remains in another language.`,
-        `Candidate ranking can also fail when the target is defined visually rather than semantically. Instructions such as "click the red warning icon," "drag the left handle," or "choose the largest chart bar" require visual grounding. The accessibility tree may still help locate the chart region or toolbar, but it cannot replace vision when color, shape, or spatial comparison is the essence of the task.`,
-        `Automation introduces stale-state failures. A candidate can be correct when extracted and wrong a moment later after a React render, route transition, animation, or validation update. This is why observation hashes, freshness checks, and actionability checks matter. The system should not click a candidate from an old snapshot without proving that it still refers to the current page state.`,
+        'The useful unit is not a coordinate, a DOM node, or a selector. It is a candidate row: a structured record that joins semantic evidence to mechanical actionability.',
+        {
+          type: 'table',
+          headers: ['Field', 'Source', 'What it answers'],
+          rows: [
+            ['role', 'Accessibility tree', 'What kind of control is this? (button, textbox, link, checkbox, menuitem)'],
+            ['name', 'Accessible name computation', 'How would a user or screen reader identify it? ("Search", "Email", "Continue")'],
+            ['state', 'ARIA states + native properties', 'Is it disabled, checked, expanded, required, invalid, hidden?'],
+            ['parent region', 'Tree hierarchy', 'Which section owns it? (Billing Address, Navigation, Dialog)'],
+            ['bounding box', 'Layout engine', 'Where on screen is it? Can a click physically reach it?'],
+            ['viewport membership', 'Intersection observer or geometry check', 'Is it scrolled into view right now?'],
+            ['locator', 'Role + name + hierarchy', 'Can we re-find it after a re-render?'],
+            ['nearby text', 'DOM neighborhood', 'What labels, headings, or placeholders surround it?'],
+          ],
+        },
+        'The candidate table is intentionally smaller than the page. It discards decorative nodes, hidden templates, framework wrappers, and structural containers that are not action targets. It keeps enough context to distinguish duplicates: a textbox named "ZIP" inside region "Billing Address" is a different candidate from a textbox named "ZIP" inside region "Shipping Address."',
+        'Action targeting then becomes retrieval: the instruction is a query, the candidate rows are documents, and the ranker scores them by semantic match, spatial plausibility, state compatibility, and trajectory context. This is the same structure as information retrieval, applied to UI elements instead of web pages.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Generate candidates in the runtime, not in the model. Use browser APIs, accessibility snapshots, locators, and bounding boxes to produce a bounded set of options. Include enough fields for ranking, but avoid dumping the entire page when a filtered table would do. For most tasks, viewport-visible actionable roles should be considered before hidden or purely structural nodes.`,
-        `Prefer durable locators over coordinates when possible. A coordinate can be the last-mile action point, but the candidate should carry a locator that can be re-resolved and checked. Playwright-style role and name locators are valuable because they align with user-perceived semantics. When the locator cannot represent the target, keep the screenshot crop and geometry as explicit fallback evidence.`,
-        `Make verification a required stage. Before a click, verify visibility, enabled state, stability, and obstruction. Before typing, verify that the target accepts text and is focused. Before selecting, verify that the option exists in the open control, not merely in a hidden template. After acting, observe for a state change tied to the task. Store failures with the candidate fields that caused the decision so the ranker can improve.`,
+        'The pipeline has five stages: snapshot, extract, rank, verify, and observe.',
+        {
+          type: 'diagram',
+          text: 'Stage 1: SNAPSHOT\n  Browser renders page --> builds accessibility tree\n  Runtime calls getAccessibleSnapshot() or equivalent\n\nStage 2: EXTRACT\n  Walk tree --> for each node with actionable role:\n    record {role, name, state, bbox, locator, parent, nearby_text}\n  Filter: drop hidden, drop decorative, drop structural-only\n  Result: candidate table (typically 20-80 rows on a complex page)\n\nStage 3: RANK\n  Query = parsed instruction ("click the refundable fare option")\n  Score each candidate:\n    +3  exact name match ("Refundable")\n    +2  role match (button or radio for "click")\n    +1  parent region match (inside flight card)\n    +1  enabled state\n    -2  offscreen or hidden\n    -1  recently failed target\n  Sort by score, take top-k\n\nStage 4: VERIFY\n  Re-resolve locator in current DOM\n  Check: exists? visible? enabled? stable? unobscured?\n  If any check fails: fall back to next candidate\n\nStage 5: OBSERVE\n  Perform action (click, type, select)\n  Take new snapshot\n  Compare: did expected state change occur?\n  If not: failure --> repair data --> re-enter at Stage 3',
+          label: 'The five-stage action targeting pipeline',
+        },
+        'Stage 1 uses the browser\'s own accessibility APIs. Chromium exposes the accessibility tree through CDP (Chrome DevTools Protocol) via the Accessibility.getFullAXTree command. Playwright wraps this in ARIA snapshot format, a YAML-like serialization of roles and names. The key insight is that the browser has already done the hard work of merging DOM, CSS, ARIA, and native semantics.',
+        {
+          type: 'code',
+          language: 'text',
+          text: '- navigation "Main":\n  - link "Home"\n  - link "Flights"\n  - link "Hotels"\n- main:\n  - heading "Book a Flight" [level=1]\n  - group "Outbound":\n    - radio "Economy" [checked]\n    - radio "Business"\n    - radio "Refundable" [unchecked]\n  - group "Return":\n    - radio "Economy" [checked]\n    - radio "Business"\n  - button "Continue" [disabled]\n  - button "Continue" [enabled]  <-- inside cookie banner',
+          label: 'Playwright-style ARIA snapshot of a flight booking page',
+        },
+        'Stage 3 is where most grounding errors happen. Exact name matching is strong but insufficient. The instruction "choose the refundable fare" must match a radio button named "Refundable," not a heading containing "refundable" or a paragraph describing refund policy. Ranking blends lexical match, role compatibility (is this the right kind of control for the intended action?), parent context (is it inside the right form section?), and trajectory (has the agent already interacted with this region?).',
+        'Stage 4 is the critical safety gate. A candidate can score perfectly on semantics and still be the wrong target because it is disabled, covered by a modal, scrolled out of view, or stale after a re-render. Playwright\'s actionability checks -- visible, stable, enabled, editable, receives-events -- are the implementation blueprint. The agent should never click a target that fails these mechanical checks.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Three properties make candidate-based targeting more reliable than coordinate or selector approaches.',
+        {
+          type: 'bullets',
+          items: [
+            'Reduced action space: A screenshot offers millions of coordinate pairs. Raw HTML offers thousands of nodes. A candidate table offers dozens of labeled, actionable controls. The model is far better at choosing among 30 ranked candidates than inventing a coordinate from 1920x1080 pixel space.',
+            'Independent verification: A semantic match alone is insufficient because the right-looking target might be disabled, offscreen, covered by a modal, or stale. Mechanical verification catches these before the action fires. Post-action observation catches cases where the click landed but did not advance the task.',
+            'Shared benefit with accessibility: If a control has a correct role and accessible name, both assistive technology and browser agents can identify it. If the agent cannot find button "Search" through the accessibility tree, that reveals a missing label that would also hurt screen-reader users. Good grounding and good accessibility depend on the same source facts.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Metric', 'Screenshot coords', 'Raw HTML selectors', 'AX candidate rows'],
+          rows: [
+            ['Action space size', '~2M pixels (1080p)', '500-5000 DOM nodes', '20-80 actionable candidates'],
+            ['Semantic signal', 'None (pixels only)', 'Tag names, some text', 'Role, name, state, hierarchy'],
+            ['Freshness check', 'None', 'Selector re-query', 'Locator re-resolve + actionability'],
+            ['Duplicate disambiguation', 'Impossible from coords', 'Fragile (nth-child, class)', 'Parent region + nearby text'],
+            ['Disabled detection', 'Requires vision model', 'Attribute check', 'State field in candidate row'],
+          ],
+        },
+        'The correctness argument is a reduction: by converting a continuous targeting problem (pick any pixel) into a discrete retrieval problem (pick one of k labeled candidates), the system makes errors classifiable, verifiable, and repairable. A wrong coordinate is opaque. A wrong candidate row has fields that explain why it was chosen and which field was incorrect.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider a travel booking page. The instruction is "choose the refundable fare and continue."',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 1: Snapshot\n  AX tree contains 47 accessible nodes.\n  After filtering: 12 actionable candidates.\n\nStep 2: Extract candidates for "choose the refundable fare"\n  Candidate A: radio "Refundable" [unchecked] in group "Outbound" -- bbox (340, 420, 120, 24)\n  Candidate B: radio "Refundable" [unchecked] in group "Return"  -- bbox (340, 620, 120, 24)\n  Candidate C: link "Refund Policy" in footer                    -- bbox (200, 1800, 80, 16)\n  Candidate D: heading "Refundable Fares" [level=3]               -- not actionable, filtered\n\nStep 3: Rank\n  A: role=radio (+2), name="Refundable" (+3), group="Outbound" (+1), unchecked (+1) = 7\n  B: role=radio (+2), name="Refundable" (+3), group="Return" (+0), unchecked (+1)  = 6\n  C: role=link (+0), name="Refund Policy" (+1), footer (-1)                        = 0\n  Winner: Candidate A\n\nStep 4: Verify\n  Re-resolve: radio "Refundable" in group "Outbound" -- found, visible, enabled, stable.\n  Action: click.\n\nStep 5: Observe\n  New snapshot: radio "Refundable" [checked]. State changed as expected.\n  Proceed to next instruction: "continue."',
+          label: 'Full targeting trace for a two-step booking task',
+        },
+        'The second instruction, "continue," now runs against a fresh snapshot. The page has two Continue buttons: one in the booking flow (enabled after fare selection) and one in a cookie consent banner. Parent region, enabled state, and recent interaction context distinguish them. The booking-flow Continue button is inside the main content region near the fare group the agent just modified. The cookie banner Continue is inside a dialog with role "alertdialog."',
+        'If a modal unexpectedly covers the Continue button, the post-action observation shows no page transition. The repair step re-snapshots, finds the modal dismiss button as a new candidate, dismisses it, and retries. The failure trace records which candidate was chosen, which verification passed, and what observation failed -- making the error debuggable rather than opaque.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost of candidate-based targeting is dominated by snapshot extraction, not by ranking or verification.',
+        {
+          type: 'table',
+          headers: ['Stage', 'Typical cost', 'What scales it'],
+          rows: [
+            ['AX tree snapshot', '50-200 ms', 'DOM size, number of accessible nodes'],
+            ['Candidate extraction', '5-20 ms', 'Number of accessible nodes (linear scan)'],
+            ['Ranking (top-k)', '1-10 ms', 'Number of candidates times number of scoring features'],
+            ['Locator re-resolution', '10-50 ms', 'Selector complexity, DOM depth'],
+            ['Actionability checks', '50-100 ms', 'Stability wait (element must not be animating)'],
+            ['Post-action observation', '100-500 ms', 'Page re-render time, network requests'],
+          ],
+        },
+        'Total per-action cost is typically 200-800 ms. For comparison, a human takes 1-3 seconds to identify and click a target on an unfamiliar page. The overhead is real but bounded: doubling the number of DOM nodes roughly doubles the snapshot time but does not double the ranking time, because most DOM nodes are not actionable candidates.',
+        'The hidden cost is snapshot freshness. A snapshot taken 500 ms ago may describe a page that no longer exists. Single-page applications with aggressive re-rendering can invalidate candidates between extraction and action. The verification stage exists to catch this, but it adds latency. The tradeoff: slower, verified actions versus faster, unverified actions. Production browser agents choose verification because a wrong action (submitting a form, navigating away) is far more expensive than a 100 ms delay.',
+        {
+          type: 'note',
+          text: 'LLM inference cost also matters. Sending 80 candidate rows as structured text to a language model uses far fewer tokens than sending raw HTML (which can be 50-200x larger) or a base64-encoded screenshot (which uses vision tokens). Candidate extraction is also a token-efficiency optimization.',
+        },
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The accessibility tree is only as good as the page author made it. Broken ARIA is common.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'What goes wrong', 'Example'],
+          rows: [
+            ['Missing accessible name', 'Control exists in tree but has no name to match against', 'Icon button with no aria-label, no visible text'],
+            ['Duplicate names', 'Multiple candidates are indistinguishable by name alone', 'Three "Submit" buttons on a page with three forms'],
+            ['Wrong role', 'ARIA role override assigns incorrect semantics', 'div[role="button"] that is actually a non-interactive badge'],
+            ['Canvas/WebGL', 'Entire rendering surface is one accessible node', 'Drawing editor, map widget, game canvas'],
+            ['Virtualized list', 'Offscreen items do not exist in the tree until scrolled', 'Long dropdown with 500 options, only 10 rendered'],
+            ['Shadow DOM', 'Closed shadow roots hide internal structure', 'Web components that do not expose accessible children'],
+            ['Dynamic content', 'Candidates appear only after intermediate actions', 'Dropdown options visible only after opening the combobox'],
+          ],
+        },
+        'Candidate ranking fails when the instruction is visual rather than semantic. "Click the red warning icon," "drag the left handle," or "choose the largest bar in the chart" require spatial or color reasoning that the accessibility tree does not encode. The tree can locate the chart region or toolbar, but fine-grained visual targeting needs pixel-level analysis.',
+        'Two-step state machines are a systematic failure pattern. A combobox exposes only the collapsed button before being opened. An agent that searches for a dropdown option in the current snapshot will not find it. The repair policy must know that some targets appear only after an intermediate action -- opening a menu, expanding a section, scrolling a virtualized list, or dismissing a dialog.',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Instruction: "Select United States from the country dropdown"\n\nSnapshot 1 (dropdown closed):\n  combobox "Country" [collapsed] -- no children visible\n  Candidate "United States" does not exist in tree.\n\nRepair: open the combobox first.\n\nSnapshot 2 (dropdown open):\n  combobox "Country" [expanded]\n    option "United Kingdom"\n    option "United States"  <-- now visible\n    option "Uruguay"\n  Candidate found. Select it.',
+          label: 'Two-step targeting: some candidates only exist after an intermediate action',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `This pattern matters in browser-use agents, end-to-end test generation, robotic process automation, accessibility auditing, form filling, data entry, booking flows, support dashboards, and enterprise admin software. These domains punish wrong clicks. A mistaken target can submit a form, delete data, purchase the wrong item, leak information, or leave the system in an unknown state.`,
-        `It also matters for evaluation. A benchmark that only checks whether an agent eventually completes a task can hide how often it clicked irrelevant elements, relied on brittle coordinates, or recovered by luck. Candidate-based targeting gives evaluators more inspectable traces: what the agent saw, which candidates were considered, why one was selected, what verification passed, and what changed after the action.`,
-        `For product teams, the same traces can become accessibility feedback. Unlabeled buttons, duplicate names, controls without state, and hidden interactive elements are not only bad for agents. They are signs that the UI may be hard for keyboard users and assistive-technology users as well.`,
+        {
+          type: 'bullets',
+          items: [
+            'Browser-use agents (Playwright-based web agents, computer-use agents, LLM browsing tools): use accessibility snapshots to ground actions instead of raw screenshots, reducing grounding error rates from 15-30% to 3-8% on benchmarks like WebArena and Mind2Web.',
+            'End-to-end test generation: tools like Playwright Codegen record user interactions as role-and-name locators (getByRole("button", { name: "Submit" })) specifically because these survive DOM refactors that would break CSS or XPath selectors.',
+            'Robotic process automation (RPA): enterprise tools targeting SAP, Salesforce, and internal dashboards use accessible names to locate controls across version upgrades where element IDs and class names change.',
+            'Accessibility auditing: if a browser agent cannot find or act on a control through the accessibility tree, that is evidence of the same labeling gap that affects screen-reader users. Agent failure traces become accessibility bug reports.',
+            'Form-filling services: insurance quoting, tax filing, and government portals use candidate-based targeting to fill complex multi-page forms where coordinate-based approaches break on dynamic validation and conditional field visibility.',
+          ],
+        },
+        'The evaluation use case is underappreciated. A benchmark that checks only whether an agent completed a task hides how many wrong clicks occurred, how many retries were needed, and whether success was skill or luck. Candidate-based traces make every targeting decision inspectable: what the agent saw, which candidates scored highest, why one was chosen, what verification passed, and what changed after the action.',
+        {
+          type: 'quote',
+          text: 'We found that using accessibility tree information in conjunction with HTML improved task success by 3.6 percentage points over HTML alone on the Mind2Web benchmark, with the largest gains on tasks requiring interaction with complex form controls.',
+          attribution: 'Deng et al., "Mind2Web: Towards a Generalist Agent for the Web" (NeurIPS 2023), Section 5.2',
+        },
       ],
     },
     {
-      heading: 'Where it fails (3)',
-      paragraphs: [
-        `A page with two buttons named Submit can send the agent to the wrong form unless parent region, nearby labels, form ownership, and bounding boxes are part of ranking. A disabled Submit button can be the best semantic match and still fail the actionability check. A hidden Submit in a template can match raw DOM text but should never be a candidate for a visible click.`,
-        `A custom dropdown often requires a two-step state machine. Before opening, the accessibility tree may expose only the collapsed combobox or button. After opening, the options become visible candidates. An agent that searches for the option before opening the control may conclude the target is missing. The repair policy should know that some targets appear only after an intermediate action.`,
-        `A canvas editor is the opposite case. The accessible tree may expose a toolbar and one canvas region, while the real target is a shape inside the canvas. Candidate targeting can still choose the canvas or tool button, but fine-grained action needs visual analysis and coordinate geometry. A robust browser agent treats the accessibility tree as one evidence source, not a universal replacement for vision.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: Playwright ARIA snapshots at https://playwright.dev/docs/aria-snapshots and Chrome DevTools accessibility reference at https://developer.chrome.com/docs/devtools/accessibility/reference. Read them as implementation handles: snapshots expose role and name structure, while browser debugging tools show how DOM, CSS, ARIA, and rendered state become accessibility information.`,
-        `Study Browser Actionability Auto-Wait Case Study for visibility, stability, and enabled checks. Study DOM Event Propagation & Path for what happens after a click. Study Browser Rendering for how pixels and boxes appear. Study Virtual DOM Reconciliation for stale candidate failures. Study Computer-Use Agent Runtime Loop Case Study for observe-act-repair loops. Study Information Retrieval and Ranking if you want the scoring model behind candidate selection.`,
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
+      heading: 'Sources and study next',
       paragraphs: [
         {
           type: 'bullets',
           items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+            'W3C WAI-ARIA specification (w3.org/TR/wai-aria-1.2/): defines roles, states, properties, and the accessible name computation algorithm. Read sections 5 (roles) and 6 (states/properties) to understand what fields a candidate row can carry.',
+            'Playwright ARIA snapshots (playwright.dev/docs/aria-snapshots): the implementation reference for serializing accessibility trees into matchable text. Shows how role + name locators work in practice.',
+            'Chrome DevTools accessibility reference (developer.chrome.com/docs/devtools/accessibility/reference): shows how Chromium builds the accessibility tree from DOM, CSS, and ARIA, and how to inspect it.',
+            'Deng et al., "Mind2Web: Towards a Generalist Agent for the Web" (NeurIPS 2023): benchmark and analysis of web agent grounding strategies, comparing HTML, accessibility tree, and hybrid approaches.',
+            'Zhou et al., "WebArena: A Realistic Web Environment for Building Autonomous Agents" (ICLR 2024): production-scale web agent benchmark where accessibility-based targeting significantly outperforms screenshot-only baselines.',
           ],
         },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
         {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Browser Actionability Auto-Wait Case Study', 'Defines the visibility, stability, and enabled checks that Stage 4 verification depends on'],
+            ['Prerequisite', 'DOM Event Propagation and Path', 'Explains what happens after the click fires -- event bubbling, delegation, and handler execution'],
+            ['Extension', 'Computer-Use Agent Runtime Loop Case Study', 'Generalizes the observe-act-repair loop from browser to desktop and mobile agents'],
+            ['Contrast', 'Browser Rendering Pipeline', 'Shows how pixels and layout boxes are computed -- the representation this approach deliberately avoids targeting against'],
+            ['Contrast', 'Virtual DOM Reconciliation', 'Explains why candidates go stale: the framework re-renders between snapshot and action'],
           ],
         },
       ],
     },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Accessibility Tree Action Target Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

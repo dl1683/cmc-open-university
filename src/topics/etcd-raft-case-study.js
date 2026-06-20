@@ -212,158 +212,262 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for etcd Raft Case Study. etcd as a production consensus-backed KV store: clients talk to a leader, Raft orders writes, WAL and snapshots protect state, and watches stream revisions..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "write path" view traces a client request from gRPC entry through Raft proposal, WAL persistence, quorum replication, commit, MVCC apply, and watch delivery. Active nodes are the current stage of the write. Found nodes are durable state that survives a crash. Compare nodes are participants whose acknowledgment is pending.',
+        'The "snapshot recovery" view traces the operational lifecycle: WAL segments, snapshots, backend compaction, and disaster-recovery restore. Active nodes are the persistence surfaces in play. Found nodes are recovery artifacts. Compare nodes are watchers affected by compaction.',
+        {
+          type: 'note',
+          text: 'The safe inference at each frame: if a node is active and the edge leading to it is highlighted, that stage has received or produced data. If a downstream node is not yet active, the data has not reached it and no client can observe it there.',
+        },
       ],
     },
     {
-      heading: 'Why It Exists',
+      heading: 'Why this exists',
       paragraphs: [
-        `Distributed control planes need one durable source of truth. If API servers, schedulers, controllers, and operators disagree about desired state, the platform can create duplicate work, lose locks, or reconcile against stale configuration.`,
-        `etcd exists for that control-plane job. It is a replicated, strongly consistent key-value store that orders updates with Raft and exposes MVCC revisions, watches, transactions, leases, and range reads to clients.`,
-        `The design is intentionally narrow. etcd is not trying to be a warehouse, queue, cache, or blob store. It is trying to make small, important facts durable, ordered, and watchable.`,
+        {
+          type: 'quote',
+          attribution: 'etcd design premise',
+          text: 'A control plane that disagrees with itself about desired state is worse than a control plane that briefly refuses to answer.',
+        },
+        'Distributed platforms -- Kubernetes, service meshes, feature-flag systems, distributed schedulers -- need a single ordered source of truth for small, critical configuration. If two controllers read different versions of a Deployment spec and both act, the result is duplicate pods, lost ownership, or reconciliation loops built on facts that were never globally ordered.',
+        'etcd exists for that narrow job. It is a replicated, strongly consistent key-value store that orders every mutation through Raft consensus and exposes the result as MVCC revisions. Clients get watches, leases, transactions, and range reads -- all anchored to a global revision number.',
+        'The design is intentionally small. etcd stores coordination metadata, not application data. A typical healthy etcd database is under 8 GB. That constraint is a feature: it keeps consensus fast, replication cheap, and snapshots quick.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The reasonable first attempt is to store configuration in an ordinary database -- PostgreSQL, MySQL, Redis -- and let each component read what it needs. This works while the cluster is small, failures are clean, and no two components need to agree on ordering.',
+        'Teams also try direct push: a central config service broadcasts changes to every subscriber. This avoids polling but assumes the broadcaster never crashes mid-broadcast and every subscriber processes messages in the same order.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: `// Naive config broadcast: simple, fragile under partial failure.
+function broadcastUpdate(key, value, subscribers) {
+  for (const sub of subscribers) {
+    try { sub.onUpdate(key, value); }
+    catch (err) { log.warn('subscriber missed update', sub.id, err); }
+  }
+  // No ordering guarantee. No delivery proof. No recovery story.
+}`,
+        },
+        'Both approaches share the same gap: they give you a value, but not a revision, not a total order, and not a way for a recovering component to ask "what did I miss since revision r?"',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The obvious approach is to put configuration in an ordinary database, or to push changes directly to every component. That works while the system is small and failures are clean.`,
-        `The wall appears when components need shared ordering. A controller does not only need the current value of a key. It needs to know which revision it observed, which changes happened before it, which lease is still valid, and whether its watch stream missed anything.`,
-        `An eventually consistent store can make different controllers act on incompatible histories. For a control plane, that is not just stale data. It can become duplicate leadership, lost ownership, or reconciliation loops built on facts that were never globally ordered.`,
+        'The wall is not storage. The wall is ordering under failure.',
+        'A controller does not just need the current value of a key. It needs to know which revision it last observed, whether any changes happened between that revision and now, whether its lease is still valid, and whether its watch stream has gaps. An eventually consistent store cannot answer those questions reliably.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'What goes wrong', 'Why ordering fixes it'],
+          rows: [
+            ['Split-brain writes', 'Two partitions accept conflicting updates', 'Raft majority rejects the minority partition'],
+            ['Missed watch events', 'Controller acts on stale state', 'MVCC revisions let watchers detect and recover gaps'],
+            ['Stale leader election', 'Two nodes believe they are leader', 'Lease expiry plus linearizable reads prevent stale reads'],
+            ['Unordered recovery', 'Restored node replays events in wrong order', 'WAL replay follows the Raft log, which is totally ordered'],
+            ['Silent data divergence', 'Nodes drift apart without detection', 'Every applied mutation has a unique revision; any divergence is visible'],
+          ],
+        },
+        'An eventually consistent store can make different controllers act on incompatible histories. For a control plane, that is not stale data -- it is duplicate leadership, lost ownership, or a reconciliation loop that never converges.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `Put every change through one replicated Raft log, then expose the applied result as MVCC revisions. Raft decides the order. The backend stores revisioned key-value state. Watches let clients follow the ordered stream from a known revision.`,
-        `That combination turns a key-value store into a coordination database. Clients can write desired state, read a consistent snapshot, attach a lease, start a watch at revision r, and recover if r has been compacted.`,
-        `The important product is not a value by itself. The product is a value with a revision, an order, and a recovery story.`,
-      ],
-    },
-    {
-      heading: 'Reading the etcd Trace',
-      paragraphs: [
-        `Use the "write path" view to follow a client request as it moves from the leader into the Raft log, through quorum replication, into commit, and finally into the MVCC backend. The important boundary is the applied revision: that is what reads and watches can observe.`,
-        `Use the "snapshot recovery" view to follow the operational side. WAL records preserve recent Raft entries, snapshots give a compact recovery base, compaction bounds old MVCC history, and restore drills prove that the backup is usable.`,
-        `The trace is not showing a generic database write. It is showing the chain that makes Kubernetes-style control-plane coordination possible: client request, consensus order, durable storage, applied revision, watch delivery, and recovery path.`,
+        'Put every change through one replicated Raft log, then expose the applied result as MVCC revisions. Raft decides the order. The backend stores revisioned key-value state. Watches let clients follow the ordered stream from any known revision.',
+        {
+          type: 'diagram',
+          alt: 'etcd write path from client to watcher',
+          label: 'The chain from mutation to observation',
+          body: `Client gRPC request
+       |
+       v
+  Raft leader (propose log entry)
+       |
+       +---> WAL persist (local durability)
+       |
+       +---> Replicate to followers (AppendEntries)
+       |
+       v
+  Quorum acknowledges
+       |
+       v
+  Commit index advances
+       |
+       v
+  Apply to MVCC backend (new revision r)
+       |
+       +---> Range reads observe revision r
+       |
+       +---> Watchers receive revision r events`,
+          text: `Client gRPC request
+       |
+       v
+  Raft leader (propose log entry)
+       |
+       +---> WAL persist (local durability)
+       |
+       +---> Replicate to followers (AppendEntries)
+       |
+       v
+  Quorum acknowledges
+       |
+       v
+  Commit index advances
+       |
+       v
+  Apply to MVCC backend (new revision r)
+       |
+       +---> Range reads observe revision r
+       |
+       +---> Watchers receive revision r events`,
+        },
+        'The product is not a value. The product is a value with a revision, a total order, and a recovery story. Clients can write desired state, read a consistent snapshot at revision r, attach a lease, start a watch after r, and relist if r has been compacted.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A write normally reaches the Raft leader. The leader proposes it as a log entry, persists it, replicates it to followers, and marks it committed after a quorum stores it. Only then is the command applied to the key-value backend.`,
-        `Applying the command creates a new MVCC revision. A range read can observe a consistent revision. A watch can stream changes after a revision. A transaction can compare versions or revisions before writing.`,
-        `Each member maintains write-ahead log files for Raft state and entries. Snapshots let a member compact old Raft log history. Backend compaction removes old MVCC revisions after clients no longer need them. These are separate mechanisms that together keep the store recoverable and bounded.`,
-        `Leases add time-bounded ownership. A key attached to a lease disappears when the lease expires, which makes etcd useful for leader election records, service discovery, and ephemeral coordination metadata.`,
+        'A write reaches the Raft leader via gRPC. The leader assigns a log index, persists the entry to its WAL, and sends AppendEntries RPCs to followers. Once a quorum (majority) has persisted the entry, the leader advances the commit index. Each member then applies committed entries to its local MVCC backend in log order.',
+        {
+          type: 'bullets',
+          items: [
+            'WAL (write-ahead log): stores Raft hard state (term, vote, commit index) and log entries. Survives process crashes. Replay starts from the last snapshot plus WAL entries.',
+            'Snapshot: a point-in-time capture of applied state. Bounds WAL replay length. Without snapshots, a restarting member would replay the entire Raft log from genesis.',
+            'MVCC backend (bbolt): stores key-value pairs indexed by revision. Each put or delete creates a new revision. Old revisions are retained until compacted.',
+            'Leases: time-bounded ownership tokens. A key attached to a lease is deleted when the lease expires or is revoked. Leader election keys and service-discovery records use leases.',
+            'Watches: clients subscribe to changes after a given revision. The server streams events in revision order. If the requested revision has been compacted, the watch fails and the client must relist.',
+          ],
+        },
+        {
+          type: 'code',
+          language: 'javascript',
+          body: `// Simplified etcd read/watch contract in pseudocode.
+// Linearizable read: routes through leader, confirms commit index.
+async function linearizableGet(key) {
+  await leader.readIndex();          // confirm this node is still leader
+  return backend.getAtRevision(key, appliedRevision);
+}
+
+// Watch: stream events from a known revision.
+function watchFrom(key, startRevision) {
+  if (startRevision < compactedRevision) {
+    throw new CompactedError(compactedRevision);
+    // Client must relist and restart the watch.
+  }
+  return backend.streamEventsAfter(key, startRevision);
+}`,
+        },
+        'Transactions provide compare-and-swap semantics. A client can say "if key A has version v, then put key B" atomically. This is the primitive behind distributed locks, leader elections, and conditional configuration updates.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Raft gives etcd one committed order for writes. MVCC turns that order into observable revisions. A watcher can ask to resume from revision r because the system has a total order of applied changes.`,
-        `Quorum protects that order during failures. A minority partition cannot keep accepting writes as if it were the cluster. That is the right trade for control-plane truth: it is better to reject or stall a write than to let two schedulers believe different desired states are both current.`,
-        `The watch API works because the storage layer and the consensus layer agree on revision boundaries. A controller can list at a revision, start a watch after that revision, and avoid missing the gap between initial state and future updates.`,
+        'Raft guarantees a single committed order for all mutations. No two members can apply entries in different sequences. MVCC turns that order into observable revisions. A watcher can resume from revision r because the system has a total order of applied changes -- there is no ambiguity about what "after r" means.',
+        'Quorum protects that order during partitions. A minority partition cannot accept writes because it cannot form a majority. That is the right trade for control-plane truth: rejecting or stalling a write is safer than letting two schedulers act on conflicting desired states.',
+        {
+          type: 'note',
+          text: 'The watch contract works because the storage layer and the consensus layer agree on revision boundaries. A controller can list-at-revision, start a watch after that revision, and know there is no gap. That list-then-watch pattern is the foundation of Kubernetes informers.',
+        },
+        'Linearizable reads confirm the leader is current before responding. Serializable reads skip that confirmation and may return slightly stale data -- faster, but the client must tolerate lag. The choice is explicit in the API, not hidden.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Cost axis', 'What you pay', 'Why it matters'],
+          rows: [
+            ['Write latency', '1 RTT to quorum + WAL fsync on each member', 'Disk latency and network latency directly gate every write'],
+            ['Read latency (linearizable)', 'Leader round-trip to confirm commit index', 'Slower than local read, but guarantees freshness'],
+            ['Read latency (serializable)', 'Local member read, no quorum check', 'Fast but may lag behind committed state'],
+            ['Storage', 'MVCC revisions accumulate until compacted', 'Unbounded retention grows the database; compaction is mandatory'],
+            ['Watch cost', 'One goroutine per watcher, events streamed in order', 'Thousands of watchers on hot keys stress the leader'],
+            ['Recovery time', 'Snapshot load + WAL replay + catch-up replication', 'Large databases or long WAL tails slow restart'],
+          ],
+        },
+        'The dominant operational cost is not CPU. It is disk fsync latency, because every committed write requires durable WAL persistence on a majority of members before the client gets a response. Slow disks turn etcd into a platform-wide bottleneck. The etcd documentation recommends dedicated SSDs with sustained low-latency fsync.',
+        'The second cost is compaction discipline. Without regular compaction, the MVCC backend grows monotonically. With aggressive compaction, slow watchers lose their revision anchor and must relist. The operator chooses a retention window that balances storage growth against watch reliability.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `A Kubernetes Deployment update begins when the API server writes a new desired spec into etcd. That write is ordered through Raft and applied as a new MVCC revision.`,
-        `Controllers do not poll blindly for "whatever looks newest." They watch from known revisions. The Deployment controller sees the changed object, calculates the needed ReplicaSet changes, writes more desired state, and other controllers continue the chain.`,
-        `If a controller falls too far behind and its requested revision has been compacted, it cannot pretend the watch stream is complete. It must relist, obtain a fresh revision, and restart the watch. That relist behavior is part of correctness, not an inconvenience around it.`,
-        `Disaster recovery has the same shape. A snapshot is useful only if restoring it creates a coherent cluster with the right identity and membership assumptions. A backup that has never been restored is only a guess.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The main cost is synchronous coordination. Linearizable writes, and linearizable reads when requested, involve the leader and quorum path. Disk latency, network latency, and leader health matter directly to the whole control plane.`,
-        `The second cost is retention management. Watches and historical reads depend on retained MVCC revisions. Compaction keeps storage bounded, but it forces slow clients to handle compacted revisions by relisting.`,
-        `The third cost is operational discipline. Large values, too many watchers, poor compaction settings, slow disks, overloaded members, or careless restore procedures can turn a small coordination database into a platform-wide bottleneck.`,
+        'A Kubernetes Deployment update enters etcd when the API server writes a new desired spec. The write path unfolds step by step:',
+        {
+          type: 'table',
+          headers: ['Step', 'State before', 'Action', 'State after'],
+          rows: [
+            ['1. API server PUT', 'Deployment v1 at revision 1042', 'gRPC Put to etcd leader', 'Raft log entry proposed at index 8837'],
+            ['2. WAL persist', 'Entry in memory only', 'Leader fsyncs WAL segment', 'Entry durable on leader disk'],
+            ['3. Replicate', 'Entry on leader only', 'AppendEntries to 2 followers', 'Entry on 3 of 5 members (quorum)'],
+            ['4. Commit', 'Commit index at 8836', 'Leader advances commit to 8837', 'Entry safe to apply'],
+            ['5. Apply', 'Backend at revision 1042', 'Apply entry to MVCC store', 'Deployment v2 at revision 1043'],
+            ['6. Watch delivery', 'Watchers waiting after rev 1042', 'Stream PUT event for rev 1043', 'Deployment controller receives update'],
+          ],
+        },
+        'The Deployment controller does not poll for "whatever looks newest." It holds a watch from revision 1042. When revision 1043 arrives, it computes the needed ReplicaSet changes, writes more desired state back to etcd, and other controllers continue the chain.',
+        'If the controller crashes and restarts, it relists all Deployments at the current revision, starts a fresh watch after that revision, and resumes reconciliation. If the relist revision has been compacted, the client library detects the error and relists from the latest available revision. That recovery path is part of correctness, not an edge case.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `etcd wins for small, important, coordination-heavy data: Kubernetes objects, service-discovery records, configuration, leader-election keys, distributed locks, and lease-backed metadata.`,
-        `It is strongest when clients need more than storage. They need conditional writes, ordered watches, revisioned reads, and a failure model that prefers consistency over accepting conflicting updates.`,
-        `It is also strong as a teaching case because it connects several ideas that are often studied separately: Raft leader election, log replication, write-ahead logging, snapshots, MVCC, leases, watches, and reconciliation loops.`,
+        'etcd wins for small, critical, coordination-heavy data where clients need more than storage -- they need ordering, watches, conditional writes, and a failure model that prefers rejecting writes over accepting conflicts.',
+        {
+          type: 'bullets',
+          items: [
+            'Kubernetes control plane: all cluster objects (pods, services, deployments, config maps, secrets, CRDs) are etcd key-value pairs. Every controller, scheduler, and API server reads and watches etcd revisions.',
+            'Service discovery: endpoints register with a lease-backed key. When the service crashes and the lease expires, the key vanishes and watchers see the removal.',
+            'Distributed locks and leader election: a compare-and-swap transaction claims a key; the holder refreshes a lease; competitors watch for deletion.',
+            'Configuration management: feature flags, rate limits, and routing rules stored as versioned keys. Watchers propagate changes without polling.',
+            'Certificate and secret rotation: a new certificate is written at a new revision; watchers on the key trigger reloads in downstream services.',
+          ],
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `etcd fails when used as a general data platform. It is not a message queue, analytics store, blob store, cache, or high-cardinality event log. Pushing large values or noisy events through it harms the systems that depend on it for coordination.`,
-        `It also fails when clients ignore revision boundaries. A watch that silently skips compacted history is a correctness bug. A restore that ignores member identity or cluster membership can create a different kind of outage than the one it was meant to fix.`,
-        `The most common misconception is that "strongly consistent" means "operationally forgiving." etcd is strict, but it is not magic. It rewards small data, fast disks, healthy quorum, regular snapshots, and practiced recovery.`,
+        'etcd fails when used as a general data platform. It is not a message queue, analytics store, blob store, cache, or high-cardinality event log. The default database size limit is 2 GB (configurable to 8 GB). Pushing large values or noisy events through etcd harms every system that depends on it for coordination.',
+        {
+          type: 'table',
+          headers: ['Anti-pattern', 'Why it breaks', 'Better alternative'],
+          rows: [
+            ['Storing large blobs (>1 MB values)', 'Raft replicates the full value to every member on every write', 'Object storage with a pointer in etcd'],
+            ['High-frequency event logging', 'Each event is a Raft proposal; overwhelms consensus', 'Kafka, NATS, or a dedicated event store'],
+            ['Using etcd as a cache', 'Consensus latency is too high for cache-speed reads', 'Redis, Memcached, or local caches'],
+            ['Ignoring compaction', 'MVCC backend grows until disk is full', 'Periodic auto-compaction with defrag'],
+            ['Thousands of watchers on one key', 'Leader CPU and memory spike per event fan-out', 'A fan-out proxy or fewer watch granularities'],
+          ],
+        },
+        'The most dangerous misconception is that "strongly consistent" means "operationally forgiving." etcd is strict, but it rewards -- and requires -- small data, fast disks, healthy quorum, regular snapshots, and practiced recovery drills. A backup that has never been restored is a guess, not a plan.',
+        {
+          type: 'note',
+          text: 'A restore that uses the wrong cluster identity or member IDs can create a worse outage than the one it was meant to fix. etcd snapshot restore deliberately requires the operator to specify new cluster metadata, forcing awareness that identity is part of the data.',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: etcd persistent storage files at https://etcd.io/docs/v3.6/learning/persistent-storage-files/, etcd disaster recovery at https://etcd.io/docs/v3.5/op-guide/recovery/, and the etcd Raft library at https://github.com/etcd-io/raft. Study Raft Log Replication, Raft Snapshots, Write-Ahead Log, MVCC Internals & VACUUM, and Kubernetes Reconciliation Case Study next.',
+        'Primary sources: the etcd persistent storage documentation at https://etcd.io/docs/v3.6/learning/persistent-storage-files/, the disaster recovery guide at https://etcd.io/docs/v3.5/op-guide/recovery/, the etcd Raft library at https://github.com/etcd-io/raft, and the original Raft paper by Ongaro and Ousterhout (2014).',
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Raft consensus -- leader election, log replication, and safety proofs.',
+            'Prerequisite: write-ahead logging -- why WAL exists and how replay works.',
+            'Extension: MVCC internals -- how revisioned storage enables snapshot reads and watches.',
+            'Extension: Kubernetes reconciliation -- how informers use list-then-watch to drive controllers.',
+            'Contrast: ZooKeeper -- an older coordination service with ZAB consensus, ephemeral znodes, and a different watch model.',
+            'Contrast: CockroachDB / TiKV -- systems that use Raft per range for horizontal scaling, unlike etcd which uses a single Raft group.',
+          ],
+        },
+        'The engineering question for etcd is not "is consensus good?" The useful question is whether the coordination data fits in a single Raft group, whether the disk and network can sustain the write rate, and whether the operations team practices restore drills.',
       ],
     },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for etcd-raft-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };

@@ -193,161 +193,289 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The cloud warehouse problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Snowflake is a cloud data warehouse built around a multi-cluster shared-data architecture. Durable data lives in shared cloud storage. Compute runs in independent virtual warehouses. A cloud services layer handles metadata, optimization, transactions, security, and coordination. The design takes cloud object storage and elastic compute seriously instead of treating the cloud as rented hardware for a traditional database.',
-        'The case study matters because it shows how cloud architecture changes database design. Cheap durable object storage, elastic compute, multi-tenancy, semi-structured data, time travel, and workload isolation become first-class constraints. The core question is: how do you let many compute clusters query the same governed data without copying the data into every cluster?',
+        'The animation shows Snowflake\'s three-layer architecture: SQL clients on the left, a cloud services node in the center, virtual warehouses branching right, and shared storage at the far right with per-warehouse local caches.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the components handling the current operation -- a query flowing from client through services to a warehouse.',
+            'Compare marks show the relationship between two warehouses reading the same shared storage independently.',
+            'Found marks are durable artifacts: metadata entries, cached micro-partitions, committed query plans.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Safe inference rule: if two warehouses both read shared storage but neither shares compute with the other, then scaling or suspending one warehouse cannot affect the latency or correctness of queries on the other.',
+        },
+        'The matrix views show the cloud services layer decomposed into its four responsibilities (metadata, optimizer, transactions, security) and the query execution pipeline decomposed into its five stages (parse, plan, scan, exchange, result). The "shared-data architecture" view focuses on structural separation; the "elastic query execution" view focuses on how a query flows through that structure.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Traditional data warehouses -- Teradata, Netezza, early Redshift -- couple storage and compute in a fixed cluster. Every node owns a slice of the data and runs queries against that slice. This works well at steady load. It breaks when the organization needs three things simultaneously: workload isolation between teams, elastic scaling of compute independent of data size, and a single governed copy of every table.',
+        'By 2012, cloud object storage (S3, GCS, Azure Blob) had become durable, cheap ($0.023/GB/month), and effectively infinite. Compute instances could be provisioned in seconds. The economics had shifted: storing data was trivially cheap, but locking it inside a fixed cluster wasted the cloud\'s core advantage. The constraint was no longer "where do we put the bytes" but "how do we let many independent compute pools query the same bytes safely."',
+        {
+          type: 'quote',
+          text: 'Existing "Big Data" platforms such as Hadoop or Spark are not mature enough for the needs of a large enterprise, and the traditional on-premise solutions are too inflexible and too expensive. We decided to build a completely new data warehousing system purpose-built for the cloud.',
+          attribution: 'Dageville et al., "The Snowflake Elastic Data Warehouse," SIGMOD 2016, Section 1',
+        },
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first naive approach is a shared-nothing warehouse where storage and compute are tightly coupled. That can be fast, but scaling compute often means moving or rebalancing data. Workload isolation is hard because different teams contend for the same cluster. If one reporting workload consumes resources, another may suffer.',
-        'The second naive approach is to copy data into separate clusters for isolation. That gives each team compute independence, but it creates duplication, governance problems, stale copies, and high storage cost. Every copy becomes another version to secure, catalog, and reconcile.',
-        'The third naive approach is to keep data in object storage and let every query scan raw files naively. That gives cheap storage but poor performance. A warehouse still needs metadata, pruning, caching, transactions, optimization, and execution planning. Separating storage and compute is only useful if the metadata and execution layers make shared storage queryable.',
+        'A shared-nothing warehouse partitions data across nodes. Each node stores its shard on local disk, indexes it, and executes queries against it. Teradata, Greenplum, and early Redshift all use this pattern. It gives excellent locality: the data and the CPU that needs it are on the same machine, so scans avoid network round trips.',
+        'Shared-nothing works until you need to change the cluster. Adding nodes requires redistributing data across the new topology -- a process that can take hours on a multi-terabyte warehouse and degrades query performance during the rebalance. Removing nodes requires the same redistribution in reverse. Scaling compute to handle a spike means moving terabytes of data to new machines, then moving it back when the spike ends.',
+        {
+          type: 'diagram',
+          text: 'Shared-nothing warehouse (Teradata/Redshift style):\n\n  Node 1: [shard A data] + [CPU] + [local disk]\n  Node 2: [shard B data] + [CPU] + [local disk]\n  Node 3: [shard C data] + [CPU] + [local disk]\n\n  To add Node 4:\n    1. Pick a new hash/range partitioning\n    2. Redistribute shards A, B, C across 4 nodes\n    3. Queries blocked or degraded during redistribution\n\nShared-data warehouse (Snowflake style):\n\n  Shared storage: [all data as immutable files]\n  Warehouse X: [CPU pool] --reads--> shared storage\n  Warehouse Y: [CPU pool] --reads--> shared storage\n\n  To add Warehouse Z:\n    1. Provision new compute nodes\n    2. Z reads shared storage immediately\n    3. No data movement required',
+          label: 'Why shared-nothing clusters resist elastic scaling',
+        },
+        'The second obvious attempt is to copy the data. Give each team its own cluster with its own copy of the tables it needs. This solves isolation but creates a governance nightmare: five copies of the orders table, each at a different freshness, each with its own access controls, each costing full storage. When the schema changes, every copy must be updated. When a compliance audit asks "who accessed this data," the answer spans five separate systems.',
+        'The third attempt is raw object storage with a query engine bolted on top -- early Hive on HDFS, or Presto over S3. Storage is shared and cheap, but every query does a full scan because there is no metadata layer to tell the engine which files are relevant. A query that needs 50 MB of data from a 500 GB table reads all 500 GB. Without statistics, pruning, caching, and transaction semantics, separated storage is just a slow file system.',
       ],
     },
     {
-      heading: 'The core architecture',
+      heading: 'The wall',
       paragraphs: [
-        'Clients submit SQL to cloud services. The optimizer plans the query and assigns work to a virtual warehouse. Warehouse workers scan shared storage, use local caches, exchange intermediate data, and return results. Multiple warehouses can access the same tables without sharing compute resources.',
-        'Data is organized into immutable micro-partitions with metadata that helps pruning. If a query filters by date, region, or another column with useful clustering, the engine can skip micro-partitions that cannot match. This is the warehouse version of an index-like idea: metadata narrows the amount of data that compute must touch.',
-        'The architecture separates storage and compute while keeping centralized metadata and transaction semantics. Shared storage provides one durable copy of data. Virtual warehouses provide elastic, isolated compute. Cloud services coordinate the catalog, security, query planning, and transactional visibility that make the shared data safe to use.',
+        'The wall is a trilemma. Traditional architectures can achieve any two of these three properties but not all three:',
+        {
+          type: 'table',
+          headers: ['Property', 'Shared-nothing', 'Copy-per-team', 'Raw object store'],
+          rows: [
+            ['Workload isolation', 'No -- teams share the cluster', 'Yes -- separate clusters', 'Partial -- separate queries but shared IO bandwidth'],
+            ['Elastic compute', 'No -- scaling requires data redistribution', 'No -- each copy is its own fixed cluster', 'Yes -- compute is stateless'],
+            ['Single governed copy', 'Yes -- one cluster owns all data', 'No -- N copies, N governance boundaries', 'Yes -- one storage layer'],
+          ],
+        },
+        'Shared-nothing gives governance and locality but locks compute to data. Copy-per-team gives isolation but explodes storage and governance costs. Raw object storage gives cheap shared data but has no intelligence layer to make queries fast.',
+        {
+          type: 'note',
+          text: 'The invariant that must hold: every query sees exactly one consistent version of every table, regardless of which compute cluster runs it, and no compute cluster\'s scaling decision forces data movement or affects another cluster\'s performance.',
+        },
+        'Break this invariant and you get one of three failures: inconsistent reads (two warehouses see different table versions), scaling friction (adding compute requires moving data), or interference (one team\'s heavy job slows another team\'s dashboard).',
       ],
     },
     {
-      heading: 'Why it works',
+      heading: 'The core insight',
       paragraphs: [
-        'Snowflake works because object storage is durable and cheap enough to be the shared data layer, while compute can be provisioned separately for different workloads. One team can run a large batch warehouse. Another can run small interactive queries. The data does not need to be copied for every compute cluster.',
-        'It also works because the metadata layer carries much of the intelligence. Micro-partition metadata, catalog state, statistics, transaction history, and access control let the optimizer turn shared files into a database. Without that layer, separated storage is just a pile of objects.',
-        'The design gives workload isolation. Warehouses are not only performance knobs; they are concurrency and cost-control boundaries. A heavy ETL job can run on one warehouse while a dashboard runs on another. Both see the same governed data, but they do not have to fight for the same compute slots.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Snowflake-style architecture supports analytics, ELT, dashboards, data sharing, semi-structured data exploration, ad hoc analysis, and mixed workloads where teams need independent compute over shared governed data. The pattern appears throughout modern cloud warehouses and lakehouse systems, even when the exact implementation differs.',
-        'The design is especially valuable in organizations with many teams using the same data. Finance, product analytics, machine learning, security, and operations may all query overlapping tables. A shared-data architecture lets them share governance and storage while scaling compute independently.',
-        'It also changes how users think about cost. In a coupled system, a cluster is always present. In an elastic warehouse, users can resize, suspend, resume, and isolate compute. That flexibility is powerful, but it requires discipline. Poorly sized warehouses, cold starts, weak pruning, and runaway queries still cost money.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Separating compute and storage does not make queries free. Bad micro-partition layout, weak pruning, huge shuffles, cold caches, and poor warehouse sizing still hurt. A query that scans too much data will be expensive no matter how elegant the architecture is.',
-        'Metadata scale is another pressure. The optimizer depends on metadata to prune, plan, and enforce visibility. If metadata becomes stale, too coarse, or too expensive to consult, shared storage loses its performance advantage. A cloud warehouse is only as good as its metadata and execution layer.',
-        'Governance can also become complex. Shared data means access control, lineage, masking, retention, and auditing matter. Compute isolation does not automatically imply policy isolation. The cloud services layer must make shared data safe, not merely fast.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose a dashboard queries one year of orders but filters to one region and one product family. A naive object-store scan reads every file for the year. A Snowflake-style warehouse uses micro-partition metadata to skip partitions whose min and max values cannot match. The warehouse scans fewer bytes, uses local cache where possible, and exchanges intermediate results across workers.',
-        'Now suppose a data-engineering job is loading new data at the same time. The dashboard should see a consistent table version, not half of the load. This is where the cloud services layer matters: metadata and transaction semantics decide which files are visible to which query. The storage files alone do not provide that contract.',
+        'Snowflake\'s core move: if cloud object storage is durable, cheap, and elastic, make it the single source of truth for all table data, then build a stateless metadata-and-transaction layer that turns those raw files into a governed database. Compute becomes a pure resource pool that can be provisioned, scaled, suspended, and destroyed without touching a single byte of durable data.',
+        {
+          type: 'note',
+          text: 'Core invariant: durable state lives exclusively in shared storage and the cloud services metadata layer. Virtual warehouses hold only ephemeral caches. Destroying a warehouse loses nothing. Creating a warehouse requires no data copy.',
+        },
+        'This is not just "put files in S3." The insight is that the metadata layer -- micro-partition statistics, table versioning, transaction state, access control -- is what makes separated storage behave like a database. Without that layer, you have Hive-on-S3: cheap, shared, and slow. With it, you have a warehouse that prunes, caches, transacts, and governs.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A shared-data warehouse should be evaluated through bytes scanned, partition pruning rate, cache hit rate, warehouse utilization, queue time, spill volume, shuffle cost, query compilation time, and credit or compute spend by workload. These signals reveal whether decoupled compute is being used intelligently or merely hiding waste.',
-        'Data layout deserves the same attention as compute size. Poor clustering can make pruning ineffective. Too many tiny files or partitions can make metadata heavy. Over-large partitions can reduce skipping precision. The warehouse works best when file layout, metadata, optimizer behavior, and warehouse sizing are tuned together.',
+        'Snowflake\'s architecture has three layers, each independently scalable and each serving a distinct role:',
+        {
+          type: 'table',
+          headers: ['Layer', 'What it owns', 'Scaling unit', 'State lifetime'],
+          rows: [
+            ['Shared storage', 'Immutable columnar micro-partition files (PAX hybrid format), 50-500 MB each', 'Cloud object store (S3/GCS/Azure Blob) -- effectively infinite', 'Permanent until explicitly deleted'],
+            ['Virtual warehouses', 'Ephemeral compute nodes that scan, filter, join, aggregate, and sort', 'T-shirt sizes (XS to 6XL), each doubling the node count', 'Ephemeral -- can be suspended and resumed in seconds'],
+            ['Cloud services', 'Metadata catalog, query optimizer, transaction manager, access control, infrastructure manager', 'Shared multi-tenant service (Snowflake-operated)', 'Permanent -- the global brain of the system'],
+          ],
+        },
+        'A query flows through the system in five stages:',
+        {
+          type: 'diagram',
+          text: 'SQL client\n  |  (1) SQL text\n  v\nCloud Services\n  |  (2) Parse, authenticate, resolve metadata\n  |  (3) Optimize: use micro-partition min/max stats to prune\n  |      Generate execution plan with partition assignments\n  v\nVirtual Warehouse (assigned cluster)\n  |  (4) Workers scan micro-partitions from shared storage\n  |      Local SSD cache intercepts hot reads\n  |      Workers exchange intermediate results (shuffle)\n  |  (5) Final aggregation, return result to client\n  v\nResult',
+          label: 'Query execution path through the three layers',
+        },
+        'Micro-partitions are the fundamental storage unit. Each micro-partition is an immutable, compressed, columnar file containing 50-500 MB of uncompressed data (typically 10-20 MB compressed). When data is loaded, Snowflake automatically partitions it into micro-partitions and records per-partition metadata: min/max values for every column, distinct value counts, null counts, and bloom filter membership. This metadata lives in the cloud services layer.',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Micro-partition metadata example:\n\n  Partition #4271:\n    rows: 12,847\n    columns:\n      order_date:  min=2024-03-01, max=2024-03-15\n      region:      min="APAC", max="EMEA" (3 distinct)\n      amount:      min=4.50, max=98712.00\n      product_id:  null_count=0, bloom_filter=<128 bytes>\n    size_compressed: 14.2 MB\n    size_raw: 187.4 MB',
+        },
+        'When the optimizer processes WHERE order_date = \'2024-07-01\' AND region = \'NA\', it checks each partition\'s metadata. Partition #4271 has order_date max of 2024-03-15 and region max of "EMEA" -- both predicates rule it out. The partition is pruned without reading a single byte from storage. On a well-clustered table, pruning can eliminate 95-99% of partitions, reducing a multi-terabyte scan to megabytes.',
+        'Virtual warehouses are clusters of EC2/GCE/Azure VM instances. Each warehouse has a local SSD cache (the "local cache" nodes in the animation). When a worker reads a micro-partition for the first time, it fetches from object storage and caches the result on local SSD. Subsequent queries hitting the same partition read from cache at NVMe speed instead of network speed. The cache is LRU-evicted and purely opportunistic -- it is never the source of truth.',
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Why it works',
       paragraphs: [
-        'Snowflake is a shared-data cloud warehouse: one governed storage layer, many independent compute warehouses, and a services layer that makes metadata, optimization, transactions, and security coherent. The architecture works because it treats object storage, metadata, and elastic compute as separate but coordinated parts.',
-        'The deep lesson is that decoupling is not absence of design. Separating compute and storage makes the metadata layer more important, not less. Pruning, caching, transactions, and workload isolation are what turn cheap storage into a usable warehouse.',
-        'The useful comparison is a traditional shared-nothing warehouse. Shared-nothing systems colocate data and compute for performance. Snowflake separates them for cloud elasticity and isolation, then relies on metadata, pruning, and caching to recover performance.',
-        'In a course sequence, teach Snowflake after columnar storage and query planning, then compare it with Delta Lake and Iceberg. The shared theme is that modern analytics systems are metadata engines as much as execution engines.',
-        'The practical test is whether teams need independent compute over the same governed data. If they do, shared-data architecture is compelling. If one tightly managed workload dominates, a simpler coupled system may be easier to tune.',
-        'Snowflake is the wrong abstraction for low-latency per-row application state. It is built for analytic scans, aggregations, governed sharing, and elastic SQL workloads. Teaching that boundary prevents students from treating every storage system as a database-shaped answer to every problem.',
-        'The best mental shortcut is "shared truth, separate engines." The shared storage and metadata define the truth; virtual warehouses give different teams independently scalable, separately billable engines for reading it without owning separate copies.',
+        'The architecture resolves the trilemma because each property maps to a different layer:',
+        {
+          type: 'bullets',
+          items: [
+            'Workload isolation: each team gets its own virtual warehouse. Warehouse A\'s heavy ETL batch cannot starve Warehouse B\'s interactive dashboards because they share no compute resources.',
+            'Elastic compute: provisioning a new warehouse or resizing an existing one is a pure compute operation. No data moves. A warehouse can scale from 1 node to 128 nodes in under a minute.',
+            'Single governed copy: all warehouses read from the same shared storage through the same metadata catalog and transaction manager. There is one schema, one access control policy, one audit trail.',
+          ],
+        },
+        'Correctness comes from the transaction model. Snowflake uses snapshot isolation implemented through the cloud services layer. Every write creates new micro-partitions and atomically updates the metadata catalog to point to the new set. Reads see a consistent snapshot defined at query start time. Old micro-partitions are retained for time travel (default 1 day, configurable up to 90 days) and then garbage-collected.',
+        {
+          type: 'diagram',
+          text: 'Table version progression (snapshot isolation via micro-partitions):\n\n  Version 1: [P1] [P2] [P3]\n  INSERT new rows:\n  Version 2: [P1] [P2] [P3] [P4]   <-- P4 is new, P1-P3 unchanged\n  UPDATE rows in P2:\n  Version 3: [P1] [P2\'] [P3] [P4]  <-- P2\' replaces P2 (new file)\n                                        P2 retained for time travel\n\n  Query at T=version 2 sees: P1, P2, P3, P4\n  Query at T=version 1 sees: P1, P2, P3\n  Both queries run concurrently without blocking.',
+          label: 'Immutable micro-partitions enable lock-free snapshot isolation',
+        },
+        'This is the same copy-on-write pattern used by Delta Lake and Apache Iceberg, but Snowflake embeds it in a closed, managed service rather than exposing it as an open table format. The tradeoff: Snowflake handles all the complexity of compaction, garbage collection, and metadata consistency internally, but users cannot run non-Snowflake engines against the same storage.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Primary sources: Snowflake SIGMOD PDF at https://info.snowflake.net/rs/252-RFO-227/images/Snowflake_SIGMOD.pdf, CMU mirror at https://www.cs.cmu.edu/~15721-f24/papers/Snowflake.pdf, and ACM DOI at https://dl.acm.org/doi/10.1145/2882903.2903741. Study Dremel Query Engine Case Study, Delta Lake Case Study, Database Indexing, Feature Store: Offline/Online Consistency, and FoundationDB Case Study next.',
+        'Snowflake charges separately for storage and compute, which makes costs transparent but requires active management:',
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'What drives it', 'Typical range'],
+          rows: [
+            ['Storage', 'Compressed data volume + time travel retention', '$23-40/TB/month (varies by cloud region)'],
+            ['Compute (credits)', 'Warehouse size x active seconds', '1 credit/hour (XS) to 128 credits/hour (6XL)'],
+            ['Cloud services', 'Metadata ops, query compilation, access control', 'Free up to 10% of daily compute; billed beyond that'],
+            ['Data transfer', 'Cross-region or cross-cloud reads', '$0.02-0.09/GB depending on provider and region'],
+          ],
+        },
+        'A query\'s cost is dominated by warehouse runtime, not data scanned. An XS warehouse (1 node) running for 60 seconds costs 1 credit x (60/3600) = 0.0167 credits. The same query on a 4XL warehouse (128 nodes) running for 2 seconds costs 128 x (2/3600) = 0.071 credits -- faster but 4x more expensive. The optimizer cannot make this tradeoff for you; warehouse sizing is an operational decision.',
+        {
+          type: 'note',
+          text: 'The silent cost trap: auto-suspend and auto-resume make warehouses feel free, but every resume incurs a cold-start penalty (cache is cold, first queries scan from object storage at network speed). Frequent suspend/resume cycles can cost more in degraded query performance than keeping a small warehouse warm.',
+        },
+        'Pruning efficiency is the most important cost lever after warehouse sizing. A well-clustered table where queries filter on the clustering key can prune 99% of micro-partitions. The same table with random insertion order may prune nothing, forcing full scans. Snowflake offers automatic clustering (a background service that re-organizes micro-partitions by clustering key), but it consumes credits and is itself a cost to manage.',
       ],
     },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
     {
-      heading: 'The wall',
+      heading: 'Worked example',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        'An e-commerce company has 2 TB of order data spanning 3 years, stored in approximately 15,000 micro-partitions clustered by order_date. Three teams share this data:',
+        {
+          type: 'table',
+          headers: ['Team', 'Warehouse', 'Workload', 'Schedule'],
+          rows: [
+            ['Data engineering', 'WH_ETL (Large, 8 nodes)', 'Nightly batch load of 50M new rows', '02:00-04:00 UTC, auto-suspend after'],
+            ['Product analytics', 'WH_ANALYTICS (Medium, 4 nodes)', 'Ad hoc queries filtering by date + region', 'Business hours, auto-suspend after 10 min idle'],
+            ['Executive dashboards', 'WH_DASH (X-Small, 1 node)', 'Cached summary queries refreshed every 15 min', '24/7, never suspended'],
+          ],
+        },
+        'At 02:00, WH_ETL wakes and loads yesterday\'s 50M rows. The load creates approximately 400 new micro-partitions. The cloud services layer atomically updates the table metadata to include these partitions at a new version number. WH_DASH, which has been running summary queries all night, continues to see the pre-load snapshot until its next query starts. No lock, no contention, no visibility into the half-loaded state.',
+        'At 09:15, an analyst on WH_ANALYTICS runs:',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'SELECT region, SUM(amount)\nFROM orders\nWHERE order_date BETWEEN \'2024-06-01\' AND \'2024-06-30\'\n  AND product_family = \'electronics\'\nGROUP BY region;',
+        },
+        'The optimizer checks micro-partition metadata. Of 15,400 partitions (15,000 original + 400 new), only 420 have order_date ranges overlapping June 2024. Of those, bloom filter checks on product_family eliminate another 180. The query scans 240 partitions (~3.4 GB compressed) instead of the full 2 TB. WH_ANALYTICS\'s local SSD cache holds 60% of these partitions from yesterday\'s similar queries, so only 96 partitions (~1.4 GB) are fetched from S3.',
+        'The query completes in 4 seconds on 4 nodes. The same query on WH_DASH (1 node, cold cache) would take roughly 14 seconds. On a shared-nothing warehouse, both teams would contend for the same cluster, and the nightly load would degrade morning query latency.',
       ],
     },
-
     {
-      heading: 'The core insight',
+      heading: 'Real-world uses',
       paragraphs: [
-        "The core insight is the smallest idea that changes what can be proven.",
-        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
-        "Everything else in the topic should serve this one sentence.",
+        'The shared-data architecture fits anywhere multiple teams need independent compute over governed data:',
+        {
+          type: 'bullets',
+          items: [
+            'Multi-team analytics: finance, product, marketing, and ML teams query overlapping tables without copying data or contending for compute.',
+            'Data sharing and clean rooms: Snowflake\'s Secure Data Sharing lets an organization expose a read-only view of live tables to a partner, who queries it from their own warehouse. No ETL pipeline, no data copy, no staleness.',
+            'Semi-structured data: Snowflake stores JSON, Avro, Parquet, and XML natively in the VARIANT column type. The optimizer extracts and prunes on nested fields, so event logs and API responses can be queried without pre-flattening into a rigid schema.',
+            'Time travel and disaster recovery: because every write creates new immutable micro-partitions, Snowflake can reconstruct any table state within the retention window using SELECT ... AT(TIMESTAMP => ...). This is not a backup -- it is a metadata pointer to the old partition set.',
+            'ELT over ETL: cheap storage and elastic compute make it practical to load raw data first and transform it inside the warehouse using SQL, rather than building a separate transformation pipeline before loading.',
+          ],
+        },
+        'The pattern appears beyond Snowflake. Google BigQuery separates Dremel-style execution from Colossus storage. Databricks SQL Warehouses run Spark-on-Delta-Lake with a similar decoupled model. AWS Redshift Serverless added storage-compute separation in 2022. The shared-data idea is converging toward an industry default for cloud analytics.',
       ],
     },
-
     {
       heading: 'Where it fails',
       paragraphs: [
-        "List the failure modes and the conditions that trigger them.",
-        "Most methods have at least one silent failure mode; expose the silent ones.",
-        "A method without explicit failure conditions is an invitation for misuse.",
+        'Snowflake\'s architecture has specific failure modes, most of them silent:',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Trigger', 'Symptom'],
+          rows: [
+            ['Scan amplification', 'Data not clustered on query filter columns', 'Query scans 100x more bytes than needed; high credit burn with slow results'],
+            ['Cold cache penalty', 'Frequent warehouse suspend/resume or new warehouse', 'First queries after resume run 3-10x slower as cache refills from object storage'],
+            ['Small-file problem', 'Many tiny loads (< 100 MB each) creating undersized micro-partitions', 'Metadata bloat, pruning overhead, poor compression ratios'],
+            ['Warehouse queue starvation', 'Too many concurrent queries on an undersized warehouse', 'Queries queue instead of executing; latency spikes with no scan activity'],
+            ['Runaway cost', 'Large warehouse left running without auto-suspend, or auto-clustering on a high-churn table', 'Credit burn continues with no active queries; clustering credits exceed query credits'],
+            ['Cross-region latency', 'Warehouse in us-east-1 reading storage replicated to eu-west-1', 'Network latency dominates; 100 ms per micro-partition fetch vs. 5 ms same-region'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The most dangerous failure is invisible pruning regression. A table starts well-clustered, but months of incremental loads scatter new data across the key range. Pruning efficiency degrades from 98% to 40% gradually. Queries get slower and more expensive, but no alert fires because no single query fails. Monitoring partition_scanned / partition_total over time is the only defense.',
+        },
+        'Snowflake is the wrong tool for sub-millisecond point lookups (use a key-value store like DynamoDB or Redis), for streaming with sub-second latency (use Kafka plus Flink or a streaming database), for graph traversal (use a graph database or recursive SQL with caution), or for serving application state to a web backend (use PostgreSQL or a purpose-built OLTP system). It is built for analytic scans, aggregations, and governed batch/interactive SQL workloads.',
       ],
     },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for snowflake-warehouse-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Snowflake vs. adjacent systems',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['System', 'Core architectural move', 'Storage model', 'Compute model', 'Best fit'],
+          rows: [
+            ['Snowflake', 'Shared storage + elastic virtual warehouses + cloud services metadata', 'Proprietary micro-partitions in cloud object store', 'Provisioned T-shirt-sized clusters, suspend/resume', 'Multi-team governed analytics with workload isolation'],
+            ['BigQuery', 'Dremel serving tree + Colossus distributed storage', 'Capacitor columnar format in Colossus', 'Serverless (slots auto-allocated per query)', 'Serverless analytics with no cluster management'],
+            ['Delta Lake + Databricks', 'Open table format (Parquet + transaction log) + Spark/Photon engine', 'Parquet files + Delta log in customer object store', 'Spark clusters or Databricks SQL Warehouses', 'Lakehouse: unify ML and SQL over open formats'],
+            ['Redshift Serverless', 'Shared-nothing heritage + managed scaling + RA3 storage-compute split', 'Proprietary columnar in managed storage (S3-backed)', 'Serverless RPU pools, auto-scaling', 'AWS-native analytics for existing Redshift users'],
+          ],
+        },
+        'The key differentiator is the control boundary. Snowflake is a fully managed closed system: users control warehouses and SQL, Snowflake controls storage format, metadata, optimization, and infrastructure. Delta Lake inverts this: the table format is open (Parquet + JSON log), users control their own object store, and multiple engines (Spark, Flink, Trino, Daft) can read the same tables. BigQuery eliminates cluster management entirely with serverless slot allocation. Each design resolves the storage-compute separation differently, with different tradeoffs in openness, cost predictability, and operational burden.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Dageville et al., "The Snowflake Elastic Data Warehouse," SIGMOD 2016 (ACM DOI: 10.1145/2882903.2903741)', 'The original system paper describing the three-layer architecture, micro-partitions, and virtual warehouses'],
+            ['Snowflake SIGMOD PDF: info.snowflake.net/rs/252-RFO-227/images/Snowflake_SIGMOD.pdf', 'Direct PDF link to the same paper'],
+            ['CMU 15-721 reading: cs.cmu.edu/~15721-f24/papers/Snowflake.pdf', 'Course mirror used in Andy Pavlo\'s advanced database systems class'],
+            ['Snowflake documentation: docs.snowflake.com/en/user-guide/tables-clustering-micropartitions', 'Official documentation on micro-partitions, clustering, and pruning mechanics'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Database Indexing and columnar storage to understand why micro-partition metadata enables pruning without traditional indexes.',
+            'Extension: study Delta Lake Case Study to compare Snowflake\'s closed micro-partition format with Delta\'s open Parquet + transaction log approach.',
+            'Parallel: study Dremel Query Engine Case Study to see how BigQuery solves the same problem with a serving tree instead of provisioned warehouses.',
+            'Deeper: study FoundationDB Case Study to understand the distributed metadata layer that underpins transactional consistency in systems like these.',
+            'Application: study Feature Store: Offline/Online Consistency to see how warehouse-computed features must synchronize with low-latency serving stores.',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Learning map',
+      paragraphs: [
+        'Before this topic, make sure you understand columnar storage (why reading only needed columns matters for analytics), basic query optimization (predicate pushdown, partition pruning), and the difference between OLTP and OLAP workloads. These are the building blocks that make Snowflake\'s micro-partition design intelligible.',
+        'After this topic, the natural path leads to Delta Lake (open table format alternative), Dremel/BigQuery (serverless alternative), or the broader lakehouse pattern where ML training and SQL analytics share the same governed storage layer.',
+      ],
+    },
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'Can you name the three layers and state what each one owns?',
+            'Can you explain why destroying a virtual warehouse loses no data?',
+            'Can you describe how micro-partition metadata enables pruning without a traditional index?',
+            'Can you identify which cost dimension dominates a Snowflake bill and why?',
+            'Can you explain why two warehouses reading the same table never interfere with each other?',
+            'Can you name one workload where Snowflake is the wrong tool and explain what property it lacks?',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Trace a query through the animation manually: start at the SQL client, follow the edge to cloud services (metadata lookup, pruning decision, plan generation), then to a virtual warehouse (scan from shared storage or local cache, exchange, aggregation), and back to the client. For each step, write down what state the step reads, what state it produces, and which layer owns that state.',
+        'Then switch to the "elastic query execution" view and predict what happens when you add a second warehouse. Which nodes change? Which edges are added? What stays the same? If your prediction matches the animation, you understand the core invariant: shared storage, independent compute, centralized metadata.',
+      ],
+    },
   ],
-      },
-],
 };
 

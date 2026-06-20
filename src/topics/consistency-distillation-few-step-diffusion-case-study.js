@@ -207,156 +207,295 @@ export const article = {
   references: [
     { title: 'Consistency Models', url: 'https://arxiv.org/abs/2303.01469' },
     { title: 'Progressive Distillation for Fast Sampling of Diffusion Models', url: 'https://arxiv.org/abs/2202.00512' },
-    { title: 'OpenAI: Simplifying, Stabilizing, and Scaling Continuous-Time Consistency Models', url: 'https://openai.com/index/simplifying-stabilizing-and-scaling-continuous-time-consistency-models/' },
+    { title: 'Simplifying, Stabilizing, and Scaling Continuous-Time Consistency Models', url: 'https://arxiv.org/abs/2410.11081' },
+    { title: 'Improved Techniques for Training Consistency Models', url: 'https://arxiv.org/abs/2310.14189' },
   ],
   sections: [
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Consistency Distillation Few-Step Diffusion Case Study. A case study for making diffusion fast: teacher trajectories, consistency targets, progressive halving, one-step and two-step sampling, quality gaps, and deployment gates..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. "Teacher student" traces how a long denoising trajectory is compressed into a short student path through consistency distillation. "Quality frontier" plots the speed-quality tradeoff across sampler budgets and shows routing decisions for a tiered deployment.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the current stage: a teacher step being executed, a student jump being trained, or a quality gate being checked.',
+            'Compare (blue) nodes show the alternative the current step is measured against -- typically the teacher trajectory that the student must approximate.',
+            'Found (green) nodes are committed outcomes: a consistency target confirmed, a quality gate passed, or a deployment route cleared.',
+          ],
+        },
+        'In the progressive-halving ledger, each row is one distillation round. The risk column tracks what degrades at each compression level. In the consistency-target matrix, rows are paired noisy states and the clean sample they must agree on.',
+        {
+          type: 'note',
+          text: 'The safe inference rule: if two noisy states came from the same probability-flow trajectory, their predicted clean endpoints should match. Every animation frame shows that agreement being compressed into fewer neural-network calls. Watch for the moment the student path diverges from the teacher -- that is where the quality gap lives.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Diffusion models produce strong images, audio, and video because they denoise gradually. The cost is latency: a sampler may need dozens or hundreds of model evaluations before it reaches a clean sample.',
-        'Consistency distillation exists to make that sampler usable in interactive products. It trains a student model to take much larger jumps along the same denoising path, so preview, editing, and serving routes can use one or a few steps instead of a long sequential chain.',
+        {
+          type: 'quote',
+          text: 'Diffusion models have achieved unprecedented quality in image, video, and audio generation, but their iterative sampling procedure requires tens to hundreds of sequential neural network evaluations, making them slow for interactive applications.',
+          attribution: 'Song et al., "Consistency Models" (2023), Section 1',
+        },
+        'Diffusion sampling buys quality with sequential work. A request starts from pure noise and calls a neural network repeatedly -- 20, 50, or 1,000 times -- to walk toward a clean image, audio clip, or video frame. Each call depends on the previous output. GPU batching improves throughput across requests but does not shorten the per-sample critical path.',
+        {
+          type: 'table',
+          headers: ['Sampler steps', 'Latency at 40ms/eval', 'Use case fit', 'User experience'],
+          rows: [
+            ['1,000 (DDPM)', '40 seconds', 'Research only', 'Unusable for any product'],
+            ['50 (DDIM)', '2 seconds', 'Batch generation', 'Acceptable for queued jobs'],
+            ['20 (DPM-Solver)', '800ms', 'Near-interactive', 'Workable with loading indicator'],
+            ['2 (distilled)', '80ms', 'Real-time preview', 'Feels instant; enables drag-to-edit'],
+            ['1 (consistency)', '40ms', 'Inline generation', 'Faster than a network round-trip'],
+          ],
+        },
+        'That gap between 2 seconds and 80 milliseconds is the difference between a batch pipeline and an interactive tool. A designer dragging a strength slider, an editor painting an inpainting mask, or a chat interface generating inline images needs sub-second feedback. Consistency distillation exists to close that gap by training a student model to take large jumps along the teacher trajectory while landing on the same clean endpoint.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The baseline diffusion sampler starts from noise and applies many small denoising updates. Each update is conservative. The model only has to repair a little uncertainty at a time, which is why the final sample can be high quality.',
-        'A reasonable speed hack is to skip steps or use a shorter hand-tuned schedule. That helps until the jumps become too large. Then details wash out, conditioning weakens, and artifacts appear because the model was trained for a slower trajectory.',
+        'The first reasonable attempt is to skip steps. Keep the trained diffusion model, choose a coarser timestep schedule (say every 5th step instead of every step), and hope the denoiser can cover more distance per call. DDIM and DPM-Solver do exactly this with clever ODE discretization. It works for mild reductions -- 1,000 steps down to 20-50 -- because the underlying ODE is smooth enough to tolerate larger steps.',
+        {
+          type: 'diagram',
+          text: 'Step-skipping vs. distillation:\n\n  Step-skipping (same model, coarser schedule):\n    x_T --> x_80 --> x_60 --> x_40 --> x_20 --> x_0\n    5 evaluations, same weights, larger jumps per step\n\n  Progressive distillation (new model, learned jumps):\n    x_T --------> x_50 --------> x_0\n    2 evaluations, trained weights, each jump matches 25 teacher steps\n\n  Consistency model (one learned map):\n    x_T -----------------------------> x_0\n    1 evaluation, trained to map any noise level to the clean endpoint',
+          label: 'Three strategies for reducing sampler steps, ordered by training investment',
+        },
+        'The second reasonable attempt is progressive distillation. Train a 32-step student from a 64-step teacher, then a 16-step student from the 32-step model, halving the budget each round. This works because each student only needs to match two teacher steps, not reinvent denoising from scratch.',
+        {
+          type: 'note',
+          text: 'Neither approach is naive. Step-skipping exploits the smoothness of the probability-flow ODE. Progressive distillation exploits the fact that two small steps compose into one predictable large step. Both fail when the jumps become large enough that the model must handle qualitatively different noise levels in a single call.',
+        },
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is sequential work. If a request needs 50 denoising evaluations, the runtime cannot stream a finished sample after the fifth one. GPU batching helps throughput, but the critical path is still long for each sample.',
-        'The second wall is evaluation. A faster sampler can look fine on one metric and fail on the product task. Face details, text rendering, edit faithfulness, diversity, and safety behavior can degrade in ways that a single FID-style number will not catch.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Progressive distillation trains a shorter sampler from a longer deterministic teacher. A 64-step teacher trains a 32-step student. That student can become the teacher for 16 steps, then 8, then 4. Each round halves the step budget while trying to keep the student on the teacher trajectory.',
-        'Consistency models use a related target. Points from the same probability-flow trajectory should map to the same clean sample. The model learns a function that sends noisy states at different times back toward the same x0 endpoint.',
-        'The practical records are teacher trajectories, paired noisy states, clean targets, student predictions, time or noise levels, loss weights, sampler budgets, quality scores, and fallback routes. Without that ledger, speed claims are hard to debug.',
+        'The wall is error accumulation across large jumps. A denoiser trained for small noise intervals is being asked to cross a large interval in one step. At small intervals, the ODE is nearly linear and a single Euler step is accurate. At large intervals, the curvature of the probability-flow ODE causes the single-step prediction to drift off the true trajectory. Details wash out, conditioning weakens, and modes collapse.',
+        {
+          type: 'table',
+          headers: ['Attempt', 'Why it helps', 'Precise wall', 'Failure signal'],
+          rows: [
+            ['Skip steps (DDIM/DPM)', 'No retraining; ODE solvers handle moderate jumps', 'ODE curvature causes drift at large step sizes', 'Blurry output, weak conditioning below ~10 steps'],
+            ['Progressive halving', 'Student matches two teacher steps; incremental', 'Each round inherits + amplifies the previous gap', 'Quality falls sharply after round 4 (8 -> 4 steps)'],
+            ['One-step shortcut', 'Minimum possible latency', 'Single map must cover all noise levels and all modes', 'Mode collapse, texture loss, prompt drift'],
+            ['Route everything fast', 'Simple serving architecture', 'Different routes have different error budgets', 'Preview looks fine; final asset has artifacts in hands, text, geometry'],
+          ],
+        },
+        'The second wall is measurement. A distilled sampler can cut p99 latency by 10x while silently degrading edit faithfulness, text legibility, subject identity, or diversity. Aggregate metrics like FID average over easy and hard prompts. A model that nails landscapes but mangles typography will score well on FID while failing on the prompts users care about most.',
+        {
+          type: 'note',
+          text: 'The Salimans and Ho progressive distillation paper (2022) reports that quality degrades gracefully from 1,024 steps to 8 steps, then falls sharply at 4 and 2 steps. The "cliff" is not at a fixed step count -- it depends on the model architecture, the noise schedule, and the distribution complexity. The only way to find it is to measure per-slice quality at each budget.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The point is not merely to remove sampler steps. The point is to teach a student model that far-apart noisy states on the same trajectory should agree about the same clean sample. Once that agreement is learned, inference can take larger jumps without asking the model to invent the path from scratch.',
-        'This turns a slow iterative process into a learned shortcut. The shortcut is useful only when it preserves the behavior users care about: prompt adherence, structure, identity, safety, and artifact quality.',
+        'Points on the same probability-flow trajectory should predict the same clean sample. If x_t (a noisy state at time t) and x_s (a less noisy state at time s < t) both came from the same underlying image x_0, then a well-trained consistency function f should satisfy f(x_t, t) = f(x_s, s) = x_0. Once this invariant is learned, inference can evaluate f at any noise level and jump directly to the clean endpoint.',
+        {
+          type: 'diagram',
+          text: 'Consistency function invariant:\n\n  Probability-flow ODE trajectory for one sample:\n\n    x_T (pure noise)                             x_0 (clean)\n     |                                            ^\n     +---> x_t ----> x_s ----> x_r ----> ... --->+\n            |         |         |                 |\n            v         v         v                 |\n         f(x_t,t)  f(x_s,s)  f(x_r,r)            |\n            \\         |         /                 |\n             \\        |        /                  |\n              +-------+-------+                   |\n                      |                           |\n                      v                           |\n               all equal to x_0  <================+\n\n  The consistency function maps every point on the\n  trajectory to the same clean endpoint.',
+          label: 'Self-consistency: all points on one ODE trajectory predict the same x_0',
+        },
+        'This reframes the problem. The student does not need to learn a multi-step denoising recipe. It needs to learn a single function that is self-consistent along trajectories. The teacher provides the trajectories; the consistency loss enforces the agreement.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# The consistency target in one equation\n#\n# Given: x_t and x_s on the same ODE trajectory (t > s),\n#        teacher provides x_s = ODE_step(x_t, t, s)\n#\n# Loss:  || f_theta(x_t, t) - stopgrad(f_theta(x_s, s)) ||^2\n#\n# Boundary condition: f_theta(x, epsilon) = x  (near-clean input)\n#\n# At convergence: f_theta(x_t, t) = x_0 for all t,\n#                 so one evaluation at any noise level\n#                 recovers the clean sample.',
+        },
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The distillation pipeline has four components: trajectory generation, pair sampling, consistency training, and progressive curriculum.',
+        {
+          type: 'diagram',
+          text: 'Distillation pipeline:\n\n  1. Trajectory generation\n     Teacher model + ODE solver --> deterministic paths from x_0 to x_T\n\n  2. Pair sampling\n     Pick (x_t, t) and (x_s, s) on the same path, t > s\n     Teacher provides x_s = ODE_step(x_t, t, s)\n\n  3. Consistency training\n     Student predicts f(x_t, t) and f(x_s, s)\n     Loss = distance( f(x_t,t), stopgrad(f(x_s,s)) )\n     Boundary: f(x, eps) = x\n\n  4. Progressive curriculum\n     Start with adjacent pairs (t close to s)\n     Gradually increase the gap (t far from s)\n     Final model handles any (t, s) pair in one jump',
+          label: 'Four-stage pipeline from teacher trajectories to one-step student',
+        },
+        'The teacher is frozen. It generates deterministic ODE trajectories that define the "correct" denoising path. The student never sees the teacher weights -- only its outputs. This means the student architecture can differ from the teacher (smaller, different parameterization, different noise conditioning).',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Pseudocode: one consistency-distillation training step\n\ndef train_step(student, teacher, ema_student, images, schedule):\n    # Sample noise level pair from curriculum\n    t_far, t_near = schedule.sample_pair()      # t_far > t_near\n    noise = torch.randn_like(images)\n    x_far = add_noise(images, noise, t_far)\n\n    # Teacher produces the "next point" on the ODE trajectory\n    with torch.no_grad():\n        x_near = teacher.ode_step(x_far, t_far, t_near)\n\n    # Student predicts clean endpoint from both noise levels\n    pred_far  = student(x_far, t_far)\n    with torch.no_grad():\n        pred_near = ema_student(x_near, t_near)   # EMA target\n\n    # Consistency loss: predictions should agree\n    loss = huber_loss(pred_far, pred_near)\n    loss.backward()\n\n    # Update EMA target (slow-moving average of student)\n    ema_update(ema_student, student, decay=0.9999)\n    return loss.item()',
+        },
+        {
+          type: 'note',
+          text: 'The EMA (exponential moving average) target is a stabilization trick from Song et al. (2023). Instead of using a stop-gradient on the student itself, the target network is a slowly-updated copy. This prevents oscillation where the student chases its own moving predictions. The decay rate (typically 0.999-0.9999) controls how quickly the target tracks the student.',
+        },
+        'Progressive curriculum matters. Early training uses adjacent timestep pairs (small gap between t_far and t_near). The student only needs to match one teacher step. As training proceeds, the gap widens: the student must match 2, 4, 8, and eventually all teacher steps in a single jump. This is easier to optimize than asking for one-step accuracy from the start.',
+        {
+          type: 'table',
+          headers: ['Curriculum stage', 'Pair gap', 'Student task', 'Difficulty'],
+          rows: [
+            ['Early', 't_far - t_near = 1 step', 'Match one teacher step', 'Easy: nearly linear ODE segment'],
+            ['Middle', 't_far - t_near = 4-8 steps', 'Match a short sub-trajectory', 'Moderate: some curvature to learn'],
+            ['Late', 't_far - t_near = full range', 'Map any noise to clean in one jump', 'Hard: must handle all noise levels'],
+          ],
+        },
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The training signal turns a long path into endpoint agreement. If two noisy states came from the same underlying sample, the student is penalized when it maps them to different clean results. That consistency gives the model permission to jump farther at inference.',
-        'The teacher matters because it supplies a path that already works. The student is not guessing how to denoise from scratch in one leap. It is learning to approximate a known sampler under a shorter compute budget.',
+        'The correctness argument rests on three properties of the probability-flow ODE.',
+        {
+          type: 'bullets',
+          items: [
+            'Determinism: given x_0 and a noise schedule, the forward ODE produces a unique trajectory. Two different clean images produce two different trajectories that never cross (under mild regularity conditions).',
+            'Invertibility: the reverse ODE, starting from x_T, traces the trajectory back to x_0. The teacher sampler approximates this reverse ODE numerically.',
+            'Self-consistency: any function that maps all points on one trajectory to the same value is a valid consistency function. The canonical choice is the clean endpoint x_0.',
+          ],
+        },
+        {
+          type: 'quote',
+          text: 'We propose to learn model outputs to be consistent for arbitrary pairs of (x_t, t) that belong to the same PF ODE trajectory. We call such models consistency models.',
+          attribution: 'Song et al., "Consistency Models" (2023), Section 3',
+        },
+        'The training loss enforces this self-consistency empirically. If the loss converges to zero on a diverse training set, the student has learned a function that agrees along trajectories. At inference, evaluating this function at any noise level returns (approximately) the clean endpoint.',
+        'Progressive distillation has a related induction argument. If the k-step teacher approximates the true ODE within error epsilon, and the k/2-step student matches each pair of teacher steps within error delta, then the student approximates the ODE within epsilon + delta. The quality degrades additively with each halving round, which is why the cliff appears after 3-4 rounds (8x or 16x compression).',
+        {
+          type: 'note',
+          text: 'The proof is practical, not algebraic. The consistency invariant is learned from data, not guaranteed by construction. That is why the evaluation ledger -- measuring endpoint agreement on the specific prompts, styles, safety slices, and failure modes the product serves -- is part of the algorithmic story, not an afterthought.',
+        },
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Inference cost drops roughly with the number of model evaluations on the critical path. A two-step sampler can be far cheaper than a 50-step sampler if the model size and batching behavior are similar.',
-        'Training cost moves in the other direction. Distillation needs teacher runs, stored or recomputed pairs, careful noise schedules, loss weighting, and validation across routes. The cheaper runtime is bought with an extra training and evaluation pipeline.',
-        'The quality frontier is the real artifact. One step may be fast but brittle. Two to eight steps often give a better speed-quality tradeoff. More steps move the student closer to teacher behavior but give back some latency.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Few-step diffusion wins when users need fast approximations more than perfect final samples. Preview images, interactive editing, rapid design exploration, and low-latency media generation can route many requests through a distilled sampler.',
-        'It also wins when a product can tier quality. A fast model can produce candidates, a slower route can refine selected results, and the full teacher can handle expensive final assets or high-risk prompts.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'A one-step or two-step student can lose detail, diversity, prompt faithfulness, or edit control. The failure may be small in aggregate metrics but obvious to users when hands, text, geometry, or fine texture matter.',
-        'Distillation can also preserve teacher biases while adding new artifacts. If the teacher struggles on a distribution slice, the student usually does not fix that slice by being faster. It may make the weak cases harder to detect because the output arrives with less visible uncertainty.',
-        'Removing the teacher fallback too early is a deployment error. Distillation should reduce expensive sampling volume. It should not remove the slow path before the product knows which requests the fast path cannot handle.',
+        {
+          type: 'table',
+          headers: ['Resource', 'Teacher (50-step)', 'Student (2-step)', 'Ratio'],
+          rows: [
+            ['Neural net evals per sample', '50', '2', '25x fewer'],
+            ['Critical-path latency (40ms/eval)', '2,000ms', '80ms', '25x faster'],
+            ['GPU memory per sample (KV cache)', 'Reused across steps', 'Reused across steps', 'Same model size'],
+            ['Throughput (batch of 8, A100)', '~4 samples/s', '~100 samples/s', '~25x higher'],
+            ['Training cost (distillation)', '0', '50-200 GPU-hours', 'One-time investment'],
+          ],
+        },
+        'The 25x headline is for the neural-network-evaluation bottleneck only. Real end-to-end speedup is lower because VAE decode, safety classifiers, text encoding, CLIP scoring, memory transfers, and request overhead remain constant. A practical 50-step-to-2-step distillation might yield 8-15x wall-clock speedup depending on the serving stack.',
+        'Training cost is nontrivial. The team must generate or cache teacher trajectories (one forward pass per training pair), store timestep-paired states, tune the curriculum schedule, choose the distance metric (L2, LPIPS, pseudo-Huber), set the EMA decay, and evaluate at multiple step budgets. A single distillation run for a 2B-parameter model on 512x512 images typically costs 50-200 A100-hours.',
+        {
+          type: 'table',
+          headers: ['Step budget', 'Typical role', 'Dominant benefit', 'Dominant tax'],
+          rows: [
+            ['1 step', 'Instant thumbnail or draft', 'Lowest possible sequential latency', 'Highest mode-collapse and artifact risk'],
+            ['2 steps', 'Interactive preview, drag-to-edit', 'Sub-100ms with one correction pass', 'Fragile on fine text, geometry, identity'],
+            ['4-8 steps', 'Controlled edits, style transfer', 'Near-teacher prompt adherence', 'Returns some latency; still needs evaluation'],
+            ['Teacher (20-50)', 'Final render, hero asset, fallback', 'Best known quality for hard prompts', 'High latency, high GPU cost per sample'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The right cost model is cost per accepted sample, not cost per generated sample. A one-step model that produces 30% rejected outputs (user retries, safety failures, artifact rejections) may cost more in practice than a two-step model with 5% rejection. Track rejection rate and fallback rate alongside raw latency.',
+        },
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A media editor can use a two-step consistency model for thumbnails, a four-step model for controlled edits, and the original teacher for final hero images. The router sends unsafe prompts to policy handling before spending GPU time and sends high-risk quality requests to the slower sampler.',
-        'The dashboard should track sampler choice, p50 and p99 latency, GPU cost, human preference, artifact categories, fallback rate, and route-specific failures. If the fast model is excellent for previews but weak for final text rendering, the product narrows the route instead of calling the method a failure.',
+        'A media-generation product serves three routes: real-time preview while the user types a prompt, controlled inpainting/style edits on selected candidates, and final high-resolution hero assets. The engineering goal is to spend the minimum sampling work that meets each route contract.',
+        {
+          type: 'diagram',
+          text: 'Routing architecture:\n\n  User prompt\n      |\n      v\n  [ Safety classifier ] --reject--> policy response (no GPU spend)\n      |\n      v\n  [ Route selector ]\n      |         |          |\n      v         v          v\n  Preview    Edit       Hero\n  2-step     4-step     Teacher\n  <100ms     <400ms     <3s\n      |         |          |\n      v         v          v\n  [ Quality gate: artifact detector + CLIP score ]\n      |                    |\n   pass --> serve      fail --> fallback to slower route',
+          label: 'Tiered sampler routing with quality gates and fallback',
+        },
+        'The distillation pipeline runs offline. The team distills the 50-step DDIM teacher into a 2-step consistency model (for previews) and a 4-step progressive-distillation model (for edits). Both students are evaluated on held-out prompts covering text-in-image, faces, hands, geometric patterns, and safety-adjacent content.',
+        {
+          type: 'table',
+          headers: ['Route', 'Sampler', 'Latency target', 'Gate metric', 'Fallback trigger'],
+          rows: [
+            ['Typing preview', '2-step CM', '<100ms', 'p95 latency; CLIP score > 0.28', 'Prompt contains text-rendering or precise-layout keywords'],
+            ['Inpainting edit', '4-step PD', '<400ms', 'Edit faithfulness (LPIPS < 0.15 on mask boundary)', 'Identity drift > threshold or boundary artifacts'],
+            ['Hero asset', '50-step teacher', '<3s', 'Human preference A/B > 50%; artifact audit clean', 'N/A (already on the slow path)'],
+            ['Unsafe prompt', 'None', 'N/A', 'Policy classifier confidence > 0.95', 'Always reject before GPU spend'],
+          ],
+        },
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Simplified route-selection logic\ndef select_route(prompt, user_tier):\n    if safety_classifier(prompt).score > 0.95:\n        return "reject"\n\n    features = prompt_analyzer(prompt)\n    if features.has_text_rendering or features.has_precise_layout:\n        return "hero"       # 2-step CM struggles with text\n    if features.is_edit and features.mask_area > 0.3:\n        return "edit_4step"  # large edits need more correction\n    if user_tier == "preview":\n        return "preview_2step"\n\n    return "edit_4step"      # default to moderate quality\n\n# Post-generation quality gate\ndef quality_gate(image, route, prompt):\n    clip_score = clip_similarity(image, prompt)\n    artifacts = artifact_detector(image)\n    if clip_score < ROUTE_THRESHOLDS[route] or artifacts.score > 0.3:\n        return fallback_to_slower_route(route)\n    return serve(image)',
+        },
+        'The dashboard tracks per-route metrics: sampler choice distribution, p50/p99 latency, GPU-seconds per accepted sample, fallback rate, human preference scores, and artifact category breakdown. A good launch starts narrow: the 2-step model serves only previews, and the fast route expands only after its failure categories are measured and boring.',
       ],
     },
     {
-      heading: 'Implementation checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Keep teacher version, student version, noise schedule, timestep pairing, loss weighting, sampler step count, and evaluation slice in the same experiment ledger. Few-step claims are hard to interpret if the teacher changed or if the student was evaluated on easier prompts.',
-        'Evaluate by route. A two-step preview sampler, a four-step edit sampler, and a full teacher route have different jobs. Track their latency, cost, fallback rate, and failure categories separately instead of collapsing them into one quality number.',
-        'Preserve a slow path. The distilled model should reduce how often expensive sampling is needed, not remove the ability to recover quality when the fast path is uncertain.',
+        {
+          type: 'table',
+          headers: ['Domain', 'Fast route', 'Slow route', 'Why tiering matters'],
+          rows: [
+            ['Image generation (Midjourney, DALL-E)', '1-4 step preview grid', '20-50 step upscale/refine', 'Users browse 4 candidates fast, then refine one slowly'],
+            ['Video generation (Runway, Sora)', '2-step keyframe preview', 'Full teacher for final render', 'Previewing 4-second clips at teacher speed would take minutes'],
+            ['Audio synthesis (Stable Audio)', '1-step draft waveform', 'Teacher for master quality', 'Musicians need instant feedback on prompt changes'],
+            ['Interactive inpainting', '2-step mask fill', '8-step final composite', 'Brush strokes must feel real-time; final save can wait'],
+            ['Latent upscaling', '1-step super-resolution', '4-step with detail refinement', 'Low-res preview is instant; high-res is a batch job'],
+            ['Real-time avatar/face', '1-step consistency model', 'Teacher on keyframes', 'Webcam-speed generation requires <33ms per frame'],
+          ],
+        },
+        'The common pattern: distilled models are routing primitives, not universal replacements. The fast model handles the high-volume, latency-sensitive, error-tolerant slice. The teacher handles the low-volume, quality-critical, error-intolerant slice. The router decides which requests go where.',
+        {
+          type: 'note',
+          text: 'Stability AI released Stable Diffusion Turbo (SD-Turbo) in late 2023, a consistency-distilled model that generates 512x512 images in a single step. It demonstrates the practical tradeoff: single-step generation is dramatically faster but produces softer textures and weaker fine detail compared to the 20-step teacher. The product use case is real-time preview, not final-quality output.',
+        },
       ],
     },
     {
-      heading: 'Rule of thumb',
+      heading: 'Where it fails',
       paragraphs: [
-        'Use consistency distillation when latency is part of the product experience and the domain tolerates a measured quality-speed tradeoff. It is especially useful for previews, ideation, and interactive editing.',
-        'Do not use it as a blanket replacement for the teacher until difficult slices have been tested. The fastest route should earn trust per workload, not inherit trust from the full sampler.',
-        'The right question is not "can we sample in two steps?" The right question is "which requests can safely use two steps, what quality debt appears, and when should the system fall back?"',
-        'A strong rollout usually starts with a narrow route. Put the distilled sampler where speed is visibly valuable, keep teacher comparison data flowing, and expand only after the failure categories are boring and measured across representative prompts, formats, and latency tiers.',
+        {
+          type: 'bullets',
+          items: [
+            'Text rendering: diffusion models already struggle with legible text in images. Distilled models amplify this because text requires precise high-frequency detail that large jumps tend to blur. A 2-step model may produce plausible letterforms at a glance but unreadable text at full resolution.',
+            'Identity preservation: face identity, character consistency across frames, and subject fidelity require the model to maintain fine-grained features across the denoising trajectory. Large jumps can drift identity, producing faces that are plausible but wrong.',
+            'Geometric precision: architectural renders, technical diagrams, and symmetrical patterns need exact spatial relationships. The ODE curvature at large step sizes introduces spatial distortion that the teacher would have corrected incrementally.',
+            'Diversity collapse: a one-step consistency model can mode-collapse to the mean of the posterior distribution, producing safe but repetitive outputs. The teacher explores more of the distribution because each small step adds controlled stochasticity.',
+            'Teacher weakness inheritance: distillation transfers, not repairs, the teacher distribution. If the teacher fails on medical imagery, non-Latin scripts, or culturally specific content, the student inherits those failures with fewer correction opportunities.',
+            'Premature teacher retirement: removing the slow fallback path before the system knows which requests the fast path cannot handle. Distillation should reduce expensive sampling volume, not eliminate the ability to recover quality.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Symptom', 'Mitigation'],
+          rows: [
+            ['Mode collapse', 'Repeated similar outputs for diverse prompts', 'Use 2+ steps; add stochasticity in the first step'],
+            ['Texture softening', 'Plausible composition but waxy/smooth surfaces', 'Increase step budget for texture-critical routes'],
+            ['Prompt drift', 'Output ignores parts of complex prompts', 'Route complex prompts to teacher; evaluate per-attribute'],
+            ['Artifact injection', 'New artifacts not in teacher output (color banding, edge halos)', 'Audit distillation loss curves; check for training instability'],
+            ['Metric-reality gap', 'Low FID but users report worse quality', 'Add human preference eval and per-slice artifact tracking'],
+          ],
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Consistency Models at https://arxiv.org/abs/2303.01469, Progressive Distillation at https://arxiv.org/abs/2202.00512, and OpenAI sCM discussion at https://openai.com/index/simplifying-stabilizing-and-scaling-continuous-time-consistency-models/.',
-        'Study Diffusion Models first, then Knowledge Distillation, Benchmark Variance Model Selection, Diffusion LLM Serving Scheduler, and any topic on inference routing or quality evaluation. The useful next question is not whether a sampler is fast; it is which requests can safely use the fast route.',
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['Song et al., "Consistency Models" (2023), arxiv:2303.01469', 'The foundational paper: self-consistency along PF ODE trajectories, one-step and few-step generation, consistency training and distillation'],
+            ['Salimans & Ho, "Progressive Distillation" (2022), arxiv:2202.00512', 'The halving framework: 2x step reduction per round, deterministic teacher-student pairing, quality-budget tradeoff curves'],
+            ['Song & Dhariwal, "Improved Consistency Training" (2023), arxiv:2310.14189', 'Practical stabilization: pseudo-Huber loss, adaptive curriculum, LPIPS distance, improved one-step quality'],
+            ['Lu et al., "Simplifying, Stabilizing, and Scaling CT Consistency Models" (2024), arxiv:2410.11081', 'Continuous-time formulation: TrigFlow parameterization, adaptive weighting, scaling to 1.5B parameters on ImageNet 512x512'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: study Diffusion Models to understand the forward noising process, the reverse denoising SDE/ODE, and why many small steps produce high-quality samples.',
+            'Prerequisite: study Knowledge Distillation for the general teacher-student framework, loss design, and capacity considerations.',
+            'Extension: study Benchmark Variance and Model Selection to understand why a single FID number is insufficient for release decisions -- slice-level evaluation is mandatory for distilled models.',
+            'Production: study Inference Routing or Diffusion LLM Serving Scheduler for the deployment architecture that selects sampler budgets per request based on prompt features, quality requirements, and cost constraints.',
+            'Contrast: study Latent Consistency Models (LCM) for a variant that distills in latent space with classifier-free guidance, and Rectified Flow for an alternative trajectory-straightening approach that reduces the need for distillation.',
+          ],
+        },
       ],
     },
-  
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for consistency-distillation-few-step-diffusion-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };

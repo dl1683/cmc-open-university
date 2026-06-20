@@ -209,151 +209,282 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation has two views. "Streams consumers" traces the publish-store-deliver pipeline: a publisher sends to a subject, the stream captures and persists the message, and consumers present delivery views to application workers. "Retention replay" shows how retention policy, failure handling, and consumer cursor interact to determine what replay actually means.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the current decision point: a publisher sending, a stream persisting, or a consumer delivering.',
+            'Compare marks show related participants whose state matters but who are not the focus of the current step.',
+            'Found marks are durable artifacts: stored messages, configured retention bounds, and acknowledged consumer positions.',
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Safe inference rule: if a consumer cursor is at sequence N and the stream retains messages from sequence M where M <= N, the consumer can resume. If M > N, the consumer has lost messages to retention and must handle a gap.',
+        },
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Core NATS is a fast subject-based messaging system. It is excellent when services need low-latency publish/subscribe, request/reply, and simple message routing. But many systems need more than live delivery. They need persistence, replay, durable progress tracking, redelivery after worker crashes, bounded history, and a way to decouple publishers from slow consumers.',
-        'JetStream adds that persistent layer. A stream captures messages published to configured subjects and stores them. Consumers are views over a stream: they track delivery position, acknowledgment state, filtering, redelivery policy, and whether that state survives reconnects.',
-        'The educational value is that JetStream separates message address, stored history, consumer cursor, and business side effect. Confusing those layers leads to duplicate work, lost replay, slow-consumer incidents, or a system that behaves like a queue when the team expected a log.',
+        {
+          type: 'quote',
+          text: 'NATS has always been about simplicity and performance. JetStream was built to add persistence and streaming to NATS without losing those qualities.',
+          attribution: 'Derek Collison, creator of NATS, Synadia blog',
+        },
+        'Core NATS is a subject-based messaging system optimized for speed. A publisher sends to a subject like orders.created, subscribers on that subject receive the message in microseconds, and the server forgets it. No disk write, no replay, no cursor. This makes NATS one of the fastest messaging systems available -- sub-millisecond publish-to-subscribe latency with a single Go binary that uses under 20 MB of RAM.',
+        'But speed without memory is not enough for most production systems. A payment service that crashes for 30 seconds loses every order event published during the outage. A fleet of workers processing jobs cannot share work fairly if the server pushes messages at the rate it receives them rather than the rate workers can handle. An engineer debugging a production incident at 3 AM cannot replay the last hour of events because the server never stored them.',
+        {
+          type: 'table',
+          headers: ['Core NATS', 'What it gives', 'What it lacks'],
+          rows: [
+            ['Publish/subscribe', 'Sub-millisecond fan-out to live subscribers', 'No delivery to offline subscribers'],
+            ['Request/reply', 'Synchronous RPC-style messaging', 'No retry if the responder crashes mid-work'],
+            ['Queue groups', 'Load distribution across subscriber instances', 'No redelivery if the chosen worker fails after receiving'],
+            ['Subject hierarchy', 'Flexible routing via dot-separated tokens and wildcards', 'No stored history for any subject'],
+          ],
+        },
+        'JetStream adds persistence, replay, durable cursors, acknowledgment tracking, retention policies, and backpressure to NATS without replacing the core protocol. A JetStream-enabled server still handles plain pub/sub at full speed. Streams and consumers are layered on top, activated per subject pattern when an operator configures them.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to treat pub/sub as enough. A publisher emits an event, subscribers receive it, and the system moves on. That works only when subscribers are online, fast, and able to tolerate missed messages. It fails when consumers disconnect, workers crash after partial side effects, or teams need replay for debugging and backfills.',
-        'Another obvious approach is to bolt a database table onto the side. That can work for simple outboxes, but it recreates a message broker poorly unless it handles ordering, retention, cursor state, redelivery, backpressure, filtering, and retention limits. JetStream gives those concerns explicit names and operational knobs.',
+        'The first obvious approach is to treat live pub/sub as sufficient. A publisher emits an event, subscribers receive it, processing happens. This works when every subscriber is online, fast enough, and can tolerate losing messages during its own downtime. Many internal notification systems start here and stay here for months until the first outage reveals the gap.',
+        {
+          type: 'diagram',
+          text: 'Live pub/sub (no persistence):\n\n  Publisher --> NATS server --> Subscriber A (online, receives msg)\n                            --> Subscriber B (online, receives msg)\n                            --> Subscriber C (offline, LOSES msg)\n                            --> [message forgotten by server]\n\n  30 seconds later:\n  Subscriber C reconnects.\n  Asks "what did I miss?"\n  Server: "I have no idea."',
+          label: 'The gap in fire-and-forget pub/sub',
+        },
+        'The second obvious approach is to bolt persistence onto the side. Teams add a database table as an outbox, write events to both the table and pub/sub, and have recovering consumers query the table. This works for simple cases but forces the team to reinvent ordering, cursor management, retention limits, redelivery timers, backpressure, and dead-letter handling -- all concerns that a persistent messaging layer already names and solves.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// DIY outbox: works, but you are now maintaining a message broker.\nasync function publishWithOutbox(db, nats, subject, payload) {\n  const id = uuid();\n  // 1. Write to outbox table (your persistence layer)\n  await db.query(\n    "INSERT INTO outbox (id, subject, payload, status) VALUES ($1,$2,$3,$4)",\n    [id, subject, JSON.stringify(payload), "pending"]\n  );\n  // 2. Publish to NATS (fire-and-forget, may fail silently)\n  nats.publish(subject, JSON.stringify(payload));\n  // 3. Now you need: a poller for stuck "pending" rows,\n  //    a cursor per consumer, retention cleanup, ordering\n  //    guarantees, redelivery logic, backpressure...\n}',
+        },
+        'The third obvious approach is to skip NATS and use Kafka or another heavy log system. Kafka provides persistence, replay, and consumer groups, but it also brings ZooKeeper or KRaft, partition management, broker configuration complexity, and a resource footprint that may dwarf the services it connects. For teams already running NATS for its speed and simplicity, switching to Kafka for persistence means losing both.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that persistence is not one feature. It is a set of semantics. How long should messages be retained? Should a message disappear after one worker acknowledges it, after all interested consumers no longer need it, or only after age and size limits expire? Should the server push messages or should workers pull at their own rate?',
-        'The second wall is failure timing. A worker may receive a message, perform a database write, and crash before acknowledging. JetStream can redeliver the message, but it cannot know whether the database side effect already happened unless the application uses idempotency, deduplication, or a transactional outbox pattern.',
-        'The third wall is lag. A durable consumer can resume from its stored position only if the stream still retains the needed messages. Retention and consumer lag must be monitored together. A replay system without retained history is just a comforting name.',
+        'The wall is that persistence is not one feature. It is a family of semantics that interact with each other and with failure.',
+        {
+          type: 'table',
+          headers: ['Semantic question', 'If you get it wrong'],
+          rows: [
+            ['How long are messages retained?', 'Consumers lose replay when retention expires before they catch up'],
+            ['Should messages vanish after one ack or persist for all consumers?', 'Work-queue behavior when you wanted event log, or unbounded storage when you wanted a queue'],
+            ['Should the server push or should workers pull?', 'Push overwhelms slow workers; pull without fetch limits underutilizes fast ones'],
+            ['What happens when a worker crashes after receiving but before acking?', 'Silent data loss (if acked early) or duplicate processing (if redelivered)'],
+            ['How are producer retries deduplicated?', 'The same order gets processed twice because the publish-ack was lost in transit'],
+          ],
+        },
+        'The second wall is the failure timing problem. A worker receives a message, writes to a database, and crashes before sending the ack. JetStream redelivers the message to another worker. That worker writes to the database again. The order is now processed twice. JetStream cannot know whether the database side effect happened because the ack boundary and the business-effect boundary are different things.',
+        {
+          type: 'diagram',
+          text: 'The ack timing problem:\n\n  Time -->  t1          t2          t3          t4\n            |           |           |           |\n  Worker:   receive     db.write    CRASH       (dead)\n  Server:   deliver     waiting     timeout     redeliver to Worker B\n  DB:       --          row exists  row exists  DUPLICATE row\n\n  The message was processed. The ack was not sent.\n  JetStream has no way to distinguish "crashed before work"\n  from "crashed after work." Only idempotency keys fix this.',
+          label: 'Why ack != exactly-once business effect',
+        },
+        'The third wall is the retention-lag interaction. A durable consumer can resume from its stored cursor position, but only if the stream still holds the messages at that position. A stream with max_age: 1h and a consumer that falls behind for 90 minutes has a cursor pointing at messages that no longer exist. The consumer "resumes" but skips everything it missed. Retention and consumer lag must be monitored together or replay is an illusion.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A stream owns stored message history. A consumer owns a delivery view over that history. The stream decides what subjects are captured, where messages live, how much history exists, and how many replicas protect it. The consumer decides where a particular application is in that history and what counts as successful processing.',
-        'This separation lets one stream serve several purposes. One durable consumer can run real-time processing. Another can archive batches. A temporary ordered consumer can replay for debugging. Each consumer has its own cursor and delivery policy without duplicating the underlying stream data.',
+        'JetStream separates four concerns that other systems often conflate: message address (the subject), stored history (the stream), delivery view (the consumer), and business effect (the application).',
+        {
+          type: 'diagram',
+          text: 'The four-layer separation:\n\n  Layer 1: SUBJECT (address)\n  orders.created, telemetry.site42.line7, events.>\n  "Where does the message go?"\n           |\n  Layer 2: STREAM (stored history)\n  Captures subjects matching a pattern.\n  Owns storage type, replicas, retention, limits.\n  "How long does the message exist?"\n           |\n  Layer 3: CONSUMER (delivery view)\n  Durable or ephemeral. Push or pull.\n  Owns cursor position, ack policy, redelivery, filter.\n  "Who is reading, and where are they?"\n           |\n  Layer 4: APPLICATION (business effect)\n  Database write, API call, file export.\n  Owns idempotency, exactly-once semantics.\n  "What actually happened because of this message?"',
+          label: 'The four layers that must not be confused',
+        },
+        'A stream owns what is stored. A consumer owns where a reader is in that stored history. The stream decides retention; the consumer decides delivery. One stream can serve a real-time alerting consumer, a batch archive consumer, and a temporary debugging replay consumer simultaneously. Each has its own cursor, ack state, and filter -- none duplicates the underlying message data.',
+        {
+          type: 'note',
+          text: 'The most common JetStream design mistake is confusing layers. Treating a consumer as if it owns messages (it does not -- the stream does). Treating an ack as proof of business completion (it is not -- it is proof of message receipt). Treating retention as infinite (it is bounded, and the bound is a product decision).',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The streams-and-consumers view shows the main split. Publishers send to subject names. Stream configuration decides which messages are captured and how they are stored. Consumers are not the stream; they are delivery views with cursor and acknowledgment state.',
-        'The retention-replay view shows why a stream can behave like different systems. Limits retention makes it resemble a bounded event log. Work-queue retention makes messages disappear after successful work. Interest retention keeps messages while consumers still need them. The configuration decides whether replay is a real capability or a short-lived buffer.',
-        'The failure-handling view teaches the final boundary: an ack is a message-processing signal, not proof that an external business effect happened exactly once. JetStream can redeliver; your application must make retries safe.',
-      ],
-    },
-    {
-      heading: 'How streams work',
-      paragraphs: [
-        'A stream is configured with one or more subject patterns, such as events.orders.* or telemetry.site.*. When a matching message is published, JetStream stores it according to the stream configuration. That configuration includes file or memory storage, replicas, retention policy, discard policy, max age, max bytes, max message count, and sometimes deduplication windows.',
-        'Storage choice changes the contract. Memory storage is fast but less durable. File storage gives persistence. Replicas improve availability but add quorum and write-latency cost. Limits bound history so one slow or forgotten consumer cannot grow storage forever.',
-        'The stream is the shared source of truth for retained messages. Consumers do not own copies of the whole stream. They own positions and delivery state. This is the key mental model for avoiding accidental fan-out or accidental work-queue semantics.',
-      ],
-    },
-    {
-      heading: 'How consumers work',
-      paragraphs: [
-        'A consumer defines how messages are delivered from a stream. Push consumers let the server deliver to subscribers. Pull consumers let workers fetch batches, which makes backpressure explicit and usually fits worker pools better. Durable consumers keep state across restarts; ephemeral consumers are temporary views.',
-        'Consumers track pending messages, acknowledgments, redelivery timers, maximum deliveries, filters, starting positions, and replay policy. An ordered consumer is useful for read-only replay because it can detect gaps and recreate itself, but it is not the same as a durable work-processing consumer.',
-        'Acknowledgment policy determines what the server considers processed. With explicit acks, the application should ack only after its side effect is safe. If it acks before writing to a database, a crash can lose the work. If it writes and crashes before acking, it can see the message again. That is why idempotency keys belong in the application design.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider IoT telemetry. Devices publish messages to subjects such as telemetry.factory42.line7. A stream captures telemetry.* into file storage with an age limit and replicas. One durable pull consumer powers alerting workers. Another durable consumer archives batches to object storage. A temporary ordered consumer lets an engineer replay the last hour during an incident.',
-        'Those consumers should not all have the same semantics. The alerting consumer cares about low lag and redelivery after worker crashes. The archive consumer cares about complete batch transfer. The debugging consumer cares about ordered replay but may not need durable state after the session ends.',
-        'The important design question is retention. If the stream keeps only ten minutes and the archive consumer falls behind for an hour, replay cannot save it. If the stream keeps seven days but the system has no storage budget or monitoring, the cluster may fail under history it cannot afford. Retention is a product decision expressed as infrastructure.',
+        'A stream is created with a configuration that specifies which subjects to capture, where to store messages, and how long to keep them.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Creating a stream via the NATS.js client library.\nconst jsm = await nc.jetstreamManager();\nawait jsm.streams.add({\n  name: "ORDERS",\n  subjects: ["orders.>"],           // capture all order subjects\n  storage: StorageType.File,        // persist to disk (vs. Memory)\n  num_replicas: 3,                  // R=3 for fault tolerance\n  retention: RetentionPolicy.Limits, // keep until limits hit\n  max_age: nanos(7 * 24 * 3600),   // 7-day retention\n  max_bytes: 10 * 1024 * 1024 * 1024, // 10 GB cap\n  max_msgs: -1,                     // no message count limit\n  discard: DiscardPolicy.Old,       // drop oldest when full\n  duplicate_window: nanos(120),     // 2-minute dedup window\n});',
+        },
+        'When a publisher sends to orders.created, the NATS server matches the subject against configured streams. The ORDERS stream captures it, persists it to file storage, replicates it to two followers via the Raft-based replication protocol built into JetStream, and returns a publish acknowledgment containing the stream name and the message sequence number. The publisher knows the message is durable.',
+        'Consumers are then created as views over the stream.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// A durable pull consumer for order processing workers.\nawait jsm.consumers.add("ORDERS", {\n  durable_name: "order-processor",\n  deliver_policy: DeliverPolicy.All,    // start from first available\n  ack_policy: AckPolicy.Explicit,       // worker must ack each message\n  max_deliver: 5,                       // redeliver up to 5 times\n  ack_wait: nanos(30),                  // 30s ack deadline\n  filter_subject: "orders.created",     // only this subject\n});\n\n// Workers fetch messages at their own pace.\nconst js = nc.jetstream();\nconst consumer = await js.consumers.get("ORDERS", "order-processor");\nconst messages = await consumer.fetch({ max_messages: 10 });\nfor await (const msg of messages) {\n  await processOrder(msg.json());\n  msg.ack();  // ack AFTER the side effect is safe\n}',
+        },
+        'The pull consumer lets workers control their own throughput. Each fetch requests a batch of up to N messages. The server delivers at most N, and the worker processes and acks them before fetching more. Backpressure is explicit: the server never pushes faster than the worker requests.',
+        {
+          type: 'table',
+          headers: ['Consumer type', 'Delivery', 'State persistence', 'Best fit'],
+          rows: [
+            ['Durable pull', 'Worker fetches batches', 'Survives restarts', 'Worker pools with explicit backpressure'],
+            ['Durable push', 'Server delivers to subscriber', 'Survives restarts', 'Low-latency event handlers'],
+            ['Ephemeral pull', 'Worker fetches batches', 'Lost on disconnect', 'Short-lived batch jobs'],
+            ['Ordered', 'Server delivers in sequence order', 'Recreated on gap detection', 'Read-only replay and debugging'],
+          ],
+        },
+        'Acknowledgment policy controls what the server considers processed. Explicit acks require the worker to call msg.ack() after completing its work. If the worker crashes before acking, the ack_wait timer expires, and the server redelivers to another worker (up to max_deliver times). This is the redelivery safety net -- but it means the application must handle receiving the same message more than once.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'JetStream works because it keeps the fast subject-oriented feel of NATS while adding explicit durable state. Publishers still use subjects. Operators configure streams around subject patterns. Applications choose consumer types that match their processing model.',
-        'It also works because it makes backpressure visible. Pull consumers let workers request only as much as they can handle. Durable cursors let services restart without inventing their own offset table. Redelivery gives crash recovery as long as application side effects are retry-safe.',
-        'The design is useful precisely because it does not force every workload into one abstraction. A stream can support event replay, worker queues, fan-out, and debugging views, but only when the retention and consumer settings match that intent.',
+        'JetStream preserves the speed and simplicity of NATS subjects while adding durable state through three interlocking guarantees.',
+        {
+          type: 'bullets',
+          items: [
+            'Stream persistence guarantee: every message captured by a stream is written to the configured storage backend (file or memory) and, if replicated, acknowledged by a Raft quorum before the publish-ack returns. The publisher knows the message is durable.',
+            'Consumer cursor guarantee: a durable consumer tracks its delivered position, pending messages, and ack state independently of other consumers and independently of the stream retention clock. Restarting the consumer resumes from the stored position.',
+            'Retention boundary guarantee: the stream enforces its configured limits (max_age, max_bytes, max_msgs) and discard policy continuously. Messages that exceed any limit are removed regardless of consumer state. This means retention is a hard contract, not a suggestion.',
+          ],
+        },
+        'The system works because these three guarantees compose cleanly. The stream handles durability and history. The consumer handles delivery position. The application handles business correctness. No layer tries to do another layer\'s job.',
+        {
+          type: 'note',
+          text: 'JetStream uses Raft consensus internally for stream replication (R > 1) and for consumer state in clustered mode. Each stream with replicas forms its own Raft group. This gives strong consistency per stream but means cluster-wide operations (like listing all streams) are eventually consistent across Raft groups.',
+        },
+        'Backpressure works because pull consumers invert the control flow. Instead of the server deciding when to deliver, the worker decides when to fetch. A worker processing 10 messages per second fetches 10 at a time. A worker processing 1,000 per second fetches larger batches. The server never needs to guess the right delivery rate.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'JetStream is lighter than operating a large distributed log, but it is still persistent infrastructure. Storage, replicas, retention, redelivery, and consumer lag become operational concerns. Write acknowledgments now include persistence and, with replicas, consensus cost.',
-        'Slow consumers are the common failure mode. A consumer can be durable and still lose useful replay if stream retention expires the messages it needs. Monitoring should track stream storage, consumer lag, pending counts, redelivery counts, ack latency, and discard behavior.',
-        'Duplicate delivery is normal under retry. JetStream can help deduplicate producer retries with message IDs in a window, but exactly-once business effects still require application design. The database, payment API, email sender, or device command handler must be prepared for repeated messages.',
+        {
+          type: 'table',
+          headers: ['Cost axis', 'What you pay', 'What drives growth'],
+          rows: [
+            ['Publish latency', 'File fsync + Raft quorum ack (R > 1)', 'Disk speed and network RTT to replicas'],
+            ['Storage', 'Every captured message persisted until retention evicts it', 'Message rate * average size * retention window'],
+            ['Consumer state', 'Cursor, pending set, redelivery timers per consumer', 'Number of consumers * pending message volume'],
+            ['Replication', 'Raft group per replicated stream', 'R replicas * message throughput * stream count'],
+            ['Recovery time', 'Stream replay from disk + consumer state rebuild', 'Stream size on disk + pending ack set'],
+          ],
+        },
+        'The dominant operational cost is storage. A stream capturing 1,000 messages per second at 1 KB each with a 7-day retention window stores roughly 600 GB. With R=3, that becomes 1.8 TB across the cluster. Storage planning must account for message rate, message size, retention window, and replica factor -- all four multiply together.',
+        'The second cost is slow-consumer drift. A consumer that falls behind risks losing its replay window when stream retention expires the messages it has not yet processed. Monitoring must track consumer_lag (the gap between the stream\'s last sequence and the consumer\'s delivered sequence), num_pending (unacknowledged messages), and num_redelivered (messages sent more than once).',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Key monitoring metrics for a JetStream deployment:\n\n  Stream level:\n    messages         total stored messages\n    bytes            total stored bytes\n    consumer_count   consumers attached to this stream\n    first_seq        oldest retained sequence number\n    last_seq         newest sequence number\n\n  Consumer level:\n    num_pending      messages delivered but not yet acked\n    num_ack_pending  messages awaiting ack (same as pending in most modes)\n    num_redelivered  messages sent more than once\n    ack_floor        highest contiguous acked sequence\n    delivered.stream_seq   last sequence delivered to this consumer\n\n  Alert thresholds:\n    consumer_lag > retention_window * 0.8   --> consumer will lose replay\n    num_redelivered / num_delivered > 0.05  --> worker crash rate too high\n    bytes > max_bytes * 0.9                 --> stream approaching discard',
+        },
+        'Duplicate delivery is a normal operational fact, not a bug. When a worker crashes after processing but before acking, the server redelivers. When a publisher retries after a lost publish-ack, the stream may store two copies unless the duplicate_window catches it. JetStream provides a deduplication window (based on the Nats-Msg-Id header) for publisher retries, but application-level idempotency is still required for consumer-side duplicates.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'An IoT telemetry platform ingests sensor readings from factory equipment. Devices publish to subjects like telemetry.factory42.line7.temperature. The platform needs three consumers with different semantics over the same data.',
+        {
+          type: 'table',
+          headers: ['Step', 'Component', 'JetStream action', 'Configuration choice'],
+          rows: [
+            ['1', 'Stream creation', 'nats stream add TELEMETRY --subjects "telemetry.>"', 'File storage, R=3, max_age=7d, max_bytes=500GB'],
+            ['2', 'Alerting consumer', 'Durable pull consumer "alerter"', 'filter: telemetry.*.*.temperature, ack_wait=10s, max_deliver=3'],
+            ['3', 'Archive consumer', 'Durable pull consumer "archiver"', 'filter: telemetry.>, ack_wait=60s, max_deliver=5'],
+            ['4', 'Debug consumer', 'Ordered consumer (temporary)', 'deliver_policy=by_start_time, opt_start_time=1h ago'],
+            ['5', 'Sensor publishes', 'nats pub telemetry.factory42.line7.temperature "{"celsius":87.3}"', 'Nats-Msg-Id header for dedup'],
+            ['6', 'Stream stores', 'Message persisted at seq 4,829,001', 'Replicated to 2 followers via Raft'],
+            ['7', 'Alerter fetches', 'consumer.fetch({max_messages: 100})', 'Worker checks threshold, acks after alert sent'],
+            ['8', 'Archiver fetches', 'consumer.fetch({max_messages: 1000})', 'Worker batches to S3, acks after upload confirmed'],
+            ['9', 'Debug replays', 'Ordered consumer delivers from 1h ago', 'Engineer reads, no ack needed, consumer auto-cleans'],
+          ],
+        },
+        'All three consumers read from the same stream. The alerter is fast and narrow (only temperature readings). The archiver is slow and wide (all telemetry). The debug consumer is temporary and stateless. Each has its own cursor and ack policy. None interferes with the others.',
+        {
+          type: 'diagram',
+          text: 'One stream, three consumer views:\n\n  Stream: TELEMETRY  [seq 4,828,500 ... 4,829,001]\n  Retention: 7 days  |  Storage: 142 GB / 500 GB\n\n  Consumer: alerter\n    cursor: 4,829,000  |  pending: 1  |  lag: 1\n    filter: telemetry.*.*.temperature\n\n  Consumer: archiver\n    cursor: 4,827,200  |  pending: 200  |  lag: 1,801\n    filter: telemetry.>\n    (behind, but within 7-day retention -- safe)\n\n  Consumer: debug-session-x9f2\n    cursor: 4,825,000  |  ephemeral  |  ordered replay\n    (engineer browsing historical data, will disconnect soon)',
+          label: 'Three consumers at different positions in the same stream',
+        },
+        'The critical monitoring question: is the archiver\'s lag growing faster than retention can sustain? At 1,000 messages/second and a cursor 1,801 messages behind, the archiver is about 2 seconds behind -- safe. But if the archiver stalls for 7 days and the stream enforces max_age=7d, messages will be deleted before the archiver reaches them. The consumer\'s cursor becomes a pointer to nothing.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'JetStream wins when a system already wants NATS-style subject routing and also needs persistence. It fits service events, edge messaging, IoT telemetry, command streams, lightweight work queues, replayable integration events, and background processing where pull-based backpressure matters.',
-        'It is especially useful when one retained stream should support multiple consumers with different positions. That is the difference between a shared event history and a one-off queue. Teams can add a new durable consumer for a new service without changing the publisher.',
+        {
+          type: 'table',
+          headers: ['Use case', 'Why JetStream fits', 'Key configuration choice'],
+          rows: [
+            ['IoT edge telemetry', 'Leaf nodes run lightweight NATS servers; JetStream replicates to hub', 'Leaf node streams with sourcing to central cluster'],
+            ['Microservice event bus', 'Services publish domain events; consumers process at their own pace', 'Work-queue retention for task distribution; limits retention for event replay'],
+            ['Order processing pipeline', 'Orders flow through stages; each stage acks after its work', 'Durable pull consumers with explicit ack and max_deliver for retry safety'],
+            ['Log aggregation', 'Applications publish structured logs to subjects by service and level', 'Limits retention with max_age to bound storage; archiver consumer exports to cold storage'],
+            ['Configuration distribution', 'Control plane publishes config updates; edge nodes consume', 'Interest retention so messages persist while consumers need them'],
+            ['CI/CD job dispatch', 'Build triggers published as messages; runners pull and ack', 'Work-queue retention so each job is processed exactly once (at the message level)'],
+          ],
+        },
+        'JetStream is strongest when teams already use NATS for its speed and subject routing and need to add persistence without changing the messaging model. The same subject namespace, the same client libraries, the same cluster -- just with streams configured on the subjects that need durability.',
+        'It is also strong at the edge. A NATS leaf node can run JetStream locally, buffer messages during network partitions, and forward them to a hub cluster when connectivity returns. This store-and-forward pattern is difficult to retrofit onto systems that assume always-connected brokers.',
+        {
+          type: 'note',
+          text: 'JetStream supports cross-stream sourcing and mirroring. A stream in one cluster can source messages from a stream in another cluster, enabling geographic distribution without application-level replication logic. This is how multi-region telemetry aggregation works in practice.',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'JetStream fails when teams assume it removes the need for idempotency. It does not. Acknowledgments and redelivery are message semantics; your business operation still needs safe retry boundaries.',
-        'It may also be the wrong fit for huge analytical logs, long-term cheap storage, or ecosystems that already standardize around Kafka-compatible tooling. Kafka, Pulsar, object-storage lake pipelines, and database outboxes all occupy nearby territory. The right choice depends on scale, retention horizon, tooling, ordering needs, and operational ownership.',
+        {
+          type: 'bullets',
+          items: [
+            'No exactly-once business semantics: JetStream provides at-least-once delivery. The ack proves the consumer received the message, not that the database write, API call, or email send completed exactly once. Application-level idempotency is mandatory for safe retries.',
+            'Not a data lake: streams with multi-terabyte retention and complex query patterns are better served by Kafka, Pulsar, or object-storage pipelines with schema registries and columnar formats.',
+            'Partition ordering is per-stream, not per-subject: unlike Kafka where each partition has strict ordering, a JetStream stream orders all captured subjects into a single sequence. Parallel processing across subjects requires application-level coordination or separate streams.',
+            'Ecosystem maturity gap: Kafka has Connect, Schema Registry, ksqlDB, and a decade of third-party tooling. JetStream is younger. Teams that need rich stream processing, exactly-once Kafka transactions, or a large connector ecosystem may find the tooling insufficient.',
+            'Cluster sizing pressure: each replicated stream creates a Raft group. Hundreds of streams with R=3 means hundreds of Raft groups, each with election timers, heartbeats, and log replication. This can stress a small cluster.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Comparison', 'JetStream advantage', 'Alternative advantage'],
+          rows: [
+            ['vs. Kafka', 'Single binary, sub-ms core latency, simpler ops', 'Mature ecosystem, exactly-once transactions, partition-level parallelism'],
+            ['vs. Redis Streams', 'Built-in replication and retention policies', 'Redis doubles as cache; simpler for small stream workloads'],
+            ['vs. RabbitMQ', 'Subject-based routing without exchange/binding boilerplate', 'Richer routing patterns (headers, topic, fanout exchanges)'],
+            ['vs. SQS/SNS', 'Self-hosted, no per-message cost, lower latency', 'Zero ops, auto-scaling, deep AWS integration'],
+            ['vs. Pulsar', 'Lower operational complexity', 'Tiered storage, multi-tenancy, geo-replication built in'],
+          ],
+        },
+        'The most dangerous misconception is that "durable consumer" means "nothing can be lost." A durable consumer survives restarts, but if the stream\'s retention policy deletes messages before the consumer processes them, those messages are gone. Durability of the consumer cursor does not extend the stream\'s retention window.',
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Remember the nouns: subject, stream, consumer, ack, retention. A subject is an address. A stream is stored history. A consumer is a delivery view. An ack is consumer progress. Retention decides whether history still exists.',
-        'Most JetStream design mistakes come from treating those nouns as interchangeable. Keep them separate and the system becomes much easier to reason about.',
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers'],
+          rows: [
+            ['https://docs.nats.io/nats-concepts/jetstream', 'Official JetStream overview: architecture, streams, consumers, clustering'],
+            ['https://docs.nats.io/nats-concepts/jetstream/streams', 'Stream configuration reference: subjects, storage, retention, replicas, limits'],
+            ['https://docs.nats.io/nats-concepts/jetstream/consumers', 'Consumer configuration reference: pull/push, ack policy, redelivery, filters'],
+            ['https://nats.io/blog/jetstream-java-client-05-pull-subscribe/', 'Pull subscribe patterns and backpressure walkthrough'],
+            ['https://github.com/nats-io/nats-server', 'NATS server source code including JetStream implementation'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Message Queues -- the producer-consumer pattern and delivery guarantees that JetStream builds on.',
+            'Prerequisite: Backpressure -- why pull-based consumption matters and how flow control prevents overload.',
+            'Extension: Kafka Log Case Study -- a heavier distributed log with partitions, consumer groups, and exactly-once transactions.',
+            'Extension: Idempotency -- the application-level guarantee that JetStream intentionally does not provide.',
+            'Adjacent pattern: Transactional Outbox -- an alternative approach to reliable event publishing using database transactions.',
+            'Contrast: Redis Streams Case Study -- a lighter stream primitive with different retention and consumer group semantics.',
+          ],
+        },
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: NATS JetStream overview at https://docs.nats.io/nats-concepts/jetstream, streams documentation at https://docs.nats.io/nats-concepts/jetstream/streams, and consumers documentation at https://docs.nats.io/nats-concepts/jetstream/consumers. Study Kafka Log Case Study, Redis Streams Case Study, Message Queues, Backpressure, Idempotency, Transactional Outbox, and Rate Limiter next.',
-      ],
-    },
-  
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for nats-jetstream-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };

@@ -257,155 +257,195 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Rust Borrow Checker Ownership Trace. A domain-trace case study for code world models: Rust requires ownership, borrow, lifetime, and drop transitions, not just variable values..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. "Ownership state graph" traces the full lifecycle of a Rust value -- binding, moving, borrowing, lifetime tracking, drop, and checker verdict. "Borrow violation" shows the canonical conflict: active shared loans block a mutable borrow request until the shared regions end.',
+        {type: 'bullets', items: [
+          'Active (highlighted): the current ownership event or checker decision -- a place being bound, a loan being created, or a conflict being evaluated.',
+          'Found (green): a fact the checker has committed to -- a drop event scheduled, a verdict rendered, a region boundary established.',
+          'Compare (blue): a contrasting state that clarifies the active decision -- shared vs. mutable borrow kinds, or references whose regions have ended vs. those still live.',
+          'Removed (red): a rejected path -- a mutable borrow blocked by active shared loans, or a use-after-move that the checker refuses.',
+        ]},
+        {type: 'note', text: 'The key contrast between the two views: the ownership-state view shows how the trace records state transitions (bind, move, borrow, drop). The borrow-violation view shows how the checker uses that recorded state to produce allow/reject verdicts. The trace is the data. The checker is the decision function over that data.'},
+        'At each frame, ask: what is the current ownership state of every place, which loans are active, and would the next access request be allowed or rejected given that state?',
       ],
     },
     {
-      heading: 'Problem',
+      heading: 'Why this exists',
       paragraphs: [
-        `A normal program trace records variable values, function calls, branches, and outputs. That is useful for many languages, but it is not enough for Rust. The central fact in a Rust program is often not the current text inside a String or the integer inside a vector. It is who owns the value, whether ownership has moved, which references are active, which access is being requested, where lifetimes end, and when destructors run.`,
-        `A Rust borrow-checker ownership trace exists to make that compiler state explicit. The goal is not to reprint the source code or store compiler stderr as plain text. The goal is to record a structured ledger of ownership transitions, shared loans, mutable loans, lifetime regions, move events, access requests, drop points, and verifier verdicts. That is the state a learner or repair agent needs in order to understand why one edit compiles and a visually similar edit fails.`,
+        'C and C++ give programmers manual control over memory. The result is a class of bugs -- use-after-free, double-free, dangling pointers, data races -- that accounts for roughly 70% of critical security vulnerabilities in large C/C++ codebases. Microsoft, Google, and Mozilla have independently reported this figure across Windows, Chrome, Android, and Firefox.',
+        {type: 'quote', text: 'We find that ~70% of the vulnerabilities addressed through a security update each year continue to be memory safety issues.', attribution: 'Matt Miller, Microsoft Security Response Center (BlueHat 2019)'},
+        'Garbage-collected languages (Java, Python, Go) eliminate these bugs by removing manual deallocation. The cost is runtime overhead: GC pauses, unpredictable latency, and memory bloat from deferred collection. Systems programming -- operating systems, browsers, game engines, embedded firmware -- often cannot afford that cost.',
+        'Rust eliminates memory-safety bugs without a garbage collector by making ownership, borrowing, and lifetimes part of the type system. The borrow checker enforces these rules at compile time: zero runtime cost, zero GC pauses, and a guarantee that safe Rust code cannot produce use-after-free, data races, or dangling references. The trade-off is that the programmer must satisfy the checker, and understanding the checker requires understanding ownership state -- not just variable values.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The naive approach is to reuse a dynamic-language trace. Show that s contains "hello", show that v contains three elements, show that a function was called, and show the returned value. This feels natural because debuggers and teaching tools often present execution as a changing table of locals. For Python or JavaScript examples, that table may explain most beginner mistakes.`,
-        `Rust needs another layer. After let t = s, the old place s may no longer be usable because ownership moved to t, even if the heap value itself still exists. During let r = &t, the owner t still exists, but mutation through t may be restricted while the shared loan is active. During let m = &mut t, other reads and writes may be restricted because the mutable borrow requires exclusivity. A value table alone cannot explain these rules.`,
-        `Compiler diagnostics help, but stderr is still not a trace. A message may say that a mutable borrow conflicts with an immutable borrow, yet the learner needs to know which place was borrowed, where the loan started, where it ended, and which later access triggered the conflict. Without those facts, a repair system learns symptoms rather than rules.`,
+        'The first instinct when teaching or debugging Rust is to use the same trace format as Python or JavaScript: a table of variable names and their current values, updated line by line. Debuggers, visualizers, and REPL tools typically present execution this way.',
+        {type: 'table', headers: ['Line', 'Variable', 'Value', 'What the table shows', 'What it misses'], rows: [
+          ['1', 's', '"hello"', 's holds a String', 's owns a heap-allocated buffer via (ptr, len, cap)'],
+          ['2', 't', '"hello"', 't holds the same String', 's is now uninitialized -- ownership moved to t'],
+          ['3', 'r', '&"hello"', 'r points at t', 'A shared loan is active; t cannot be mutated while r lives'],
+          ['4', 'm', '&mut "hello"', 'm points at t', 'Rejected if r is still live -- exclusivity violation'],
+          ['5', '(end)', '---', 'Variables go out of scope', 'Drop order: m then t then s (but s is already moved)'],
+        ]},
+        'The value table says s and t hold the same string. It cannot explain why reading s on line 3 would be a compile error, why requesting &mut t on line 4 depends on whether r is still used later, or why the drop order matters. The important state -- ownership, loans, regions, move flags -- is invisible.',
+        'Compiler error messages help, but they are diagnostic summaries, not traces. A message says "cannot borrow t as mutable because it is also borrowed as immutable." The learner still needs to know: which place, which loan, when the loan started, when it ends, and what access triggered the conflict. Without that causal chain, the fix is guesswork.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is that many important Rust failures are verifier-state failures, not runtime failures. The program may never execute. The compiler rejects it because it can prove that a use-after-move, aliasing conflict, dangling reference, uninitialized use, or invalid drop order would be possible. A runtime-only trace has no event to observe because the rejected program never ran.`,
-        `The second wall is that Rust uses inferred regions. A beginner may think a borrow lives until the end of a block, but non-lexical lifetimes often end a borrow at the last use. Moving a println! can shorten a region enough to allow a later mutable borrow. A useful trace must show that the last use moved, the shared loan ended earlier, and the mutable loan request changed from conflict to allowed. The difference is semantic, not cosmetic.`,
+        'The wall is that borrow-checker errors are compile-time rejections, not runtime crashes. The program never executes. A runtime trace has nothing to observe because rustc refused to produce a binary. The error exists entirely in the compiler\'s static analysis of ownership state.',
+        {type: 'code', language: 'rust', text: 'fn main() {\n    let mut x = String::from("hello");\n    let r1 = &x;          // shared borrow of x begins\n    let r2 = &x;          // second shared borrow -- OK, shared loans coexist\n    x.push_str(", world"); // ERROR: cannot borrow x as mutable\n                           // because it is also borrowed as immutable\n    println!("{} {}", r1, r2); // r1 and r2 are used here, so their\n                               // regions extend past the push_str call\n}'},
+        'This code never runs. No debugger can step through it. No value table can show what went wrong. The failure is a conflict between the active shared loans (r1, r2) and the mutable access requested by push_str. The trace must record loan state at each program point, not runtime values.',
+        {type: 'note', text: 'The second wall is non-lexical lifetimes (NLL). Before Rust 2018 edition, borrows lived until the end of their enclosing block. Since NLL (stabilized in rustc 1.31, December 2018), the compiler infers that a borrow ends at its last use. Moving a println! from after a mutable borrow to before it can change the program from rejected to accepted. A useful trace must show exactly where each region ends and why.'},
+        'A trace built from surface syntax alone will also miss reborrows (temporarily lending through an existing &mut), autoderef chains, closure captures (which borrow or move depending on usage), and drop order (which determines when owned values are freed and in what sequence). These are compiler-internal facts that affect the verdict.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to trace Rust as a system of places and loans. A place is a local, field, dereference, index, or path that can hold or refer to a value. Ownership state says which place owns a value or whether that place has been moved from. A loan records that a place has been borrowed, whether the loan is shared or mutable, and which region describes how long the loan remains relevant. An access request records a read, write, move, or borrow attempt.`,
-        `The result is a loan ledger. When the program asks for &mut x, the ledger can say whether x has active shared loans. When the program reads s after moving it into t, the ledger can say that s is moved and no longer initialized for use. When a reference would outlive its referent, the ledger can show the region mismatch. When a destructor runs, the ledger can show which value is being dropped and which borrows must have ended first.`,
-        `This article frames the borrow checker as a traceable state machine rather than a mysterious compiler mood. The rules are still strict, but they become inspectable: places, loans, regions, accesses, moves, and drops change over time according to structured transitions.`,
+        'Trace Rust as a system of places and loans, not variables and values. A place is any path that can hold or refer to a value: a local variable, a struct field (x.name), a dereference (*r), an index (v[0]), or a composite path (self.buffer[i].data). Ownership state says whether a place currently owns an initialized value, has been moved from, or has been partially moved.',
+        {type: 'diagram', text: '  Source Code          Ownership Trace (Loan Ledger)\n  -----------          -----------------------------\n  let s = String::new() --> Place s: initialized, owner\n  let t = s             --> Place s: moved (unusable)\n                            Place t: initialized, owner\n  let r = &t            --> Loan: shared, place t, region [L3..L5]\n  let m = &mut t        --> CHECK: t has active shared loan?\n                            If r is still live: REJECT (conflict)\n                            If r\'s region ended: ALLOW (exclusive OK)\n  drop(t)               --> Place t: drop runs, destructor called\n                            All loans on t must have ended first', label: 'The trace records ownership transitions, not value snapshots'},
+        'A loan records four facts: the borrowed place, the borrow kind (shared or mutable), the region (from the borrow point to the last use), and the access rights it grants and restricts. The checker is a function that takes the current ledger and a new access request, then returns allow or reject.',
+        {type: 'note', text: 'This framing turns the borrow checker from a mysterious oracle into a traceable state machine. The state is the set of active loans and the initialization status of each place. The transitions are bind, move, borrow, access, and drop. The output is a verdict at each access point. Every verdict has a causal explanation in the ledger.'},
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A useful ownership trace starts with binding. When code creates let s = String::from("hi"), the trace records that place s owns a heap value and is initialized. When code executes let t = s, the trace records a move from s to t. The heap allocation did not need to be copied, but the owner place changed. Unless the type implements Copy, the old place s is now unusable for ordinary reads.`,
-        `Borrowing adds loans. A shared borrow &t creates a shared loan from place t with a region beginning at the borrow expression and ending at the last use inferred by the compiler. During that region, reads through shared references are allowed, and more shared borrows may be allowed, but mutation through t is restricted. A mutable borrow &mut t creates an exclusive loan. During that region, the borrower may mutate, but other conflicting access to t is rejected.`,
-        `Access checking compares a request with the active ledger. A read request asks whether the place is initialized and whether any active mutable loan forbids reading through that path. A write request asks whether the place is initialized and whether active shared or mutable loans conflict. A move request asks whether the place may be moved and whether loans prevent moving. A drop point asks whether it is legal to destroy the value and run destructors.`,
-        `The compiler implementation uses MIR, Rust\'s mid-level intermediate representation, for flow-sensitive checks. A teaching trace does not need to expose every compiler detail, but it should preserve the same kinds of facts: places, initialization, moves, borrow kinds, regions, access kinds, and drop order. That is the minimal state needed to explain borrow-checker behavior faithfully.`,
+        'The ownership trace records five kinds of events, each with structured fields.',
+        {type: 'table', headers: ['Event', 'Fields recorded', 'State change'], rows: [
+          ['Bind', 'place, type, Copy/non-Copy', 'Place becomes initialized, owns the value'],
+          ['Move', 'source place, target place', 'Source becomes uninitialized; target becomes owner'],
+          ['Borrow', 'place, kind (shared/mut), region start', 'A loan is added to the active loan set'],
+          ['Access', 'place, kind (read/write/move/borrow)', 'Checked against active loans; verdict: allow or reject'],
+          ['Drop', 'place, drop order position', 'Value is destroyed; all loans on this place must have ended'],
+        ]},
+        'Binding: when code executes let s = String::from("hello"), the trace records that place s owns a heap-allocated String and is initialized. The String itself is a struct of three fields on the stack: a pointer to the heap buffer, a length, and a capacity. The trace cares about ownership of the whole value, not the individual bytes.',
+        'Moving: when code executes let t = s, ownership transfers. The heap buffer is not copied. The pointer, length, and capacity are copied into place t on the stack, and place s is marked as moved. Unless the type implements the Copy trait (integers, booleans, &T references), the old place is no longer usable. This is why Rust can deallocate without a GC -- at any point, exactly one place owns each value, so exactly one place is responsible for dropping it.',
+        {type: 'code', language: 'rust', text: '// Move semantics: ownership transfer, not copy\nlet s = String::from("hello"); // s owns the heap buffer\nlet t = s;                      // ownership moves to t\n// println!("{}", s);           // COMPILE ERROR: s was moved\nprintln!("{}", t);              // OK: t is the owner\n\n// Copy semantics: value is duplicated\nlet a: i32 = 42;               // a owns a stack value\nlet b = a;                      // b gets a copy (i32 is Copy)\nprintln!("{} {}", a, b);        // OK: both a and b are initialized'},
+        'Borrowing: a shared borrow &t creates a shared loan. The region starts at the borrow expression and ends at the last use of the resulting reference (under NLL). During this region, reads through &t are allowed, additional shared borrows of t are allowed, but writes to t or mutable borrows of t are rejected. A mutable borrow &mut t creates an exclusive loan: the borrower may read and write, but all other access to t is blocked for the duration of the region.',
+        'Access checking: at each program point where a place is accessed, the checker scans the active loan set. The rules are:',
+        {type: 'bullets', items: [
+          'Read through a place with only shared loans active: allowed.',
+          'Read through a place with an active mutable loan held by someone else: rejected.',
+          'Write or mutate through a place with any active loan (shared or mutable) held by someone else: rejected.',
+          'Move from a place with any active loan: rejected (the referent would vanish under the borrower).',
+          'Drop a place while loans are still active: rejected (the destructor would invalidate live references).',
+        ]},
+        'Drop: when a place goes out of scope, Rust runs the destructor (the Drop trait implementation, if any) and frees the owned memory. Drop order within a scope is reverse declaration order. The trace must record drop order because it affects which borrows must have ended before which destructor runs.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The trace works because Rust\'s safety rules are structured around a small set of state transitions. Binding initializes a place. Moving transfers ownership and may deinitialize the old place. Shared borrowing adds a read-only loan over a region. Mutable borrowing adds an exclusive loan over a region. Access requests are allowed or rejected by comparing the request with the current owner and loan state. Scope exits and explicit drops run cleanup when ownership permits it.`,
-        `The central invariant is that mutation requires exclusivity and references must not outlive the values they point to. Shared aliases may coexist when they only read. A mutable reference requires that no conflicting shared or mutable loan is active. A moved-from place cannot be read as if it still owned the value. A reference cannot be returned if its region would extend beyond the referent. The ledger turns each of those principles into data.`,
-        `This is valuable for code world models because it gives repairs a causal target. A patch is not merely labeled "accepted by rustc." It can be labeled as shortening a shared-loan region, removing a move, borrowing a field instead of the whole struct, cloning intentionally, using reborrowing correctly, or moving a destructor boundary. Those are reusable program concepts.`,
+        'The borrow checker enforces two invariants that together eliminate memory-safety bugs without runtime cost.',
+        {type: 'bullets', items: [
+          'Aliasing XOR Mutation: at any point, a value is either referenced by any number of shared (&T) borrows (aliased, read-only) or by exactly one mutable (&mut T) borrow (exclusive, read-write). Never both. This eliminates data races, iterator invalidation, and aliasing-based undefined behavior.',
+          'Lifetime soundness: every reference must be valid for its entire region. A reference cannot outlive the value it points to. This eliminates use-after-free, dangling pointers, and returning references to stack-local values.',
+        ]},
+        {type: 'quote', text: 'The key property of the Rust type system is that it enforces the discipline of ownership and borrowing, and as a consequence, well-typed programs do not have data races and do not exhibit use-after-free bugs.', attribution: 'Ralf Jung et al., "RustBelt: Securing the Foundations of the Rust Programming Language" (POPL 2018)'},
+        'The formal foundation is RustBelt, which proves that safe Rust\'s type system (including ownership, borrowing, and lifetimes) is sound: well-typed programs cannot exhibit undefined behavior. The proof uses a technique called semantic typing in the Iris framework, modeling ownership as fractional permissions and lifetimes as logical regions.',
+        'The trace works as a teaching tool because the rules are finite, enumerable, and local. Each access request is checked against a small set of facts: is the place initialized? What loans are active? Is the requested access compatible with those loans? Does the region cover the access point? A learner who can read the ledger can predict the verdict before the compiler produces it.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Consider a small function with a String named x. The code creates r1 = &x and r2 = &x, then prints both references. After that, it asks for m = &mut x and pushes more text. With non-lexical lifetimes, this can be legal if the last uses of r1 and r2 occur before the mutable borrow. The shared loans end at their last use, so the mutable loan request sees no active shared conflict.`,
-        `Now move the println! that uses r1 after the mutable borrow. The value table still says x is the same String, but the loan ledger changes. r1\'s shared loan remains active when the program requests &mut x. The checker sees an exclusive mutable request while a shared loan is live, so it rejects the program. The trace explains the exact conflict: place x, active loan kind shared, requested access mutable borrow, verdict reject.`,
-        `A repair can be represented precisely. Move the last shared-reference use before the mutable borrow, clone a value when ownership transfer is intended, create a narrower inner scope, borrow disjoint fields when the language can prove they are separate, or change a function signature so it returns owned data instead of a dangling reference. Each repair changes a specific ledger entry rather than just silencing an error.`,
+        'Two versions of the same function. Version A compiles. Version B does not. The only difference is the position of one line.',
+        {type: 'code', language: 'rust', text: '// Version A: compiles under NLL\nfn main() {\n    let mut x = String::from("hello");\n    let r1 = &x;                         // shared borrow begins\n    let r2 = &x;                         // second shared borrow -- OK\n    println!("{} and {}", r1, r2);        // last use of r1 and r2\n    // -- NLL: shared loans end here --\n    x.push_str(", world");               // mutable access: no active loans, OK\n    println!("{}", x);\n}\n\n// Version B: rejected\nfn main() {\n    let mut x = String::from("hello");\n    let r1 = &x;\n    let r2 = &x;\n    x.push_str(", world");               // ERROR: shared loans still active\n    println!("{} and {}", r1, r2);        // r1, r2 used after push_str\n}'},
+        'The loan ledger for each version:',
+        {type: 'table', headers: ['Event', 'Version A ledger', 'Version B ledger'], rows: [
+          ['let mut x = ...', 'Place x: initialized, owner', 'Place x: initialized, owner'],
+          ['let r1 = &x', 'Loan: shared, x, region [L3..]', 'Loan: shared, x, region [L3..]'],
+          ['let r2 = &x', 'Loan: shared, x, region [L4..]', 'Loan: shared, x, region [L4..]'],
+          ['println!(r1, r2)', 'Last use of r1, r2 -> regions end', '(occurs later, after push_str)'],
+          ['x.push_str()', 'Access: mut write to x. Active loans: none. ALLOW', 'Access: mut write to x. Active loans: r1 shared, r2 shared. REJECT'],
+          ['println!(r1, r2)', '(already consumed above)', 'Last use of r1, r2 -> regions end (too late)'],
+        ]},
+        {type: 'note', text: 'The fix is not "satisfy the borrow checker." The fix is: the last shared-reference use must occur before the mutable access. Moving the println! up shortens the shared-loan regions so they no longer overlap with the push_str call. The trace makes this causal: the same code with one line moved changes which loans are active at the access point.'},
+        'Five common repair patterns, each described by the ledger change they produce:',
+        {type: 'bullets', items: [
+          'Reorder uses: move the last shared-reference use before the mutable borrow. The shared loan region shrinks; the conflict disappears.',
+          'Clone: replace &x with x.clone(). A new independent value is created; no loan on x, so mutation is unrestricted. Cost: heap allocation and copy.',
+          'Scope narrowing: introduce a block { let r = &x; use(r); } so the borrow ends at the block boundary. The mutable borrow outside the block sees no active loans.',
+          'Disjoint borrows: borrow &self.name and &mut self.age instead of &self and &mut self. The compiler can prove the fields do not overlap (available since Rust 2021 edition closures, and for direct field access since NLL).',
+          'Ownership transfer: return an owned String instead of &str when the reference would outlive the referent. The caller receives ownership, not a borrow.',
+        ]},
       ],
     },
     {
-      heading: 'What the animation shows',
+      heading: 'How to read the animation',
       paragraphs: [
-        `The ownership-state view starts with places, owners, values, moves, borrows, lifetimes, drops, the checker, and the trace ledger. The first frame emphasizes that a Python-style table of variable values is missing the real Rust state. The transition-log matrix then gives the minimum event vocabulary: bind, move, shared borrow, mutable borrow, and drop. Those are the state changes a trace must record.`,
-        `The shared-versus-mutable frame separates edge types. A shared borrow and a mutable borrow are not the same label with a different spelling. They have different aliasing rules and different conflict behavior. The trace-schema table names the fields a verifier needs: place, loan, region, access, and drop. The final frame links this to domain-specific traces for code world models. Different languages and domains need different state variables.`,
-        `The borrow-violation view shows the canonical conflict. x has active shared loans r1 and r2. A new request asks for &mut x. The conflict node represents the checker comparing active loans with the requested access. Later frames show that ending regions can convert rejection into allowance. That is the key lesson: the compiler verdict follows from the active ledger at the access point.`,
+        'The ownership-state view walks through the full lifecycle. The first frame shows the graph of places, owners, values, moves, borrows, lifetimes, drops, the checker, and the trace ledger. The transition-log matrix then gives the minimum event vocabulary: bind, move, share, mut ref, and drop -- five events that cover every ownership state change.',
+        'The shared-versus-mutable frame separates the two borrow kinds as distinct edge types with different aliasing rules. The trace-schema table names the five fields a verifier needs: place (identity), loan (rule), region (validity), access (conflict check), and drop (cleanup). The final frame connects this to domain-specific traces: different languages need different state variables.',
+        'The borrow-violation view shows the canonical conflict shape. x has active shared loans r1 and r2. A request for &mut x arrives. The conflict node represents the checker scanning the active loan set. Later frames show that ending shared regions (NLL) converts the reject into an allow. The verdict is a function of the ledger at the access point, not a compiler mood.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost is compiler integration. A faithful trace needs to map source spans to MIR places, inferred regions, borrow kinds, move paths, and diagnostics. That information exists in the compiler pipeline, but exposing it in a stable teaching or benchmark format is work. If a trace is built from surface syntax alone, it will miss non-lexical lifetime behavior, reborrows, autoderef, closure captures, and drop order.`,
-        `The schema also has to choose the right level of detail. Too little detail collapses shared and mutable references into a vague "reference" label and teaches the wrong model. Too much internal compiler detail can overwhelm learners and make benchmark artifacts brittle. The useful middle layer names the semantic facts that affect the verdict while hiding compiler implementation noise that is not needed for the lesson.`,
-        `There are performance and storage costs if traces are collected at scale. A corpus for repair agents may contain many candidate programs, compiler runs, source spans, MIR-derived facts, and before/after patches. The payoff is that the data becomes much more useful: it can distinguish a principled repair from a coincidental edit.`,
+        {type: 'table', headers: ['Dimension', 'Cost', 'What drives it'], rows: [
+          ['Compile time', 'Borrow checking is O(n * L) per function', 'n = MIR statements, L = active loans. Polonius (next-gen checker) uses Datalog to scale better on complex functions.'],
+          ['Runtime cost', 'Zero', 'All checks happen at compile time. No GC, no reference counting, no runtime tags.'],
+          ['Developer time', 'High for beginners, moderate for experienced', 'Learning the ownership model takes ~2-4 weeks. After that, most patterns become idiomatic.'],
+          ['Trace storage', 'O(events * fields) per function', 'A teaching trace records bind, move, borrow, access, and drop events with 4-6 fields each.'],
+          ['MIR extraction', 'Requires compiler integration', 'Surface syntax misses NLL regions, reborrows, autoderef, closure captures, and drop elaboration.'],
+        ]},
+        'The real cost is not the checker itself -- it runs in milliseconds per function. The cost is the programmer\'s mental model. A Rust developer must think about ownership at every function boundary: does this function take ownership, borrow immutably, or borrow mutably? The reward is that the resulting code is memory-safe without runtime overhead, and the ownership annotations serve as machine-checked documentation of the data flow.',
+        {type: 'note', text: 'Polonius, the next-generation borrow checker (in development), reformulates the analysis as a Datalog program over MIR facts. It handles some patterns NLL rejects (notably, conditional returns of references) and produces better error diagnostics. The loan-ledger model described here maps cleanly to Polonius facts: loan origins, loan invalidations, and subset relations between regions.'},
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Ownership traces win in compiler education. They let a learner see why moving a line changes a lifetime, why a borrow of one field may be allowed while a borrow of the whole struct is not, and why a value can be unavailable after a move. The explanation becomes a state transition, not an incantation.`,
-        `They also win in automated repair and benchmark analysis. If an agent proposes a patch for a borrow-checker error, the evaluation can ask what changed in the ledger. Did the patch shorten a region, remove a conflicting access, add an intentional clone, use ownership transfer, or hide the problem behind unsafe code? That makes the benchmark more honest than checking whether the final compiler command returned success.`,
-        `The broader win is methodological. A code model should trace the state that matters in the domain. Rust needs ownership and loans. A memory-model topic needs happens-before edges. A database transaction topic needs locks, versions, and commit timestamps. A financial contract topic needs obligations and lifecycle events. The right trace schema is part of the problem.`,
+        {type: 'table', headers: ['Domain', 'System', 'Why ownership matters'], rows: [
+          ['Operating systems', 'Linux kernel Rust modules (since 6.1)', 'Kernel code cannot use a GC. Ownership ensures drivers and file systems free memory exactly once without use-after-free.'],
+          ['Browsers', 'Servo (Mozilla), Stylo (in Firefox)', 'Parallel CSS computation requires data-race freedom. Ownership enforces thread-safe access patterns at compile time.'],
+          ['Cloud infrastructure', 'Firecracker (AWS Lambda microVM)', 'MicroVMs must be memory-safe with microsecond startup. Zero-cost ownership eliminates GC pauses in the hot path.'],
+          ['Embedded systems', 'Embassy async framework', 'No heap, no allocator, no GC. Ownership tracks hardware peripheral access: only one task can own a UART at a time.'],
+          ['Databases', 'TiKV (distributed KV store under TiDB)', 'Concurrent storage engine needs safe memory management under high throughput without GC stop-the-world pauses.'],
+          ['CLI and dev tools', 'ripgrep, fd, bat, exa', 'Ownership enables fearless parallelism: split work across threads with compile-time guarantees against data races.'],
+        ]},
+        'The common thread: these are systems where memory safety is critical, GC is unacceptable, and concurrency bugs are catastrophic. Ownership provides the same safety guarantees as a GC with the same performance profile as manual C memory management.',
+        {type: 'note', text: 'The ownership model extends beyond memory. The same borrow rules enforce thread safety: Send and Sync marker traits use the type system to prevent data races. A type that is not Sync cannot be shared across threads via &T. A type that is not Send cannot be moved to another thread. These are ownership rules applied to concurrency, not a separate system.'},
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The trace fails if it treats Rust as Python with stricter syntax. Values alone are not enough. A trace that says x is a String and r is a reference does not explain whether x was moved, whether r is shared or mutable, whether the reference is still live, or whether a later write conflicts. Ownership is semantic state, not a display decoration.`,
-        `It also fails if it ignores difficult cases. Interior mutability changes where checks happen by moving some aliasing rules to runtime types such as RefCell. Unsafe code can create obligations the borrow checker does not verify directly. Reborrows can temporarily lend through an existing mutable reference. Deref coercions can make the accessed place less obvious. Destructors can observe order and ownership. A useful educational trace can simplify, but it must say what it is simplifying.`,
-        `Finally, it fails if it stops at "the compiler rejected this." The point is to expose the path to the verdict. A learner should be able to see the active loans, the requested access, the relevant region endpoints, and the rule that produced allow or reject.`,
+        'The borrow checker is a conservative static analysis. It rejects some programs that are actually safe because it cannot prove they are safe. Failure modes:',
+        {type: 'table', headers: ['Pattern', 'Why the checker rejects it', 'Common workaround'], rows: [
+          ['Self-referential structs', 'A struct cannot hold a reference to its own field -- moving the struct would invalidate the reference', 'Pin<Box<T>>, or restructure with indices instead of references'],
+          ['Graph and doubly-linked structures', 'Multiple mutable references to the same node violate exclusivity', 'Rc<RefCell<T>> (single-threaded), Arc<Mutex<T>> (multi-threaded), or arena allocation with indices'],
+          ['Conditional borrows', 'The checker may not see that two branches never create overlapping loans', 'Polonius handles some cases; otherwise restructure the control flow'],
+          ['Async + borrowing across .await', 'A reference held across an await point must live as long as the future, complicating lifetimes', 'Clone data into the future, use owned types, or restructure to avoid cross-await borrows'],
+          ['Interior mutability', 'Sometimes mutation through a shared reference is needed (caches, counters)', 'Cell<T> (Copy types), RefCell<T> (runtime borrow checks), Mutex<T> (thread-safe)'],
+        ]},
+        {type: 'diagram', text: '  Safe Rust programs (all correct programs)\n  +---------------------------------------------+\n  |                                             |\n  | Programs the borrow checker accepts         |\n  | +---------------------------------------+   |\n  | |                                       |   |\n  | | (all accepted programs are safe)      |   |\n  | |                                       |   |\n  | +---------------------------------------+   |\n  |                                             |\n  | Programs the checker rejects but are safe   |\n  | (self-referential, complex graphs, etc.)    |\n  | --> use unsafe or restructure               |\n  |                                             |\n  +---------------------------------------------+\n  Unsound programs (use-after-free, data races)\n  --> always rejected by the checker', label: 'The borrow checker is sound (no false accepts) but incomplete (some false rejects)'},
+        'The trace also fails if it ignores unsafe blocks. Unsafe code can create raw pointers, dereference them, call foreign functions, and bypass borrow rules. The borrow checker trusts unsafe blocks -- the programmer bears the proof burden. A trace that pretends unsafe does not exist teaches a false model. It should mark unsafe regions explicitly and show which invariants the programmer is manually guaranteeing.',
+        'Interior mutability (Cell, RefCell, Mutex, RwLock) moves some borrow checks from compile time to runtime. RefCell::borrow_mut() will panic if a shared borrow is already active. The ownership model still applies, but the enforcement point shifts. A trace should show this distinction: compile-time reject vs. runtime panic for the same logical violation.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources include The Rust Book chapters on ownership and references, the Rust Reference sections on borrow expressions and places, and the rustc dev guide material on MIR and borrow checking. Read them with the trace fields in mind: place, owner state, move, loan kind, region, access, drop, and verdict.`,
-        `Study Code World Models Case Study, Execution Trace State Diff Case Study, JVM Happens-Before Execution Trace, Financial Contract Lifecycle Event Model, Static Single Assignment & Phi Nodes, Abstract Interpretation Interval Domain, Hazard Pointers & Epoch Reclamation, WebAssembly Linear Memory Case Study, and Software Supply Chain Provenance Graph next. The follow-up exercise is to take one borrow-checker diagnostic and rewrite it as a ledger: before state, requested access, active conflicts, and after state if repaired.`,
+        {type: 'bullets', items: [
+          'Klabnik and Nichols, "The Rust Programming Language" (2023 edition), chapters 4 (Ownership), 10 (Lifetimes), 15 (Smart Pointers). The canonical introduction to ownership, borrowing, and lifetimes. https://doc.rust-lang.org/book/',
+          'Ralf Jung et al., "RustBelt: Securing the Foundations of the Rust Programming Language," POPL 2018. Formal soundness proof of Rust\'s type system using the Iris framework. https://plv.mpi-sws.org/rustbelt/',
+          'Matsakis, "An alias-based formulation of the borrow checker" (2018). The Polonius project: reformulating borrow checking as Datalog over MIR facts. https://smallcultfollowing.com/babysteps/blog/2018/04/27/an-alias-based-formulation-of-the-borrow-checker/',
+          'The rustc dev guide, "MIR borrow check" chapter. Internal documentation of how the compiler represents places, loans, and regions in MIR. https://rustc-dev-guide.rust-lang.org/borrow_check.html',
+          'Matt Miller, "Trends, Challenges, and Strategic Shifts in the Software Vulnerability Landscape," BlueHat 2019. The 70% memory-safety figure for Microsoft CVEs.',
+        ]},
+        'Study next by role:',
+        {type: 'bullets', items: [
+          'Prerequisite: Stack and Heap Memory Layout (understand where owned values physically live), Smart Pointers (Box, Rc, Arc as ownership wrappers that extend the model).',
+          'Companion traces: Execution Trace State Diff Case Study (value-level traces for comparison), JVM Happens-Before Execution Trace (memory-model traces for Java), Code World Models Case Study (the broader CWM framework this case study extends).',
+          'Extensions: Hazard Pointers and Epoch Reclamation (how C++ solves the same problem at runtime), WebAssembly Linear Memory Case Study (ownership in a different systems context), Static Single Assignment and Phi Nodes (another compiler IR where variable identity matters).',
+          'Deeper Rust: Abstract Interpretation Interval Domain (static analysis foundations), Software Supply Chain Provenance Graph (tracking trust through a build system, analogous to tracking ownership through a program).',
+        ]},
       ],
     },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for rust-borrow-checker-ownership-trace-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };

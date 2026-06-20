@@ -207,143 +207,321 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for RTP Jitter Buffer Packet Reorder Case Study. A real-time media case study: RTP sequence numbers, timestamp clocks, packet reordering, jitter estimates, adaptive playout delay, loss concealment, and RTCP feedback..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "packet reorder" view shows the RTP receiver pipeline: packets arrive from the network, get sorted by sequence number, wait in the jitter buffer, and release to the decoder at playout time. Active nodes are the stage currently processing a packet. Found nodes mark stages where media has been successfully delivered or measured. The plot frame shows arrival times versus the playout schedule -- any arrival dot above the playout line arrived too late and becomes late loss.',
+        'The "playout control" view shows the adaptive delay policy. Active cells mark the benefit of each strategy; compare cells mark the risk. The RTCP feedback frame highlights the control loop that connects receiver measurements back to the sender.',
+        {
+          type: 'note',
+          text: 'At each frame, ask: did this packet arrive before its playout deadline? If yes, the buffer absorbs the jitter. If no, the receiver must conceal or skip. That single question drives every design decision in the system.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Real-time media has a different goal from file transfer. A video call does not need every old packet eventually; it needs the next audio frame or video frame soon enough to keep conversation intelligible. Networks do not naturally provide that shape. UDP packets can arrive late, arrive out of order, arrive in bursts, or disappear. The decoder, however, wants media in timestamp order at a steady playout rhythm.`,
-        `An RTP jitter buffer is the receiver-side structure that absorbs some of that disorder. It is not merely a queue. It is a bounded reorder window indexed by RTP sequence number, tied to RTP timestamps and a local playout clock. It waits long enough for normal delay variation, releases packets in media order, treats missing packets as loss when their deadline passes, and gives the decoder or concealment logic a controlled stream of frames.`,
-        `The hard part is that every millisecond spent waiting has a cost. More delay hides more jitter, but it also makes conversation feel delayed. Less delay improves responsiveness, but it turns ordinary network variation into audible gaps or frozen video. The jitter buffer exists because real-time media is a control problem, not just a buffering problem.`,
+        'File transfer and real-time media have opposite contracts with time. TCP can retransmit a lost segment and make the application wait -- correctness is worth the delay. A video call cannot. If an audio frame for the word "hello" arrives 400 ms late, the conversation has moved on. The moment is gone. Playing it now would overlay speech that already happened.',
+        'UDP gives the sender freedom to pace packets at media rate, but it gives the network freedom to reorder, duplicate, delay, or drop them. The receiver gets a disordered stream of datagrams with no delivery guarantee. The decoder, however, needs frames in timestamp order at a steady rhythm. Something must sit between the network and the decoder to absorb disorder and enforce a playout schedule.',
+        {
+          type: 'quote',
+          attribution: 'RFC 3550, Section 6.4.1',
+          text: 'The interarrival jitter is an estimate of the statistical variance of the RTP data packet interarrival time, measured in timestamp units.',
+        },
+        'That something is the jitter buffer. It is not a FIFO queue. It is a bounded reorder window indexed by RTP sequence number, tied to RTP timestamps and a local playout clock. It trades latency for order: every millisecond the buffer waits gives late packets more time to arrive, but adds that millisecond to the mouth-to-ear delay every participant feels. The jitter buffer exists because real-time media is a control problem, not a buffering problem.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first thing most engineers try is a fixed-delay FIFO. Hold every packet for a constant number of milliseconds, then release in arrival order. This is easy to implement and easy to reason about: one parameter, one queue, no adaptation logic.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: [
+            '// Fixed-delay FIFO: simple, brittle.',
+            'class FixedBuffer {',
+            '  constructor(delayMs) {',
+            '    this.delay = delayMs;',
+            '    this.queue = [];',
+            '  }',
+            '  insert(packet) {',
+            '    packet.playAt = packet.arrivalTime + this.delay;',
+            '    this.queue.push(packet);',
+            '  }',
+            '  release(now) {',
+            '    // Releases in arrival order, NOT media order.',
+            '    // Reordered packets play out of sequence.',
+            '    return this.queue.filter(p => now >= p.playAt);',
+            '  }',
+            '}',
+          ].join('\n'),
+        },
+        'This breaks in two independent ways. First, it does not reorder. If packet 102 arrives before 101, the decoder gets 102 first. An audio decoder playing 20 ms Opus frames out of order produces a click; a video decoder receiving a P-frame before its reference I-frame cannot decode it at all. Second, the fixed delay is wrong for every network that changes. On a good Wi-Fi link, 40 ms of buffering wastes latency. On a congested cellular path, 40 ms is not enough and packets arrive late constantly. The fixed-delay FIFO forces a choice between wasting latency on good networks and dropping packets on bad ones.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The simplest receiver feeds packets to the decoder in arrival order. That fails immediately when packet 102 arrives before packet 101. The network arrival order is not the media order. A decoder that receives frames out of sequence may produce artifacts, fail to decode dependent frames, or break synchronization between audio and video.`,
-        `A second simple receiver uses a FIFO queue with a fixed delay. This is better, but brittle. If the delay is too small, ordinary jitter creates late loss. If the delay is too large, every participant feels lag even on a good network. Fixed delay can be acceptable in a controlled network, but the public internet changes from minute to minute as wireless links, queues, and routes shift.`,
-        `A third simple receiver waits for every missing packet. That is correct for a file and wrong for a call. A packet that arrives after its playout deadline may be useless because the moment in the conversation has already passed. Waiting forever converts packet loss into latency. The wall is the playout clock: real-time systems must make decisions before all information is available.`,
+        'The fundamental tension is that waiting and not-waiting are both expensive. More delay hides more jitter but makes conversation feel sluggish. Less delay makes the call feel responsive but turns ordinary network variation into audible gaps. There is no fixed delay that is correct for a path whose characteristics change every few seconds.',
+        {
+          type: 'table',
+          headers: ['Approach', 'What it gets right', 'Where it breaks'],
+          rows: [
+            ['Pass-through (no buffer)', 'Zero added latency', 'Any reordering produces artifacts; any jitter produces gaps'],
+            ['Fixed-delay FIFO', 'Simple implementation', 'Does not reorder; wrong delay for changing networks'],
+            ['Unbounded wait', 'Never drops a late packet', 'Latency grows without bound; converts loss into delay'],
+            ['Fixed-delay + sort', 'Correct order within window', 'Still wrong delay; cannot adapt to bursts or path changes'],
+          ],
+        },
+        'The wall is the playout clock. Real-time systems must make irrevocable decisions before all information is available. When the playout moment for sequence number 101 arrives, the receiver must either play it, conceal the gap, or stall. It cannot wait indefinitely. This deadline transforms the buffering problem from "collect everything" into "collect enough, in order, before the clock forces a decision."',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `RTP gives the receiver two essential coordinates. The sequence number tells packet order within an RTP stream and reveals gaps. The RTP timestamp tells media time according to the payload\'s clock. Local arrival time tells what the network did to this packet on this path. A jitter buffer combines these coordinates to answer three different questions: what order should packets be in, when should this media be played, and how much delay variation is the network adding?`,
-        `The data structure is a bounded reorder map plus deadlines. Packets are inserted by sequence number. Adjacent packets form ranges. Gaps are tracked until the missing packet arrives or the deadline expires. At each playout tick, the buffer releases the packet or frame that corresponds to media time. If the needed packet is missing, the receiver uses packet loss concealment, requests repair when the application supports it, or skips forward.`,
-        `The control policy chooses the playout delay. A fixed policy sets one delay and hopes the network fits. An adaptive policy estimates jitter and late loss, increases delay during unstable periods, and tries to shrink delay when the path improves. The best policy is not the one that preserves every packet. It is the one that produces acceptable media quality at acceptable interaction latency.`,
+        'RTP gives the receiver three independent coordinates, and the jitter buffer uses each one for a different job.',
+        {
+          type: 'table',
+          headers: ['Coordinate', 'Source', 'What it answers'],
+          rows: [
+            ['Sequence number', '16-bit counter, increments per packet', 'What order should packets be in? Where are gaps?'],
+            ['RTP timestamp', 'Media clock (e.g. 48 kHz for Opus, 90 kHz for video)', 'When should this media be rendered?'],
+            ['Local arrival time', 'Receiver wall clock', 'How much delay variation is the network adding?'],
+          ],
+        },
+        'The data structure is a bounded reorder map keyed by sequence number, not a FIFO queue. Packets are inserted at their sequence position. Adjacent packets form contiguous ranges. Gaps are tracked explicitly. At each playout tick, the buffer releases the packet whose RTP timestamp maps to the current media time. If that packet is missing, the receiver conceals, requests repair via NACK, or skips forward.',
+        {
+          type: 'note',
+          text: 'The key invariant: the buffer never releases a packet out of sequence-number order, and it never holds a packet past its playout deadline. These two rules -- order and timeliness -- are the entire contract.',
+        },
+        'The control policy is what separates a working jitter buffer from a fixed-delay queue. An adaptive policy estimates jitter from the gap between expected and actual arrival times, adjusts the target playout delay upward during unstable periods, and shrinks it during stable ones. The goal is not to save every packet. It is to produce acceptable media quality at acceptable interaction latency.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Consider packets with sequence numbers 100, 101, 102, and 103. Packet 100 arrives first. Packet 102 arrives second. Packet 101 arrives third. A FIFO receiver would deliver 102 before 101. A jitter buffer inserts 102 into the reorder window, notices the gap at 101, and waits until either 101 arrives or the playout deadline for 101 passes. When 101 arrives in time, the buffer can release 101 and 102 in the correct order.`,
-        `The buffer must also understand media time. Audio packets might represent 20 milliseconds each. Video packets may be fragments of a frame. RTP timestamps let the receiver map packet contents to playout moments and synchronize streams. Sequence numbers alone do not say when to play media; they only say relative packet order. Timestamps and clock recovery provide the media timeline.`,
-        `Delay estimation is usually based on variation between RTP timestamp progression and arrival-time progression. RFC 3550 defines an interarrival jitter estimate for RTP streams. Implementations then use their own control policies around that signal: target delay, maximum delay, burst handling, clock drift correction, and mode changes for voice versus video. A voice call often prefers low delay and tolerates concealment. A one-way live stream may accept more delay for smoother output.`,
-        `RTCP closes part of the loop. Receiver reports and extended reports can expose loss, jitter, and de-jitter buffer behavior. A sender can respond by lowering bitrate, changing packetization, sending redundancy, requesting or sending key frames in video workflows, or adapting congestion control. The jitter buffer is local state, but its measurements influence the whole media session.`,
+        {
+          type: 'diagram',
+          alt: 'RTP jitter buffer data flow from network to decoder',
+          label: 'Jitter buffer pipeline',
+          body: [
+            'UDP socket',
+            '    |',
+            '    v',
+            'RTP demux (SSRC routing)',
+            '    |',
+            '    v',
+            'Sequence check -----> gap detected? ---> start NACK timer',
+            '    |',
+            '    v',
+            'Insert into reorder window [seq -> packet]',
+            '    |',
+            '    v',
+            'Playout scheduler (media clock tick)',
+            '    |',
+            '    +---> packet present? ---> release to decoder',
+            '    |',
+            '    +---> packet missing, deadline passed? ---> conceal or skip',
+            '    |',
+            '    v',
+            'Decoder (Opus / VP8 / H.264)',
+            '    |',
+            '    v',
+            'Render to speaker / display',
+          ].join('\n'),
+          text: [
+            'UDP socket',
+            '    |',
+            '    v',
+            'RTP demux (SSRC routing)',
+            '    |',
+            '    v',
+            'Sequence check -----> gap detected? ---> start NACK timer',
+            '    |',
+            '    v',
+            'Insert into reorder window [seq -> packet]',
+            '    |',
+            '    v',
+            'Playout scheduler (media clock tick)',
+            '    |',
+            '    +---> packet present? ---> release to decoder',
+            '    |',
+            '    +---> packet missing, deadline passed? ---> conceal or skip',
+            '    |',
+            '    v',
+            'Decoder (Opus / VP8 / H.264)',
+            '    |',
+            '    v',
+            'Render to speaker / display',
+          ].join('\n'),
+        },
+        'The reorder window is typically implemented as a circular array or hash map sized to hold a few hundred packets. For Opus audio at 20 ms per frame, a 200 ms buffer holds 10 slots. For VP8 video at 30 fps, a 200 ms buffer holds about 6 frames, though each frame may span multiple RTP packets.',
+        'Delay estimation follows RFC 3550. The receiver tracks the difference between RTP timestamp progression and local clock progression for each packet. The interarrival jitter J is updated with an exponential moving average:',
+        {
+          type: 'code',
+          language: 'text',
+          body: [
+            'D(i) = (arrival_i - arrival_{i-1}) - (rtp_ts_i - rtp_ts_{i-1})',
+            'J(i) = J(i-1) + (|D(i)| - J(i-1)) / 16',
+            '',
+            'The factor 1/16 smooths spikes. J converges toward the mean',
+            'absolute deviation of interarrival times from expected spacing.',
+          ].join('\n'),
+        },
+        'Implementations build a target delay from J and their own policy. WebRTC uses a histogram-based estimator: it tracks the distribution of network delays and sets the target at a percentile that catches most packets without over-buffering. The target delay moves up fast (one bad burst raises it) and down slowly (several good intervals lower it). This asymmetry protects against oscillation.',
+        'RTCP closes the feedback loop. Receiver Reports (RR) carry cumulative loss count, loss fraction, jitter estimate, and round-trip timing. Extended Reports (XR, RFC 3611) can expose de-jitter buffer metrics: nominal delay, current delay, maximum delay, and concealment statistics. A sender receiving degraded RR/XR data can lower bitrate, add forward error correction, change packetization interval, or request a key frame to let the video decoder resynchronize.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The mechanism works because it separates network order from media order. UDP arrival order is treated as evidence, not truth. RTP sequence numbers rebuild packet order. RTP timestamps rebuild media time. The local playout clock forces deadlines. Once those roles are separate, the receiver can make explicit choices: wait, play, conceal, request repair, or drop.`,
-        `It also works because the window is bounded. An unbounded buffer can hide problems until latency becomes unacceptable. A bounded jitter buffer makes the tradeoff measurable. When packets arrive within the delay budget, they are reordered and played. When they arrive too late, they are counted as late loss. The system can then decide whether to increase delay, reduce bitrate, or accept concealment.`,
-        `The design is especially important for audio. Humans notice conversational delay and gaps quickly. Audio concealment can hide short losses, but it cannot fix a receiver that lets latency grow without limit. Video has different failure patterns: a missing packet may damage a frame, and a missing reference frame may affect later frames until a clean frame arrives. The jitter buffer has to feed the decoder in a way that respects those codec dependencies.`,
+        'The mechanism works because it separates three concerns that naive approaches conflate.',
+        {
+          type: 'bullets',
+          items: [
+            'Ordering is handled by the sequence-number index, not by arrival time. UDP arrival order is treated as evidence, not truth.',
+            'Timing is handled by mapping RTP timestamps to a local playout clock. The buffer knows when each packet should play, independent of when it arrived.',
+            'Adaptation is handled by the jitter estimator and delay controller. The buffer depth is a tunable parameter, not a fixed constant.',
+          ],
+        },
+        'The bounded window provides the correctness guarantee. Every packet either arrives within the delay budget and gets played in order, or arrives too late and is counted as late loss. There is no middle state. This binary outcome makes the tradeoff measurable: raise the target delay and late loss decreases; lower it and interaction latency improves. The system has a single knob (target delay) with a clear cost function (late loss rate versus added latency).',
+        'For audio, the design is especially critical. Humans detect conversational delay above about 150 ms one-way and find it disruptive above 300 ms. They also detect audio gaps of 20 ms or more as clicks or breaks. The jitter buffer must keep total one-way delay (network + buffer + decode) low while concealing gaps that occur. Opus PLC (packet loss concealment) can hide isolated 20 ms losses, but it degrades quickly with consecutive losses. The buffer must minimize consecutive late-loss runs, not just total late-loss count.',
+        'For video, the dependency structure matters more than gap concealment. A missing I-frame corrupts every subsequent P-frame until the next I-frame or a PLI/FIR triggers one. The video jitter buffer must track frame boundaries (RTP marker bit), detect missing reference frames, and request repairs before the corruption cascade spreads. This is why video jitter buffers are frame-aware, not just packet-aware.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The jitter buffer itself is cheap. Insertion into the reorder window is O(1) by sequence number (direct index into a circular array or hash map lookup). Release at playout time is O(1) -- read the slot for the next expected sequence number. Gap detection is O(1) per packet arrival. Memory is O(W) where W is the window size in packets, typically 10-200.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Cost', 'What dominates in practice'],
+          rows: [
+            ['Insert packet', 'O(1)', 'Memory copy of packet payload into buffer slot'],
+            ['Release at playout', 'O(1)', 'Sequence number lookup; decoder invocation dominates'],
+            ['Gap detection', 'O(1)', 'Comparison of received sequence vs expected sequence'],
+            ['Jitter estimation', 'O(1) per packet', 'One subtraction, one absolute value, one EMA update'],
+            ['Delay adaptation', 'O(1) per playout tick', 'Policy evaluation; histogram update in WebRTC is O(1) amortized'],
+            ['NACK generation', 'O(gaps)', 'Typically 0-3 gaps; bounded by window size'],
+          ],
+        },
+        'The real cost is not computational. It is the latency budget. Every millisecond of buffer depth is a millisecond of added one-way delay. In a two-party call, this appears doubled in round-trip conversational delay. A 60 ms jitter buffer adds 60 ms one-way; combined with 50 ms network delay and 10 ms codec delay, total one-way is 120 ms. The ITU G.114 recommendation is to keep one-way mouth-to-ear delay below 150 ms for toll quality. The jitter buffer typically consumes the largest single chunk of that budget.',
+        'Doubling the buffer depth roughly halves the late-loss rate (assuming jitter is roughly exponentially distributed), but adds a fixed latency cost to every packet, including those that arrived early. The buffer penalizes the common case to protect against the rare case. The adaptive controller exists to minimize that penalty by keeping the buffer only as deep as recent network conditions require.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'An Opus audio stream sends 20 ms frames. The receiver has an adaptive jitter buffer with a current target delay of 60 ms. Six packets arrive:',
+        {
+          type: 'table',
+          headers: ['Seq', 'RTP timestamp', 'Expected arrival', 'Actual arrival', 'Network jitter'],
+          rows: [
+            ['100', '0', 't+0 ms', 't+5 ms', '+5 ms'],
+            ['101', '960', 't+20 ms', 't+22 ms', '+2 ms'],
+            ['103', '2880', 't+60 ms', 't+48 ms', '-12 ms'],
+            ['102', '1920', 't+40 ms', 't+55 ms', '+15 ms'],
+            ['104', '3840', 't+80 ms', 't+83 ms', '+3 ms'],
+            ['105', '4800', 't+100 ms', 't+140 ms', '+40 ms'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'RTP timestamps use the Opus clock rate of 48,000 Hz. Each 20 ms frame advances the timestamp by 960 ticks (48000 * 0.020 = 960).',
+        },
+        'Step by step through the buffer:',
+        {
+          type: 'bullets',
+          items: [
+            'Seq 100 arrives at t+5. Insert at slot 100. No gap. Playout scheduled at t+65 (arrival + 60 ms target delay). Jitter estimate initialized.',
+            'Seq 101 arrives at t+22. Insert at slot 101. Contiguous with 100. Playout at t+82.',
+            'Seq 103 arrives at t+48. Insert at slot 103. Gap detected: seq 102 is missing. Start NACK timer for 102. Do not release 103 until 102 is resolved.',
+            'Seq 102 arrives at t+55. Insert at slot 102. Gap filled. Slots 102 and 103 are now contiguous. Both can release at their scheduled times.',
+            'At t+65: playout tick for seq 100. Packet present. Release to Opus decoder. Audio plays.',
+            'Seq 104 arrives at t+83. Insert at slot 104. Contiguous.',
+            'At t+82: playout tick for seq 101. Release. At t+115: release 102. At t+108: release 103 (arrived early, waits for its turn).',
+            'Seq 105 arrives at t+140. Its scheduled playout is t+160. Jitter estimate spikes: D(105) = (140-83) - (4800-3840)/48000*1000 = 57 - 20 = +37 ms. The adaptive controller raises the target delay from 60 ms toward 80 ms to absorb the burst.',
+          ],
+        },
+        'The critical moment is seq 103 arriving before 102. A FIFO would play 103 first, producing a click. The jitter buffer held 103 in its slot, waited for 102, and released both in order. The late arrival of 105 caused the controller to widen the buffer, trading 20 ms of extra latency for better coverage of future bursts.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Jitter buffers are central to VoIP, video conferencing, WebRTC media paths, SIP/RTP systems, broadcast contribution links, remote production, telemedicine sessions, and low-latency live streaming workflows that use RTP. Any system that receives packetized real-time media over a variable-delay network needs a version of this structure.`,
-        `Different products tune the policy differently. A conference call favors low mouth-to-ear delay because participants interrupt and respond to each other. A live sports contribution feed may tolerate more buffering to avoid visible artifacts. A remote control session may prefer freshness over completeness. The data structure is similar, but the target delay, repair strategy, and acceptable loss differ by use case.`,
-        `The same concepts appear outside RTP. Game networking uses sequence windows and deadlines. Adaptive bitrate streaming uses larger media buffers and segment-level decisions. TCP reassembly uses sequence-indexed intervals, but it does not have the same playout deadline because TCP is preserving a reliable byte stream. Comparing these systems is useful: the structure may look familiar, while the objective function changes.`,
+        {
+          type: 'table',
+          headers: ['System', 'Buffer depth', 'Policy', 'Why this tuning'],
+          rows: [
+            ['WebRTC (Chrome)', '20-500 ms adaptive', 'Histogram percentile, fast up / slow down', 'Conversational: low delay matters more than perfection'],
+            ['VoIP (Opal/Ooh323)', '60-200 ms adaptive', 'EMA jitter + headroom multiplier', 'Business telephony: stability over minimum latency'],
+            ['Twitch low-latency', '500-2000 ms', 'Fixed large buffer', 'One-way broadcast: no conversational penalty for delay'],
+            ['Zoom', '~40-160 ms adaptive', 'Proprietary multi-factor', 'Hybrid: low delay for speech, separate video buffer'],
+            ['Discord voice', '~20-120 ms adaptive', 'Opus-specific, aggressive concealment', 'Gaming: ultra-low latency tolerated with aggressive PLC'],
+          ],
+        },
+        'Different products make different bets. A conference call favors low mouth-to-ear delay because participants interrupt and respond to each other -- the ITU calls this "conversational quality" and recommends under 150 ms one-way. A live sports contribution feed may tolerate 500 ms of buffering to avoid visible artifacts on a broadcast that millions see. A cloud gaming session prefers freshness over completeness: a stale frame is worse than a missing one.',
+        'The same structural pattern appears outside RTP. Game engines use sequence-windowed input buffers with rollback for late inputs. TCP reassembly uses sequence-indexed segments, but without a playout deadline because TCP preserves a reliable byte stream. Adaptive bitrate streaming (DASH/HLS) uses segment-level buffers with quality switching instead of concealment. In each case, the structure is a bounded reorder window with a release policy, but the objective function -- what counts as "good enough" -- changes.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The main tradeoff is delay versus late loss. Raising the target delay gives reordered packets more time to arrive and reduces concealment, but increases interaction latency. Lowering delay makes the session feel responsive, but turns jitter spikes into drops. A controller that only reacts upward can slowly ratchet latency higher after each burst. A controller that shrinks too aggressively can oscillate and create repeated gaps.`,
-        `Common failure modes are easy to name and hard to tune. Treating reordering as permanent loss causes unnecessary concealment or repair requests. Holding late packets after their deadline wastes memory and can confuse decoder timing. Ignoring clock drift slowly misaligns capture time and playout time. Mixing audio and video policies can either delay speech too much or damage video quality. Hiding jitter-buffer metrics inside the decoder prevents the sender from adapting.`,
-        `Evaluation needs both media and control signals. Track packet loss, late loss, reorder depth, jitter estimate, target playout delay, actual buffer occupancy, high-water mark, concealment events, repair requests, RTCP reports, audio gap rate, video frame drops, freeze duration, and end-to-end latency. A healthy buffer is not one that is always full. It is one that keeps deadlines with enough slack and recovers after bursts.`,
+        'The central tradeoff -- delay versus late loss -- cannot be eliminated, only managed. Every failure mode traces back to the controller making the wrong bet about future network behavior.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Symptom', 'Root cause'],
+          rows: [
+            ['Latency ratchet', 'Delay grows after each burst, never shrinks', 'Controller raises target on spikes but has no decay policy'],
+            ['Oscillation', 'Alternating glitches and bloated delay', 'Controller shrinks too aggressively after each stable interval'],
+            ['Clock drift', 'Buffer slowly empties or overflows over minutes', 'Sender and receiver clocks differ by tens of ppm; no drift correction'],
+            ['Burst blindness', 'Entire burst lost despite adequate average jitter', 'EMA jitter estimator smooths away short high-variance episodes'],
+            ['Cross-stream desync', 'Audio leads or trails video by 40+ ms', 'Separate jitter buffers per media type with independent delay targets'],
+            ['NACK storm', 'Retransmit requests flood the return path', 'NACK timer too aggressive on a high-loss link; no rate limiting'],
+          ],
+        },
+        'Clock drift is subtle and common. A sender with a 48,000.5 Hz crystal and a receiver with a 47,999.8 Hz crystal differ by about 14 ppm. Over a 10-minute call, this accumulates to roughly 8 ms of drift. Without correction, the buffer slowly empties (sender clock faster) or slowly fills and overflows (sender clock slower). Production systems detect drift by comparing RTP timestamp progression to local clock progression over long windows and adjust the playout rate by resampling audio or dropping/duplicating video frames.',
+        'Evaluation requires both media-quality metrics and control-system metrics. Late loss rate and concealment duration measure what the listener hears. Target delay and buffer occupancy measure what the controller is doing. A buffer that reports 0% loss but 300 ms of delay has failed for conversation. A buffer that reports 40 ms delay but 5% late loss has failed for quality. The system is healthy only when both sides of the tradeoff are within acceptable bounds for the application.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: RTP RFC 3550 at https://datatracker.ietf.org/doc/html/rfc3550 and RTCP XR de-jitter buffer metrics RFC 7005 at https://www.rfc-editor.org/rfc/rfc7005.txt. Study Ring Buffer, TCP Reassembly + SACK Scoreboard, Backpressure, HTTP/3 QUIC Stream Multiplexing Case Study, Adaptive Bitrate Manifest Ladder Case Study, UDP, Congestion Control, and Packet Loss Concealment next.`,
+        {
+          type: 'bullets',
+          items: [
+            'Primary: RFC 3550 (RTP specification, sections 6.4.1 on jitter and A.8 on the reference algorithm) -- https://datatracker.ietf.org/doc/html/rfc3550',
+            'Extended metrics: RFC 3611 (RTCP XR) and RFC 7005 (de-jitter buffer metrics) -- https://www.rfc-editor.org/rfc/rfc7005.txt',
+            'Implementation: WebRTC NetEq source in Chromium -- modules/audio_coding/neteq/ -- the production adaptive jitter buffer for Chrome, Android, and Opal',
+            'Research: Y. J. Liang et al., "Adaptive Playout Scheduling Using Time-Scale Modification in Packet Voice Communications," IEEE ICASSP 2001 -- the foundational paper on time-scale modification for adaptive playout',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic'],
+          rows: [
+            ['Prerequisite', 'Ring Buffer -- the circular array that underlies most jitter buffer implementations'],
+            ['Prerequisite', 'UDP -- the transport layer that makes jitter buffers necessary'],
+            ['Sibling', 'TCP Reassembly + SACK Scoreboard -- same reorder-window structure, different release policy (reliable vs real-time)'],
+            ['Extension', 'Adaptive Bitrate Manifest Ladder Case Study -- segment-level buffer control for HTTP streaming'],
+            ['Extension', 'Congestion Control -- the sender-side counterpart; jitter buffer is receiver-side adaptation'],
+            ['Contrast', 'HTTP/3 QUIC Stream Multiplexing Case Study -- QUIC eliminates head-of-line blocking but adds its own buffering tradeoffs'],
+          ],
+        },
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
     {
-      heading: 'Cost and behavior',
+      heading: 'Micro checks',
       paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
+        {
+          type: 'bullets',
+          items: [
+            'State the jitter buffer invariant in one sentence. (The buffer never releases a packet out of sequence-number order, and it never holds a packet past its playout deadline.)',
+            'Given packets arriving in order [5, 3, 4, 6], predict the buffer contents after each arrival and the release order. (Insert 5; insert 3, gap at 4; insert 4, gap filled, release 3-4-5 in order at their playout times; insert 6.)',
+            'Name one failure mode that a fixed-delay buffer handles correctly but an adaptive buffer can get wrong. (A fixed buffer never oscillates. An adaptive buffer with an aggressive decay policy can oscillate between too-short and too-long delay.)',
+            'Where else does the bounded-reorder-window-with-deadline pattern appear? (Game netcode input buffers, TCP out-of-order queues with retransmit timers, sensor fusion pipelines with arrival-time deadlines.)',
+          ],
+        },
       ],
     },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for rtp-jitter-buffer-packet-reorder-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

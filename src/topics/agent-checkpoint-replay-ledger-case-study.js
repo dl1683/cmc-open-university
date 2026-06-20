@@ -208,149 +208,222 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Agent Checkpoint Replay Ledger Case Study. A durable-agent runtime case study: graph-state checkpoints, event histories, replay points, time-travel forks, stores, idempotent side effects, and resume policy..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "checkpoint state" view traces the write path from an incoming thread through node execution, state capture, event logging, checkpoint commit, store persistence, resume decision, and trace emission. Active (green) items are the current phase of the checkpoint lifecycle. Found (blue) marks the resume point that becomes reachable once the checkpoint commits.',
+        'The "replay forks" view shows how a historical checkpoint can branch into two operations: replay (same state, re-execute) or fork (edited state, new branch). Active items are the branching decision; compare (orange) marks the outcome diff that determines which branch to keep.',
+        {
+          type: 'note',
+          text: 'The matrix frames use a label encoding where each cell is a short descriptor. "has" columns show what the checkpoint stores; "risk" columns show the failure mode if that field is lost or stale. The plot frame shows the tradeoff between checkpoint frequency and recovery cost.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        "Long-running agents don\'t behave like a single request. They call tools, wait for people, spend budget over minutes or hours, and may be interrupted by deploys, crashes, rate limits, or user edits. A durable runtime needs a way to continue the same run without guessing what already happened.",
-        "The reasonable first attempt is to keep a transcript and rerun the agent from the beginning. That works for a short chat. It breaks when the run contains side effects: a refund submitted twice, a ticket updated twice, a browser action repeated under changed page state, or a human approval reused after the facts changed.",
-        "The checkpoint replay ledger exists because the runtime state is not the same thing as the conversation text. It records the graph state, event history, pending node, side-effect decisions, model and tool versions, budgets, stores, and trace ids needed to resume or inspect the run.",
+        'A short LLM call is stateless: request in, response out, nothing to recover. A long-running agent is not. It calls tools over minutes, waits for human approvals, accumulates budget, and builds state across dozens of graph nodes. If the worker dies mid-run, the agent must resume from a known-good boundary -- not guess what happened by re-reading the conversation.',
+        {
+          type: 'quote',
+          text: 'The fundamental difference between a workflow and a function call is that a workflow can be interrupted at any point and resumed later, possibly on a different machine.',
+          attribution: 'Temporal documentation, "What is a Workflow Execution?"',
+        },
+        'This is an old problem in distributed systems. Temporal solves it for deterministic workflows with event sourcing. Database systems solve it with write-ahead logs. Agent runtimes solve it with checkpoint replay ledgers -- a hybrid that must handle non-deterministic model calls, expensive tool invocations, human-in-the-loop interrupts, and mutable graph state.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The natural first attempt is transcript replay: persist the full message history and re-feed it to the model on restart. This is what most chat applications already do, and it requires zero new infrastructure. The model receives the same context window and, in theory, picks up where it left off.',
+        'Transcript replay works for conversational agents that have no side effects. A chatbot that crashed mid-generation can re-prompt with the same messages and get a usable continuation.',
+        {
+          type: 'table',
+          headers: ['Scenario', 'Transcript replay', 'Checkpoint replay'],
+          rows: [
+            ['Stateless chat', 'Works', 'Unnecessary overhead'],
+            ['Tool call already committed (e.g., refund issued)', 'Re-issues the refund', 'Sees idempotency record, skips'],
+            ['Human approval consumed', 'Silently reuses stale decision', 'Re-triggers interrupt for current state'],
+            ['Model version changed between crash and restart', 'Different generation, no record', 'Pins version; flags mismatch'],
+            ['Budget tracking', 'Lost; restarts from zero', 'Restored from checkpoint'],
+            ['10-minute multi-tool run', 'Replays all tool calls from scratch', 'Resumes from last committed node'],
+          ],
+        },
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "A transcript cannot tell the scheduler which node is safe to run next. It doesn\'t preserve reducer state, pending interrupts, idempotency keys, cached tool results, model settings, or whether an external API call already committed. Reconstructing those fields from text is a best-effort parser, not a recovery mechanism.",
-        "The wall is semantic replay. Pure code can run again. A model call may return a different answer. A tool call may be expensive. A side effect may be irreversible. A human approval may have been correct only for the branch that produced it. The ledger has to classify those cases before it resumes.",
+        'Transcript replay fails at the side-effect boundary. A message log does not record which tool calls committed externally, which human approvals are scoped to a specific branch, which reducer state the graph held, or which node the scheduler should execute next. Reconstructing those fields from conversation text is a parser heuristic, not a recovery contract.',
+        {
+          type: 'bullets',
+          items: [
+            'A refund API returns 200 on the first call and 409-duplicate on the second. Without an idempotency record, the runtime cannot distinguish "already done" from "failed."',
+            'A human approved a $50 refund at checkpoint 12. The agent forked at checkpoint 10 and now proposes a $200 refund. Transcript replay silently reuses the $50 approval.',
+            'The model was upgraded between crash and restart. Transcript replay produces a different continuation with no record that the reasoning diverged.',
+            'An agent loop ran 40 iterations spending $3.20 in API calls. Transcript replay re-runs all 40, doubling cost and latency.',
+          ],
+        },
+        'The wall is not performance. It is semantic safety. The question is not "can we regenerate an answer" but "can we distinguish work already committed from work that still needs to happen."',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "The core record is a thread-scoped checkpoint. It stores a thread id, checkpoint id, parent checkpoint id, graph values, current node, next node set, pending interrupts, reducer versions, model and prompt versions, tool-call ids, budget used, and trace span.",
-        "The event history stores the facts that make replay safe: node starts and finishes, model outputs, tool results, external request ids, idempotency keys, approval decisions, errors, retries, and compensation actions. Long-term memory lives in a separate store. A user preference or learned fact can outlive a thread; a checkpoint is the execution boundary for one thread.",
-        "Forks add lineage. Replay resumes from an old checkpoint under the same state. A fork writes a new child checkpoint after editing state. Keeping those operations separate prevents a debugging branch from rewriting the original run.",
+        'Separate execution state from conversation history. A checkpoint is a serialized snapshot of the graph at a committed boundary: thread id, checkpoint id, parent checkpoint id, channel values, pending node set, interrupt queue, reducer versions, and budget consumed. An event record is the append-only log of facts that justify the state: node starts, model outputs, tool results, idempotency keys, approval decisions, and errors.',
+        {
+          type: 'diagram',
+          label: 'Checkpoint record structure',
+          text: 'checkpoint\n  |-- thread_id          (which conversation)\n  |-- checkpoint_id      (content-addressed or monotonic)\n  |-- parent_id          (forms a linked list; forks create branches)\n  |-- channel_values     (graph state: messages, tool results, scratchpad)\n  |-- pending_nodes      (what the scheduler should run next)\n  |-- pending_interrupts (human-in-the-loop queue)\n  |-- metadata\n  |     |-- reducer_versions\n  |     |-- model_version\n  |     |-- prompt_hash\n  |     |-- budget_used\n  |     +-- trace_span_id\n  +-- events[]           (append-only facts for this step)',
+        },
+        {
+          type: 'note',
+          text: 'LangGraph draws a deliberate line between checkpointers and stores. A checkpointer persists thread-scoped execution state (the graph at a point in time). A store persists cross-thread application memory (user preferences, learned facts, extracted entities). A user preference can outlive any single thread. A checkpoint is the execution boundary for exactly one thread.',
+        },
+        'Forks extend the checkpoint chain. Replay loads an old checkpoint and re-executes subsequent nodes with the same state. A fork copies the old checkpoint, edits the state, writes a new child checkpoint, and resumes from there. The parent chain is never mutated, so the original run remains inspectable.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "Before a node runs, the runtime loads the latest committed checkpoint for the thread. The node reads graph values, calls models or tools, emits events, and proposes a state update. The checkpoint write commits the new state and the event facts together, or the runtime treats the node as incomplete.",
-        "External side effects need a ledger entry before they run. The entry carries an idempotency key, destination, payload hash, and replay rule. On resume, the runtime can reuse the recorded result, query the external system, call a compensating action, or stop for a human decision.",
-        "Time travel uses the same machinery. Replaying from a checkpoint re-executes later nodes. Forking first writes an edited state at that checkpoint, then resumes from the fork. Interrupts should usually re-trigger because the human is approving the branch in front of them, not a different branch from yesterday.",
+        'The runtime loop has four phases per node: load, execute, record, commit.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Simplified LangGraph-style checkpoint loop\ncheckpoint = store.get_latest(thread_id)\nwhile checkpoint.pending_nodes:\n    node = scheduler.pick(checkpoint.pending_nodes)\n    # LOAD: read graph state from checkpoint\n    state = checkpoint.channel_values\n    # EXECUTE: run the node (model call, tool call, or code)\n    result, events = node.execute(state)\n    # RECORD: build idempotency entries for side effects\n    for effect in result.side_effects:\n        events.append(IdempotencyRecord(\n            key=effect.key,\n            destination=effect.target,\n            payload_hash=hash(effect.payload),\n            status="committed"\n        ))\n    # COMMIT: atomically write new checkpoint + events\n    checkpoint = store.commit(\n        parent_id=checkpoint.id,\n        channel_values=reducer.apply(state, result),\n        pending_nodes=scheduler.next(node, result),\n        events=events\n    )',
+        },
+        'The commit is the durable boundary. If the process dies before commit, the runtime restarts from the previous checkpoint and re-executes the node. If the process dies after commit, the runtime loads the new checkpoint and moves to the next node. No intermediate state is observable.',
+        'External side effects need special handling. The idempotency record must be created before the external call, not after. On resume, the runtime checks the record:',
+        {
+          type: 'table',
+          headers: ['Record status', 'Resume action', 'Rationale'],
+          rows: [
+            ['committed', 'Skip; use recorded result', 'Effect already reached the external system'],
+            ['pending', 'Query external system for outcome', 'Call may or may not have arrived'],
+            ['failed', 'Retry or escalate', 'External system rejected; safe to retry'],
+            ['not found', 'Execute normally', 'Node has not attempted this effect yet'],
+          ],
+        },
+        'Time travel reuses the same machinery. To replay from checkpoint N, the runtime loads checkpoint N and re-executes nodes N+1, N+2, and so on. To fork, it first writes checkpoint N-prime as a child of N with edited channel values, then resumes from N-prime. Interrupt nodes re-trigger during time travel because the human must approve the branch they are actually looking at, not a decision from a different execution path.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The reliability argument is an invariant: after every committed step, the checkpoint plus event history describes exactly one recoverable runtime state. A crash can delete process memory, but it cannot delete the last committed boundary.",
-        "Idempotency is the second invariant. The ledger never assumes an effect is safe to repeat just because the node is being replayed. It records enough identity to distinguish a retry from a new action. That is what turns replay from duplicate work into controlled recovery.",
-        "Append-only history also makes debugging honest. A failed branch remains visible with its inputs, decisions, and costs. A later fork can improve the run without pretending the original path never happened.",
+        'Correctness rests on two invariants.',
+        {
+          type: 'bullets',
+          items: [
+            'Recovery invariant: after every committed step, the checkpoint plus its event history describes exactly one recoverable runtime state. A crash destroys process memory but cannot destroy the last committed boundary. The runtime always has a well-defined place to resume.',
+            'Idempotency invariant: the ledger never assumes a side effect is safe to repeat because the node is being replayed. It records enough identity (key, payload hash, destination, status) to distinguish a retry of committed work from a genuinely new action.',
+          ],
+        },
+        'Together these invariants turn replay from "run everything again and hope" into controlled recovery. The first guarantees a resume point exists. The second guarantees that resuming does not duplicate external effects.',
+        'Append-only history adds a third property: auditability. A failed branch remains visible with its inputs, decisions, costs, and errors. A later fork improves the run without erasing evidence that the original path existed. This matters for compliance, debugging, and evaluation.',
+        {
+          type: 'note',
+          text: 'Temporal achieves the same properties for deterministic code through event sourcing: the workflow replays its own history and determinism guarantees identical state. Agent runtimes cannot rely on determinism because model calls are non-deterministic. The checkpoint approach sidesteps this by snapshotting state directly rather than replaying the computation that produced it.',
+        },
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Checkpointing trades runtime work for storage and write latency. Checkpoint after every token and persistence dominates. Checkpoint only at the end and a crash can lose tool outputs, approvals, and expensive model calls. Practical runtimes checkpoint at side-effect boundaries, human waits, handoffs, expensive tool calls, and bounded intervals in long loops.",
-        "Event histories grow. Temporal-style systems need history limits and continue-as-new patterns because unbounded replay becomes its own outage. Agent ledgers need the same pressure relief: compact old state, summarize safe history, and keep raw private payloads out of general-purpose traces.",
-        "Reproducibility is conditional. A checkpoint can pin model, prompt, provider, temperature, and tool versions. If those are not pinned, replay is a new execution from an old state, not proof that the old result will reappear.",
+        {
+          type: 'table',
+          headers: ['Checkpoint frequency', 'Storage cost', 'Recovery cost', 'When to use'],
+          rows: [
+            ['Every node', 'High (one write per step)', 'Minimal (resume from last node)', 'Short graphs, expensive nodes, side-effect-heavy flows'],
+            ['Side-effect boundaries only', 'Medium', 'Replays pure nodes between boundaries', 'Most production agents'],
+            ['Human interrupts only', 'Low', 'Replays all tool/model calls since last interrupt', 'Approval-gated workflows with cheap tools'],
+            ['End of run only', 'Minimal', 'Full replay on any crash', 'Only acceptable for idempotent, cheap runs'],
+          ],
+        },
+        'Event histories grow without bound unless the runtime compacts them. Temporal uses a continue-as-new pattern: when history exceeds a threshold (default 50,000 events or 50 MB), the workflow starts a fresh execution carrying forward only the current state. Agent ledgers need the same pressure relief. Without it, checkpoint load time grows linearly with run length, and a 10,000-step agent run becomes its own availability risk.',
+        'Reproducibility is conditional. A checkpoint can pin model version, prompt hash, temperature, provider, and tool contract versions. If those are not pinned, replaying from an old checkpoint produces a new execution from old state -- useful for evaluation, but not proof that the original result will reappear.',
+        {
+          type: 'code',
+          language: 'python',
+          text: '# Versioning metadata stored per checkpoint\nmetadata = {\n    "model": "gpt-4o-2024-08-06",\n    "prompt_hash": "sha256:a1b2c3...",\n    "temperature": 0.0,\n    "tool_versions": {\n        "search_api": "v3",\n        "refund_api": "v2.1"\n    },\n    "reducer_schema": "v4",\n    "budget_used_usd": 0.42\n}',
+        },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A support agent processes a refund request. The graph has four nodes: classify, lookup, approve, execute.',
+        {
+          type: 'table',
+          headers: ['Step', 'Node', 'Checkpoint state (key fields)', 'Events recorded'],
+          rows: [
+            ['1', 'classify', 'intent=refund, policy=standard, pending=[lookup]', 'model_output: intent classification'],
+            ['2', 'lookup', 'order=#4821, amount=$47, eligible=true, pending=[approve]', 'tool_result: order API response, idempotency_key: lookup-4821'],
+            ['3', 'approve', 'approval=pending, pending=[approve] (interrupt)', 'interrupt: human_approval_requested'],
+            ['--', 'CRASH', 'Worker dies. Process memory lost.', '--'],
+            ['4', 'resume', 'Loads checkpoint 3. Sees pending interrupt. Waits.', 'resume: loaded checkpoint 3, pending_interrupt=approve'],
+            ['5', 'approve', 'approval=granted, pending=[execute]', 'human_input: approved by agent@support'],
+            ['6', 'execute', 'refund_status=submitted, pending=[]', 'idempotency: refund-4821-execute, status=committed'],
+          ],
+        },
+        'If the worker crashes again after step 6, the runtime loads checkpoint 6, sees an empty pending set, and terminates cleanly. The idempotency record for refund-4821-execute prevents a second refund submission even if a retry reaches the execute node.',
+        {
+          type: 'note',
+          text: 'The lookup at step 2 also carries an idempotency key. If the crash had happened between the API call and the checkpoint commit, the runtime would query the order API with the same key on resume. A 409-duplicate response confirms the lookup already succeeded; the runtime reuses the cached result instead of treating it as a failure.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "A support agent can pause at a refund approval, survive a worker restart, and resume at the same pending decision. A research agent can fork before source selection and compare two evidence paths. A coding agent can checkpoint before applying a patch, keep the failed test trace, and repair from the same state instead of starting over.",
-        "A concrete run might look like this: checkpoint 41 stores the user request and selected policy. Checkpoint 42 records a tool lookup. Checkpoint 43 pauses for approval. The worker crashes. On restart, the runtime loads checkpoint 43, sees a pending human interrupt, and waits for a resume command instead of issuing another lookup or submitting the refund.",
-        "The same ledger improves evaluation. A team can replay a historical run with a new prompt, compare checkpoints, and see whether the upgrade changed the state path, tool choices, cost, or only the final wording.",
+        {
+          type: 'table',
+          headers: ['System', 'Checkpoint mechanism', 'Key design choice'],
+          rows: [
+            ['LangGraph', 'Checkpointer interface (Postgres, SQLite, in-memory)', 'Separates checkpointers (thread state) from stores (cross-thread memory)'],
+            ['Temporal', 'Event sourcing with deterministic replay', 'Relies on workflow determinism; non-deterministic calls must be wrapped as activities'],
+            ['Inngest', 'Step-level memoization', 'Each step function call is cached; replay skips completed steps'],
+            ['CrewAI', 'Task-level state persistence', 'Checkpoints between crew tasks, not within a single agent node'],
+            ['Restate', 'Journal-based durable execution', 'Journals record side effects; replay consults the journal before re-executing'],
+          ],
+        },
+        'A coding agent checkpoints before applying a patch. If tests fail, the trace shows exactly which state the patch was applied to, which test output was produced, and what the graph values were. The agent can fork from the pre-patch checkpoint with an edited fix strategy instead of starting the entire run over.',
+        'The same ledger enables A/B evaluation. Replay a historical run with a new prompt version, checkpoint at the same boundaries, and diff the state paths. The comparison shows whether the upgrade changed tool selections, cost, intermediate reasoning, or only the final output wording.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "The common mistake is treating memory as a checkpoint. Long-term facts help the agent answer future requests. They do not tell the runtime which node is pending, which side effects have committed, or which approval scope is valid.",
-        "Other failures are quieter: unversioned prompts, tool results stored only in logs, forks that reuse stale human approvals, idempotency keys generated after the external call, and checkpoints that include private payloads nobody meant to retain.",
-        "A ledger can also create false confidence. If the trace records a bad policy decision with perfect fidelity, replay will preserve the mistake. Durable execution makes failures inspectable and recoverable; it does not make the agent correct.",
+        {
+          type: 'bullets',
+          items: [
+            'Confusing memory with checkpoints. A store of user preferences helps the agent answer future requests. It does not tell the runtime which node is pending, which side effects committed, or which approval scope is valid. These are different persistence concerns with different lifecycles.',
+            'Idempotency keys generated after the external call. If the key is created post-call, a crash between the call and the key write leaves no record. Resume re-executes the call with no deduplication.',
+            'Unversioned prompts. A checkpoint pins graph state but not the prompt template that produced it. If the prompt changes between crash and restart, the resumed node generates output under a different instruction set with no record of the mismatch.',
+            'Forks reusing stale human approvals. A fork from checkpoint 10 should not silently carry forward an approval granted at checkpoint 12 under different state. Interrupt nodes must re-trigger on forked branches.',
+            'Checkpoints that include private payloads. PII, credentials, or raw API responses serialized into checkpoint state may violate retention policies. Checkpoint schemas should separate opaque references from sensitive content.',
+          ],
+        },
+        'A subtler failure: a ledger can create false confidence. If the trace records a bad policy decision with perfect fidelity, replay preserves the mistake. Durable execution makes failures inspectable and recoverable. It does not make the agent correct.',
+        {
+          type: 'quote',
+          text: 'Durability is not correctness. A perfectly checkpointed run that chose the wrong tool at step 3 will reliably resume and complete the wrong action at step 4.',
+          attribution: 'Common pitfall in durable agent design',
+        },
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Commit checkpoint state and event facts in one transaction or one atomic write path. If the node result is durable but the event is missing, replay cannot explain why the state changed. If the event is durable but the state is missing, resume may repeat work that already affected the outside world.",
-        "Create the idempotency record before calling an external service, not after. Store payload hashes, provider request ids, replay rules, and compensation options. Version graph schemas, reducers, prompts, and tool contracts so old checkpoints can be migrated or rejected deliberately instead of failing halfway through resume.",
-        "Test by killing the worker at every boundary: before a model call, after a model call, before a tool call, after an external commit, during a human interrupt, and after a fork. A ledger that has not survived forced crashes is still a design sketch.",
+        {
+          type: 'bullets',
+          items: [
+            'LangGraph persistence documentation: https://langchain-ai.github.io/langgraph/concepts/persistence/ -- covers checkpointers, stores, the checkpoint tuple structure, and the distinction between thread-scoped and cross-thread state.',
+            'LangGraph time travel documentation: https://langchain-ai.github.io/langgraph/concepts/time-travel/ -- explains replay vs. fork, interrupt re-triggering during time travel, and the update_state API for forking.',
+            'Temporal workflow execution model: https://docs.temporal.io/workflow-execution -- event history, deterministic replay, continue-as-new, and the activity/side-effect boundary that agent checkpointing generalizes.',
+            'Temporal + OpenAI Agents SDK integration: https://temporal.io/blog/announcing-openai-agents-sdk-integration -- production example of wrapping non-deterministic agent calls in durable execution primitives.',
+          ],
+        },
+        'Prerequisite: study Agent Workflow DAG Compiler Case Study for graph execution structure. The checkpoint ledger assumes a node-based execution graph; understanding the DAG compiler clarifies what "pending node" and "reducer" mean in checkpoint context.',
+        'Extensions: Human Approval Interrupt Queue Case Study covers the interrupt mechanism that checkpoints must preserve. Agent Run Trace Span Tree Case Study covers the observability layer that consumes checkpoint events. Idempotency and Exactly-Once Delivery covers the side-effect safety model that checkpoint replay depends on.',
+        'Contrast: Temporal Workflow Case Study uses deterministic replay (re-execute the same code, get the same result). Agent checkpoint replay uses state snapshots (skip the code, restore the result) because model calls are inherently non-deterministic. The tradeoff is storage cost vs. determinism requirements.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: LangGraph persistence at https://docs.langchain.com/oss/python/langgraph/persistence, LangGraph time travel at https://docs.langchain.com/oss/python/langgraph/use-time-travel, Temporal event history at https://docs.temporal.io/workflow-execution/event, Temporal workflow execution at https://docs.temporal.io/workflow-execution, and Temporal OpenAI Agents SDK integration at https://temporal.io/blog/announcing-openai-agents-sdk-integration.',
-        'Study Agent Workflow DAG Compiler Case Study for graph structure, Human Approval Interrupt Queue Case Study for pause and resume boundaries, Agent Run Trace Span Tree Case Study for observability, Temporal Workflow Case Study for durable execution, Idempotency & Exactly-Once Delivery for side effects, and Distributed Tracing for cross-service debugging.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for agent-checkpoint-replay-ledger-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

@@ -354,176 +354,247 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for HotStuff BFT Quorum Certificate Case Study. A production BFT consensus case study: 3f+1 validators, signed votes, quorum certificates, chained commit rules, pacemakers, timeout certificates, and Diem/Aptos-style descendants..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "qc chain" view traces a single round from client transaction through leader proposal, validator votes, quorum certificate formation, and the 3-chain commit rule. Active nodes are the current stage of the consensus pipeline. Found nodes are certified or committed state. Compare nodes mark the faulty validator whose silence does not prevent progress.',
+        'The "leader change" view traces what happens when a leader stalls: timeout expiry, timeout certificate formation, leader rotation, and the voting safety rules that prevent forks. Active nodes are the liveness path. Removed nodes are rejected forks.',
+        {
+          type: 'note',
+          text: 'The safe inference at each frame: if a node is active and an edge leads into it, that stage has produced or received a cryptographic artifact. If a downstream node is not yet active, no honest validator has acted on that artifact yet. The QC node turning active means the threshold was met -- not that the block is committed.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'HotStuff exists because replicated services need one ordered history even when some validators lie, crash, stall, or send different messages to different peers. A crash-fault protocol such as Raft or Paxos assumes failed nodes simply stop or lag. A Byzantine protocol must handle validators that equivocate, sign conflicting data, withhold messages, or try to make honest clients believe different histories are final.',
-        'The setting is a fixed validator set with 3f + 1 voting power, where at most f voting power is Byzantine. HotStuff is leader-based and partially synchronous: safety must hold even during bad network periods, while liveness returns after the network stabilizes and an honest leader gets a timely round. That split is important. The protocol is not promising that the network is always fast. It is promising that a network delay cannot make honest validators finalize two conflicting prefixes.',
-        'The central object is the quorum certificate, or QC. A QC is a compact proof that enough validators signed the same proposal for the same round and vote type. The educational jump from the Byzantine Generals story to HotStuff is that the quorum theorem becomes a real data structure with signer identities, signatures or aggregate signatures, a block id, a round, and sometimes an execution or state authenticator.',
+        {
+          type: 'quote',
+          attribution: 'Yin, Malkhi, Reiter, Gueta, Abraham (2019)',
+          text: 'We present HotStuff, a leader-based Byzantine fault-tolerant replication protocol for the partially synchronous model. Once network communication becomes synchronous, HotStuff enables a correct leader to drive the protocol to consensus at the pace of actual network delays.',
+        },
+        'Replicated services need one ordered history even when some participants lie, crash, stall, or send different messages to different peers. A crash-fault protocol like Raft or Paxos assumes failed nodes simply stop or lag. A Byzantine protocol must handle validators that equivocate -- signing conflicting blocks, withholding votes, or trying to convince different clients that different histories are final.',
+        'The setting is a fixed validator set of n = 3f + 1 nodes, where at most f are Byzantine. HotStuff is leader-based and partially synchronous: safety holds even during bad network periods, while liveness returns after the network stabilizes and an honest leader gets a timely round. The protocol does not promise the network is always fast. It promises that network delay cannot make honest validators finalize two conflicting prefixes.',
+        'The central data structure is the quorum certificate, or QC. A QC is a compact proof that at least 2f + 1 validators signed the same proposal for the same round. The educational jump from the Byzantine Generals thought experiment to HotStuff is that the quorum theorem becomes a real data structure: signer identities, signature bytes, block id, round number, and sometimes an execution-state authenticator.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simple BFT design is to make every validator talk to every other validator in every phase. A leader proposes a value, validators broadcast prepare messages, validators broadcast commit messages, and a view-change protocol collects evidence when the leader fails. This can work, and PBFT proved the shape, but the message pattern is heavy. Many validators times many validators times several phases becomes expensive, especially when the common path is supposed to run for every block.',
-        'The second naive move is to treat finality as a majority vote on the latest block. That is unsafe under Byzantine faults. A majority can be split by equivocation, stale views, or conflicting locks. The protocol needs a threshold high enough that two certified histories must share honest voting power, and it needs a rule that prevents that honest voting power from being spent on incompatible histories.',
-        'HotStuff keeps the leader-based pipeline but turns each phase into evidence that can be carried forward by later leaders. Instead of reconstructing a view-change transcript from many special messages, the next proposal carries the highest safe certificate the leader knows. The normal path and the recovery path use the same kind of proof.',
+        'The classic BFT design, proven by PBFT (Castro and Liskov, 1999), makes every validator talk to every other validator in every phase. A leader proposes a value, validators broadcast prepare messages to all peers, validators broadcast commit messages to all peers, and a view-change protocol collects evidence when the leader fails.',
+        {
+          type: 'table',
+          headers: ['Phase', 'PBFT message pattern', 'Messages sent'],
+          rows: [
+            ['Pre-prepare', 'Leader to all', 'n - 1'],
+            ['Prepare', 'All to all', 'n(n - 1)'],
+            ['Commit', 'All to all', 'n(n - 1)'],
+            ['View change', 'All to new leader', 'n - 1 (each carrying O(n) proofs)'],
+            ['Total per block', '', 'O(n^2) normal, O(n^3) view change'],
+          ],
+        },
+        'With 100 validators, the prepare phase alone sends about 9,900 messages. The view-change protocol is worse: each validator must send its proof set to the new leader, and each proof set can carry O(n) prepare certificates. That O(n^3) view-change cost is the real bottleneck. Networks with frequent leader failures spend more time recovering than committing.',
+        'The second naive move is to treat finality as a simple majority vote on the latest block. That is unsafe under Byzantine faults. With 4 validators and 1 Byzantine, a majority of 3 is needed -- but the Byzantine node can vote for two conflicting blocks, giving each fork 2 votes. Without a threshold tied to the quorum intersection formula, equivocation breaks safety.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is not consensus itself -- PBFT solved that. The wall is the cost of recovering from a faulty leader.',
+        'In PBFT, when a leader fails, every validator must convince the new leader that it has a consistent view of committed state. Each validator sends a view-change message containing its prepare certificates. The new leader collects these, validates them, and proposes a new-view message containing the proof. The new-view message is O(n) prepare certificates, each containing O(n) signatures, yielding O(n^2) data that must be verified.',
+        {
+          type: 'code',
+          language: 'text',
+          body: 'PBFT view-change cost for n = 100:\n  View-change messages: 99 validators x O(100) prepare certs = ~9,900 certs\n  New-view verification: new leader verifies ~9,900 certs x 100 sigs each\n  Total signature verifications: ~990,000\n  Wall-clock time at 1ms/verify: ~16 minutes just for crypto\n\nHotStuff view-change cost for n = 100:\n  Each validator sends: 1 timeout vote (1 signature)\n  New leader carries: highest QC seen (1 aggregate cert)\n  Total signature verifications: ~100\n  Wall-clock time at 1ms/verify: 0.1 seconds',
+        },
+        'That gap is the reason HotStuff exists. If the happy path is cheap but every leader failure costs O(n^3) messages and O(n^2) verification work, then adversarial leaders can deny service simply by failing. The protocol must make recovery as structurally simple as the normal path.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The safety invariant is quorum intersection plus disciplined voting. In a 3f + 1 committee, a QC needs 2f + 1 votes. Any two 2f + 1 quorums intersect in at least f + 1 voting power. Since at most f can be Byzantine, at least one honest validator is in the overlap. If honest validators refuse to sign conflicting proposals that violate their lock, two conflicting certified commit histories cannot both form.',
-        'That invariant is stronger than "the leader said it was safe" and stronger than "most validators seemed happy." The invariant lives in durable local state. A validator remembers the highest QC it has seen, the lock or commit rule required by the protocol version, and the exact message it is signing. A signature is a scarce resource. Once a validator spends it for a round and proposal, the safety module must make it impossible to spend an equivalent signature on a conflicting proposal after a crash, restart, retry, or malicious replay.',
-        'A useful way to read HotStuff is therefore not as a collection of messages, but as a rule for moving a certified prefix forward. A block is interesting only when it is tied to parent pointers and certificates. A vote is interesting only when it can become part of a QC. A QC is interesting because it constrains every future quorum that wants to commit a conflicting branch.',
+        'Replace the special view-change protocol with the same kind of certificate used on the happy path. A QC already proves that 2f + 1 validators agreed on a proposal. Instead of sending an entirely different message type during recovery, the next leader simply carries the highest QC it knows and proposes from there.',
+        {
+          type: 'diagram',
+          alt: 'HotStuff linear view change versus PBFT quadratic view change',
+          label: 'View change: PBFT versus HotStuff',
+          body: 'PBFT view change (O(n^2) data to new leader):\n\n  v1 --[prepare-certs]--> new leader\n  v2 --[prepare-certs]--> new leader\n  v3 --[prepare-certs]--> new leader\n  ...each cert set is O(n) items...\n  new leader broadcasts new-view with O(n^2) proof\n\nHotStuff view change (O(n) data to new leader):\n\n  v1 --[timeout-vote + highQC]--> new leader\n  v2 --[timeout-vote + highQC]--> new leader\n  v3 --[timeout-vote + highQC]--> new leader\n  new leader picks highest QC, proposes normally',
+          text: 'PBFT view change (O(n^2) data to new leader):\n\n  v1 --[prepare-certs]--> new leader\n  v2 --[prepare-certs]--> new leader\n  v3 --[prepare-certs]--> new leader\n  ...each cert set is O(n) items...\n  new leader broadcasts new-view with O(n^2) proof\n\nHotStuff view change (O(n) data to new leader):\n\n  v1 --[timeout-vote + highQC]--> new leader\n  v2 --[timeout-vote + highQC]--> new leader\n  v3 --[timeout-vote + highQC]--> new leader\n  new leader picks highest QC, proposes normally',
+        },
+        'The safety invariant is quorum intersection plus disciplined voting. In a committee of 3f + 1, a QC needs 2f + 1 votes. Any two quorums of size 2f + 1 overlap in at least f + 1 members. Since at most f are Byzantine, at least one honest validator appears in the intersection. If honest validators refuse to sign conflicting proposals that violate their lock, two conflicting certified histories cannot both form.',
+        {
+          type: 'note',
+          text: 'The insight is architectural, not just algorithmic. PBFT uses different message types for normal operation and recovery. HotStuff uses one proof object -- the QC -- for both. That uniformity is what makes the view-change linear: the new leader does not need to reconstruct history from many special messages. It just needs the highest QC.',
+        },
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'HotStuff operates in numbered rounds. Each round has one designated leader chosen by a deterministic rotation (or, in production variants, by VRF-based randomization). A round proceeds through proposal, vote, and certification.',
+        {
+          type: 'table',
+          headers: ['Step', 'Who acts', 'What happens', 'What is produced'],
+          rows: [
+            ['1. Propose', 'Leader', 'Packages transactions into a block, attaches parent pointer and highest known QC', 'Block proposal message'],
+            ['2. Safety check', 'Each validator', 'Checks: does this extend my locked QC? Or does it carry a QC from a higher round than my lock?', 'Decision: vote or reject'],
+            ['3. Vote', 'Each honest validator', 'Signs (round, block_id, vote_type) and sends signature to leader', 'Signed vote message'],
+            ['4. Aggregate', 'Leader (or next leader)', 'Collects 2f + 1 matching signatures', 'Quorum certificate (QC)'],
+            ['5. Advance', 'All validators', 'Update highQC if the new QC is from a higher round', 'State transition to next round'],
+          ],
+        },
+        'The commit rule in chained HotStuff uses a 3-chain: block B commits when B, its child B\', and its grandchild B\'\' all have QCs in three consecutive rounds. Each certified child serves as the next phase for its parent, folding PBFT\'s separate prepare-commit-decide phases into a linked chain of certified blocks.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: '// Chained HotStuff commit rule (simplified)\nfunction tryCommit(blockStore, latestQC) {\n  const b3 = blockStore.get(latestQC.blockId);       // round r\n  const b2 = blockStore.get(b3.parentId);             // round r-1\n  const b1 = blockStore.get(b2.parentId);             // round r-2\n\n  // 3-chain: three consecutive certified rounds\n  if (b3.round === b2.round + 1 &&\n      b2.round === b1.round + 1 &&\n      b3.hasQC && b2.hasQC && b1.hasQC) {\n    commit(b1);  // b1 is now final\n  }\n  // If rounds are not consecutive, the chain broke.\n  // No commit, but safety is preserved.\n}',
+        },
+        'When a leader fails, validators do not wait forever. Each validator runs a local timer. If the timer expires before a QC forms, the validator broadcasts a timeout vote for the current round. When 2f + 1 timeout votes accumulate, they form a timeout certificate (TC). The TC proves the round was abandoned by a quorum, and the next leader can safely advance.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Safety follows from two properties: quorum intersection and the locking rule.',
+        {
+          type: 'bullets',
+          items: [
+            'Quorum intersection: any two sets of 2f + 1 from 3f + 1 share at least f + 1 members. Since at most f are Byzantine, at least one shared member is honest.',
+            'Locking rule: an honest validator locks on the QC of the second block in a 2-chain. It will not vote for a proposal that conflicts with its lock unless the proposal carries a QC from a strictly higher round.',
+            'Consequence: if block B has a 3-chain commit, then every quorum that could certify a conflicting block B\' must include an honest validator locked on B\'s chain. That validator will reject B\' because B\' does not extend the lock and does not carry a higher-round QC.',
+          ],
+        },
+        'Liveness follows from the pacemaker. After GST (global stabilization time), the network delivers messages within a known bound. The pacemaker ensures an honest leader eventually gets a round where all honest validators receive the proposal, vote before timeout, and the QC forms. The timeout mechanism prevents validators from being stuck in a round with a faulty leader indefinitely.',
+        {
+          type: 'note',
+          text: 'The separation is clean: safety never depends on timing assumptions. A network partition cannot cause two conflicting commits. It can only stall progress. Liveness depends on the network eventually stabilizing and the rotation eventually selecting an honest leader with a timely round.',
+        },
+        'Crash recovery is also safe. A validator that crashes and restarts reads its persisted last-voted-round and locked QC from durable storage. It will not sign any proposal from a round it has already voted in, and it will not abandon its lock without seeing a higher-round QC. The persistent state is small -- two integers and one QC -- but it is the entire safety guarantee.',
       ],
     },
     {
       heading: 'QC data structure',
       paragraphs: [
-        'A QC is a certificate over an exact statement. A practical certificate identifies the chain id or domain, epoch, round, block id, parent id, vote type, signer set, and signature material. If the system uses aggregate signatures, the aggregate must still be tied to a signer bitmap or equivalent proof of voting power. Without signer accountability, clients cannot know whether the threshold was actually met.',
-        'Domain separation matters. A timeout signature must not verify as a block vote. A vote from one epoch must not verify in another. A signature over a proposal hash must not leave ambiguity about which fields were included in that hash. These details sound low-level, but they are where consensus safety becomes software safety.',
-        'The QC should also be cheap to store and cheap to verify along the hot path. Validators may receive many proposals, sync many ancestors, and serve proofs to clients. A good implementation separates the certificate bytes from derived indexes: block id to block, round to highest QC, parent to children, signer to accountability evidence, and commit point to prunable prefix.',
-      ],
-    },
-    {
-      heading: 'Chained commit rule',
-      paragraphs: [
-        'PBFT exposes separate prepare and commit phases. Chained HotStuff folds those phases into a linked sequence of certified blocks. A certified child acts like the next phase for its parent. In the common 3-chain version, block B1 commits when B1, B2, and B3 form a contiguous certified chain in adjacent rounds. The decision is not "the newest block is final." The decision is "this earlier prefix is final because later certified blocks kept extending it."',
-        'This is why parent pointers are as important as signatures. QC3 is not only evidence that validators liked B3. If B3 extends B2 and B2 extends B1, then QC3 is evidence that the protocol kept preserving the B1 prefix through several rounds. A conflicting branch would need to pull quorum votes away from validators whose safety rules are already locked around that certified history.',
-        'Client finality should follow the commit rule, not leader optimism. A client should not accept "this block has a QC" as the same thing as "this block is committed" unless the protocol version says so. Wallets, bridges, indexers, and state-sync services should verify the proof chain that commits the prefix they expose. Otherwise a speculative block can leak into a user-facing irreversible action.',
-      ],
-    },
-    {
-      heading: 'Leader change',
-      paragraphs: [
-        'HotStuff is still a leader protocol. Each round has one leader responsible for assembling a proposal and carrying the best known proof forward. If that leader is honest and the network is timely, votes form a QC and the next round extends it. If the leader is faulty or slow, validators eventually timeout and advance to another round.',
-        'The pacemaker is the liveness component. It decides when to move rounds and how timeouts grow. A timeout certificate, or TC, is a proof that enough validators gave up on a round and can move together. Safety does not come from the pacemaker being perfectly accurate. Safety comes from the voting rules. The pacemaker can suspect a slow honest leader during a bad network period without creating conflicting commits.',
-        'The next leader must not invent history. It should propose from the highest safe certificate it can justify, usually the highest QC or evidence carried through a TC path. That single rule is the clean view-change idea: recovery is not a new protocol with a different kind of truth. Recovery is the normal protocol carrying the strongest known proof into the next round.',
+        'A QC is a certificate over an exact statement. In production, the certified statement binds multiple fields to prevent cross-domain attacks.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: '// Anatomy of a quorum certificate\nconst qc = {\n  // What was certified\n  chainId:    "mainnet-epoch-42",   // domain separation\n  epoch:      42,                    // prevents cross-epoch replay\n  round:      1087,                  // monotonic round number\n  blockId:    "0xa3f8...",           // hash of the proposed block\n  parentId:   "0x7c21...",           // hash of the parent block\n  voteType:   "block",              // distinguishes from timeout votes\n  stateRoot:  "0xef01...",           // execution result (DiemBFT)\n\n  // Who certified it\n  signerBitmap: 0b1110,             // which validators signed (v1,v2,v3)\n  signature:    "0xabc1...",        // aggregate BLS signature\n  votingPower:  75,                 // total voting power of signers\n  threshold:    67,                 // minimum required (2f+1)\n};',
+        },
+        {
+          type: 'table',
+          headers: ['Field', 'Purpose', 'Attack prevented'],
+          rows: [
+            ['chainId', 'Domain separation', 'A testnet QC cannot verify on mainnet'],
+            ['epoch', 'Temporal scoping', 'A QC from a retired validator set cannot commit new blocks'],
+            ['round', 'Progress ordering', 'A stale QC cannot override a newer lock'],
+            ['blockId', 'Content binding', 'A signature over one block cannot certify a different block'],
+            ['voteType', 'Type separation', 'A timeout vote cannot be replayed as a block vote'],
+            ['signerBitmap', 'Accountability', 'Clients can verify the threshold was met by specific validators'],
+            ['stateRoot', 'Execution binding', 'Nondeterministic execution across validators is detected'],
+          ],
+        },
+        'Without signer accountability, a client receiving a QC cannot verify that the threshold was genuinely met. An aggregate signature alone proves that some set of keys signed, but the bitmap proves which keys. That distinction matters for slashing: if a validator equivocated, the bitmap evidence lets the system prove who is responsible.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'DiemBFT is the useful production case because it shows the module boundaries. Validators receive transactions through mempool, form blocks, execute proposed blocks speculatively, vote through safety rules, store blocks and QCs, and eventually commit a prefix to the replicated database. The protocol is not just "some validators vote." It is a pipeline of queues, timers, signature checks, graph storage, execution roots, and client proofs.',
-        'That split turns the abstract BFT problem into testable components. Mempool is a data-availability and ordering-input problem. Round state is a timer and timeout problem. Safety rules are a small persistent state machine that must prevent double-signing. Block store is a tree or DAG of parent pointers, QCs, missing ancestors, and pruning boundaries. Execution produces a state root that validators can sign so the committed order and resulting state stay tied together.',
-        'AptosBFT and Jolteon-style descendants are good follow-up studies because they show that the HotStuff shape is not one frozen protocol. Designers can shorten the happy path, adjust fallback behavior, add quorum-store style data dissemination, or tune timeout handling. Every improvement trades latency, message cost, recovery complexity, and implementation risk against the same safety invariant.',
+        'Consider a 4-validator network (f = 1) running chained HotStuff. Validator V4 is Byzantine. Trace the commit of block B1 through a clean 3-chain:',
+        {
+          type: 'table',
+          headers: ['Round', 'Leader', 'Block', 'Votes received', 'QC formed', 'Effect'],
+          rows: [
+            ['1', 'V1', 'B1 (parent: genesis)', 'V1, V2, V3 (V4 silent)', 'QC1 for B1', 'B1 is prepared'],
+            ['2', 'V2', 'B2 (parent: B1, carries QC1)', 'V1, V2, V3', 'QC2 for B2', 'B1 is locked (2-chain)'],
+            ['3', 'V3', 'B3 (parent: B2, carries QC2)', 'V1, V2, V3', 'QC3 for B3', 'B1 commits (3-chain)'],
+            ['4', 'V4', 'B4? (V4 is faulty)', 'V4 proposes conflicting block', 'No QC forms', 'Timeout, advance to round 5'],
+          ],
+        },
+        'B1 commits at round 3, not because B3 is special, but because B1-B2-B3 form a contiguous certified chain in adjacent rounds. The decision is about the prefix, not the tip.',
+        'Now consider the attack: V4 tries to fork at round 2 by sending a conflicting block B2\' to V1 and the real B2 to V2 and V3. V1 checks its safety rules: B2\' does not extend V1\'s locked QC (which is QC1 from round 1) -- actually it does extend B1, so V1 might vote for it. But V1 can only vote once per round. If V1 already voted for the real B2, it rejects B2\'. If V1 votes for B2\' instead, the real B2 still gets votes from V2, V3, and the leader V2 itself -- 3 votes, enough for a QC. The fork B2\' gets only V1 + V4 = 2 votes, below the threshold of 3.',
+        {
+          type: 'note',
+          text: 'The arithmetic is tight. With n = 4 and f = 1, the quorum is 3. Any two quorums of size 3 overlap in 2 validators. At least 1 overlap member is honest. That one honest validator will not sign both forks in the same round. Two conflicting QCs for the same round are impossible.',
+        },
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Keep the safety module small and durable. It should own the persistent facts that decide whether the validator may sign: last voted round, preferred or locked QC, epoch, and any protocol-specific commit evidence. It should expose a narrow API such as `construct_and_sign_vote(proposal, evidence)` rather than letting networking code create signatures directly.',
-        'Verify before storing trust. Check domain separation, epoch, round monotonicity, signer voting power, duplicate signers, parent availability, and hash binding before accepting a QC into the block store. If ancestors are missing, store the certificate as pending evidence but do not let execution or commit logic run ahead of the available chain. Missing data is not a consensus success.',
-        'Make pruning proof-aware. A node can discard old block bodies only after it has retained enough committed-state evidence for clients and enough checkpoint or state-sync material for recovering peers. The pruning boundary should be derived from committed prefixes and state snapshots, not from whatever happens to be old in wall-clock time.',
-        'Test the adversarial cases directly: equivocation by the leader, duplicate votes, stale QCs, higher-round proposals that do not extend the lock, timeout races, crash and restart between vote construction and persistence, and state-root mismatch after speculative execution. A BFT implementation is only as strong as the boring tests around its proof objects.',
+        {
+          type: 'table',
+          headers: ['Cost axis', 'HotStuff', 'PBFT', 'Why it matters'],
+          rows: [
+            ['Happy-path messages', 'O(n) per round', 'O(n^2) per phase', 'Each validator sends one vote to the leader, not to all peers'],
+            ['View-change messages', 'O(n)', 'O(n^2) to O(n^3)', 'Each validator sends one timeout vote, not a full proof set'],
+            ['Commit latency', '3 rounds (3-chain rule)', '2 phases + view change', 'The 3-chain trades one extra round for simpler recovery'],
+            ['Crypto per round', 'n signature creates, 1 aggregation, 1 verify', 'n^2 signature verifies', 'Aggregate signatures compress verification to O(1)'],
+            ['Persistent state per validator', '~100 bytes (round, lock QC)', '~100 bytes + view-change logs', 'Small state means fast crash recovery'],
+            ['Block store', 'O(chain length) until pruned', 'O(chain length) until pruned', 'Both need pruning discipline; neither is free'],
+          ],
+        },
+        'The concrete cost: with 100 validators, a HotStuff round sends about 100 vote messages to the leader and 1 proposal broadcast. PBFT sends about 10,000 prepare messages and 10,000 commit messages. When the leader fails, HotStuff sends 100 timeout votes; PBFT sends 100 view-change messages each carrying up to 100 prepare certificates.',
+        'The 3-chain rule is the latency tax. A block is not committed until two more certified blocks extend it. In a network with 200ms round-trip times, that means roughly 600ms to commit under the happy path. DiemBFT v4 and Jolteon reduce this to a 2-chain commit on the happy path, paying higher cost only during leader failures. That tradeoff -- lower normal-case latency versus more complex fallback -- is the design space that HotStuff opened.',
+        {
+          type: 'note',
+          text: 'Doubling the validator set from 50 to 100 doubles the vote messages per round (linear). In PBFT, the same doubling quadruples the prepare and commit messages (quadratic). At 1,000 validators, PBFT sends about 1,000,000 messages per phase. HotStuff sends 1,000.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'HotStuff-style protocols win when a known validator set needs fast finality under Byzantine assumptions. Permissioned ledgers, validator-based blockchains, replicated databases with adversarial operators, and cross-organization control planes are natural fits. The appeal is the simple proof pipeline: votes become QCs, QCs become a certified chain, and a commit rule turns that chain into finality.',
-        'The linear communication story also matters. The leader aggregates votes into one certificate and carries that certificate forward. In a healthy round, validators do not need all-to-all chatter for every phase. That makes the protocol easier to scale than older BFT designs, though data dissemination, signature verification, and networking can still dominate in production.',
+        'HotStuff-style protocols win when a known validator set needs fast finality under Byzantine assumptions and the validator count is large enough that O(n^2) communication becomes painful.',
+        {
+          type: 'bullets',
+          items: [
+            'Diem (formerly Libra): Facebook\'s blockchain project used DiemBFT, a direct descendant of HotStuff with 2-chain commit on the happy path, speculative execution, and quorum-store data dissemination. The codebase (now open-source as aptos-core) is the most complete production implementation of the HotStuff family.',
+            'Aptos: forked from Diem, runs AptosBFT (Jolteon variant) with linear fast-path commits and quadratic fallback. Processes thousands of transactions per second with sub-second finality on a 100+ validator set.',
+            'Flow blockchain: uses a HotStuff variant for its consensus committee, separating consensus from execution and verification into different node roles.',
+            'Cypherium: permissioned enterprise blockchain using HotStuff for validator consensus with deterministic finality.',
+            'Permissioned enterprise ledgers: any system where 10-200 known organizations need BFT consensus benefits from HotStuff\'s linear message complexity over PBFT.',
+          ],
+        },
+        'The linear communication story matters most at scale. With 20 validators, PBFT works fine. With 100, the O(n^2) phases become a real bottleneck. HotStuff made large BFT committees practical.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'HotStuff does not solve open membership by itself. The 3f + 1 guarantee assumes a known validator set and a voting-power rule. Sybil resistance, staking, validator admission, slashing, epoch changes, and governance are outside the core consensus proof and must be engineered separately.',
-        'It also does not solve data availability by itself. A QC over a block id is not useful to a validator that cannot fetch and execute the block. Production systems add mempools, quorum stores, state sync, checkpointing, and storage rules because ordering proof and data availability are different promises.',
-        'Leader-based protocols are exposed to leader denial of service and faulty-leader latency. Rotation, randomization, timeout certificates, and fallback paths reduce the damage, but they do not erase the tradeoff. If many leaders are faulty or the network is unstable, throughput and latency can degrade even while safety remains intact.',
+        'HotStuff does not solve open membership. The 3f + 1 guarantee assumes a known validator set and a voting-power rule. Sybil resistance, staking, validator admission, slashing, epoch changes, and governance are outside the core consensus proof.',
+        {
+          type: 'table',
+          headers: ['Limitation', 'Why it hurts', 'What production systems add'],
+          rows: [
+            ['No data availability guarantee', 'A QC over a block hash is useless if the block body is withheld', 'Mempool protocols (Narwhal), quorum stores, erasure coding'],
+            ['Leader DoS exposure', 'A known leader can be targeted; network-level attack stalls progress', 'Leader randomization via VRF, reputation scoring, reputation-weighted rotation'],
+            ['3-chain latency overhead', 'Three rounds to commit adds ~400-600ms over a 2-phase protocol', 'DiemBFT 2-chain, Jolteon fast path, pipelining'],
+            ['No open membership', 'Cannot add validators without a separate governance mechanism', 'Staking, epoch transitions, validator admission protocols'],
+            ['Aggregate signature assumptions', 'Linear communication relies on BLS or threshold signatures', 'Fallback to individual signature collection if aggregate crypto is unavailable'],
+            ['Timeout tuning fragility', 'Too-short timeouts cause unnecessary leader changes; too-long timeouts stall', 'Adaptive timeout with exponential backoff and pacemaker protocol'],
+          ],
+        },
+        'The most subtle failure is data availability. A Byzantine leader can propose a block, collect votes for a QC, and then withhold the block body. Validators voted on a hash they executed, but other validators or joining nodes cannot verify the block without its contents. This is why Narwhal-style mempool protocols separate data dissemination from ordering -- they guarantee block availability before consensus runs.',
+        'Leader-based protocols also suffer from tail latency under adversarial conditions. If f consecutive leaders are faulty, the system stalls for f timeout periods before an honest leader gets a round. With f = 33 and a 2-second timeout, that is over a minute of downtime. Reputation-based rotation and VRF-based leader selection reduce but do not eliminate this exposure.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Byzantine Fault Tolerance: When Nodes Lie for the failure model, then Paxos and View Changes for the crash-fault lineage that HotStuff simplifies and strengthens. Study Read/Write Quorums to make the quorum-intersection arithmetic automatic. Study Merkle Trees and authenticated state roots to understand why consensus over order often needs consensus over execution results too.',
-        'For adjacent case studies, read Narwhal Bullshark DAG Mempool Case Study, Transparency Log Witnessing Case Study, KZG Polynomial Commitments, Ethereum Merkle-Patricia Trie Case Study, Distributed Tracing, and Rate Limiter. For primary sources, read the HotStuff paper, DiemBFT reports, and Jolteon/Ditto after the invariant in this article feels routine.',
+        'Primary sources: "HotStuff: BFT Consensus with Linearity and Responsiveness" (Yin, Malkhi, Reiter, Gueta, Abraham, PODC 2019) introduced the protocol. "DiemBFT v4: State Machine Replication in the Diem Blockchain" (Baudet et al., 2021) describes the production variant with 2-chain commit, pacemaker protocol, and speculative execution. "Jolteon and Ditto: Network-Adaptive Efficient Consensus with Asynchronous Fallback" (Gelashvili et al., 2022) shows how to combine linear happy-path latency with quadratic fallback.',
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Byzantine Fault Tolerance -- the failure model, the 3f + 1 bound, and why crash-fault protocols are insufficient.',
+            'Prerequisite: read/write quorums -- the intersection arithmetic that makes QC safety work.',
+            'Extension: Narwhal-Bullshark DAG mempool -- separating data availability from ordering, which solves HotStuff\'s data withholding problem.',
+            'Extension: Merkle trees and authenticated state roots -- why consensus over order often needs consensus over execution results too.',
+            'Contrast: Tendermint/CometBFT -- a different BFT protocol with O(n^2) communication but instant finality in 2 rounds.',
+            'Contrast: PBFT -- the original practical BFT protocol that HotStuff improves upon.',
+            'Case study: Ethereum Merkle-Patricia Trie -- how a different blockchain handles authenticated state.',
+          ],
+        },
+        'The engineering question for HotStuff is not whether BFT consensus is possible -- PBFT proved that in 1999. The question is whether the view-change protocol can be as simple as the normal path. HotStuff showed it can, and every production BFT system since has built on that insight.',
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'How it works',
-      paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
-      ],
-    },
-
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for hotstuff-bft-quorum-certificate-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

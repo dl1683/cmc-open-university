@@ -199,161 +199,258 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Geofence Point-in-Polygon Index Case Study. A geofence case study: R-tree or cell prefilters, bounding-box candidates, point-in-polygon checks, holes, boundary policy, invalid geometry, and event dedupe..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation traces a GPS point through the full geofence decision pipeline: spatial index, candidate filter, exact point-in-polygon, state machine, and event emission.',
+        {
+          type: 'bullets',
+          items: [
+            'Active (highlighted) nodes are the current stage of the pipeline receiving a GPS sample.',
+            'Compare nodes show an alternative stage whose job is distinct from the active one -- index versus predicate, classification versus event.',
+            'Found nodes are confirmed outputs: a fence membership or an emitted enter/exit event.',
+            'Removed nodes in the candidate table are fences eliminated by the coarse filter, never reaching exact geometry.',
+          ],
+        },
+        'The candidate-filter view shows the index-then-predicate pipeline. The boundary-policy view shows the decisions that sit after geometry: holes, edge semantics, GPS noise, and audit. Switch between them to see that scale and semantics are separate problems with separate solutions.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A geofence system turns noisy position samples into operational decisions. A delivery van entered the depot. A courier left the paid service zone. A forklift crossed a safety boundary. A phone spent enough time inside a store to count as a visit. The product wants one clear event, but the input is a stream of latitude-longitude points and a changing catalog of polygons.`,
-        `This topic exists because the simple geometry question is not the full system question. Point-in-polygon tells you whether one point is inside one shape. A production geofence system must answer that question quickly for many devices and many fences, then turn repeated classifications into audited enter and exit events. The visual separates those responsibilities so scale and semantics do not get mixed together.`,
+        'A geofence system turns noisy position samples into operational decisions. A delivery van entered the depot. A courier left the paid service zone. A forklift crossed a safety boundary. A phone spent enough time inside a store to count as a visit. The product wants one clean event, but the input is a stream of latitude-longitude pairs and a changing catalog of polygons.',
+        {
+          type: 'note',
+          text: 'Point-in-polygon answers one question: is this coordinate inside this shape? A production geofence system must answer that question quickly for thousands of devices against thousands of fences, then turn repeated classifications into auditable enter and exit events. The geometry predicate is about 5% of the system. The other 95% is indexing, state management, noise suppression, and replay.',
+        },
+        'The visual separates those responsibilities so scale and semantics do not get mixed together. The candidate-filter view isolates the index contract. The boundary-policy view isolates the semantic contract. Neither can do the other\'s job.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is brute force: for every GPS sample, test the point against every polygon. That is fine for a demo with ten fences. It is also attractive because it seems honest. There is no approximate index, no caching, and no extra data structure to maintain. Every possible fence gets an exact answer.`,
-        `The approach fails as soon as either side grows. Ten thousand devices reporting every few seconds against thousands of fences becomes millions of polygon checks per minute. Worse, raw containment still does not decide the product behavior. A point on a border may be inside for a retail visit but outside for a legal boundary. A polygon may have holes. A GPS sample may arrive late. A repeated inside result is not another enter event. Brute force solves only the smallest part of the problem.`,
+        'The obvious approach is brute force: for every GPS sample, test the point against every polygon. That is fine for a demo with ten fences. It is also attractive because it seems honest -- no approximate index, no caching, no extra data structure. Every fence gets an exact answer.',
+        {
+          type: 'table',
+          headers: ['Scale', 'Devices', 'Fences', 'Samples/min', 'PIP checks/min'],
+          rows: [
+            ['Demo', '1', '10', '12', '120'],
+            ['City pilot', '1,000', '500', '12,000', '6,000,000'],
+            ['National fleet', '50,000', '10,000', '600,000', '6,000,000,000'],
+          ],
+        },
+        'At the national-fleet scale, brute-force point-in-polygon is six billion checks per minute. The ray-casting algorithm runs in O(v) per polygon where v is the vertex count. A complex delivery zone might have 200 vertices. That is 1.2 trillion vertex-edge intersection tests per minute. No amount of fast hardware rescues that path.',
+        'Worse, raw containment still does not decide product behavior. A point on a polygon edge may be inside for a retail visit but outside for a legal boundary. A polygon may have holes. A GPS sample may arrive late. A repeated inside result is not another enter event. Brute force solves only the smallest part of the problem.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is not just performance. It is correctness under composition.',
+        {
+          type: 'diagram',
+          text: 'Brute-force pipeline (looks simple, hides three bugs):\n\n  GPS sample --> for each fence --> ray-cast PIP --> emit "inside" or "outside"\n\nBug 1: O(F * V) per sample. At scale, latency exceeds sample interval.\nBug 2: No state. Every "inside" looks like a new arrival.\nBug 3: No boundary policy. Edge points are silently included or excluded\n        depending on floating-point rounding, not business rules.',
+          label: 'Three failure modes compound: a slow, stateless, ambiguous pipeline',
+        },
+        'Consider a delivery truck that reports every 5 seconds. It enters a depot polygon and stays for 30 minutes. The brute-force pipeline produces 360 "inside" results. Without a state machine, every one of those looks like an enter event. The downstream billing system charges 360 arrivals instead of one.',
+        {
+          type: 'note',
+          text: 'The invariant that brute force violates: a geofence event is a transition, not a classification. "Inside" is a state. "Enter" is a change of state. Without tracking previous state per device-fence pair, the system cannot distinguish the first "inside" sample from the 360th.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core idea is a two-stage decision. First, use a spatial index to find a safe superset of fences that might contain the point. Second, run exact point-in-polygon only on that candidate set. The index is allowed to return extra work. It is not allowed to hide a fence that could contain the point.`,
-        `This split is the same reason database systems use spatial indexes for predicates such as contains and intersects. Bounding boxes, R-trees, GiST indexes, S2 cells, H3 cells, and geohash grids are fast because they reason about coarse covering shapes. Exact geometry is slower because it reasons about rings, vertices, holes, and boundary rules. The safe pattern is maybe first, exact answer second, event transition third.`,
-      ],
-    },
-    {
-      heading: 'Data model',
-      paragraphs: [
-        `A fence record should contain more than a polygon. It needs a stable fence id, tenant or owner, active time window if one exists, normalized geometry, bounding box, geometry version, coordinate reference system, and boundary policy. If the fence came from user input, the record should also store validation results so bad geometry is not silently accepted.`,
-        `A device-fence state record is separate. It stores the previous classification, last accepted sample time or sequence, last event emitted, and sometimes the confidence or GPS accuracy that supported the decision. This state is what turns geometry into a stream system. Without it, every inside point looks like a new arrival and replaying late samples can change history.`,
-      ],
-    },
-    {
-      heading: 'Index and candidates',
-      paragraphs: [
-        `At ingestion time, the system validates each fence and builds a lookup structure. An R-tree groups bounding boxes so a point query visits only nearby tree branches. A cell index stores which fences cover each coarse geospatial cell. A database index such as PostGIS GiST uses bounding boxes to narrow the search before exact predicates run.`,
-        `The candidate table in the visual is the important contract. Fence A and fence B have bounding-box hits, so they move to exact point-in-polygon. Fence C and fence D miss the coarse filter, so they are skipped. A hit is not a membership event. It is only permission to spend more CPU on the exact check.`,
-      ],
-    },
-    {
-      heading: 'Exact geometry',
-      paragraphs: [
-        `The exact check must implement the real geometry rules, not a sketch of them. A polygon can have an exterior ring and interior rings. A multipolygon can contain several disconnected areas. A warehouse fence may exclude a public road through a hole. A point can lie exactly on an edge or vertex. Invalid rings may self-intersect.`,
-        `The boundary policy belongs here. Some products want covers semantics, where boundary points count as inside. Others want strict contains semantics, where only the interior counts. Neither answer is universally correct. The policy must be attached to the fence or query and recorded with the event so a later audit can reproduce the decision.`,
-      ],
-    },
-    {
-      heading: 'Event state',
-      paragraphs: [
-        `A point-in-polygon result is a classification, not an event. Events come from transitions. If the previous state was outside and the new state is inside, emit enter. If the previous state was inside and the new state is outside, emit exit. If the state did not change, update bookkeeping and stay quiet.`,
-        `This layer must handle ordering and idempotence. Mobile samples can arrive late, repeat after retry, or appear with coarse accuracy. The state machine should reject old sequence numbers, dedupe repeated samples, and make retry safe. A geofence dispute is usually a replay problem: what did the system know, which geometry version did it use, and why did it emit that transition?`,
+        'The core idea is a three-stage pipeline with distinct contracts at each boundary.',
+        {
+          type: 'diagram',
+          text: 'Stage 1: CANDIDATE FILTER (index)\n  Input:  (lat, lon)\n  Output: fence IDs whose bounding region contains the point\n  Contract: no false negatives. May return extra fences. Must never hide one.\n\nStage 2: EXACT PREDICATE (geometry)\n  Input:  (lat, lon) + polygon rings + boundary policy\n  Output: inside / outside / on-boundary\n  Contract: correct under the declared geometry semantics (contains vs covers).\n\nStage 3: EVENT STATE MACHINE (stream)\n  Input:  current classification + previous state + sample sequence\n  Output: enter / exit / no-op\n  Contract: idempotent, ordered, replayable.',
+          label: 'Each stage has one job and one contract. No stage can substitute for another.',
+        },
+        'The candidate filter is allowed to return extra work. It is not allowed to hide a fence that could contain the point. The exact predicate is allowed to be slow. It is not allowed to be approximate. The state machine is allowed to suppress events. It is not allowed to create events from repeated identical states.',
+        {
+          type: 'quote',
+          text: 'The efficiency of the spatial index comes from comparing the query point against simple, pre-computed bounding boxes, allowing the system to avoid the expensive exact computation for the vast majority of polygons.',
+          attribution: 'Guttman, "R-Trees: A Dynamic Index Structure for Spatial Searching" (1984), Section 1',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The candidate-filter view proves that the index and the exact predicate have different jobs. The index makes the search small by returning possible fences. The exact predicate makes the answer true by rejecting false positives. The event node appears only after state changes, because geometry alone does not know whether this sample is the first inside sample or the hundredth.`,
-        `The boundary-policy view proves that many hard cases sit after the index. Holes, boundary points, invalid geometry, GPS accuracy, dwell time, and hysteresis cannot be decided by a bounding box. They are policy and state decisions wrapped around exact geometry. If those decisions are implicit, two teams can run the same polygon and produce different business events.`,
+        'Stage 1 uses a spatial index to narrow the search. The two dominant strategies are R-trees and discrete cell grids.',
+        {
+          type: 'table',
+          headers: ['Index type', 'How it works', 'Strengths', 'Weaknesses'],
+          rows: [
+            ['R-tree', 'Groups fence bounding boxes into a balanced tree of nested rectangles. Point query walks from root, pruning branches whose rectangle misses the point.', 'Adapts to irregular fence distribution. Handles overlapping fences well.', 'Insertion and deletion require rebalancing. Complex to implement correctly.'],
+            ['S2 / H3 cell grid', 'Projects the sphere into hierarchical cells. Each fence is associated with the cells it covers. Point query looks up the cell, retrieves registered fences.', 'O(1) cell lookup. Simple to shard by cell. Handles antimeridian and poles naturally (S2).', 'Large or irregular fences span many cells, inflating the index. Coarser cells produce more false candidates.'],
+            ['Geohash grid', 'Encodes lat/lon as a string prefix. Fences register in all geohash cells they touch. Point query hashes the coordinate, fetches registered fences.', 'Simple string-based lookup. Easy to store in key-value databases.', 'Rectangular cells cause edge discontinuities. Does not handle poles or antimeridian.'],
+          ],
+        },
+        'Stage 2 runs the exact point-in-polygon predicate on each candidate. The standard algorithm is ray casting: cast a horizontal ray from the query point and count edge crossings. An odd count means inside. The algorithm must handle polygon rings (exterior boundary), interior rings (holes), multipolygons, and the boundary policy.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Ray-casting point-in-polygon (simplified)\n// Returns true if point (px, py) is inside the polygon ring.\nfunction raycast(px, py, ring) {\n  let inside = false;\n  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {\n    const xi = ring[i][0], yi = ring[i][1];\n    const xj = ring[j][0], yj = ring[j][1];\n    // Does a rightward ray from (px, py) cross this edge?\n    if ((yi > py) !== (yj > py) &&\n        px < (xj - xi) * (py - yi) / (yj - yi) + xi) {\n      inside = !inside;\n    }\n  }\n  return inside;\n}\n\n// Full PIP with holes: inside exterior AND outside every hole\nfunction pointInPolygon(px, py, polygon) {\n  if (!raycast(px, py, polygon.exterior)) return false;\n  for (const hole of polygon.holes) {\n    if (raycast(px, py, hole)) return false;\n  }\n  return true;\n}',
+        },
+        {
+          type: 'note',
+          text: 'The ray-casting algorithm is O(v) where v is the vertex count of the polygon. For a polygon with 200 vertices, this is 200 edge-crossing tests. For 10 candidates averaging 200 vertices each, the exact stage costs about 2,000 comparisons per sample -- trivial compared to the millions saved by skipping the other 9,990 fences.',
+        },
+        'Stage 3 compares the current classification against stored state. The state machine tracks one record per (device, fence) pair.',
+        {
+          type: 'table',
+          headers: ['Previous state', 'Current PIP result', 'Action', 'Event emitted'],
+          rows: [
+            ['outside', 'inside', 'Update state to inside, record sample', 'ENTER'],
+            ['inside', 'outside', 'Update state to outside, record sample', 'EXIT'],
+            ['inside', 'inside', 'Update last-seen timestamp', 'none'],
+            ['outside', 'outside', 'No-op', 'none'],
+            ['unknown', 'inside', 'Initialize state to inside', 'ENTER (cold start)'],
+          ],
+        },
+        'The candidate-filter view in the animation shows stages 1 and 2. The graph traces a GPS point through cell and R-tree filters to candidates, then through exact PIP to state and event nodes. The boundary-policy view shows the decisions inside stages 2 and 3: edge semantics, holes, GPS noise, and audit metadata.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The algorithm is correct when the candidate stage has no false negatives and the exact stage implements the promised geometry semantics. Returning extra candidates only costs time. Dropping a possible fence breaks correctness because the exact predicate never gets a chance to recover it.`,
-        `The stream layer is correct when transitions are computed over an ordered state per device and fence. That is why replay metadata matters. If the system can reconstruct the candidate set, geometry version, boundary rule, sample timestamp, previous state, and exact result, it can explain why an enter or exit was emitted and avoid creating a different answer during retry.`,
+        'Correctness depends on one invariant per stage.',
+        {
+          type: 'table',
+          headers: ['Stage', 'Invariant', 'What breaks if violated'],
+          rows: [
+            ['Candidate filter', 'Every fence that contains the point is in the candidate set (no false negatives).', 'The exact predicate never sees the fence. The system silently misses an enter event. No downstream stage can recover the omission.'],
+            ['Exact predicate', 'The PIP result matches the declared geometry semantics (contains or covers) for valid geometry.', 'A point on the boundary gets a different answer depending on floating-point rounding. Two runs on the same data disagree.'],
+            ['State machine', 'Events are transitions computed over ordered samples per (device, fence) pair.', 'A repeated "inside" sample emits a duplicate ENTER. A late-arriving sample creates an impossible EXIT-then-ENTER sequence.'],
+          ],
+        },
+        'The candidate filter is safe because bounding boxes are conservative envelopes. A bounding box always contains its polygon. If the point is outside the bounding box, it is guaranteed outside the polygon. False positives (point inside bbox but outside polygon) are harmless -- they only cost one extra ray-cast call. False negatives (point inside polygon but outside bbox) are impossible by construction.',
+        'The state machine is safe because it compares current state with previous state under sample ordering. If samples arrive out of order, the machine rejects any sample whose sequence number is older than the last accepted sequence. This makes retry safe: resending sample #42 when #42 was already processed is a no-op, not a duplicate event.',
+        {
+          type: 'note',
+          text: 'The correctness argument is compositional. Each stage can be tested independently. The candidate filter is tested by verifying that every fence containing a test point appears in the candidate set. The predicate is tested with known polygons and known boundary points. The state machine is tested with ordered and disordered sample sequences. End-to-end correctness follows from the three stage invariants holding simultaneously.',
+        },
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Index lookup cost is usually small compared with scanning every fence, but it is not free. Dense downtown regions, many overlapping polygons, and large administrative boundaries can return many candidates. Exact cost then depends on candidate count, vertex count, and predicate implementation. Simplifying geometry can help, but over-simplification can move borders and change events.`,
-        `Updates also cost something. Stable fences are easy to index. Frequently edited fences require versioning, incremental index updates, or batch rebuilds. GPS noise adds a product tradeoff: hysteresis, dwell-time gates, accuracy filters, and map matching reduce border flapping, but they can delay real events or suppress short visits.`,
+        {
+          type: 'table',
+          headers: ['Operation', 'Brute force', 'Indexed pipeline', 'What changed'],
+          rows: [
+            ['PIP checks per sample', 'F (all fences)', 'C (candidates, typically C << F)', 'Index eliminates ~99% of fences for localized queries'],
+            ['Per-check cost', 'O(V) per polygon', 'O(V) per polygon', 'Same algorithm, fewer invocations'],
+            ['Total per sample', 'O(F * V)', 'O(log F + C * V) for R-tree; O(1 + C * V) for cell grid', 'Dominated by candidate count, not total fence count'],
+            ['State lookup', 'N/A (none)', 'O(1) hash lookup per (device, fence)', 'One hash read per candidate'],
+            ['Index build', 'None', 'O(F log F) for R-tree; O(F * cells_per_fence) for grid', 'One-time or incremental cost'],
+          ],
+        },
+        'At the national-fleet scale from the earlier table: 50,000 devices, 10,000 fences, 600,000 samples per minute. With brute force, that is 6 billion PIP checks per minute. With an R-tree returning an average of 5 candidates per query, it drops to 3 million PIP checks per minute -- a 2,000x reduction.',
+        'Index maintenance is the ongoing cost. Stable fences (delivery zones, campus boundaries) are indexed once. Frequently edited fences (ad-hoc safety zones, event perimeters) require incremental R-tree updates or cell-grid reregistration. A common pattern is versioned fences: the index stores the current version, and the state machine records which version produced each event for replay.',
+        {
+          type: 'note',
+          text: 'Vertex count matters more than polygon count after the index stage. A city boundary with 5,000 vertices is 25x more expensive to ray-cast than a rectangular delivery zone with 4 vertices. Geometry simplification (Douglas-Peucker, Visvalingam) can reduce vertex count, but over-simplification moves the boundary and changes which points are inside. The safe budget depends on the smallest gap between the fence edge and the nearest device path.',
+        },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A ride-share company defines four geofences in a city: airport (fence A, complex polygon with a hole for the runway), downtown zone (fence B), suburb (fence C), and industrial park (fence D). A driver\'s phone reports GPS every 5 seconds.',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Fences in the R-tree:\n  A: airport     bbox [40.63..40.66, -73.79..-73.76]  212 vertices, 1 hole\n  B: downtown    bbox [40.74..40.76, -73.99..-73.97]   38 vertices\n  C: suburb      bbox [40.70..40.73, -73.85..-73.82]   24 vertices\n  D: industrial  bbox [40.68..40.69, -73.90..-73.88]   16 vertices\n\nGPS sample #1: (40.6495, -73.7789)  accuracy: 12m\nGPS sample #2: (40.6501, -73.7780)  accuracy: 8m\nGPS sample #3: (40.7512, -73.9845)  accuracy: 15m',
+        },
+        {
+          type: 'table',
+          headers: ['Step', 'Sample', 'Index result', 'PIP result', 'Previous state', 'Event'],
+          rows: [
+            ['1', '#1 (40.649, -73.778)', 'bbox hit: A', 'A: inside exterior, outside hole -> INSIDE', 'A: unknown', 'ENTER fence A'],
+            ['2', '#2 (40.650, -73.778)', 'bbox hit: A', 'A: INSIDE', 'A: inside', 'none (no transition)'],
+            ['3', '#3 (40.751, -73.984)', 'bbox hit: B', 'B: INSIDE', 'A: inside, B: unknown', 'EXIT fence A, ENTER fence B'],
+          ],
+        },
+        'Sample #1 hits only fence A\'s bounding box. The R-tree prunes B, C, and D in O(log 4) time. Ray-casting against A\'s 212-vertex exterior ring returns inside. A second ray-cast against the 48-vertex hole ring returns outside (the driver is in the terminal area, not on the runway). State initializes to inside, and the system emits ENTER.',
+        'Sample #2 again hits only fence A. PIP returns inside. Previous state is already inside. No transition, no event. The state machine updates the last-seen timestamp.',
+        'Sample #3 is across the city. The R-tree prunes A, C, D. Only fence B is a candidate. PIP returns inside for B. The state machine sees two transitions: fence A changed from inside to outside (no candidate means no PIP, which means outside), and fence B changed from unknown to inside. It emits EXIT for A and ENTER for B.',
+        {
+          type: 'note',
+          text: 'The "no candidate means outside" rule is safe only because the candidate filter guarantees no false negatives. If fence A contained the point but the index missed it, the system would emit a spurious EXIT. This is why the candidate-filter invariant is the load-bearing contract of the entire pipeline.',
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `This structure wins when many moving points are checked against a relatively stable set of polygons. Delivery zones, pickup areas, campus boundaries, industrial safety regions, toll regions, store visits, fleet alerts, and IoT asset tracking all fit the pattern. The more fences and samples you have, the more valuable the candidate filter becomes.`,
-        `It also wins when events need evidence. A system that records only enter and exit strings cannot answer disputes. A system that records sample id, device id, fence id, geometry version, boundary policy, candidate method, exact predicate, previous state, and emitted transition can replay the decision. That audit trail is part of the design, not paperwork added later.`,
+        {
+          type: 'table',
+          headers: ['Domain', 'Fence shape', 'Event type', 'Why the index matters'],
+          rows: [
+            ['Fleet management', 'Depot polygons, route corridors', 'Arrival / departure', '10,000+ vehicles against 500+ depots. Brute force exceeds the GPS reporting interval.'],
+            ['Retail foot traffic', 'Store footprints, mall zones', 'Visit start / visit end', 'Millions of phones against thousands of store polygons. Dwell-time gate suppresses walk-bys.'],
+            ['Electronic tolling', 'Toll zone polygons', 'Zone entry for billing', 'Toll zones overlap on highways. Boundary policy decides which zone gets the charge.'],
+            ['Industrial safety', 'Exclusion zones with holes', 'Unauthorized entry alarm', 'Holes represent safe corridors through hazardous areas. PIP must handle interior rings correctly.'],
+            ['Ride-share pricing', 'Airport, surge zones', 'Surge activation / airport surcharge', 'Fences change frequently (surge). Index must handle versioned, short-lived polygons.'],
+          ],
+        },
+        'The pattern wins when events need evidence. A system that records only "enter" and "exit" strings cannot answer disputes. A system that records sample ID, device ID, fence ID, geometry version, boundary policy, candidate method, PIP result, previous state, and emitted transition can replay the decision. PostGIS implements the same two-stage idea: the GiST index returns bounding-box candidates, then ST_Contains or ST_Covers runs exact geometry. The query planner automates the split that this pipeline makes explicit.',
+        {
+          type: 'code',
+          language: 'sql',
+          text: '-- PostGIS uses the same two-stage pattern internally.\n-- The GiST index on geom returns bbox candidates,\n-- then ST_Contains runs exact PIP on each candidate.\nSELECT fence_id, fence_name\nFROM   geofences\nWHERE  ST_Contains(geom, ST_SetSRID(ST_Point(-73.9857, 40.7484), 4326))\n  AND  active = true\n  AND  valid_from <= NOW()\n  AND  valid_until >= NOW();',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The dangerous shortcut is treating a bounding-box hit as inside. Another is leaving boundary behavior implicit. Invalid polygons, mixed coordinate systems, antimeridian-crossing shapes, polar regions, stale fence versions, and indoor GPS drift can all produce surprising results. So can planar predicates run on latitude-longitude data without understanding projection error.`,
-        `Stream failures are just as common. Out-of-order samples can create impossible enter and exit sequences. Devices that report too rarely can miss short visits. Retry without idempotence can duplicate events. A full implementation protects both geometry correctness and event correctness, because users experience the event, not the predicate.`,
+        'The dangerous shortcuts and genuine hard cases fall into three categories.',
+        {
+          type: 'table',
+          headers: ['Failure class', 'Example', 'Consequence', 'Mitigation'],
+          rows: [
+            ['Index false negative', 'Bounding box computed on stale geometry after a fence edit', 'System silently misses the fence. No ENTER event. No downstream recovery.', 'Reindex on every fence update. Version the index alongside the fence.'],
+            ['Geometry ambiguity', 'Point lies exactly on a polygon edge. Ray-cast result depends on floating-point rounding.', 'Two runs on the same data disagree. Audit replay produces a different event.', 'Declare boundary policy per fence (contains vs covers). Use robust predicates (Shewchuk orientation).'],
+            ['Coordinate system mismatch', 'Planar PIP on unprojected lat/lon near the poles or antimeridian', 'A horizontal ray at latitude 89 degrees wraps around the pole. Edge crossings are miscounted.', 'Use geodesic PIP or project to a local planar CRS. S2 geometry operates on the sphere natively.'],
+            ['GPS noise at boundary', 'Device oscillates between inside and outside every 5 seconds', 'Rapid ENTER/EXIT/ENTER/EXIT "flapping" floods downstream systems', 'Hysteresis buffer (expand fence for exit, shrink for enter). Dwell-time gate. Accuracy threshold.'],
+            ['Stream disorder', 'Mobile retry delivers sample #40 after sample #45 was already processed', 'State machine replays old data and emits a spurious EXIT', 'Reject samples with sequence <= last-accepted. Log rejected samples for audit.'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'Indoor GPS is a special case. Consumer GPS accuracy degrades to 10-50 meters inside buildings. A geofence smaller than the GPS error radius produces random containment results. Solutions include Wi-Fi/BLE fingerprinting for indoor positioning, or increasing the fence radius to exceed the expected GPS error. Neither is a geometry fix -- both change the input signal.',
+        },
+        'The subtlest failure is treating the bounding-box hit as a membership event. This is tempting because it skips the expensive ray-cast. But bounding boxes are axis-aligned rectangles. A triangular fence has a bounding box twice its area. An L-shaped fence has a bounding box that covers the concavity. Every false positive from the index becomes a false enter event if the exact predicate is skipped.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study next: R-tree Spatial Indexing for candidate search, Point-in-Polygon Predicates for exact geometry, Finite State Machines for enter and exit transitions, Stream Deduplication for retry safety, Coordinate Reference Systems for projection risk, HMM Map Matching Viterbi for noisy GPS traces, and PostGIS Spatial Indexes for a production database implementation of the same two-stage idea.`,
+        {
+          type: 'table',
+          headers: ['Source', 'What it covers', 'Why it matters here'],
+          rows: [
+            ['Guttman, "R-Trees: A Dynamic Index Structure for Spatial Searching" (SIGMOD 1984)', 'The R-tree data structure for spatial indexing with bounding rectangles', 'Defines the candidate-filter stage. The R-tree invariant (every child bbox is contained in its parent) guarantees no false negatives.'],
+            ['Shimrat, "Algorithm 112: Position of point relative to polygon" (CACM 1962)', 'The original ray-casting point-in-polygon algorithm', 'The exact predicate stage. Still the foundation of most PIP implementations.'],
+            ['PostGIS documentation: ST_Contains vs ST_Covers', 'Boundary semantics in a production spatial database', 'Shows that the contains/covers distinction is not academic -- it changes query results on real data.'],
+            ['Uber H3: hexagonal hierarchical geospatial indexing system', 'Cell-grid alternative to R-trees for geospatial indexing', 'Production-scale cell index used for surge pricing, ETA, and geofencing at millions of events per second.'],
+          ],
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: R-tree spatial indexing -- understand how bounding-box trees prune search space.',
+            'Prerequisite: Ray-casting point-in-polygon -- understand edge-crossing counting and its boundary behavior.',
+            'Extension: Finite state machines -- formalize the enter/exit state machine with explicit transition tables.',
+            'Extension: Stream deduplication and idempotency -- handle retry, late arrival, and replay in event pipelines.',
+            'Contrast: Voronoi diagrams and nearest-neighbor search -- when the question is "which region" rather than "inside or outside."',
+            'Production: PostGIS GiST indexes -- see the same two-stage pattern implemented inside a SQL query planner.',
+          ],
+        },
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for geofence-point-in-polygon-index-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

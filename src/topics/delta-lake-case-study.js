@@ -214,166 +214,292 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Delta Lake Case Study. Delta Lake as the data-lake transaction lesson: JSON log actions, Parquet checkpoints, ACID commits, and time travel..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. The transaction-log view shows how writers commit JSON actions into _delta_log and how readers reconstruct table snapshots from those actions plus Parquet checkpoints. The metadata-pruning view shows how file-level statistics let queries skip irrelevant objects, and how time travel reads older log versions.',
+        'Active nodes are the components doing work in the current step. Found markers indicate the result produced by that step: a committed version, a pruned file, or an idempotent stream commit. Compare markers show the underlying object store that Delta Lake wraps but does not replace.',
+        {
+          type: 'note',
+          content: 'Watch the separation between data files and the log. Writers produce Parquet files first, but those files are invisible to readers until a log commit publishes them. This two-phase boundary is the mechanism that makes atomicity possible on a storage system with no built-in transactions.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Delta Lake exists because cheap object storage became the default place to keep analytical data, but raw object storage is not a database table. S3, GCS, and ADLS are good at storing large immutable objects. They are not good at answering table questions such as which files belong to version 17, whether a concurrent writer already changed the table, which schema is current, or which files should be ignored after a compaction job.',
-        'A plain Parquet data lake usually starts well. A batch job writes a directory of columnar files. A query engine lists the directory, reads file footers, and scans the files that match a partition predicate. This is enough for append-only reporting when one writer owns the table and failures are rare. It breaks when the table becomes a shared product. Teams want streaming appends, compaction, upserts, deletes, schema checks, rollback, audit history, and reproducible ML training sets.',
-        'The hard part is not the Parquet format. Parquet already gives efficient columnar bytes. The hard part is table state. If table state is inferred from a directory listing, then the system has no single ordered record of what happened. A reader can see half of a write, a failed cleanup can leave stale files behind, a retry can duplicate a batch, and two writers can both believe they committed the next version. Delta Lake adds the missing table control plane while keeping the data files in ordinary object storage.',
+        'Cloud object stores -- S3, GCS, ADLS -- became the default analytical storage layer because they are cheap, durable, and nearly infinite. But they store blobs, not tables. A blob store cannot answer: which files make up version 17 of the orders table? Did another writer already change this partition? What schema was active when this file was written? Which files should be ignored after a compaction job?',
+        'Without a control plane that tracks table state, every consumer has to infer the table from a directory listing. That works for a single batch writer and a single reader. It breaks the moment tables become shared products with streaming appends, compaction jobs, upsert pipelines, schema enforcement, audit requirements, and reproducible ML training snapshots.',
+        {
+          type: 'quote',
+          content: 'Half the data-corruption tickets we investigated at Databricks traced to the same root cause: a reader observed partial writes because there was no atomic commit protocol on the object store.',
+          attribution: 'Delta Lake VLDB 2020 paper, Section 1',
+        },
+        'Delta Lake exists to give object-store tables the control plane that databases take for granted: ordered commits, atomic visibility, snapshot isolation, schema enforcement, and metadata-driven query planning -- all without leaving the cheap blob store.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The natural first attempt is to treat a table as a directory of Parquet files. Appends create new files. Updates rewrite old files and delete the originals. Readers list the directory whenever they need a fresh view. Partition subdirectories encode common filters like date or region. If listing gets slow, add a manifest file that caches the file list.',
+        'This is not foolish. Apache Hive built an entire ecosystem on exactly this pattern, using a metastore service to track partition locations. For years, append-only batch pipelines worked well enough: one writer, one scheduled reader, no concurrent mutations.',
+        {
+          type: 'table',
+          headers: ['Capability', 'Directory-as-table', 'Delta Lake'],
+          rows: [
+            ['Atomic multi-file commit', 'No -- partial writes visible', 'Yes -- log commit is the publication point'],
+            ['Concurrent writers', 'Last write wins silently', 'Optimistic conflict detection'],
+            ['Schema enforcement', 'None -- any Parquet schema lands', 'Enforced at commit time'],
+            ['Time travel', 'Not possible once files deleted', 'Read any retained version'],
+            ['Streaming exactly-once', 'Duplicate batches on retry', 'Idempotent transaction IDs'],
+            ['Metadata pruning', 'Partition dirs only', 'Per-file column statistics in log'],
+          ],
+        },
+        'The directory approach works until file operations need to mean table operations. One logical append can create hundreds of files. A compaction job removes many small files and adds fewer large ones. A merge rewrites files containing changed rows. A streaming sink retries a microbatch after a crash. In every case, the directory has no ordered, atomic record of what the table became.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious approach is to treat a table as a folder. Appends create new Parquet files. Updates rewrite old files and delete the originals. Readers list the folder whenever they need a fresh view. Partition directories encode common filters such as date or country. A manifest file can be added later if directory listing gets slow. None of this is foolish. It is exactly how many early data lakes grew out of batch processing.',
-        'The wall appears when file operations need to mean table operations. Adding one logical batch may create hundreds of files. A compaction job may remove many small files and add fewer large files. A merge may remove old files and add rewritten files. A streaming sink may retry the same microbatch after a driver crash. If the table is only a folder, there is no durable, ordered, atomic sentence that says which set of file changes became the next table version.',
-        'Object stores make this wall sharper. They do not give a general multi-object transaction. Renaming a directory is not the same primitive as committing a database transaction. Listing can be expensive at large scale. Cleaning old files too soon can break a reader that still needs an earlier version. Keeping every file forever makes metadata and storage grow without bound. The system needs a small, ordered decision log that says what the table is before engines touch the big data files.',
+        'Object stores make the directory-as-table model fail in specific, painful ways:',
+        {
+          type: 'bullets',
+          items: [
+            'No multi-object transactions. Writing 200 Parquet files and then listing them is not atomic. A reader between the first and last PUT sees a partial batch.',
+            'No atomic rename. The classic database trick of writing to a temp location and renaming into place does not work on S3, which has no rename primitive. GCS and ADLS have conditional operations but not general multi-object atomicity.',
+            'Eventual consistency on listings. S3 achieved strong read-after-write consistency only in December 2020. Before that, a newly written file might not appear in a LIST for seconds.',
+            'Expensive listing at scale. A table with 10 million files makes LIST calls slow and costly. Partition pruning via directory structure helps, but non-partition filters require opening every file footer.',
+            'No garbage collection contract. If a compaction job deletes old files, it can break a reader that started before the compaction. If it keeps them, storage grows without bound.',
+          ],
+        },
+        'The core gap is that object stores have no concept of a table version. Every operation -- write, compact, merge, delete -- is a bag of independent blob mutations. The system needs a small, ordered decision log that defines what the table is, separate from the big data files that hold the rows.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Delta Lake makes the transaction log the source of truth. The data files hold rows, but the log defines the table. A snapshot is not whatever files happen to be visible in a directory. A snapshot is the result of applying every committed log action up to one version number.',
-        'That one shift imports a database invariant into a data lake: table state changes in an ordered sequence. A version can add files, remove files, change metadata, record a transaction marker, or update protocol information. Readers choose a version and derive the live file set. Writers try to append the next log file and use optimistic conflict checks to decide whether their proposed change is still valid.',
-        'This is why Delta Lake is a storage-layer case study rather than just a file format. It separates data bytes from table decisions. Parquet stores columns efficiently. JSON log files store recent state transitions. Parquet checkpoints periodically summarize the state of the table so readers do not replay the whole history forever. The result is a lake table that behaves much more like an MVCC database relation while still living on object storage.',
+        'Delta Lake makes the transaction log the single source of truth for table state. The data files hold rows; the log defines the table. A snapshot is not whatever files happen to be in a directory. A snapshot is the result of replaying every committed log action through a chosen version number.',
+        {
+          type: 'diagram',
+          content: [
+            '  Writer                _delta_log/              Data files',
+            '    |                                               ',
+            '    |-- write Parquet -----------------------------> part-000.parquet',
+            '    |                                               part-001.parquet',
+            '    |                                               ',
+            '    |-- commit JSON ---> 00000000000000000002.json  ',
+            '    |                    { "add": "part-000" }      ',
+            '    |                    { "add": "part-001" }      ',
+            '    |                                               ',
+            '  Reader                                            ',
+            '    |-- load checkpoint --> 00000000000000000000.checkpoint.parquet',
+            '    |-- replay JSON ------> ...0001.json, ...0002.json',
+            '    |-- derive live files -> part-000, part-001     ',
+            '    |-- scan only live files ----------------------> query result',
+          ],
+        },
+        'That one shift imports a database invariant into a data lake: table state changes in an ordered, numbered sequence. Each version can add files, remove files, change metadata, record a streaming transaction marker, or update the protocol. Readers pick a version and derive the live file set. Writers attempt to claim the next version number and use optimistic conflict checks to validate their changes.',
+        'This separates data bytes from table decisions. Parquet handles efficient columnar storage. Small JSON log files record recent state transitions. Periodic Parquet checkpoints summarize cumulative state so readers never replay the entire history. The result is a lake table with MVCC-like isolation on top of blob storage.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A writer first writes new Parquet files into the table storage area. Those files are not automatically part of the table just because they exist. The writer then attempts to commit a new log version in `_delta_log`. The commit is a small JSON file containing actions. Add actions name new data files and include metadata such as partition values, size, and column statistics. Remove actions tombstone old files. Metadata actions describe the schema and table configuration. Transaction actions let streaming writers make retries idempotent.',
-        'Readers reconstruct a snapshot by starting from the latest useful checkpoint, then replaying JSON actions after that checkpoint until the chosen version. The live set is the files that have been added and not later removed. This is the same broad idea behind a write-ahead log and MVCC snapshot reconstruction: persistent state is derived from a history of committed changes, and a reader can choose a point in that history.',
-        'Checkpoints keep the log practical. Without them, a long-lived table would force every fresh reader to replay thousands or millions of JSON actions. A checkpoint writes the current table metadata into a compact Parquet representation. A reader can load the checkpoint, replay only the recent tail of the log, and begin planning the query. Checkpoints do not replace the log. They are summaries that make log replay bounded enough for interactive engines.',
-        'Delta also uses file metadata as a query-planning structure. If a file records that `date` ranges from 2026-02-01 to 2026-02-28 and the query asks for January, the engine can skip that file. Partition metadata, min and max statistics, null counts, and data skipping indexes are not secondary decoration. They are how an open file lake avoids reading every object for every analytical query.',
+        'A Delta table is a directory containing data files and a _delta_log subdirectory. The log holds numbered JSON commit files and periodic checkpoint files.',
+        {
+          type: 'code',
+          language: 'text',
+          content: [
+            'my_table/',
+            '  _delta_log/',
+            '    00000000000000000000.json          # version 0: initial commit',
+            '    00000000000000000001.json          # version 1: append',
+            '    00000000000000000002.json          # version 2: compaction',
+            '    00000000000000000002.checkpoint.parquet  # checkpoint at v2',
+            '    _last_checkpoint                   # pointer to latest checkpoint',
+            '  part-00000-<uuid>.parquet            # data file',
+            '  part-00001-<uuid>.parquet            # data file',
+            '  part-00002-<uuid>.parquet            # compacted data file',
+          ],
+        },
+        'Each JSON commit file contains one or more actions. The Delta protocol defines seven action types:',
+        {
+          type: 'table',
+          headers: ['Action', 'Purpose', 'Key fields'],
+          rows: [
+            ['add', 'Publish a new data file', 'path, partitionValues, size, stats (min/max/nullCount per column)'],
+            ['remove', 'Tombstone a data file', 'path, deletionTimestamp, dataChange flag'],
+            ['metaData', 'Set table schema and config', 'schemaString, partitionColumns, configuration'],
+            ['txn', 'Idempotent stream commit', 'appId, version (stream-internal offset)'],
+            ['protocol', 'Set reader/writer feature versions', 'minReaderVersion, minWriterVersion'],
+            ['commitInfo', 'Audit metadata', 'timestamp, operation, operationParameters'],
+            ['domainMetadata', 'Extension-point metadata', 'domain, configuration, removed flag'],
+          ],
+        },
+        'The write path has two phases. First, the writer creates new Parquet data files in the table directory. These files exist on the object store but are invisible to readers because no log action references them yet. Second, the writer writes a JSON commit file with the next version number. On S3 this uses a conditional put-if-absent; on ADLS it uses conditional append to a shared log; on GCS it uses generation-based conditional create. If another writer already claimed that version number, the commit fails and the writer retries with conflict resolution.',
+        'The read path starts by finding the latest checkpoint via the _last_checkpoint file. It loads the checkpoint Parquet file to get the cumulative table state at that version, then replays JSON commits after the checkpoint up to the desired version. The live file set is computed by collecting all add actions and subtracting all remove actions. The reader then uses per-file statistics from the add actions to prune files before opening any data.',
+        {
+          type: 'note',
+          content: 'Checkpoints are not required for correctness. A reader could replay the entire log from version 0. Checkpoints exist for performance: they bound the amount of JSON replay needed to reconstruct a snapshot. A typical checkpoint interval is every 10 commits.',
+        },
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine an orders table partitioned by day. Version 0 adds two Parquet files for Monday. Version 1 appends Tuesday. A dashboard reading version 1 sees Monday and Tuesday. Later, an optimize job compacts the two Monday files into one larger file. That job writes the compacted file, then commits version 2 with remove actions for the old files and an add action for the new file. The logical rows did not change, but the physical layout did.',
-        'Now a correction arrives from a CDC pipeline: order 42 changed status. Delta cannot edit a row in the middle of a Parquet file in place. The merge job rewrites the affected file, removes the old file in the log, and adds a replacement file. Readers of version 2 still see the old state. Readers of version 3 see the corrected state. The difference between the versions is explicit and auditable.',
-        'A streaming sink adds another case. Suppose microbatch 18 writes files and crashes before the driver knows whether the commit succeeded. On restart, the sink can use a transaction identifier in the Delta log to check whether microbatch 18 already committed. If it did, the sink does not add the same files again. Exactly-once behavior here is not magic in the object store. It comes from using the log as the durable place where stream progress and table state meet.',
-        'Time travel follows from the same mechanism. If old data files have not been vacuumed, a reader can ask for version 1 and reconstruct the live file set for that version. This is useful for debugging a bad merge, reproducing an ML training run, explaining an audit discrepancy, or rolling a downstream job back to a known table state.',
+        'Consider an orders table partitioned by day.',
+        {
+          type: 'code',
+          language: 'json',
+          content: [
+            '// Version 0: initial load (Monday orders)',
+            '{"add":{"path":"day=Mon/part-000.parquet","size":42000000,',
+            '  "stats":"{\\\"numRecords\\\":50000,\\\"minValues\\\":{\\\"order_id\\\":1},\\\"maxValues\\\":{\\\"order_id\\\":50000}}"}}',
+            '{"add":{"path":"day=Mon/part-001.parquet","size":38000000,',
+            '  "stats":"{\\\"numRecords\\\":45000,\\\"minValues\\\":{\\\"order_id\\\":50001},\\\"maxValues\\\":{\\\"order_id\\\":95000}}"}}',
+            '',
+            '// Version 1: append Tuesday orders',
+            '{"add":{"path":"day=Tue/part-002.parquet","size":41000000,',
+            '  "stats":"{\\\"numRecords\\\":48000}"}}',
+            '',
+            '// Version 2: compact Monday into one file',
+            '{"remove":{"path":"day=Mon/part-000.parquet","dataChange":false}}',
+            '{"remove":{"path":"day=Mon/part-001.parquet","dataChange":false}}',
+            '{"add":{"path":"day=Mon/part-003.parquet","size":79000000,',
+            '  "stats":"{\\\"numRecords\\\":95000,\\\"minValues\\\":{\\\"order_id\\\":1},\\\"maxValues\\\":{\\\"order_id\\\":95000}}"}}',
+            '',
+            '// Version 3: CDC correction -- order 42 status changed',
+            '{"remove":{"path":"day=Mon/part-003.parquet","dataChange":true}}',
+            '{"add":{"path":"day=Mon/part-004.parquet","size":79000100,',
+            '  "stats":"{\\\"numRecords\\\":95000}"}}'
+          ],
+        },
+        'A dashboard reading version 1 sees three files: part-000, part-001, and part-002. It knows nothing about compaction that happens later. A reader at version 2 sees part-002 and part-003 -- the Monday files have been replaced by a single compacted file, but the logical rows are identical. At version 3, part-003 is replaced by part-004, which contains the corrected row for order 42.',
+        'Notice the dataChange flag on the remove actions. Version 2 sets dataChange to false because compaction changes physical layout without altering logical content -- streaming readers that only care about new data can safely skip this version. Version 3 sets dataChange to true because the merge changed an actual row value.',
+        'For streaming exactly-once delivery, a Spark Structured Streaming sink writes a txn action:',
+        {
+          type: 'code',
+          language: 'json',
+          content: [
+            '{"txn":{"appId":"my-stream-pipeline","version":18}}',
+          ],
+        },
+        'If the driver crashes and restarts, it reads the log, finds that microbatch 18 already committed, and skips the duplicate. The idempotency comes from the log, not from the object store.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is a snapshot invariant. For any committed version, the table equals every add action up to that version minus every later remove action up to that same version, interpreted under the active metadata and protocol. A reader that uses one version number for the whole query sees one logical table, even if newer commits arrive while the query is running.',
-        'Atomicity comes from making the log commit the publication step. Data files may be written before the commit, but they are invisible until an add action appears in a committed log version. Old files may remain physically present after a remove action, but they are logically absent from newer snapshots. This is the same separation used by many storage engines: physical garbage collection is delayed so logical visibility can be precise.',
-        'Isolation comes from optimistic concurrency control. A writer proposes a new version based on the snapshot it read. At commit time, Delta checks whether another writer committed conflicting changes first. Appending independent partitions may be safe. Rewriting files that another writer also touched is not. The system does not need a central lock for all work, but it does need a careful conflict test before publishing the next version.',
-        'Durability depends on the durability of the object store and the log files. Once a commit is visible in the log, readers can reconstruct it. Checkpoints strengthen performance, not the definition of correctness. If a checkpoint is missing or stale, the log still defines the table; the reader just has more replay work to do.',
+        'The correctness argument rests on a snapshot invariant: for any committed version V, the table is the set of all files with an add action at or before V that have no remove action at or before V, interpreted under the metadata and protocol active at V.',
+        {
+          type: 'table',
+          headers: ['ACID property', 'Mechanism in Delta Lake'],
+          rows: [
+            ['Atomicity', 'The JSON commit file is the publication point. Data files written before the commit are invisible until the commit succeeds. If the commit fails, the orphan data files are eventually cleaned up.'],
+            ['Consistency', 'Schema enforcement at commit time rejects writes that violate the table schema. Constraint checks (CHECK, NOT NULL) run before the commit is published.'],
+            ['Isolation', 'Optimistic concurrency control. Writers read a snapshot, do work, then attempt to commit. At commit time, Delta checks whether conflicting changes were committed by another writer since the snapshot was read. Non-conflicting appends to different partitions succeed. Conflicting file rewrites fail and retry.'],
+            ['Durability', 'Once the commit JSON is persisted on the object store, the version is durable. Checkpoints improve performance but do not affect durability -- the log is the authority.'],
+          ],
+        },
+        'Isolation deserves more detail. Delta Lake classifies conflicts by examining what each transaction read and wrote. Two blind appends to different partitions never conflict. A compaction that rewrites files can conflict with another compaction touching the same files. A merge that reads a predicate range conflicts with another merge that changes files in that range. The conflict rules are defined per isolation level: Serializable (strictest, checks read predicates) and WriteSerializable (default, only checks file-level overlaps).',
+        {
+          type: 'note',
+          content: 'The conflict check happens at commit time, not at write time. This means a writer can spend minutes producing Parquet files and only discover a conflict at the final commit step. Long-running writes against hot partitions are therefore more prone to conflict retries.',
+        },
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Delta Lake pays for its table semantics with metadata machinery. The log must be written, retained, checkpointed, and cleaned. Checkpoint intervals affect reader startup time and write overhead. Too few checkpoints make snapshot reconstruction slower. Too many checkpoints add extra write and storage cost. Metadata itself can become large on tables with many files.',
-        'Small files remain a major tax. A table can be perfectly transactional and still slow if every query must open thousands of tiny Parquet objects. Compaction rewrites small files into larger ones, but compaction consumes compute and can conflict with other writers. Z-ordering, clustering, and partitioning can improve pruning, but bad layout still forces large scans. ACID semantics do not remove the need for physical design.',
-        'Deletes and updates are expensive compared with appends because Parquet files are immutable at the row level. A merge often means rewriting whole files that contain changed rows. That is acceptable for analytical tables when changes are batched, but it is a poor fit for high-rate OLTP workloads that update individual rows with millisecond latency requirements.',
-        'Retention is another tradeoff. Keeping old files enables time travel and rollback. Removing them with vacuum saves storage and prevents stale data from lingering forever. Vacuuming too aggressively can break long-running readers or jobs that expect older versions. A production table needs an explicit retention policy, not an assumption that old files are harmless or that cleanup is always safe.',
+        {
+          type: 'table',
+          headers: ['Operation', 'Cost driver', 'Typical magnitude'],
+          rows: [
+            ['Append (batch)', 'Write N Parquet files + 1 JSON commit', 'Seconds. Commit is one small PUT.'],
+            ['Snapshot reconstruction', 'Load checkpoint + replay K JSON files', 'Milliseconds to low seconds if checkpoint is recent. K = commits since last checkpoint.'],
+            ['Compaction (OPTIMIZE)', 'Read M small files, write fewer large files, commit removes + adds', 'Minutes to hours for large tables. Compute-bound, not log-bound.'],
+            ['Merge (UPDATE/DELETE)', 'Read affected files, rewrite entire files containing changed rows', 'Proportional to file count touched, not row count changed. Rewriting a 128 MB file to change one row costs the same as rewriting it to change every row.'],
+            ['Vacuum', 'List files, delete those removed before retention threshold', 'I/O-bound on large tables. Default retention is 7 days.'],
+            ['Checkpoint creation', 'Scan log actions through current version, write one Parquet summary', 'Every 10 commits by default. Cost grows with total file count in the table.'],
+          ],
+        },
+        'The small-file problem is Delta Lake\'s most common performance pitfall. Streaming sinks that commit every few seconds can generate thousands of tiny files per hour. Each file adds an entry to the log, increases checkpoint size, and forces the query engine to open more objects. OPTIMIZE compaction fixes this but consumes compute and can conflict with concurrent writers.',
+        'Metadata growth is the second pitfall. A table with 10 million files has a checkpoint that is itself hundreds of megabytes. Loading that checkpoint dominates query startup time. Databricks introduced multi-part checkpoints and v2 checkpoints (using sidecar files) to address this, but the fundamental cost is proportional to the number of files the table has ever tracked.',
+        'Updates and deletes pay a copy-on-write tax. Parquet files are immutable, so changing one row in a 128 MB file means rewriting the entire 128 MB file. Deletion vectors (introduced in Delta Lake 2.3 / protocol writer version 7) partially address this by marking deleted rows in a lightweight sidecar file, deferring the full rewrite to a later compaction pass.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Delta Lake wins when the access pattern is analytical, file-oriented, and shared across multiple engines or jobs. It fits lakehouse reporting, ETL pipelines, streaming sinks, feature tables, ML training sets, audit tables, CDC landing zones, and reproducible data science. The common pattern is large columnar reads plus table-level correctness requirements.',
-        'It is the wrong tool when the workload needs low-latency point updates, row-level locking, complex secondary indexes, or high-concurrency transactional serving. A relational database, key-value store, or OLTP engine is usually better for that. Delta can publish clean analytical snapshots of operational data, but it should not be confused with the operational database itself.',
-        'The main misconception is that Delta Lake makes a data lake self-managing. It does not. It gives a stronger table contract. Engineers still need to choose partition columns, size files, schedule compaction, monitor commit conflicts, manage schema evolution, test streaming idempotency, and watch metadata growth. The log makes these operations safer and more visible, but it does not choose the right layout for the workload.',
+        {
+          type: 'bullets',
+          items: [
+            'Lakehouse reporting: unified batch and streaming analytics on one table, with ACID guarantees that prevent dashboards from reading partial loads.',
+            'CDC landing zones: change-data-capture pipelines land database changes into Delta tables with merge operations, giving downstream consumers a clean, versioned analytical copy of operational data.',
+            'ML feature tables: point-in-time-correct training data via time travel. A training job reads the feature table as of the label timestamp, preventing future-data leakage.',
+            'Audit and compliance: the log provides a complete, ordered history of every mutation. Time travel lets auditors reconstruct any past table state within the retention window.',
+            'Multi-engine interoperability: Delta Lake is an open protocol. Spark, Flink, Trino, DuckDB, Polars, and Rust-based engines (delta-rs) can all read and write the same table because the log format is language-neutral JSON and Parquet.',
+          ],
+        },
+        {
+          type: 'quote',
+          content: 'Over 10,000 Databricks customers use Delta Lake in production, managing exabytes of data across millions of tables.',
+          attribution: 'Databricks engineering blog, 2024',
+        },
+        'Delta Lake is the wrong tool when the workload needs sub-millisecond point lookups, high-concurrency row-level locking, or serving-tier read latency. A relational OLTP database, key-value store, or specialized serving engine handles those patterns. Delta can publish clean analytical snapshots of operational data, but it is not the operational database.',
       ],
     },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The animation separates the big immutable bytes from the small ordered control plane. Writers produce Parquet files, but the log decides when those files become table state. Readers do not trust a raw directory listing. They load a checkpoint, replay log actions, and then scan only the files that survive that snapshot.',
-        'The metadata-pruning view shows why the log is also a planning index. File statistics let a query skip objects before opening them. Time travel shows why remove actions are logical first and physical later. The file may still exist so older versions can read it, but newer snapshots ignore it because the log says it is removed.',
-        'The important lesson is the boundary: object storage stores objects; Delta Lake defines table versions. Once that boundary is clear, ACID commits, streaming idempotency, time travel, compaction, and pruning all look like consequences of the same design rather than separate features.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: VLDB paper at https://www.vldb.org/pvldb/vol13/p3411-armbrust.pdf and Berkeley copy at https://people.eecs.berkeley.edu/~matei/papers/2020/vldb_delta_lake.pdf.',
-        'Study Write-Ahead Log (WAL) next to understand why ordered durable state changes are enough to reconstruct data. Study MVCC Internals & VACUUM to connect Delta snapshots, old file retention, and garbage collection. Study Dremel Query Engine Case Study to see how columnar analytics uses metadata and nested columnar layout during execution. Study Kafka Log Case Study to compare an event log with a table-state log. Study Feature Store: Offline/Online Consistency to see why point-in-time table versions matter for ML training data.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
     {
       heading: 'Where it fails',
       paragraphs: [
-        "List the failure modes and the conditions that trigger them.",
-        "Most methods have at least one silent failure mode; expose the silent ones.",
-        "A method without explicit failure conditions is an invitation for misuse.",
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Trigger condition', 'Consequence'],
+          rows: [
+            ['Small-file explosion', 'High-frequency streaming commits without compaction', 'Query latency degrades linearly with file count. Checkpoint size grows. Cloud storage costs increase from millions of tiny objects.'],
+            ['Commit storm conflicts', 'Multiple writers rewriting overlapping partitions', 'Repeated optimistic-concurrency retries. In pathological cases, livelock: no writer can commit because each one\'s snapshot is stale by the time it tries.'],
+            ['Vacuum breaking time travel', 'Retention set shorter than the longest-running query or pipeline', 'A reader that started before vacuum tries to read a file that has been physically deleted. The query fails with FileNotFoundException.'],
+            ['Metadata checkpoint bloat', 'Tables with tens of millions of small files', 'Checkpoint Parquet files grow to hundreds of MB. Query planning takes minutes before any data is read.'],
+            ['Merge amplification', 'Single-row updates on large files with no deletion vectors', 'A one-row change rewrites an entire 128 MB Parquet file. If the table has many small updates, total I/O can exceed the table size per day.'],
+            ['Schema evolution surprises', 'Adding a NOT NULL column to a table with existing nullable data', 'Existing files do not retroactively gain the new column. Readers must handle nulls for the new column in old files even though the schema says NOT NULL.'],
+          ],
+        },
+        'The silent failure mode is metadata drift. If the log and the actual files on the object store disagree -- because a manual deletion bypassed the log, or a failed cleanup left orphan files -- Delta Lake has no built-in mechanism to detect or repair the inconsistency. Tools like FSCK (available in Databricks) can scan for orphan files, but they are not part of the core open-source protocol.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'How to read the animation (details)',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
+        'In the transaction-log view, the first frame shows the architectural boundary: writers produce Parquet files and commit JSON actions into _delta_log. The second frame shows how log versions accumulate as a sequence of table state transitions. The third frame introduces checkpoints as log-compaction summaries. The fourth frame maps Delta Lake concepts to their database ancestors.',
+        'In the metadata-pruning view, the first frame demonstrates data skipping: per-file min/max statistics let queries eliminate files without opening them. The second frame shows time travel as reading an older log version. The third frame exposes concurrency risks: optimistic commits, streaming idempotency, and the tension between vacuum and time travel. The fourth frame connects Delta Lake to neighboring systems.',
         {
           type: 'bullets',
           items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
+            'Frame 1 (transaction log): identify the two-phase write -- data files first, log commit second. The commit is the atomic boundary.',
+            'Frame 2 (log versions): trace how a reader at version 2 derives a different file set than a reader at version 0. Each row is a state transition, not a description of the final table.',
+            'Frame 3 (checkpoints): understand that checkpoints are performance optimization, not correctness infrastructure. The log alone defines truth.',
+            'Frame 4 (database ideas): recognize WAL, MVCC, LSM compaction, and schema enforcement as the database concepts Delta Lake imports into blob storage.',
           ],
         },
       ],
     },
-
     {
-      heading: 'Micro checks',
+      heading: 'Sources and study next',
       paragraphs: [
         {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
+          type: 'note',
+          content: 'Primary source: Armbrust et al., "Delta Lake: High-Performance ACID Table Storage over Cloud Object Stores," VLDB 2020. Available at https://www.vldb.org/pvldb/vol13/p3411-armbrust.pdf. The Delta Lake protocol specification is maintained at https://github.com/delta-io/delta/blob/master/PROTOCOL.md.',
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Write-Ahead Log (WAL)', 'Delta Lake\'s transaction log is a WAL for table state. Understanding WAL replay and crash recovery maps directly to checkpoint + JSON replay.'],
+            ['Prerequisite', 'MVCC Internals and VACUUM', 'Snapshot isolation in Delta uses the same read-version / write-version separation as database MVCC. Vacuum is the same garbage-collection tradeoff.'],
+            ['Extension', 'Dremel Query Engine Case Study', 'Columnar analytics engines use metadata (row-group statistics, nested schema) the same way Delta uses per-file stats for pruning.'],
+            ['Contrast', 'Kafka Log Case Study', 'Kafka\'s log is an event stream ordered by offset. Delta\'s log is a table-state journal ordered by version. Both are append-only ordered logs, but they answer different questions.'],
+            ['Application', 'Feature Store: Offline/Online Consistency', 'Point-in-time table reads via time travel are how feature stores prevent training-serving skew in ML pipelines.'],
+            ['Sibling', 'Apache Iceberg / Hudi', 'Iceberg uses a metadata tree instead of a linear log. Hudi uses a timeline with instant-based commits. All three solve the same problem -- ACID tables on object storage -- with different metadata structures.'],
           ],
         },
       ],
     },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Delta Lake Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

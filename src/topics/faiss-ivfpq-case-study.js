@@ -218,178 +218,222 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Faiss IVF-PQ Case Study. A production vector-index recipe: train coarse centroids, store residual PQ codes in inverted lists, probe a few lists, and optionally rerank exact vectors..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "index recipe" view shows the build-time layout. The active nodes are the learned boundaries: coarse centroids, residual vectors, and product-quantization codes. The found node is the stored inverted list, because every database vector ends the build in exactly one coarse list with an id and a compressed payload.',
+        'The "query execution" view shows the serving-time contract. The query stays full precision, centroids choose which lists to probe, ADC scores compressed candidates, and the top-k heap keeps only the best approximate ids seen so far.',
+        {
+          type: 'note',
+          text: 'The safe inference rule is local: if a list is not probed, its vectors are treated as outside the candidate set for this query. That is a speed decision, not a proof that those vectors cannot be true nearest neighbors.',
+        },
       ],
     },
     {
-      heading: 'Why IVF-PQ exists',
+      heading: 'Why this exists',
       paragraphs: [
-        `Dense vector search asks a simple question at punishing scale: given a query embedding, which stored embeddings are closest? A flat index answers exactly by comparing the query with every vector. That is the clean baseline, and it is often the first thing to build. It also becomes expensive fast. One billion 768-dimensional float32 vectors require roughly three terabytes just for raw vector payloads, before ids, metadata, replicas, and serving overhead. Exact scanning then spends distance-computation time on every candidate, even though only a tiny fraction can enter the top-k.`,
-        `Faiss IVF-PQ is a production recipe for making that search cheaper. IVF means inverted file: train coarse centroids, assign each vector to its nearest centroid, and store vectors in centroid-owned lists. PQ means product quantization: split a vector or residual into subspaces and replace each subvector with a small codebook id. The index searches only a few coarse lists and scores compressed codes before optional exact reranking. The result is approximate nearest-neighbor search with explicit knobs for memory, latency, and recall.`,
-        `The important lesson is composition. IVF alone reduces the number of candidates scanned but still stores full vectors. PQ alone compresses vectors but still leaves the system with too many possible candidates. Together, they create a two-stage index: route broadly with coarse quantization, score cheaply with compact codes, and spend exact distance only where it is likely to matter.`,
+        {
+          type: 'quote',
+          attribution: 'Faiss case-study lesson',
+          text: 'IVF-PQ is what you build when exact vector search is still the teacher, but no longer the serving plan.',
+        },
+        'A vector search service usually starts with the clean baseline: store each embedding as a float array, compare the query to every stored vector, and return the nearest k. That flat index is exact, debuggable, and essential for evaluation. It is also brutally expensive when the collection grows.',
+        'The memory alone becomes a product constraint. A 768-dimensional float32 embedding uses 3,072 bytes before ids, metadata, allocator overhead, replicas, and exact-rerank copies. One hundred million such vectors need roughly 307 GB for raw vector payloads. One billion need roughly 3 TB. Query latency then adds a second cost: every request must stream huge arrays and maintain a top-k selection structure over the whole collection.',
+        'Faiss IVF-PQ exists to move that cost into two cheaper stages. IVF reduces the number of candidate vectors by routing the query to a small number of coarse lists. PQ reduces the bytes read per candidate by storing a lossy code instead of the full vector. Optional reranking then spends exact distance computation only on a bounded candidate pool.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The reasonable first attempt is flat search. It stores full vectors, computes an exact distance for every item, and keeps the nearest k. For small indexes, offline analysis, correctness tests, and recall measurement, flat search is the right tool. It gives the reference answer that every approximate index must be judged against.',
+        'Teams often stretch flat search longer than expected because it has few moving parts. There is no training set to choose, no quantizer to tune, no cluster imbalance to debug, and no approximate miss to explain to a product team. If the corpus fits in memory and the query rate is modest, exact search can be simpler and safer than a compressed index.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: `// Flat-search baseline: exact, simple, and expensive at scale.
+function flatTopK(query, vectors, k) {
+  const heap = new MaxHeap(k);
+  for (const row of vectors) {
+    const d = squaredL2(query, row.embedding);
+    heap.pushBounded({ id: row.id, distance: d });
+  }
+  return heap.itemsSortedByDistance();
+}`,
+          text: `// Flat-search baseline: exact, simple, and expensive at scale.
+function flatTopK(query, vectors, k) {
+  const heap = new MaxHeap(k);
+  for (const row of vectors) {
+    const d = squaredL2(query, row.embedding);
+    heap.pushBounded({ id: row.id, distance: d });
+  }
+  return heap.itemsSortedByDistance();
+}`,
+        },
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The naive vector index is Flat. Store every embedding as float32, compute the distance from the query to every stored vector, and keep the nearest k. Flat is exact, easy to test, and hard to beat for small collections or offline evaluation. It also gives the reference recall number for every approximate system. If an approximate index cannot be compared against flat search on a representative sample, the team does not know what it is losing.`,
-        `The wall is memory bandwidth and candidate count. For high-dimensional embeddings, exact distance computation reads a large amount of memory per vector. The CPU or GPU may do simple arithmetic, but it must stream huge arrays and maintain top-k selection. At web or retrieval-augmented-generation scale, the index may need to serve many tenants, many replicas, and frequent refreshes. Exact search becomes too costly, or it pushes teams toward fewer vectors, smaller histories, weaker recall, or expensive hardware.`,
-        `Graph indexes such as HNSW solve many workloads by navigating neighbor links, but they bring their own memory overhead and update behavior. IVF-PQ occupies a different point in the design space. It is especially attractive when the vectors are large, the collection is huge, memory is the hard limit, and the service can trade some recall for compression plus reranking.`,
+        'The wall is not that distance math is mysterious. The wall is bytes and candidates. Exact search must read every vector, touch every dimension, and compare every score against the current top-k boundary. When n doubles, flat search reads twice as many vectors and does twice as many distance computations.',
+        'Hardware does not remove the wall; it changes its shape. A GPU can compute many distances in parallel, but the service still has to move vectors through memory, batch requests, select top-k candidates, and keep enough replicas online for availability. If the index is too large, the deployment pays through memory pressure, cross-device transfer, lower cache locality, or fewer replicas.',
+        {
+          type: 'table',
+          headers: ['Baseline pressure', 'What grows', 'Why it hurts'],
+          rows: [
+            ['Raw vectors', 'dimensions * 4 bytes * vector count', 'RAM or GPU memory becomes the deployment limit'],
+            ['Distance scans', 'one full comparison per stored vector', 'latency grows linearly with corpus size'],
+            ['Top-k selection', 'one candidate score per stored vector', 'selection becomes part of the hot path'],
+            ['Replicas', 'full index copied per serving shard or availability unit', 'exactness multiplies infrastructure cost'],
+            ['Refreshes', 'new embeddings and deleted ids', 'large flat stores are easy to reason about but expensive to move'],
+          ],
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `IVF-PQ separates vector search into routing and compressed scoring. Routing asks which coarse regions of the space the query should inspect. Scoring asks which compressed candidates inside those regions are closest enough to survive. This is the same broad pattern as many retrieval systems: use a cheap stage to create a candidate set, then use a more accurate stage to refine it.`,
-        `The coarse stage is trained with k-means. If the index has nlist lists, training learns nlist centroids. Each database vector is assigned to its nearest centroid. The list stores the vector id and its compressed representation. At query time, the query compares itself with the centroids and probes the nearest nprobe lists. More probes usually mean better recall and higher latency. Fewer probes mean cheaper search and more missed neighbors.`,
-        `The PQ stage compresses the remaining local information. In residual IVF-PQ, the index stores x - c, where c is the vector\'s coarse centroid. That residual is split into M subspaces. Each subspace is quantized by a small codebook, often with 8 bits per subquantizer. A code such as PQ64x8 stores 64 byte-sized ids rather than the original float vector. The code is lossy, but it is small enough to scan quickly.`,
+        'IVF-PQ splits nearest-neighbor search into routing, compressed scoring, and optional exact repair. Routing asks which coarse regions are worth scanning. Compressed scoring asks which encoded candidates inside those regions look close. Exact repair reranks only a small candidate pool.',
+        {
+          type: 'diagram',
+          alt: 'IVF-PQ build and query pipeline',
+          label: 'IVF-PQ as a two-stage candidate generator',
+          body: `Build time:
+  float vector x
+       |
+       v
+  nearest coarse centroid c_i        list i owns this vector id
+       |
+       v
+  residual r = x - c_i
+       |
+       v
+  PQ code [q0, q1, ..., q(M-1)]      compact payload stored in list i
+
+Query time:
+  query q -> nearest centroids -> nprobe lists -> ADC scores -> top-k ids
+                                                     |
+                                                     v
+                                           optional exact rerank`,
+          text: `Build time:
+  float vector x
+       |
+       v
+  nearest coarse centroid c_i        list i owns this vector id
+       |
+       v
+  residual r = x - c_i
+       |
+       v
+  PQ code [q0, q1, ..., q(M-1)]      compact payload stored in list i
+
+Query time:
+  query q -> nearest centroids -> nprobe lists -> ADC scores -> top-k ids
+                                                     |
+                                                     v
+                                           optional exact rerank`,
+        },
+        'The key layout is residual product quantization inside inverted lists. A vector x is assigned to a coarse centroid c. Instead of storing x as full precision in the list, the index stores an encoding of x - c. Residuals are usually easier to compress than full vectors because the coarse centroid has already explained the broad location.',
+        'Product quantization then splits the residual into M subspaces. Each subspace has a learned codebook. The stored code is one codebook id per subspace, often one byte per id when nbits is 8. A 64-subquantizer code is 64 bytes, compared with 3,072 bytes for a 768-dimensional float32 vector.',
       ],
     },
     {
-      heading: 'How query execution works',
+      heading: 'How it works',
       paragraphs: [
-        `A query starts as a full-precision vector. The index first searches the coarse centroids and picks nprobe lists. If nprobe is 8, the system scans only the candidates assigned to the 8 nearest coarse regions. This is approximate because the true nearest neighbor might be assigned to the 9th list, or to a list whose centroid is not especially close even though one member is.`,
-        `Inside a probed list, Faiss can score PQ codes using asymmetric distance computation. The query remains full precision, while the database vector is represented by codebook ids. For each subspace, the system precomputes a lookup table: distance from the query subvector to every centroid in that subquantizer\'s codebook. A candidate code is then scored by reading one table entry per subspace and summing the results. This replaces many floating-point operations and vector reads with compact table lookups.`,
-        `The top-k stage maintains the best candidate ids seen so far. If exact vectors are stored separately, the service can rerank a larger approximate candidate set using true distances. Reranking is often the difference between an index that is merely small and one that is useful. IVF-PQ can cheaply propose candidates; exact rerank can repair some quantization error at a controlled memory-read budget.`,
-      ],
-    },
-    {
-      heading: 'Knobs and tradeoffs',
-      paragraphs: [
-        `The main IVF knobs are nlist and nprobe. More lists create smaller buckets, which can reduce scanned candidates when the clustering is good. Too many lists can produce empty or tiny buckets and make training brittle. nprobe is the runtime recall-latency dial. Raising it scans more lists and usually recovers more neighbors, but tail latency rises because more codes must be scored.`,
-        `The main PQ knobs are M and nbits. M is the number of subquantizers. Larger M gives more pieces and usually lower distortion, but the code grows. nbits controls the number of centroids per subquantizer. Eight bits means 256 possible values per subspace and one byte per subquantizer. A 64-subquantizer, 8-bit code is 64 bytes, far smaller than a 768-dimensional float32 vector. The tradeoff is quantization error: two vectors that are different in float space may collapse to similar code distances.`,
-        `Rerank depth is the quality-recovery knob. The service can ask IVF-PQ for the top 100 or 1000 approximate candidates, fetch exact vectors for those candidates, and compute true distances. This improves final recall but adds memory reads and storage overhead. Many real systems tune these knobs against recall at k, latency percentiles, memory per vector, build time, update cost, and dollars per query rather than against a single average number.`,
+        'The build path starts with training. K-means learns nlist coarse centroids from representative embeddings. PQ training learns M subquantizer codebooks, usually on residuals. After training, each database vector is assigned to its nearest coarse centroid, converted to a residual, encoded as PQ ids, and appended to the corresponding inverted list with its external document id.',
+        'The query path starts by comparing the full query vector against the coarse centroids. The nearest nprobe centroids define which lists will be scanned. This is the main recall-latency dial: increasing nprobe scans more candidates and usually recovers more true neighbors, but it also raises work per query.',
+        'Inside each probed list, asymmetric distance computation keeps the query precise and the database side compressed. For each subspace, the query residual is compared with every codebook centroid once, producing a lookup table. Each candidate code then turns into M table lookups and M additions.',
+        {
+          type: 'bullets',
+          items: [
+            'nlist controls how many coarse buckets exist after training.',
+            'nprobe controls how many of those buckets a query scans.',
+            'M controls how many subquantizers appear in each PQ code.',
+            'nbits controls how many centroids each subquantizer can choose from.',
+            'rerank depth controls how many approximate candidates receive exact distance repair.',
+          ],
+        },
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `IVF-PQ works because it attacks the two expensive resources directly. IVF reduces how many candidates are scanned. PQ reduces how much memory is needed per candidate and how expensive each approximate distance is. In modern systems, memory movement often matters as much as arithmetic. Scanning compact codes can be faster than reading full vectors even if the scoring logic is more complicated.`,
-        `Faiss matters because implementation details are part of the algorithm at scale. Batching queries improves throughput. GPU kernels must manage lookup tables, memory coalescing, and fast k-selection. CPU paths must care about cache layout and SIMD. A poor implementation of the same mathematical idea can lose the entire benefit to memory stalls or selection overhead.`,
-        `This is also why the index is trained infrastructure, not just a data structure. The training set must represent the embedding distribution that the service will search. If the embedding model changes, the vector distribution may shift. Coarse centroids and PQ codebooks learned on old data can become a bad fit, causing list imbalance, higher distortion, and recall loss.`,
+        'IVF-PQ works when geometric locality and compression error are both controlled. IVF assumes that the nearest neighbors of a query are likely to live in nearby coarse cells. PQ assumes that the residual can be approximated well enough by independently quantizing subspaces. Neither assumption is perfect; the index earns speed by making both errors measurable and tunable.',
+        'The correctness story is therefore approximate, not absolute. The invariant during search is narrower than exact nearest-neighbor search: every returned candidate has been scored among the vectors in the probed lists, using the trained PQ distance approximation. The algorithm is faithful to that candidate set and scoring rule. It does not prove that unprobed lists contain no better vector.',
+        'Reranking changes the final guarantee. If the exact vector is available for each approximate candidate, the final ordering can be exact within the candidate pool. Reranking cannot recover a true neighbor that IVF never probed or PQ scored too poorly to enter the candidate pool. It repairs ranking error after candidate generation; it does not repair candidate-generation miss by itself.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Flat search costs O(n * d) distance work per query for n vectors of dimension d. IVF-PQ replaces that with centroid search plus compressed scans: roughly O(nlist * d) for coarse assignment if searched directly, then O(scanned_codes * M) table lookups for ADC, plus top-k maintenance. In practice Faiss can accelerate the centroid stage and batch the hot paths, but the shape remains candidate reduction plus cheaper candidate scoring.',
+        'The memory shift is the easiest part to feel. A full 768-dimensional float32 vector costs 3,072 bytes. A PQ64x8 code costs 64 bytes before ids and list overhead. Storing exact vectors for rerank adds memory back, but now the service can choose whether exact vectors live in RAM, GPU memory, memory-mapped storage, or a separate retrieval tier.',
+        {
+          type: 'table',
+          headers: ['Knob', 'Raises quality by', 'Raises cost by', 'Failure if mistuned'],
+          rows: [
+            ['nlist', 'making coarse cells smaller', 'training complexity and centroid search', 'empty, tiny, or imbalanced lists'],
+            ['nprobe', 'scanning more nearby cells', 'more candidate scans per query', 'low recall or high tail latency'],
+            ['M', 'using more PQ subspaces', 'larger code and more lookups', 'distortion if too small, memory pressure if too large'],
+            ['nbits', 'using larger sub-codebooks', 'larger tables and training cost', 'coarse quantization or slow table access'],
+            ['rerank depth', 'repairing approximate order with exact distances', 'extra vector reads and exact math', 'missed repair if too shallow, latency blowup if too deep'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The hidden constant is memory movement. IVF-PQ often wins because scanning compact codes and lookup tables is cheaper than streaming full vectors, not because the math became magically sublinear in every possible deployment.',
+        },
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'IVF-PQ fits billion-scale semantic retrieval, image similarity search, recommendation candidate generation, duplicate detection, and RAG retrieval systems where a compressed first stage feeds a stronger reranker. The workload shape matters: many stored vectors, high-dimensional embeddings, approximate candidates allowed, and a clear way to measure recall loss against flat search.',
+        'It is also useful when memory per vector is the binding constraint. A service may need multiple shards, replicas, tenant partitions, hot standby indexes, or GPU-resident serving. Compression can turn an impossible memory plan into a feasible serving plan, especially when exact rerank is applied to a small candidate pool.',
+        'Faiss is a case study in systems-aware algorithms. The math says "coarse quantization plus product quantization." The production library also has to handle training data, list layout, SIMD and GPU kernels, batched query execution, lookup tables, fast k-selection, ids, deletes, and evaluation workflows. The data structure and the hardware path are one design surface.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `IVF-PQ is useful in billion-scale semantic search, image retrieval, recommendation candidate generation, duplicate detection, and retrieval-augmented generation where a compressed first-stage index feeds a stronger reranker. It is a strong candidate when the service needs many vectors in memory, can tolerate approximate candidates, and can tune recall with nprobe and reranking.`,
-        `It fails when exact recall is mandatory, when the training distribution is not representative, or when filters dominate the query. Metadata filters are especially important. If a query must search only one tenant, one jurisdiction, or one document type, probing global vector clusters first may scan many ineligible candidates. Some systems solve this with per-filter indexes, hybrid filtering, prefilter-aware search, or reranking that understands the metadata constraints. Without that, the measured ANN recall can look good while product recall is poor.`,
-        `It can also struggle with frequent updates. New vectors can be assigned to existing lists, but the centroids and codebooks may age. Deletions can leave fragmented lists. A service with rapid embedding-model changes may need rebuild pipelines, shadow indexes, and live recall monitoring. IVF-PQ is powerful, but it is not a universal replacement for HNSW, ScaNN, DiskANN, flat search, or learned sparse retrieval.`,
+        'IVF-PQ is the wrong default when exact recall is mandatory. Legal deduplication, security matching, medical lookup, or financial record linkage may need exact candidate completeness, not a recall-latency trade. Flat search, exhaustive filtered search, or a conservative two-stage system may be safer.',
+        'It also fails when the training distribution does not match the serving distribution. If the embedding model changes, the corpus shifts, a tenant has unusual vocabulary, or new documents come from a different language or domain, the learned centroids and codebooks may stop representing the data. Symptoms include huge lists, empty lists, rising quantization distortion, and recall drops isolated to specific slices.',
+        'Filtering can break the apparent win. If a query must respect tenant, date, language, jurisdiction, permission, or product constraints, global vector clusters may return many candidates that are later discarded. The ANN benchmark can look strong while filtered product recall is weak. Production systems often need filter-aware indexes, per-tenant shards, hybrid sparse+dense retrieval, or post-filter rerank policies.',
       ],
     },
-    {
-      heading: 'Case study: compressed RAG retrieval',
-      paragraphs: [
-        `Suppose a RAG system stores hundreds of millions of passage embeddings. Flat search gives the cleanest baseline, but memory cost limits replicas and increases serving expense. The team trains an IVF-PQ index on a representative sample of passage embeddings. Each passage is assigned to a coarse centroid, encoded as a residual PQ code, and stored with its document id. The service keeps exact vectors or original embeddings for a bounded rerank stage.`,
-        `At query time, the retriever embeds the question, probes the nearest coarse lists, scores PQ codes, and returns a candidate pool. The reranker fetches exact vectors for the top candidates and recomputes true distances before passing passages to a cross-encoder or generator. The evaluation does not stop at ANN recall. It checks whether the gold passage appears in the candidate pool, whether reranking restores it, whether final answer quality changes, and whether p95 latency and memory per vector meet the serving budget.`,
-        `The most revealing failures come from slices: rare languages, short questions, long documents, tenants with unusual vocabulary, and fresh embeddings after a model upgrade. Averages can hide a damaged slice. A serious IVF-PQ deployment tracks recall by slice, list balance, query probes, exact-rerank depth, rebuild age, and cost per successful retrieval.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study k-means first, because IVF is a clustering layer. Then study vector quantization and product quantization, because PQ is a lossy coding scheme with geometric consequences. HNSW gives the graph-index contrast: high recall and strong latency, but with different memory and update tradeoffs. ScaNN and DiskANN show other points in the ANN design space. RAG pipeline topics show how approximate search quality propagates into answer quality.`,
-        `Primary sources include the Faiss documentation, the Faiss indexes wiki, the Faiss library paper, and Billion-scale similarity search with GPUs. When reading them, pay attention to the systems details: code layout, lookup tables, batching, GPU selection, and evaluation methodology. The production question is not whether IVF-PQ is clever. It is whether a particular trained index, on a particular embedding distribution, meets recall, latency, memory, rebuild, and operational-cost targets.`,
-      ],
-    },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'How it works',
-      paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Suppose a RAG service stores 100 million passage embeddings with dimension 768. The exact baseline is 100 million distance computations per query and roughly 307 GB of raw float32 vector payloads. That baseline remains the evaluation oracle, but it is too expensive for the serving budget.',
+        'The team trains an IVF4096,PQ64x8 index on a representative sample. Build time assigns each passage to one of 4,096 coarse centroids. The residual is split into 64 subspaces and encoded as 64 one-byte ids. Each inverted list stores passage ids and 64-byte PQ codes. Exact vectors are retained in a colder tier for reranking the best approximate candidates.',
+        'At query time, the system embeds the question, finds the nearest coarse centroids, probes 16 lists, builds ADC lookup tables, scores the codes in those lists, and keeps the best 1,000 approximate ids. It then fetches exact vectors for those 1,000 ids, recomputes true distances, and sends the top passages to the downstream reranker or generator.',
+        {
+          type: 'table',
+          headers: ['Step', 'State before', 'Action', 'State after'],
+          rows: [
+            ['Train IVF', 'sample embeddings', 'learn 4,096 centroids', 'coarse routing map'],
+            ['Encode vector', 'float passage vector x', 'store PQ(x - c_i)', 'id plus 64-byte residual code in list i'],
+            ['Probe query', 'full query q', 'find 16 nearest centroids', 'bounded set of lists to scan'],
+            ['Score codes', 'candidate PQ ids', 'sum ADC table entries', 'approximate top-1,000 ids'],
+            ['Rerank', 'exact vectors for candidates', 'compute true distances', 'final top passages'],
+          ],
+        },
+        'The deployment is accepted only if the product metric survives the approximation. The team should measure recall@k against flat search, gold-passage recovery for RAG queries, answer-quality impact, p95 and p99 latency, list balance, memory per vector, rebuild time, and slice-level failures after embedding-model updates.',
       ],
     },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for faiss-ivfpq-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources to read next are the Faiss documentation, the Faiss index wiki, "The Faiss library" paper by Johnson, Douze, and Jegou, "Product Quantization for Nearest Neighbor Search," and "Billion-scale similarity search with GPUs." Read them for the implementation details: residual coding, ADC, inverted-list layout, GPU k-selection, batching, and benchmark methodology.',
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: k-means, because IVF is a learned coarse partition.',
+            'Prerequisite: vector quantization, because PQ is a lossy codebook scheme.',
+            'Contrast: HNSW, because graph navigation trades memory for high recall and low latency.',
+            'Contrast: ScaNN and DiskANN, because they choose different points in the ANN design space.',
+            'Production extension: RAG evaluation, because approximate retrieval quality must be measured at the answer level, not only at ANN recall.',
+          ],
+        },
+        'The engineering question is not "is IVF-PQ good?" The useful question is whether this trained index, on this embedding distribution, with this filter policy and rerank budget, meets recall, latency, memory, rebuild, and cost targets.',
+      ],
+    },
   ],
-      },
-],
 };
 

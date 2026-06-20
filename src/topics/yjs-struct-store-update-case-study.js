@@ -239,169 +239,274 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Yjs Struct Store & Updates. A Yjs implementation case study: Item structs, client clocks, shared types, delete sets, state vectors, binary updates, and provider-agnostic sync..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The "struct store" view traces the hidden data path behind a collaborative edit: from the shared type API (Y.Text) through Item structs, the struct store organized by client ID, the state vector and delete set summaries, and finally the binary update that carries everything to a peer. Active nodes are the current stage of the data flow. Found nodes are durable state already committed to the store. Compare nodes are pending or downstream participants.',
+        'The "update sync" view traces the provider boundary: how binary updates are encoded, diffed against state vectors, and delivered through transport-agnostic providers. Active nodes are the encoding pipeline. Found nodes are the wire artifacts. Compare nodes are peers waiting to apply.',
+        {
+          type: 'note',
+          text: 'The safe inference at each frame: if a node is active and its incoming edge is highlighted, data has reached that stage. If a downstream node is not yet active, no peer can observe that data there. The graph is not a class diagram -- it is a data-flow trace through one sync cycle.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Yjs exists to make collaborative local-first data structures practical in real applications. A user can type into a shared text document, go offline, reconnect, receive remote edits, and converge without one central server deciding a single global order for every operation.',
-        'The reason it is worth studying is that Yjs connects CRDT theory to production machinery: shared types for application code, stable structs for merge logic, compact binary updates for transport and storage, and provider boundaries for WebSocket, WebRTC, IndexedDB, or custom sync.',
+        {
+          type: 'quote',
+          attribution: 'Kevin Jahns, Yjs author',
+          text: 'Yjs is a CRDT implementation that exposes its internal state as shared types. The shared types are just a convenient API -- the real work happens in the struct store.',
+        },
+        'Collaborative editing sounds simple until you add offline support, unreliable networks, and multiple simultaneous writers. A user types into a shared document, goes offline for an hour, reconnects, and expects every edit from every peer to merge cleanly -- no lost characters, no duplicated text, no central server deciding a single global order.',
+        'Yjs solves this by separating concerns into four layers: shared types for the application API, Item structs for the CRDT merge state, binary updates for transport and storage, and providers for network delivery. Each layer has a precise contract. Studying the struct store layer reveals why CRDTs can be both theoretically sound and practically fast.',
+        'The engineering achievement is concrete. Kevin Jahns benchmarked Yjs on the B4 trace -- 259,778 single-character editing operations from a real LaTeX collaboration session collected by Martin Kleppmann. Yjs merges consecutive insertions by the same user into compound Items, reducing 260K operations to just 10,971 Item structs. The encoded document is 159,927 bytes. That performance comes from how the struct store is organized, not from ignoring CRDT invariants.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious sync shortcut is to send the whole document after each change. That is simple, but it wastes bandwidth, makes offline merge hard, and gives storage servers too much responsibility. Another shortcut is to invent an app-specific patch format. That often works until concurrent edits, duplicate delivery, and reconnect gaps appear.',
-        'Collaborative editing needs updates that survive retries, reordering, partial delivery, and storage compaction. A patch that means insert this character at current index five is fragile because current index five can change on another replica. Yjs uses identities and struct relationships instead of trusting transient positions.',
+        'The reasonable first attempt is operational transformation (OT): send operations like "insert X at position 5" and transform them against concurrent operations so indexes stay consistent. Google Docs uses this approach with a central server that serializes all operations into one total order.',
+        'OT works well with a central server, but it breaks down without one. The transformation functions grow quadratically complex with the number of operation types. Proving correctness requires checking every pair of concurrent operations against every possible interleaving. Adding a new operation type means updating every existing transform.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: `// Naive position-based sync: simple, fragile under concurrency.
+function insertAt(doc, position, char) {
+  // Position 5 means "after the 5th character" right now.
+  // But if another user inserted 3 characters before position 5
+  // on their replica, this insert lands in the wrong place.
+  return doc.slice(0, position) + char + doc.slice(position);
+}
+// Without a central server to serialize order, two concurrent
+// insertAt(doc, 5, 'A') and insertAt(doc, 5, 'B') can diverge.`,
+        },
+        'The second common attempt is last-write-wins: timestamp every change, keep the latest one. This converges trivially but silently discards work. A user who edits offline for an hour can lose everything when a peer with a later timestamp overwrites their changes.',
+        'Both approaches share a structural weakness: they identify content by its current position in the document. Positions are unstable under concurrent edits. Yjs solves this by giving every piece of content a permanent identity that never changes regardless of what other users do.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is concurrent insertion at the same position without a total order.',
+        'Two users place their cursors at the same spot and type simultaneously. User A inserts "hello" and user B inserts "world" -- both at position 10. Without a central server, there is no canonical order. A position-based system must somehow decide: does the result read "helloworld" or "worldhello"? And it must make every replica reach the same answer, even if they receive the operations in different orders.',
+        {
+          type: 'table',
+          headers: ['Approach', 'Concurrent insert behavior', 'Why it breaks'],
+          rows: [
+            ['Position-based OT (no server)', 'Transform indexes pairwise', 'Transform functions are error-prone; correctness proofs are combinatorially expensive'],
+            ['Last-write-wins', 'Later timestamp overwrites', 'Silently discards the losing edit; user intent is destroyed'],
+            ['Lock-based', 'Block until lock holder releases', 'Offline users hold locks forever; defeats the purpose of local-first'],
+            ['Full-document sync', 'Send entire document after each edit', 'O(n) bandwidth per keystroke; merge is undefined for concurrent full-docs'],
+          ],
+        },
+        'The invariant that must hold: if two replicas eventually receive the same set of insertions, they must produce the same document, regardless of delivery order. Position-based schemes cannot guarantee this without a central serializer. Yjs guarantees it through stable identities and a deterministic ordering algorithm called YATA.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is that the friendly shared type is not the merge unit. Y.Text, Y.Array, and Y.Map are developer-facing APIs. Under them, Yjs stores structs with stable client-clock identities, origins, delete metadata, and enough ordering information to merge remote work later.',
-        'The durable unit of sync is a binary update. An update is not a command that must run once in a single order. It is CRDT state encoded as bytes. Correctly applied updates are designed to be commutative, associative, and idempotent, so replicas can converge after different delivery paths.',
-      ],
-    },
-    {
-      heading: 'Struct identity',
-      paragraphs: [
-        'Every Yjs client has an id, and each local insertion advances a clock. Together, client id plus clock range form a stable address for inserted content. That address is much safer than an array index because it does not change just because another user inserted text earlier in the document.',
-        'Origins connect a new item to neighboring sequence context. In a text CRDT, concurrent inserts can target the same visible position. The merge algorithm needs stable anchors and tie-breaking information so replicas can place items consistently even when they hear about edits in different orders.',
-      ],
-    },
-    {
-      heading: 'Struct store and state vectors',
-      paragraphs: [
-        'The struct store groups known structs by client and clock ranges. That organization makes it possible to summarize what a replica has without listing the whole document. A state vector says, for each client, the next clock the replica expects. It is a compact missing-work summary.',
-        'When peer A sends its state vector to peer B, B can encode only the structs A is missing. That is the incremental-sync boundary. The system does not need to replay the entire document on every reconnect if both sides can describe their known clock ranges.',
-      ],
-    },
-    {
-      heading: 'Deletes and retention',
-      paragraphs: [
-        'Deletion in Yjs is not the same as pretending an item never existed. A delete set records clock ranges that are no longer visible. Rendering can skip deleted content, but sync still needs enough metadata to understand future updates that refer to old anchors.',
-        'This is one of the hard production tradeoffs in CRDT systems. Keeping history forever grows storage. Garbage collecting too early can break peers that still need old structure to merge. Yjs gives mechanisms, but application infrastructure still needs a retention and compaction plan.',
+        'The core insight is that every character gets a permanent address -- a (clientID, clock) pair -- and every insertion records which existing items it was placed between. The merge algorithm uses these structural anchors, not transient positions, to determine order.',
+        {
+          type: 'diagram',
+          alt: 'Yjs Item struct fields and their roles',
+          label: 'An Item is a node in a doubly-linked list with CRDT identity',
+          body: `Item {
+  id: { client: 42, clock: 7 }    // permanent address
+  origin: { client: 42, clock: 6 } // left neighbor at creation time
+  rightOrigin: { client: 13, clock: 3 } // right neighbor at creation time
+  left:  --> Item                   // current left in the linked list
+  right: --> Item                   // current right in the linked list
+  parent: Y.Text / Y.Array / Y.Map // which shared type owns this
+  content: ContentString("h")      // the actual payload
+  deleted: false                   // tombstone flag
+}`,
+          text: `Item {
+  id: { client: 42, clock: 7 }    // permanent address
+  origin: { client: 42, clock: 6 } // left neighbor at creation time
+  rightOrigin: { client: 13, clock: 3 } // right neighbor at creation time
+  left:  --> Item                   // current left in the linked list
+  right: --> Item                   // current right in the linked list
+  parent: Y.Text / Y.Array / Y.Map // which shared type owns this
+  content: ContentString("h")      // the actual payload
+  deleted: false                   // tombstone flag
+}`,
+        },
+        'The id is assigned once and never changes. The origin and rightOrigin fields record which items were to the left and right when this item was created. These anchors survive concurrent edits because they reference permanent ids, not positions. When a remote item arrives, the YATA algorithm walks the linked list between origin and rightOrigin and uses client ID comparison to break ties deterministically.',
+        'The shared type (Y.Text, Y.Array, Y.Map) is the developer-facing API. It translates friendly operations like "insert at index 3" into Item creation with the correct origin pointers. The developer never sees client IDs or clocks. The struct store does all the merge work underneath.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The struct-store view follows the hidden path behind a friendly editor operation: shared type to item structs, item structs to the store, store to state vector and delete set, and those summaries into an update. The point is that the merge state is more structured than visible text.',
-        'The update-sync view shows the provider boundary. Providers can persist, relay, batch, merge, and rebroadcast updates, but they should not replace the CRDT rules with their own ordering semantics. The update format and struct store carry the convergence contract.',
+        'The struct store is a Map<clientID, Array<AbstractStruct>> -- a flat map from client ID to a sorted array of structs. Each client\'s array is ordered by clock, and clocks are contiguous: client 42\'s array contains items at clocks 0, 1, 2, 3, ... with no gaps. Lookup uses an interpolation-pivoted binary search: the initial midpoint is estimated as floor((targetClock / maxClock) * arrayLength), exploiting the roughly uniform distribution of clocks. This gives O(log n) lookups per client array.',
+        {
+          type: 'bullets',
+          items: [
+            'Item: the primary struct type. Each Item carries an info bitfield with four flags -- keep (prevent GC for undo), countable (addressable by index in Y.Array), deleted (one-way tombstone latch), and marker (skip-list fast-search cache). Content is one of nine types: ContentString, ContentAny, ContentBinary, ContentEmbed, ContentFormat (rich text marks like bold/italic -- not countable), ContentType (nested shared types), ContentJSON (legacy), ContentDoc (subdocuments), and ContentDeleted. Multiple characters typed in sequence are stored as one Item with a ContentString; the Item splits later if a remote insert lands in the middle.',
+            'GC: a tombstone struct that replaces a deleted Item after garbage collection. It keeps the id and length (so the clock range is preserved) but drops content and origin pointers. Only two fields: id and length. Once GC\'d, the content is gone forever.',
+            'Skip: a placeholder struct used during decoding when a received struct depends on another struct that has not arrived yet. It reserves the clock range so later deliveries can fill it in.',
+            'State vector: a Map<clientID, clock> where clock is the next expected clock for that client -- one past the last seen, not the last seen itself. If client 42 has items at clocks 0 through 11 (total length 12), the state vector entry is {42: 12}. Computed as lastStruct.id.clock + lastStruct.length. The state vector is the entire "what do I have?" summary.',
+            'Delete set: a Map<clientID, Array<{clock, len}>> recording which clock ranges are deleted. Ranges are sorted and non-overlapping within each client. Transmitted alongside structs in binary updates so peers can mark the right items as deleted. V2 encoding uses delta compression on clocks for smaller wire size.',
+          ],
+        },
+        'When a local edit happens, Yjs creates a new Item, links it into the doubly-linked list of its parent shared type, appends it to the client\'s struct array in the store, and advances the local clock. The Item\'s origin is set to the item currently to its left, and rightOrigin to the item currently to its right.',
+        {
+          type: 'code',
+          language: 'javascript',
+          body: `// Simplified YATA integration: inserting a remote Item
+// between its origin and rightOrigin.
+function integrateItem(item, store) {
+  let left = store.find(item.origin);
+  let right = store.find(item.rightOrigin);
+  // Walk right from origin, comparing with conflicting items
+  // that share the same origin (concurrent inserts at same spot).
+  let cursor = left?.right;
+  while (cursor !== right) {
+    if (cursor.origin === item.origin) {
+      // Tie-break: lower clientID goes left.
+      if (cursor.id.client < item.id.client) {
+        left = cursor;  // cursor wins left position
+      } else {
+        break;          // item wins left position
+      }
+    }
+    cursor = cursor.right;
+  }
+  // Splice item between left and right.
+  item.left = left;
+  item.right = left?.right;
+  // Link neighbors back to item.
+}`,
+        },
+        'The YATA conflict resolution rule is simple: when two items share the same origin (they were both inserted after the same left neighbor), the one with the lower client ID goes first. This is deterministic, requires no coordination, and produces the same result regardless of delivery order.',
       ],
     },
     {
-      heading: 'Why it converges',
+      heading: 'Why it works',
       paragraphs: [
-        'Yjs convergence depends on stable identities and mergeable update application. If two replicas eventually receive the same set of relevant updates, duplicate delivery should not create duplicate content, and different delivery order should not produce different final documents.',
-        'That property is what lets Yjs work across unreliable networks and mixed providers. A WebSocket server, an IndexedDB cache, and a peer-to-peer channel can all move the same update bytes. They do not need to understand every application-level edit, but they must preserve the update data needed for peers to catch up.',
-        'State vectors make catch-up precise. A reconnecting peer can ask for only the client-clock ranges it lacks. A server that stores merged updates or snapshots can answer that request without replaying every keystroke through an editor model. The CRDT layer defines what missing means.',
-        'That precision is what keeps sync incremental instead of repeatedly becoming full-document transfer.',
+        'Convergence rests on three properties of the YATA algorithm:',
+        {
+          type: 'bullets',
+          items: [
+            'Commutativity: applying updates A then B produces the same document as applying B then A. This holds because each Item has a fixed id and fixed origin pointers. The integration position depends only on the existing items between origin and rightOrigin, not on the order updates arrived.',
+            'Idempotency: applying the same update twice does not duplicate content. The struct store checks whether an item with that (clientID, clock) already exists before inserting.',
+            'Associativity: merging update AB with update C gives the same result as merging A with update BC. This follows from commutativity and the deterministic tie-breaking rule.',
+          ],
+        },
+        'The critical invariant is: for any two items with the same origin, their relative order is determined solely by client ID comparison. Because client IDs are unique and the comparison is a total order, there is exactly one valid position for every item. No matter when or in what order items arrive, every replica that has received the same set of items will place them in the same order.',
+        {
+          type: 'note',
+          text: 'The YATA paper -- "Near Real-Time Peer-to-Peer Shared Editing on Extensible Data Types" by Nicolaescu, Jahns, Derntl, and Klamma (ACM GROUP 2016) -- proves strong eventual consistency: any two replicas that have received the same set of operations are in the same state. The proof is by induction on the number of integrated items. The rightOrigin field is an improvement over the original YATA algorithm that narrows the conflict window and improves performance when many concurrent inserts target the same position.',
+        },
+        'Deletions converge because they are represented as ranges in the delete set, not as separate operations. Marking (client: 42, clock: 7) as deleted is idempotent -- doing it twice changes nothing. The deleted flag on the Item is a one-way latch: once true, it never goes back to false.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is metadata and lifecycle complexity. Client ids, clocks, origins, delete ranges, state vectors, update blobs, snapshots, awareness messages, and provider protocol details all exist because concurrent local editing is harder than last-write-wins storage.',
-        'Binary updates keep the overhead manageable, but not free. Large documents need compaction strategies. Long-lived rooms need storage policies. Multi-version clients need an update-format plan. Offline peers need a path back to consistency without forcing every server to hold infinite history.',
-        'There is a latency tradeoff too. Local edits can apply immediately, which gives the user a fast editor, but remote peers still need update delivery and awareness messages. Providers decide how quickly to broadcast, persist, batch, and retry, so operational behavior depends on the transport even when convergence belongs to Yjs.',
+        {
+          type: 'table',
+          headers: ['Cost axis', 'What you pay', 'Why it matters'],
+          rows: [
+            ['Memory per character', '~88 bytes per Item excluding content (id, origins, pointers, info bitfield)', 'On the B4 trace (260K ops, 105K final chars), memory is ~19.7 MB; deleted items occupy space until GC replaces them with lightweight 2-field stubs'],
+            ['Insert (local)', 'O(1) amortized: create Item, append to client array, link into list', 'Typing feels instant; the clock increment and pointer updates are constant-time'],
+            ['Insert (remote)', 'O(k) where k is the number of concurrent items sharing the same origin', 'In practice k is almost always 1-3; pathological cases (100 users inserting at the same cursor) grow linearly'],
+            ['Lookup by ID', 'O(log n) binary search on the client array by clock', 'Fast because items per client are stored sorted and contiguous'],
+            ['State vector', 'O(c) where c is the number of distinct clients', 'Typical documents have 1-50 clients; state vectors are tiny'],
+            ['Update encoding', 'O(s) where s is the number of structs to encode', 'Binary encoding is compact: variable-length integers, run-length on client IDs, delta-coded clocks'],
+            ['Garbage collection', 'Replaces Item with GC struct: same clock range, no content or origins', 'Reduces memory but is irreversible; cannot merge with peers who still need the deleted content for integration'],
+          ],
+        },
+        'The dominant cost at scale is metadata retention. Every character ever typed -- including deleted characters -- stays in the struct store as either an Item or a GC struct until the document is rebuilt. On the B4 trace, 259,778 operations produce only 10,971 Item structs (96% reduction via merging), using 19.7 MB of memory. The encoded document is 159,929 bytes -- about 53% overhead above the raw 104,852-character text. For comparison, Automerge 2.0 on the same trace uses 44.5 MB memory and takes 46x longer to parse.',
+        'Binary updates use LEB128 variable-length integer encoding. V1 writes everything to a single stream. V2 uses column-oriented compression: separate streams for client IDs (run-length encoded), clocks (delta + RLE encoded), info bytes (RLE), and strings (deduplicated), then concatenates them at output. V2 compresses significantly better for large bulk updates; V1 is more efficient for individual keystrokes. The mergeUpdates function combines many small updates into one without loading a Y.Doc -- but it does not GC deleted content. Full GC requires loading into a Y.Doc.',
+        {
+          type: 'table',
+          headers: ['Library', 'Apply time', 'Doc size', 'Parse time', 'Memory', 'Bundle (gzip)'],
+          rows: [
+            ['Yjs', '5,714 ms', '159,929 B', '39 ms', '3.2 MB', '20 KB'],
+            ['Automerge 2.0', '14,326 ms', '129,116 B', '1,805 ms', 'WASM-managed', '604 KB'],
+            ['Loro', '3,089 ms', '258,228 B', '13 ms', 'WASM-managed', '399 KB'],
+          ],
+        },
+        'Automerge 2.0 produces smaller documents (columnar encoding) but pays 46x in parse time. Loro is faster to apply but produces larger documents. Yjs has the smallest JavaScript bundle at 20 KB gzipped -- 30x smaller than Automerge. These numbers are from crdt-benchmarks on the B4 trace (Node 20, Intel i5-8400).',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Two users, Alice (client 1) and Bob (client 2), start with an empty Y.Text. Both type simultaneously.',
+        {
+          type: 'table',
+          headers: ['Step', 'Actor', 'Operation', 'Struct store state', 'State vector'],
+          rows: [
+            ['1', 'Alice', 'insert "H" at position 0', 'Client 1: [{id:(1,0), content:"H", origin:null, rightOrigin:null}]', '{1:1}'],
+            ['2', 'Alice', 'insert "i" at position 1', 'Client 1: [{id:(1,0), "H"}, {id:(1,1), "i", origin:(1,0)}]', '{1:2}'],
+            ['3', 'Bob (offline)', 'insert "Y" at position 0', 'Client 2: [{id:(2,0), content:"Y", origin:null, rightOrigin:null}]', '{2:1}'],
+            ['4', 'Bob (offline)', 'insert "o" at position 1', 'Client 2: [{id:(2,0), "Y"}, {id:(2,1), "o", origin:(2,0)}]', '{2:1, note: not yet synced}'],
+            ['5', 'Sync', 'Alice receives Bob\'s update', 'Both items have origin:null -- tie-break by client ID. Client 1 < 2, so Alice\'s "H" goes first.', '{1:2, 2:2}'],
+            ['6', 'Result', 'Both replicas converge', 'Linked list order: H -> i -> Y -> o. Document reads "HiYo"', '{1:2, 2:2}'],
+          ],
+        },
+        'At step 5, the YATA algorithm resolves the conflict. Both "H" (client 1, clock 0) and "Y" (client 2, clock 0) have origin:null -- they were both inserted at the start of an empty document. The tie-breaking rule places the item with the lower client ID first: client 1 < client 2, so "H" goes before "Y".',
+        'If Bob had received Alice\'s update first instead, the same tie-breaking rule would produce the same result. That is the convergence guarantee: order of delivery does not affect the final document.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Yjs wins in collaborative editors, shared whiteboards, local-first note tools, multiplayer interface state, design tools, and apps that need offline edits to merge later. The same document model can move over different providers because the important unit is the update, not a transport-specific command.',
-        'It is also strong when the server should be simpler than the collaboration logic. A provider can authenticate a room, persist update bytes, answer state-vector diffs, and broadcast messages. It does not have to be the single authority that rewrites every document operation into one total order.',
-        'That separation lets teams change transports without rewriting the document model. A prototype can start with IndexedDB and WebSocket, then add peer-to-peer or server snapshots while keeping update semantics stable.',
+        'Yjs wins when applications need collaborative editing without depending on a central authority to serialize operations.',
+        {
+          type: 'bullets',
+          items: [
+            'Collaborative text editors: Tiptap, BlockNote, Lexical, ProseMirror, CodeMirror, and Monaco all have Yjs bindings. The editor fires local operations; Yjs turns them into Items; a provider moves the updates.',
+            'Whiteboard and design tools: Excalidraw uses Yjs for real-time collaboration on canvas objects. Each shape is a Y.Map entry; concurrent moves and resizes merge through the struct store.',
+            'Local-first applications: apps like AnyType and AppFlowy use Yjs to let users edit offline and sync later. The state vector protocol means reconnection transfers only missing edits, not the full document.',
+            'Multiplayer UI state: shared cursors, selections, and presence indicators use the Yjs awareness protocol -- a lightweight CRDT for ephemeral state that piggybacks on the same provider connection.',
+            'Database sync layers: projects like SyncedStore and TinyBase build reactive data stores on top of Yjs shared types, using them as the replication engine for structured application data.',
+          ],
+        },
+        'The provider model is the key architectural advantage. The same Y.Doc can sync through y-websocket to a server, y-webrtc to peers, y-indexeddb for offline persistence, and a custom provider for cloud storage -- simultaneously. Providers are interchangeable because they all move the same binary updates. Swapping WebSocket for WebRTC requires changing one provider constructor, not rewriting the document model.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Yjs convergence does not solve authorization. A structurally valid update can still be malicious or sent by the wrong user. Access control must happen before updates enter a document room, and applications may need audit logs or moderation rules above the CRDT layer.',
-        'Other failures come from deleting history too aggressively, mixing incompatible update formats, trusting provider delivery order, failing to snapshot large histories, or confusing awareness presence with durable document state. Presence can be ephemeral. Document updates are the durable merge input.',
-        'A provider can also fail by becoming too clever. If it rewrites updates as custom operations, assumes one delivery order, drops old ranges that offline clients still need, or treats snapshots as proof of authorization, it has moved outside the Yjs contract. Keep transport logic boring and explicit.',
+        'Yjs is a merge engine, not an authorization system. A structurally valid update can carry malicious content, and the CRDT layer will integrate it happily. Access control must happen at the provider layer -- before updates enter the document room.',
+        {
+          type: 'table',
+          headers: ['Anti-pattern', 'What breaks', 'Mitigation'],
+          rows: [
+            ['No GC on long-lived docs', 'Memory and storage grow without bound as deleted Items accumulate', 'Periodic GC with awareness of offline peer clocks; snapshot the doc and reset'],
+            ['Mixing V1 and V2 update formats', 'Peers using different encodings cannot decode each other\'s updates', 'Pin the update format version across all clients and providers'],
+            ['Provider invents its own ordering', 'Server reorders or deduplicates updates using app-specific logic, breaking CRDT invariants', 'Providers must be dumb pipes: persist, relay, broadcast -- never rewrite'],
+            ['Treating awareness as durable', 'Cursor positions and presence stored as if they were document state', 'Awareness is ephemeral (timeout-based); document updates are the only durable input'],
+            ['Storing large blobs in Y.Text', 'Each character is an Item with ~50-100 bytes overhead; a 10 MB image as text is catastrophic', 'Store binary data externally; keep a reference (URL or hash) in the shared type'],
+            ['Trusting client IDs for auth', 'Client IDs are random integers, not authenticated identities', 'Authenticate at the transport layer; client IDs are for CRDT ordering, not security'],
+          ],
+        },
+        'The deepest production hazard is garbage collection timing. GC replaces deleted Items with lightweight GC structs that preserve the clock range but discard content and origin pointers. If a slow or offline peer still needs those origin pointers to integrate a pending insert, the integration fails. The safe rule: never GC structs that any connected or expected peer might still reference. In practice, this means GC is only safe when all peers have caught up past the deleted clocks.',
+        {
+          type: 'note',
+          text: 'Yjs GC is irreversible. Once an Item becomes a GC struct, its content and origin pointers are gone. Undo history that references GC\'d items will produce unexpected results. Applications that need undo across GC boundaries must snapshot before collecting.',
+        },
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: the Yjs repository at https://github.com/yjs/yjs, Yjs INTERNALS at https://github.com/yjs/yjs/blob/main/INTERNALS.md, the internals docs at https://docs.yjs.dev/api/internals, and document updates at https://docs.yjs.dev/api/document-updates.',
-        'Study Sequence CRDTs for Collaborative Text, Delta-State CRDT Anti-Entropy Case Study, Local-First Sync Engine Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, and Automerge Change Graph and Columnar Storage next.',
+        'Primary sources: the Yjs repository at https://github.com/yjs/yjs (especially src/structs/Item.js, src/utils/StructStore.js, src/utils/encoding.js), the INTERNALS.md at https://github.com/yjs/yjs/blob/main/INTERNALS.md, the official API docs at https://docs.yjs.dev/, and the sync protocol specification at https://github.com/yjs/y-protocols.',
+        'The YATA algorithm is described in "Near Real-Time Peer-to-Peer Shared Editing on Extensible Data Types" by Nicolaescu, Jahns, Derntl, and Klamma (ACM GROUP 2016, DOI 10.1145/2957276.2957310). Kevin Jahns\' blog post "Are CRDTs suitable for shared editing?" at https://blog.kevinjahns.de/ provides the B4 benchmark analysis. The B4 trace itself comes from Martin Kleppmann\'s crdt-benchmarks at https://github.com/dmonad/crdt-benchmarks.',
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: Sequence CRDTs for Collaborative Text -- the theory of conflict-free replicated sequences that Yjs implements.',
+            'Prerequisite: Delta-State CRDT Anti-Entropy -- the sync protocol pattern that state vectors and update diffs follow.',
+            'Extension: Automerge Change Graph and Columnar Storage -- a contrasting CRDT implementation that uses a DAG of changes instead of a flat struct store.',
+            'Extension: Collaborative Awareness Presence CRDT -- the ephemeral presence protocol that runs alongside Yjs document sync.',
+            'Extension: Collaborative Undo/Redo Intention Stack -- how undo works in a multi-user CRDT where "my last action" is interleaved with remote edits.',
+            'Case study: Local-First Sync Engine -- the architectural pattern that Yjs enables: compute locally, sync in the background, converge eventually.',
+          ],
+        },
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for yjs-struct-store-update-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

@@ -330,178 +330,284 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Kubernetes Informer DeltaFIFO & Workqueue Case Study. A controller-internals case study: list/watch, resourceVersion, Reflector, DeltaFIFO, shared indexer cache, deduped keys, and rate-limited retries..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        "The animation traces data flow through a Kubernetes controller's informer pipeline. In the \"list watch cache\" view, active nodes show the component currently processing an event -- API server emitting, Reflector relaying, DeltaFIFO buffering, or indexer caching. Found nodes are components whose state is now settled for this cycle. In the \"workqueue retry\" view, active nodes trace a key's journey from Add through dirty/queue/processing, with compare markers on the retry-with-backoff path.",
+        "Watch for three things at each frame: which component owns the data right now, what transformed between the previous component and this one (raw HTTP event becomes typed Delta becomes cache entry becomes reconcile key), and where the pipeline can stall or lose progress.",
+        {
+          type: 'note',
+          content: 'The plot frames show API-server load scaling. The gap between the \"raw poll\" and \"shared\" curves is the entire reason informers exist -- that gap widens with every additional controller sharing the cache.',
+        },
       ],
     },
     {
-      heading: 'Why Informers Exist',
+      heading: 'Why this exists',
       paragraphs: [
-        "Kubernetes controllers are built around reconciliation: observe desired state, compare it with actual or external state, and take steps to move the world closer to the desired state. The controller pattern sounds simple until thousands of objects are changing, many controllers need the same objects, watches disconnect, and external APIs fail. Informers are the data-structure layer that makes controllers efficient enough to run inside a busy cluster.",
-        "The naive controller polls the API server. Every few seconds it lists all Pods, Deployments, or custom resources, scans for work, and writes fixes. That approach is easy to understand and terrible at scale. It creates redundant reads, burns API-server capacity, reacts slowly between polls, and still has to solve retries. If ten controllers each poll the same resource, the cluster pays ten times for almost the same information.",
-        "An informer turns the API server\'s list/watch model into a local read model. It lists once to seed state, watches for changes, buffers deltas, updates a shared cache, calls lightweight event handlers, and lets controllers enqueue reconcile keys. The main separation is events versus state. Events wake the controller. The cache holds the latest observed object state. The workqueue stores stable addresses for work."
+        "A Kubernetes cluster runs dozens of controllers. The Deployment controller watches Deployments and ReplicaSets. The endpoint-slice controller watches Services, Pods, and Nodes. The garbage collector watches every resource type. Each controller needs a local view of cluster state to decide what to reconcile.",
+        "Without informers, each controller would poll the API server independently. Ten controllers watching Pods means ten LIST requests every few seconds, each returning the full set of Pod objects. In a 5,000-node cluster with 150,000 Pods, a single LIST of all Pods can return 200+ MB of JSON. Multiply by ten controllers polling every 5 seconds and the API server spends most of its time serializing redundant responses.",
+        {
+          type: 'quote',
+          content: 'The API server is the bottleneck in every large Kubernetes cluster. Informers exist because the alternative -- every controller polling independently -- would make that bottleneck lethal.',
+          source: 'Kubernetes scalability design principle',
+        },
+        "The constraint is concrete: etcd backs the API server and can sustain roughly 10,000 read requests per second before latency degrades. A polling architecture exhausts that budget on redundant reads, leaving no headroom for writes, leader election, or user kubectl calls. Informers restructure the read path so each resource type is listed once and watched once per process, regardless of how many controllers consume the data.",
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "The reasonable first attempt is poll-based reconciliation. Every 30 seconds, list all objects of interest, diff them against the last known state, and reconcile anything that changed. This works in small clusters. It is easy to reason about because each poll cycle is a clean snapshot. There are no partial updates, no event ordering concerns, and no watch connection management.",
+        {
+          type: 'code',
+          language: 'go',
+          content: '// Naive polling controller\nfor {\n    pods, err := client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})\n    if err != nil { log.Error(err); time.Sleep(30*time.Second); continue }\n    for _, pod := range pods.Items {\n        reconcile(pod)\n    }\n    time.Sleep(30 * time.Second)\n}',
+        },
+        "This approach has three properties that feel like advantages early on. First, it is stateless between cycles -- a crash just means the next poll picks up. Second, it naturally deduplicates because each cycle sees current state, not accumulated events. Third, it requires no connection management. Early Kubernetes controllers (pre-1.0) used variants of this pattern before the informer framework matured.",
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "Polling hits two walls simultaneously: load and latency.",
+        {
+          type: 'table',
+          headers: ['Metric', '100 Pods', '10,000 Pods', '150,000 Pods'],
+          rows: [
+            ['LIST response size', '~50 KB', '~5 MB', '~200 MB'],
+            ['Serialization time', '<10 ms', '~200 ms', '~3 s'],
+            ['10 controllers x 30s poll', '~3 LIST/s', '~3 LIST/s', '~3 LIST/s'],
+            ['API server bandwidth', '~150 KB/s', '~15 MB/s', '~600 MB/s'],
+            ['Reaction latency (avg)', '15 s', '15 s', '15 s'],
+          ],
+        },
+        "The load wall: each LIST returns every object, not just the ones that changed. If one Pod out of 150,000 changes, the controller still downloads all 150,000 to find it. Bandwidth and API-server CPU grow with total object count, not with change rate.",
+        "The latency wall: polling at 30-second intervals means changes are detected 15 seconds late on average. Reducing the interval to 1 second fixes latency but multiplies load by 30x. There is no polling interval that gives both fast reaction and low load when the object count is large.",
+        "The invariant that polling violates: read cost must scale with the rate of change, not the total number of objects. A system where one changed Pod costs as much to detect as 150,000 unchanged Pods cannot scale. The watch protocol fixes this by streaming only the deltas.",
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "The pipeline starts with a LIST request. The API server returns the current objects and a resourceVersion, which acts as a cursor into the stream of changes for that resource. The client then opens a WATCH from that cursor. Watch events report added, modified, deleted, bookmark, or error conditions. Bookmark events can advance the cursor even when no object changed, which helps clients know they are still making progress.",
-        "This design avoids the polling wall, but it is not magic. Watch history is finite. If a controller falls too far behind and asks to resume from an old resourceVersion, the API server can return a gone error. The controller must relist, rebuild its local view, and resume watching from a fresh cursor. Correct informer code treats relist as a normal recovery path, not an exceptional disaster.",
-        "The Reflector in client-go owns this list/watch loop. It talks to the API server, maintains the resourceVersion, and pushes observed changes into a DeltaFIFO. Above it, a SharedIndexInformer consumes those deltas, updates a local store, maintains indexes, and invokes registered handlers. This layering keeps watch mechanics, cache maintenance, and controller-specific work separate."
+        "Separate event delivery from state storage. Events wake a controller and tell it something changed. The local cache holds the latest observed state. The workqueue holds stable keys identifying what needs work. These three concerns -- notification, caching, and work scheduling -- compose into a pipeline where each stage has a single, clear contract.",
+        {
+          type: 'diagram',
+          content: 'API Server --LIST+WATCH--> Reflector --Deltas--> DeltaFIFO --Pop--> HandleDeltas\n                                                                         |\n                                                               +---------+---------+\n                                                               |                   |\n                                                         Indexer Cache      Event Handlers\n                                                         (local store)     (enqueue keys)\n                                                                                   |\n                                                                              Workqueue\n                                                                                   |\n                                                                           Worker goroutines\n                                                                         (read cache, reconcile)',
+        },
+        "The key separation: event handlers never act on the event payload directly. They extract a stable key (namespace/name) and add it to the workqueue. The worker later pops that key and reads the current object from the local cache. By the time the worker runs, the object may have changed again -- and that is fine, because the worker always acts on current state, not on the event that triggered it.",
+        {
+          type: 'note',
+          content: 'This is level-triggered, not edge-triggered. The event is a hint that something needs attention. The cache is the source of truth for what to do. If ten events arrive for the same Pod while a worker is busy, the workqueue deduplicates them into one re-reconciliation from current state.',
+        },
       ],
     },
     {
-      heading: 'DeltaFIFO',
+      heading: 'How it works',
       paragraphs: [
-        "DeltaFIFO is the buffer between the watch stream and the informer consumer. It stores object changes as typed deltas: Added, Updated, Deleted, Replaced, and Sync. The FIFO part preserves processing order by key. The delta part preserves what kind of change happened. A relist can produce replacement deltas. A periodic resync can produce sync deltas even if the object did not change.",
-        "The value of DeltaFIFO is that it smooths a live event stream into a consumable sequence while giving the cache enough information to update itself correctly. Deletes are especially important. A delete may arrive with a tombstone when the final object is not available in the usual form. Consumers must handle that path because caches still need to remove the right key.",
-        "The hard lesson is that deltas are not a substitute for idempotent reconcile logic. They help maintain the local cache and notify handlers, but a controller should not base irreversible action on an old event payload. By the time a worker acts, the object may have changed again or disappeared. The durable work address is the key, usually namespace/name. The worker should reread current state before acting."
+        "The pipeline has five stages, each implemented as a distinct type in the k8s.io/client-go/tools/cache package.",
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Stage 1: Reflector -- LIST then WATCH',
+        },
+        "The Reflector issues an initial LIST to seed all current objects, recording the returned resourceVersion as a cursor. It then opens a WATCH from that cursor. Each watch event (ADDED, MODIFIED, DELETED, BOOKMARK, ERROR) is pushed into the DeltaFIFO. If the watch disconnects or the API server returns HTTP 410 Gone (meaning the requested resourceVersion is too old for the server's watch history), the Reflector re-lists to rebuild state.",
+        {
+          type: 'code',
+          language: 'go',
+          content: '// Reflector.ListAndWatch (simplified)\nlist, err := listerWatcher.List(options)\nresourceVersion := list.ResourceVersion\nfor _, item := range list.Items {\n    store.Add(item)  // store is the DeltaFIFO\n}\nfor {\n    watcher, err := listerWatcher.Watch(options{ResourceVersion: resourceVersion})\n    for event := range watcher.ResultChan() {\n        switch event.Type {\n        case watch.Added:    store.Add(event.Object)\n        case watch.Modified: store.Update(event.Object)\n        case watch.Deleted:  store.Delete(event.Object)\n        case watch.Bookmark: resourceVersion = event.Object.ResourceVersion\n        }\n    }\n    // Watch ended -- loop back and reconnect\n}',
+        },
+        "Bookmark events advance the resourceVersion cursor without delivering an object change. This matters because the API server's watch cache has finite history (default: 3 minutes of events in etcd). Without bookmarks, an idle watch could fall behind the history window and force an expensive relist even though nothing changed.",
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Stage 2: DeltaFIFO -- buffered, typed deltas',
+        },
+        "DeltaFIFO is a queue keyed by object identity. For each key, it stores a list of Deltas -- (DeltaType, Object) pairs. The five DeltaType values are Added, Updated, Deleted, Replaced, and Sync. Replaced deltas appear during a relist. Sync deltas appear during periodic resync (a configurable interval, often 30 seconds to 10 minutes, where the informer re-enqueues all cached objects to trigger reconciliation even without watch events).",
+        {
+          type: 'table',
+          headers: ['DeltaType', 'Trigger', 'Object payload', 'Purpose'],
+          rows: [
+            ['Added', 'Watch ADDED event', 'Full object', 'New object appeared'],
+            ['Updated', 'Watch MODIFIED event', 'Full object', 'Object fields changed'],
+            ['Deleted', 'Watch DELETED event', 'Full object or DeletedFinalStateUnknown', 'Object removed from API server'],
+            ['Replaced', 'Relist after 410 Gone', 'Full object', 'Cache rebuild -- treat as authoritative snapshot'],
+            ['Sync', 'Periodic resync timer', 'Object from local cache', 'Trigger re-reconciliation without a real change'],
+          ],
+        },
+        "The FIFO ordering guarantee: keys are processed in the order they were first enqueued. Within a single key, all accumulated deltas are delivered together in one Pop call. This means a consumer sees the full delta history for an object in one batch, which lets HandleDeltas update the cache and fire event handlers atomically per key.",
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Stage 3: HandleDeltas -- cache update + event dispatch',
+        },
+        "The controller's processLoop calls DeltaFIFO.Pop in a tight loop. Pop blocks until a key has deltas, removes it from the queue, and passes the delta list to HandleDeltas. For each delta, HandleDeltas does two things: updates the thread-safe indexer store (Add, Update, or Delete the object) and calls every registered event handler (OnAdd, OnUpdate, OnDelete).",
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Stage 4: Indexer -- the shared local cache',
+        },
+        "The indexer is a thread-safe map from key (namespace/name) to the latest known object. It also maintains secondary indexes -- functions that extract index keys from objects. The built-in NamespaceIndex lets controllers list all objects in a given namespace in O(1). Custom indexes can map by owner UID, node name, label value, or any computed property.",
+        {
+          type: 'code',
+          language: 'go',
+          content: '// Common indexer patterns\ncache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{\n    cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,\n    "byNode": func(obj interface{}) ([]string, error) {\n        pod := obj.(*v1.Pod)\n        return []string{pod.Spec.NodeName}, nil\n    },\n    "byOwnerUID": func(obj interface{}) ([]string, error) {\n        meta := obj.(metav1.Object)\n        var keys []string\n        for _, ref := range meta.GetOwnerReferences() {\n            keys = append(keys, string(ref.UID))\n        }\n        return keys, nil\n    },\n})',
+        },
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Stage 5: Workqueue -- deduplication and rate-limited retries',
+        },
+        "Event handlers enqueue reconcile keys into a workqueue. The client-go workqueue tracks three sets internally:",
+        {
+          type: 'table',
+          headers: ['Set', 'Type', 'Purpose'],
+          rows: [
+            ['queue', 'ordered slice', 'Keys waiting to be processed, in FIFO order'],
+            ['dirty', 'set', 'Keys that need processing (deduplication gate)'],
+            ['processing', 'set', 'Keys currently being handled by a worker'],
+          ],
+        },
+        "When Add(key) is called: if the key is already in dirty, nothing happens (deduplication). If the key is in processing but not dirty, it is added to dirty so it will be re-processed after the current worker finishes. Otherwise, it is added to both dirty and queue. When Get() is called: a key is removed from queue and dirty, and added to processing. When Done(key) is called: the key is removed from processing. If the key was re-added to dirty while processing, it is moved back to queue for another pass.",
+        "This three-set design guarantees: no duplicate keys in queue, no duplicate in-flight processing of the same key, and no lost updates (a change arriving during processing is not silently dropped).",
       ],
     },
     {
-      heading: 'Shared Indexer Cache',
+      heading: 'Why it works',
       paragraphs: [
-        "The SharedIndexInformer cache is a local map from keys to the latest observed objects, plus optional secondary indexes. The basic key is namespace/name for namespaced resources or name for cluster-scoped resources. Secondary indexes let controllers answer common questions without API calls: list all objects in a namespace, find children by owner UID, find Pods scheduled to a node, or find custom resources referencing a Secret.",
-        "This cache is why many controllers can run without hammering the API server. A reconcile worker can read the watched object from memory, list related objects through indexes, and issue only the writes or uncached reads it truly needs. Multiple controllers in the same process can share one informer instead of opening duplicate watches and maintaining duplicate caches.",
-        "The tradeoff is memory and staleness. The cache holds copies of watched objects and index entries. Broad watches over high-cardinality resources such as Pods, Secrets, ConfigMaps, or custom resources can be expensive. Indexes multiply memory. The cache is also eventually consistent with the API server. Controllers must tolerate that the latest write may not have arrived in the local cache yet, especially during startup, relist, or watch recovery."
+        "The informer pipeline preserves a core invariant: every change to a watched resource eventually triggers at least one reconciliation from current state. The proof has three parts.",
+        "First, the watch stream is reliable because the Reflector treats disconnections and 410 Gone responses as normal. A disconnect triggers reconnection from the last known resourceVersion. A 410 triggers a full relist, which resets the cache and resourceVersion. No permanent data loss occurs because the API server (backed by etcd) is the durable source of truth, and relist always recovers the full current state.",
+        "Second, DeltaFIFO preserves ordering per key and batches deltas so the consumer processes them atomically. The cache update and event handler dispatch happen in the same Pop callback. If the callback fails, the delta is not removed from the queue -- it will be retried. This means the cache and the handlers stay consistent: you cannot have a handler fire for a change that the cache does not reflect.",
+        "Third, the workqueue preserves the invariant that every dirty key eventually gets processed. The dirty set ensures that a change arriving during processing is not lost. The processing set ensures that two workers never reconcile the same key simultaneously. Rate limiting ensures that transient failures do not spin into tight loops. The combination means: every change triggers eventual reconciliation, no key is processed concurrently, and failures back off.",
+        {
+          type: 'note',
+          content: 'The critical corner case is DeletedFinalStateUnknown. When a relist finds that an object in the cache no longer exists on the API server, DeltaFIFO emits a Deleted delta with a DeletedFinalStateUnknown wrapper containing the last cached version. Controllers must handle this type in their OnDelete handler -- if they only type-assert to their expected object type, they will silently drop deletes that arrive via relist.',
+        },
       ],
     },
     {
-      heading: 'Workqueue Semantics',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Informer event handlers should be cheap. A good handler usually computes a key and adds it to a workqueue. It does not call slow external APIs, perform long writes, or block the informer. Blocking the handler path delays cache updates and can cause the watch consumer to fall behind.",
-        "The client-go workqueue is not a plain array. It tracks dirty keys, queued keys, keys currently being processed, delayed retries, and rate limits. If the same key is added ten times while it is already queued, the queue can coalesce those adds. If a key is added while a worker is processing it, the dirty state ensures it can be processed again after the current run finishes. That prevents duplicate in-flight reconciles while still preserving the fact that another change arrived.",
-        "A worker loop pops a key, reads fresh state, reconciles, and then calls Done. On success it calls Forget to clear rate-limit history. On transient failure it uses AddRateLimited so the key returns after backoff. On permanent absence, such as a deleted object, reconcile should perform cleanup if needed and then succeed. This makes retries explicit and keeps a broken dependency from creating a tight loop."
+        {
+          type: 'table',
+          headers: ['Resource', 'Cost', 'What drives it'],
+          rows: [
+            ['Network (steady-state)', 'O(change rate)', 'Watch delivers only deltas, not full snapshots'],
+            ['Network (relist)', 'O(total objects)', 'Full LIST; proportional to object count x object size'],
+            ['Memory (cache)', 'O(total objects)', 'One copy of each watched object in the indexer'],
+            ['Memory (indexes)', 'O(total objects x index count)', 'Each index stores a reverse map entry per object'],
+            ['CPU (event dispatch)', 'O(handlers x change rate)', 'Each registered handler is called for every delta'],
+            ['CPU (workqueue)', 'O(change rate)', 'Deduplication is set-lookup; Add/Get/Done are O(1) amortized'],
+            ['API server load', 'O(1) per resource type per process', 'One LIST + one WATCH stream, shared across all controllers'],
+          ],
+        },
+        "The practical cost that dominates at scale is memory. In a 5,000-node cluster, watching all Pods means caching ~150,000 Pod objects. A typical Pod object is 3-5 KB as a Go struct after deserialization. That is 450 MB to 750 MB of heap for Pods alone. Add Nodes, Services, Endpoints, ConfigMaps, Secrets, and custom resources, and kube-controller-manager can easily consume 2-4 GB of RAM.",
+        "Doubling the cluster size roughly doubles informer memory. Adding a secondary index adds another reverse map per object -- not a full copy of the object, but an index entry (typically a string key to a set of object keys). For high-cardinality indexes like \"by owner UID\" on Pods, that can add 10-20% overhead on top of the base cache.",
+        "Relist cost is bursty. A single relist of 150,000 Pods transfers ~200 MB and takes 2-5 seconds of API-server CPU for serialization. During relist, the old cache is replaced atomically, so memory briefly doubles. The DefaultControllerRateLimiter uses exponential backoff with a base delay of 5 ms and a max delay of 1,000 seconds (16.7 minutes), so relist storms are naturally damped.",
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Real-world uses',
       paragraphs: [
-        "Consider a certificate operator. It watches Certificate custom resources and Secrets. The Certificate informer tells the controller when desired certificate state changes. The Secret informer tells it when issued key material appears, changes, or disappears. Both informers maintain local caches. Event handlers map Certificate events directly to certificate keys. Secret events may use an owner index or label index to find which Certificate keys are affected.",
-        "A worker pops a certificate key and reads the latest Certificate and referenced Secret from the cache. If the Certificate was deleted, it cleans up external orders if finalizers require it. If the Secret is valid and not near expiry, it records healthy status. If renewal is needed, it calls the certificate authority. If the authority is unavailable, it records a condition and requeues with backoff. If the authority succeeds, it writes the Secret and updates status.",
-        "This is not just event handling. Duplicate events, missed events, restarts, relists, and external failures should still converge because the worker decides from current state. The queue dedupes and retries. The cache supplies a local view. Status tells users why progress is stuck. The controller\'s correctness comes from idempotent reconciliation, not from receiving a perfect event sequence."
+        {
+          type: 'bullets',
+          items: [
+            'kube-controller-manager: runs ~30 controllers in one process, all sharing informers via SharedInformerFactory. The Deployment controller, ReplicaSet controller, Job controller, and garbage collector all watch overlapping resource types through a single shared cache.',
+            'Operator pattern: every Kubernetes operator (cert-manager, Prometheus Operator, ArgoCD, Crossplane) uses informers to watch custom resources and owned objects. The operator SDK and controller-runtime library wrap informers behind a higher-level Manager/Controller API, but the underlying pipeline is identical.',
+            'Custom autoscalers: the Horizontal Pod Autoscaler watches metrics resources and scales targets. Custom autoscalers use the same informer pattern to watch application-specific CRDs and adjust capacity based on domain logic.',
+            'GitOps controllers: ArgoCD and Flux watch Application or GitRepository CRDs and reconcile cluster state against a git repository. Their informers track both the desired-state CRDs and the actual cluster resources being managed.',
+            'Multi-cluster controllers: federation-style controllers watch resources across multiple clusters by running informers against multiple API servers, merging state into a unified view for cross-cluster scheduling or policy enforcement.',
+          ],
+        },
+        "The pattern fits any workload where: (a) the source of truth is an event-streaming API, (b) many consumers need the same data, (c) reads vastly outnumber writes, and (d) reconciliation must be idempotent because events can be duplicated, reordered, or lost during reconnection.",
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "The predictable informer failures are falling behind watch history, blocking handlers, unbounded caches, retry storms, stale reads, and bad ownership mapping. A gone error from an old resourceVersion requires relist. A slow handler should be moved to workers. A broad cluster-wide watch may need namespaces, field selectors, label selectors, or narrower controllers. A retry storm needs rate limiting and a clear permanent-error path. A stale cache read needs idempotency and sometimes direct API reads for critical confirmation.",
-        "Useful metrics include list duration, watch restarts, resourceVersion gone errors, queue depth, add rate, worker duration, retry count by key, rate-limiter delay, cache object count, index sizes, handler latency, reconcile result, and external dependency latency. Logs should include the key, observed generation, resourceVersion when relevant, decision, and requeue reason. Status conditions should expose progress to users instead of hiding failures in controller logs.",
-        "There are design tradeoffs. A shared cache lowers API load but uses memory. Narrow watches save memory but can miss relationships if selectors are wrong. More indexes speed lookups but cost memory and update time. More workers increase throughput but can overload external services. Longer backoff protects dependencies but delays recovery. The right controller makes these choices intentionally and validates them under event bursts, restarts, and API-server disruption."
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Symptom', 'Root cause', 'Fix'],
+          rows: [
+            ['410 Gone storm', 'Repeated full relists, API server under load', 'Watch cache too small or resync interval too short', 'Increase --watch-cache-size, use bookmarks, lengthen resync interval'],
+            ['Blocked handler', 'Cache updates stall, queue depth grows unbounded', 'Event handler does slow I/O or computation', 'Move work to the workqueue; handler should only compute a key and return'],
+            ['Memory explosion', 'OOMKill of controller process', 'Watching high-cardinality resources cluster-wide with many indexes', 'Use field/label selectors, namespace-scoped watches, or drop unnecessary indexes'],
+            ['Retry storm', 'Thousands of AddRateLimited calls per second', 'Permanent error treated as transient, or missing max-retry limit', 'Distinguish permanent vs transient errors; use Forget + log for permanent failures'],
+            ['Stale read', 'Reconcile acts on outdated object, creates conflict', 'Cache is eventually consistent; object changed after cache read', 'Use resourceVersion-aware updates, or re-read from API server for critical writes'],
+            ['Thundering herd on restart', 'All cached objects reconciled simultaneously', 'Relist re-enqueues everything; resync does the same', 'Stagger worker starts, use jittered resync periods'],
+          ],
+        },
+        "The deepest design limitation is memory proportionality. Informer caches hold full copies of every watched object. There is no built-in way to watch only specific fields. The API server's watch protocol sends full objects on every MODIFIED event, even if only metadata.labels changed. WatchList (alpha in Kubernetes 1.27) and field-level send/receive filtering are ongoing efforts to reduce this cost.",
+        "The second limitation is consistency. The local cache is eventually consistent. Between a write landing in etcd and the watch event arriving in the informer, there is a window (typically 10-100 ms, but unbounded under API-server load) where the cache is stale. Controllers that read from the cache and write back to the API server must use optimistic concurrency (resourceVersion on updates) or risk overwriting concurrent changes.",
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        "Primary sources are Kubernetes API concepts for watches and resourceVersion, client-go cache package documentation, client-go workqueue documentation, and the client-go workqueue examples. Next study Kubernetes reconciliation, etcd Raft, queues, message queues, backpressure, rate limiters, cache invalidation, idempotency, owner references, finalizers, and distributed tracing. Those topics explain why informer-based controllers treat events as hints, keys as durable work addresses, and current state as the source for action."
+        "Trace a single Pod update through the full pipeline of a Deployment controller.",
+        {
+          type: 'code',
+          language: 'text',
+          content: 'Timeline:\n  t=0   API server: Pod default/web-abc-xyz modified (container image changed)\n  t=1ms Reflector: receives MODIFIED watch event, calls DeltaFIFO.Update(pod)\n  t=2ms DeltaFIFO: key="default/web-abc-xyz" gets Delta{Updated, pod} appended\n  t=3ms processLoop: Pop("default/web-abc-xyz") -> HandleDeltas\n  t=3ms HandleDeltas: indexer.Update(pod), then calls OnUpdate handlers\n  t=4ms ReplicaSet handler: extracts owner -> finds ReplicaSet "default/web-abc"\n        enqueues key "default/web-abc" into workqueue\n  t=4ms Deployment handler: extracts owner of RS -> finds Deployment "default/web"\n        enqueues key "default/web" into workqueue\n  t=5ms Worker goroutine: Get() returns "default/web-abc" (ReplicaSet key)\n        reads RS from cache, reads owned Pods from byOwnerUID index\n        all Pods healthy -> Done("default/web-abc"), Forget("default/web-abc")\n  t=6ms Worker goroutine: Get() returns "default/web" (Deployment key)\n        reads Deployment from cache, reads owned RSes from index\n        current RS matches desired -> Done("default/web"), Forget("default/web")',
+        },
+        "If the Pod update had arrived while the worker was already processing \"default/web-abc\", the workqueue would add it to the dirty set. When the worker calls Done, it would find the key dirty and re-enqueue it. The second reconciliation would read the latest Pod state from the cache -- not the event payload from the first notification.",
+        "If the reconciliation fails (for example, the Deployment controller cannot update the ReplicaSet because the API server is temporarily unavailable), the worker calls AddRateLimited(\"default/web\"). The rate limiter computes a backoff delay: 5 ms for the first failure, 10 ms, 20 ms, doubling up to a cap of 1,000 seconds. The key sits in the delayed queue until the backoff expires, then re-enters the active queue for another attempt. On success, Forget resets the failure counter to zero.",
       ],
     },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
     {
-      heading: 'The obvious approach',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Primary sources',
+        },
+        {
+          type: 'bullets',
+          items: [
+            'client-go source: k8s.io/client-go/tools/cache -- DeltaFIFO, Reflector, SharedIndexInformer, Store, Indexer interfaces and implementations.',
+            'client-go workqueue: k8s.io/client-go/util/workqueue -- Interface, RateLimitingInterface, DefaultControllerRateLimiter (BucketRateLimiter + ItemExponentialFailureRateLimiter).',
+            'Kubernetes API conventions: the Watch section of the API reference documents resourceVersion semantics, 410 Gone behavior, bookmark events, and watch cache configuration.',
+            'controller-runtime: sigs.k8s.io/controller-runtime -- the higher-level framework wrapping informers, used by Kubebuilder and Operator SDK.',
+          ],
+        },
+        {
+          type: 'heading',
+          level: 3,
+          content: 'Study next',
+        },
+        {
+          type: 'bullets',
+          items: [
+            'Prerequisite: queues (FIFO ordering, bounded buffers, backpressure) and hash maps (the indexer is fundamentally a concurrent hash map with secondary indexes).',
+            'Extension: etcd watch protocol -- how etcd implements the watch stream that the API server proxies to informers, including compaction and the 410 boundary.',
+            'Contrast: event sourcing -- informers look like event sourcing but differ in a critical way. Event-sourced systems derive state by replaying the event log. Informers derive state from the latest snapshot and use events only as invalidation signals.',
+            'Production depth: rate limiters and backoff strategies -- the workqueue rate limiter composes a token bucket (overall throughput cap) with per-item exponential backoff (individual failure isolation).',
+            'Related case study: controller-runtime reconciler pattern -- how the higher-level framework maps informer events to a single Reconcile(Request) call, hiding DeltaFIFO and workqueue internals.',
+          ],
+        },
       ],
     },
-
     {
-      heading: 'The wall',
+      heading: 'How to read the animation',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        {
+          type: 'note',
+          content: 'Revisit after watching both views. In the list-watch-cache view, the left-to-right flow mirrors the stages above: API -> Reflector -> DeltaFIFO -> Indexer + Handler -> Workqueue -> Reconciler. In the workqueue-retry view, the cycle Add -> dirty -> queue -> processing -> Done/Retry shows the three-set deduplication mechanism. The backoff plot shows delay growing exponentially then hitting the cap.',
+        },
       ],
     },
-
     {
-      heading: 'How it works',
+      heading: 'Micro checks',
       paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
+        {
+          type: 'bullets',
+          items: [
+            'State the invariant the workqueue preserves about dirty keys in one sentence.',
+            'A watch event arrives for key K while K is in the processing set. Trace the key through Add, Done, and Get. What prevents duplicate in-flight processing?',
+            'The API server returns 410 Gone. What does the Reflector do, what does DeltaFIFO emit, and what DeltaType do the resulting deltas carry?',
+            'A controller watches 100,000 Pods cluster-wide. Estimate the informer cache memory cost. What is the first optimization to reduce it?',
+            'An event handler calls an external HTTP API before enqueuing a key. What breaks? Name two symptoms.',
+          ],
+        },
       ],
     },
-
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for kubernetes-informer-deltafifo-workqueue-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

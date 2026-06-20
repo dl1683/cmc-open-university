@@ -209,167 +209,266 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The scheduling problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Omega is a cluster-scheduling paper about a control-plane problem that appears whenever infrastructure grows faster than one policy can comfortably handle. A large compute cluster runs many kinds of work: latency-sensitive services, long batch jobs, data-processing pipelines, experiments, machine-learning training, and jobs with special hardware or locality needs. Each workload wants a scheduler that understands its own shape. At the same time, all of those schedulers are fighting over one physical cell of machines.',
-        'The naive answer is one monolithic scheduler. It sees everything, so it can enforce global policy and avoid conflicting placements. But it becomes a feature bottleneck. Every workload-specific policy must be added to the same scheduler, tested against every other policy, and released without destabilizing the cluster. Another answer is two-level scheduling, where a resource manager offers resources to frameworks. That gives frameworks more control, but offers can mismatch what a framework actually needs and can hide useful global information.',
-        'Omega explores a third point: many schedulers, one shared view of cluster state, and optimistic transactions to detect conflicts. The idea is simple enough to sound obvious after you see it. Let schedulers plan in parallel, but make their writes conditional on the state still being compatible with the assumptions they used.',
+        'The animation shows a cluster cell with three specialized schedulers -- batch, service, and ML -- connected to a shared cell-state node, which in turn connects to physical machines. Active (highlighted) nodes mark the scheduler or machine currently involved in a placement decision. Found edges mark successful commits. Compare edges mark competing schedulers whose transactions may conflict.',
+        'In the "shared-state scheduling" view, watch how all three schedulers read from the same cell state simultaneously and propose placements independently. In the "conflicts and retries" view, follow a single conflict through the optimistic transaction lifecycle: two schedulers read the same snapshot, both target machine A, one commits first, and the loser refreshes and retries.',
+        {
+          type: 'note',
+          text: 'The key visual inference: if two schedulers both show active edges to the same machine, one transaction will fail at commit. The cell state node is the single source of truth that detects and rejects the conflict.',
+        },
       ],
     },
     {
-      heading: 'The database idea hiding inside the scheduler',
+      heading: 'Why this exists',
       paragraphs: [
-        'The best mental model for Omega is optimistic concurrency control over machines. A scheduler reads a snapshot of the cell: which machines exist, what resources are free, what tasks are running, what constraints apply, and what versions those facts have. The scheduler then chooses placements according to its own policy. A service scheduler may care about latency and anti-affinity. A batch scheduler may care about throughput and packing. An accelerator scheduler may care about GPU topology or scarce device types.',
-        'The chosen placement is not real yet. It is a proposed transaction. At commit time, the shared state checks whether the facts the scheduler depended on are still true. If another scheduler already claimed the machine, changed a relevant constraint, or otherwise invalidated the plan, the transaction aborts. The scheduler refreshes its snapshot and tries again. If validation succeeds, the placement becomes part of the authoritative cluster state and can be sent to the machines.',
-        'This is why Omega belongs in a data-structures and systems curriculum. It shows that an idea from databases and lock-free programming can become a cluster-management architecture. Read a versioned state, compute locally, compare against reality, and commit only if reality has not moved in a conflicting way.',
+        'Google circa 2011 ran clusters of 10,000+ machines serving hundreds of distinct workloads: latency-sensitive web services, multi-hour batch analytics, ML training jobs needing GPU locality, and short-lived MapReduce tasks. Each workload type needed different scheduling logic -- services cared about anti-affinity and tail latency, batch cared about throughput and bin-packing, ML cared about accelerator topology. A single scheduler binary had to absorb every policy, and adding a new scheduling feature meant modifying, testing, and redeploying that monolith without destabilizing a production cluster.',
+        {
+          type: 'quote',
+          text: 'The Omega paper grew from practical frustrations: adding new scheduling policies to a monolithic scheduler required changes to the scheduler itself, which increased complexity and reduced agility.',
+          attribution: 'Schwarzkopf, Konwinski, Abd-El-Malek & Wilkes, "Omega: flexible, scalable schedulers for large compute clusters" (EuroSys 2013), Section 1',
+        },
+        'The constraint is not raw performance. A monolithic scheduler can make good placement decisions. The constraint is development velocity: when every scheduling policy lives in one binary, teams queue behind each other, testing is combinatorial, and the scheduler becomes the most dangerous deploy in the fleet.',
       ],
     },
     {
-      heading: 'What shared state buys',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Shared state gives specialized schedulers more information than a narrow resource-offer interface. A scheduler can reason about the whole cell, not only about resources currently offered to it. It can inspect placement constraints, machine attributes, current load, and other jobs. That makes richer policies possible without forcing every policy into one monolithic binary.',
-        'It also makes scheduler development more independent. Teams can build schedulers for their workloads, experiment with new placement logic, and evolve policy without waiting for a central scheduler to absorb every feature. The shared state remains the integration point. The optimistic transaction is the safety rail that prevents independent schedulers from both believing they own the same resource.',
-        'The trade is that conflict becomes a normal cost. Omega does not prevent schedulers from making incompatible plans. It prevents incompatible plans from committing. That is an important distinction. Work may be wasted, latency may increase, and heavily contended resources may produce many retries. Optimism pays off only when the wasted work is cheaper than centralized coordination.',
+        'The first reasonable answer is a monolithic scheduler. One process sees all machines, all running tasks, and all pending requests. It serializes every placement decision, so conflicts are impossible by construction. Borg, Google\'s production cluster manager, used this architecture successfully for years.',
+        {
+          type: 'table',
+          headers: ['Architecture', 'Who decides placement', 'Strength', 'Bottleneck'],
+          rows: [
+            ['Monolithic (Borg-style)', 'Single scheduler process', 'Global view, no conflicts', 'Feature velocity -- every policy in one binary'],
+            ['Two-level (Mesos-style)', 'Resource manager offers to frameworks', 'Framework autonomy', 'Offer mismatch -- frameworks see only offered resources'],
+            ['Static partitioning', 'Separate clusters per workload', 'Full isolation', 'Fragmentation -- idle capacity in one partition, starvation in another'],
+          ],
+        },
+        'A monolithic scheduler works until the organization outgrows it. When dozens of teams want custom scheduling logic -- gang scheduling for MPI jobs, topology-aware placement for ML, preemption policies for latency-critical services -- the monolith becomes a coordination bottleneck among humans, not machines. Every feature request becomes a merge conflict in the scheduler codebase.',
+        'The second reasonable answer is two-level scheduling, as in Mesos. A central resource manager partitions resources into offers and hands them to framework-specific schedulers. This gives frameworks independence, but frameworks can only see what they are offered, not the full cluster. A framework that needs machines with specific attributes may reject offers repeatedly, creating inefficiency that the resource manager cannot easily fix because it does not understand the framework\'s constraints.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The monolithic scheduler hits a wall that is organizational, not computational. Consider this sequence:',
+        {
+          type: 'diagram',
+          text: 'Week 1:  Team A wants gang scheduling for MPI jobs\n         -> Modify monolithic scheduler, test against all policies, deploy\nWeek 3:  Team B wants GPU-topology-aware placement\n         -> Modify same scheduler, retest everything, deploy\nWeek 5:  Team C wants preemption tiers for latency services\n         -> Same scheduler, regression risk grows combinatorially\nWeek 8:  Teams A, B, C all have pending changes that conflict\n         -> Scheduling deploys freeze; teams blocked on each other',
+          label: 'The monolithic scheduler becomes a human coordination bottleneck',
+        },
+        'The invariant that must hold is: no two tasks can be placed on the same resource simultaneously if their combined requirements exceed that resource\'s capacity. A monolithic scheduler enforces this trivially through serialization. But serialization of decisions forces serialization of development. The wall is not that the scheduler makes bad decisions -- it is that improving the scheduler requires everyone to stop and wait.',
+        'Two-level scheduling hits a different wall. Because each framework only sees its offered subset, it cannot reason about global properties. If framework A needs four machines on the same rack and framework B holds three of those machines idle, the resource manager may never construct the right offer. The information hiding that provides isolation also prevents optimization.',
+        {
+          type: 'note',
+          text: 'Mesos addressed this partially with "optimistic offers" and "revocation," but the fundamental issue remained: a framework making placement decisions with a partial view of the cluster cannot match the quality of decisions made with the full view.',
+        },
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Give every scheduler the full cluster state, let them all plan in parallel, and use optimistic concurrency control to detect conflicts at commit time.',
+        {
+          type: 'quote',
+          text: 'In Omega, there is no central resource allocator; instead, all resource-allocation decisions take place in the schedulers themselves. They use optimistic concurrency control to mediate clashes when they access the shared state.',
+          attribution: 'Schwarzkopf et al. (2013), Section 3.2',
+        },
+        'This is the database idea of multi-version concurrency control (MVCC) applied to cluster machines instead of database rows. Each scheduler reads a consistent snapshot of the cell state -- every machine, every running task, every resource counter, every constraint, each tagged with a version number. The scheduler computes placements locally, taking as long as it needs, using whatever policy logic it wants. When it is ready, it submits a transaction: "place task T on machine M, assuming M still has version V." If the version matches, the transaction commits atomically. If another scheduler changed M in the meantime, the transaction aborts, and the scheduler retries with a fresh snapshot.',
+        'The contract: a committed placement reflects a consistent view of reality at commit time. A rejected placement never touches the real cluster. Conflicts are performance costs, not correctness failures.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The mechanism has four phases, repeating in a loop for each scheduler:',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'PHASE 1 -- SNAPSHOT\n  Scheduler S reads a full copy of cell state.\n  Each machine record has: {id, cpu_free, mem_free, gpu_free, tasks[], version}.\n  The snapshot is a consistent point-in-time view.\n\nPHASE 2 -- PLAN\n  S applies its own policy to choose placements.\n  Service scheduler: anti-affinity, latency zones, spread.\n  Batch scheduler: bin-packing, throughput, deadline.\n  ML scheduler: GPU topology, gang placement, locality.\n  Planning runs in parallel across all schedulers.\n\nPHASE 3 -- COMMIT\n  S submits a transaction: "place task T on machine M,\n  decrement M.cpu_free by X, contingent on M.version == V."\n  The cell state atomically checks the version.\n  If V matches: commit, increment version, update resources.\n  If V mismatched: abort, return conflict details.\n\nPHASE 4 -- RETRY (on conflict)\n  S reads a fresh snapshot and replans.\n  Retry may choose a different machine or the same one\n  if it is still feasible under the new state.',
+        },
+        'The key property: phases 2 and 3 happen independently for each scheduler. While the batch scheduler is planning a 1,000-task job, the service scheduler can commit a latency-critical placement without waiting. The only serialization point is the atomic compare-and-swap at commit, which is a single fast operation on the cell state store.',
+        {
+          type: 'diagram',
+          text: 'Time --->  t0         t1         t2         t3         t4\n\nBatch:     [read]     [---plan 1000 tasks---]     [commit]\nService:   [read]  [plan] [commit]                         \nML:           [read]    [--plan--]  [commit]               \n                                                           \nCell state: v0    v0     v1(svc)    v2(ml)     v3(batch)?  \n                        committed  committed  may conflict',
+          label: 'Parallel scheduling timelines -- each scheduler reads and plans independently',
+        },
+        'If the batch scheduler\'s commit at t4 targets a machine that the service or ML schedulers already changed, its transaction aborts only for the conflicting machines. The paper distinguishes between "all-or-nothing" transactions (the whole job fails if any machine conflicts) and "incremental" transactions (only conflicting placements retry). Incremental is more practical for large batch jobs where a few machine conflicts should not force replanning thousands of placements.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Omega works when most scheduler decisions do not collide. Large clusters have many machines and many independent placement opportunities. If two schedulers usually choose different resources, parallel planning increases throughput and reduces the need for one scheduler to understand every policy. The shared state still catches the cases where they collide.',
-        'It also works because scheduling decisions can often be retried. If a proposed placement fails because machine A was claimed, the scheduler can choose machine B or recompute from a fresh snapshot. That is very different from a real-world action that cannot be undone. Optimistic control is strongest when speculative work is cheap, validation is precise, and failed attempts do not leak into the external world.',
-        'The design preserves a useful authority boundary. Schedulers can be diverse, but the shared cell state is authoritative. The system is not a federation of independent truths. A placement that fails validation is not half-real. It is rejected before it changes the cluster. This is the same principle that makes compare-and-swap useful in concurrent data structures.',
+        'Optimistic concurrency works when conflicts are rare relative to total decisions. The Omega paper tested this with a simulator driven by real Google cluster traces and found that conflict rates stayed low under realistic workloads.',
+        {
+          type: 'table',
+          headers: ['Workload mix', 'Scheduler count', 'Conflict rate', 'Why conflicts are rare'],
+          rows: [
+            ['Batch-heavy (common case)', '2-3', '< 2%', 'Large cluster, many machines, batch is flexible about placement'],
+            ['Service-heavy (latency work)', '2-3', '< 5%', 'Service jobs are small, claim few resources per commit'],
+            ['Mixed with ML', '3+', '5-12%', 'ML jobs want specific GPUs, creating hotspots on accelerator machines'],
+            ['Adversarial (all want same resources)', 'many', '20-40%+', 'Optimistic control degrades; need coordination or partitioning'],
+          ],
+        },
+        'The correctness argument rests on two properties. First, atomicity: a transaction either commits entirely (resources are decremented, task is recorded) or has no effect. There is no state where a machine shows a task that was never fully committed. Second, version monotonicity: versions only increase, so a stale snapshot can never accidentally match a newer version. A scheduler that reads version 5 and commits against version 7 will always fail, never accidentally succeed.',
+        {
+          type: 'note',
+          text: 'This is the same correctness guarantee as compare-and-swap (CAS) in lock-free data structures. The cell state version plays the role of the CAS expected value. The analogy is exact: Omega applies lock-free programming to cluster management.',
+        },
+        'The design also preserves a clean authority boundary. Individual schedulers own policy (which machine is best for this job). The cell state store owns truth (which resources are actually available). No scheduler can override reality. A scheduler can be buggy, greedy, or slow, and the worst it can do is waste its own compute on failed transactions -- it cannot corrupt the cluster state.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Omega is often discussed alongside Borg, Mesos, and Kubernetes because they expose different scheduler-control-plane choices. Borg represents an integrated production cluster manager with a strong central system. Mesos is associated with resource offers and framework schedulers. Kubernetes has a default scheduler but also permits custom schedulers, controllers, admission policies, and reconciliation loops around a shared API server. The details differ, but the pressure is the same: many actors want to change one cluster.',
-        'The idea also travels outside cluster scheduling. Any control plane with multiple reconcilers faces an Omega-shaped problem. Cloud infrastructure controllers, deployment systems, CI runners, quota managers, and agent orchestration systems all need independent decision loops that write to shared state. If those loops act without validation, they conflict. If every loop waits for one global coordinator, feature velocity and throughput suffer. Optimistic shared-state commits are one tool between those extremes.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The main failure mode is contention. If many schedulers want the same scarce resources, retries can turn into thrashing. GPUs, high-memory machines, special storage locality, or urgent low-latency capacity can become hot spots. Under those conditions, the system may need reservations, quota, priority, partitioning, or a more coordinated scheduler for that resource class.',
-        'Another failure mode is policy fragmentation. Independent schedulers can optimize locally in ways that harm global fairness, efficiency, or reliability. A shared state store can reject direct conflicts, but it does not automatically decide what is fair. The system still needs admission control, quotas, priority rules, preemption policy, and a way to audit scheduler behavior.',
-        'Snapshot staleness is also not free. A scheduler that plans against old information may keep producing doomed transactions. Good implementations need fresh-enough watches, useful conflict messages, and retry logic that backs off or changes strategy under contention. Without that, optimistic concurrency becomes a loop that repeatedly learns the same fact too late.',
+        'The costs divide into compute cost and conflict cost.',
+        {
+          type: 'table',
+          headers: ['Cost dimension', 'What it depends on', 'Scaling behavior'],
+          rows: [
+            ['Snapshot read', 'Cell size (machines * attributes)', 'O(M) per read; ~10K machines = ~10 MB snapshot'],
+            ['Planning compute', 'Scheduler policy complexity', 'Varies: bin-packing is NP-hard in general, heuristics are O(T * M) for T tasks'],
+            ['Commit latency', 'Cell state store throughput', 'Single CAS operation, microseconds if in-memory'],
+            ['Conflict retry', 'Contention level', 'O(1) per retry cycle, but total retries can grow under contention'],
+            ['Wasted planning work', 'Conflict rate * planning time', 'Low when conflicts are rare; dominates under hotspots'],
+          ],
+        },
+        'When the cluster doubles from 5,000 to 10,000 machines, the snapshot size doubles, but conflict probability may actually decrease because there are more placement options. The cost that grows dangerously is not cluster size but contention: if 10 schedulers all want the same 50 GPU machines, retry loops dominate even in a million-machine cluster.',
+        'Compared to a monolithic scheduler, Omega trades zero-conflict guarantees for parallelism. A monolith processes requests sequentially -- if planning one batch job takes 500ms, the service scheduler waits 500ms even for a trivial one-task placement. With Omega, the service scheduler commits in microseconds while the batch scheduler is still planning. For latency-sensitive workloads, this latency decoupling is the primary practical benefit.',
+        {
+          type: 'note',
+          text: 'The paper reports that scheduling latency for service jobs dropped by an order of magnitude compared to a monolithic approach, because service placements no longer queued behind long-running batch scheduling decisions.',
+        },
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine a service scheduler and a batch scheduler both read a cell snapshot where machine A has enough CPU and memory. The service scheduler chooses A because it satisfies anti-affinity and latency constraints. The batch scheduler chooses A because it improves packing. Both choices are reasonable from their snapshots. The service scheduler commits first. The shared state records the service task on A and advances the relevant version. The batch scheduler then tries to commit and fails because the resource facts it depended on changed.',
-        'The failed batch placement is not a correctness problem if it stays speculative. The batch scheduler refreshes the state and chooses another machine. The conflict is a performance cost, not a cluster-corrupting event. If this happens rarely, Omega wins. If it happens constantly, the design is telling you that the resource class needs more explicit coordination.',
+        'A cell has three machines, each with 8 CPU cores free. Two schedulers -- service and batch -- read the same snapshot at time t0:',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Cell state at t0 (version 1 for all machines):\n  Machine A: cpu_free=8, version=1\n  Machine B: cpu_free=8, version=1\n  Machine C: cpu_free=8, version=1\n\nService scheduler reads snapshot, needs to place a 6-core web server.\n  Policy: pick the machine with lowest latency to the user-facing network.\n  Decision: Machine A (closest to network edge).\n  Transaction: {machine: A, cpu_decrement: 6, expected_version: 1}\n\nBatch scheduler reads same snapshot, needs to place a 4-core analytics job.\n  Policy: bin-pack -- pick the machine with most free cores.\n  All machines tied at 8 cores. Picks Machine A (first in sorted order).\n  Transaction: {machine: A, cpu_decrement: 4, expected_version: 1}',
+        },
+        'The service scheduler commits first. Machine A\'s state updates: cpu_free drops to 2, version advances to 2. Now the batch scheduler tries to commit with expected_version=1, but Machine A is already at version 2. The transaction aborts.',
+        {
+          type: 'diagram',
+          text: 'Before conflict:     After service commits:    After batch retries:\n\n  A: 8 cpu (v1)        A: 2 cpu (v2)              A: 2 cpu (v2)\n  B: 8 cpu (v1)        B: 8 cpu (v1)              B: 4 cpu (v2)\n  C: 8 cpu (v1)        C: 8 cpu (v1)              C: 8 cpu (v1)\n                       Service task on A           Batch task on B',
+          label: 'The batch scheduler retries on a fresh snapshot and picks Machine B',
+        },
+        'The batch scheduler refreshes its snapshot, sees Machine A now has only 2 cores free (not enough for 4), and picks Machine B instead. This time the commit succeeds. Total wasted work: one planning cycle for the batch scheduler. The cluster ends up with the service task on A and the batch task on B -- both well-placed according to their respective policies.',
+        {
+          type: 'note',
+          text: 'If the batch scheduler had used an incremental transaction for a multi-task job, only the placement targeting Machine A would have failed. Placements on other machines in the same transaction could still commit, reducing the retry cost for large jobs.',
+        },
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Omega is not just a scheduler paper. It is a general pattern for parallel control-plane decisions: share the state, let specialized actors compute independently, validate writes atomically, and retry when the world changed. The pattern is powerful because it separates policy diversity from state authority.',
-        'The limit is just as important. Optimistic scheduling works when conflicts are uncommon, retries are cheap, and failed plans do not leak into real machines. When the cluster is dominated by scarce hot resources or strict latency promises, optimism needs help from admission control, quotas, reservations, or central coordination.',
+        'Omega was a research prototype built at Google to explore the design space around Borg. The paper\'s contribution is architectural: it proved through simulation that shared-state scheduling with optimistic concurrency is viable at Google\'s scale, and it mapped the tradeoff space between monolithic, two-level, and shared-state designs.',
+        {
+          type: 'table',
+          headers: ['System', 'Scheduling model', 'Omega\'s influence'],
+          rows: [
+            ['Borg (Google)', 'Monolithic with multi-path', 'Omega findings informed Borg\'s evolution; Borg adopted some parallel scheduling ideas'],
+            ['Kubernetes', 'Default scheduler + custom schedulers sharing API server state', 'Shared etcd state with optimistic concurrency (resource versions) mirrors Omega\'s core mechanism'],
+            ['Nomad (HashiCorp)', 'Multiple schedulers against shared state', 'Explicitly inspired by Omega; uses plan-queue with CAS-style conflict resolution'],
+            ['Apollo (Microsoft)', 'Distributed per-job scheduling with shared cluster view', 'Similar shared-state philosophy but with opportunistic conflict resolution'],
+          ],
+        },
+        'Kubernetes is the most widely deployed system that embodies Omega\'s core idea. The API server backed by etcd provides a shared state store. Every resource object has a resourceVersion field. When a controller or scheduler updates an object, the API server rejects the write if the resourceVersion has changed since the controller last read it. Controllers retry with a fresh read. This is exactly the Omega transaction model applied to arbitrary Kubernetes resources, not just machine placements.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: '// Kubernetes optimistic concurrency -- same idea as Omega\n// 1. Read the current state of a pod\nconst pod = await k8s.readNamespacedPod("my-pod", "default");\n// pod.metadata.resourceVersion == "12345"\n\n// 2. Modify locally\npod.spec.containers[0].resources.limits.cpu = "4";\n\n// 3. Write back -- server checks resourceVersion\ntry {\n  await k8s.replaceNamespacedPod("my-pod", "default", pod);\n  // Succeeds only if resourceVersion is still "12345"\n} catch (e) {\n  if (e.statusCode === 409) {\n    // Conflict -- someone else modified the pod\n    // Re-read and retry (Phase 4: RETRY)\n  }\n}',
+        },
+        'The pattern also appears outside cluster scheduling. Database systems use MVCC for concurrent transactions. Git uses optimistic concurrency for pushes (your push fails if the remote ref advanced since you fetched). Distributed configuration systems like etcd and ZooKeeper use version-conditional writes. Any system where multiple writers share state and conflicts are expected to be rare benefits from the Omega pattern.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Primary sources: Google paper PDF at https://research.google.com/pubs/archive/41684.pdf, Google Research page at https://research.google/pubs/omega-flexible-scalable-schedulers-for-large-compute-clusters/, and ACM DOI at https://dl.acm.org/doi/10.1145/2465351.2465386. Study Borg Cluster Scheduler Case Study, Mesos Resource Manager Case Study, Kubernetes Admission Policy Gate, Lock-Free Queue, MVCC Internals & VACUUM, Bulkheads & Resource Isolation, and Ray Distributed Execution Case Study next.',
+        'Optimistic concurrency degrades under contention. When many schedulers want the same scarce resources, the system enters a retry storm: each scheduler reads, plans, attempts to commit, fails, and replans, only to conflict again.',
+        {
+          type: 'table',
+          headers: ['Failure mode', 'Trigger', 'Symptom', 'Mitigation'],
+          rows: [
+            ['Retry storm', 'Many schedulers target the same scarce resource (e.g., 50 GPU machines)', 'Scheduling latency spikes; most transactions abort', 'Partition scarce resources to a dedicated scheduler; add backoff'],
+            ['Policy fragmentation', 'Independent schedulers optimize locally', 'Global fairness violations; starvation of low-priority work', 'Central admission control and quota enforcement outside the schedulers'],
+            ['Snapshot staleness', 'Scheduler plans for seconds against an old snapshot', 'Consistently doomed transactions that waste compute', 'Watch-based incremental updates; shorter planning cycles'],
+            ['Livelock', 'Two schedulers repeatedly conflict and both retry onto the same alternative', 'Neither scheduler makes progress', 'Randomized backoff or priority-based commit ordering'],
+          ],
+        },
+        'The deeper limitation is that optimistic concurrency only detects conflicts -- it does not prevent them. A monolithic scheduler can guarantee that no two schedulers ever target the same resource. Omega discovers the conflict after planning work is done. When planning is expensive (large gang-scheduled jobs that require co-placement of hundreds of tasks), a single wasted planning cycle can cost hundreds of milliseconds. Under high contention, the total wasted compute exceeds what a pessimistic lock would have cost.',
+        {
+          type: 'note',
+          text: 'The Omega paper acknowledges this tradeoff explicitly. Their recommendation is a hybrid: use shared-state optimistic scheduling for the common case (many machines, flexible placement), but add coordination mechanisms (reservations, priority partitions) for known hotspots. Pure optimism is a tool, not a religion.',
+        },
+        'Fairness is also outside Omega\'s scope. The cell state store can reject conflicting resource claims, but it cannot decide which scheduler deserves the resource. If a batch scheduler and a service scheduler both want the last free machine, the winner is whichever commits first -- essentially a race. Production systems need quota, priority tiers, preemption, and admission control layered on top of the optimistic commit mechanism.',
       ],
     },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
     {
-      heading: 'The obvious approach',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'The implementation complexity of Omega is moderate compared to a monolithic scheduler but shifts where the complexity lives.',
+        {
+          type: 'table',
+          headers: ['Component', 'Monolithic scheduler', 'Omega shared-state'],
+          rows: [
+            ['Scheduling logic', 'All policies in one binary', 'Each scheduler is a separate binary with its own policy'],
+            ['State management', 'In-process data structures', 'External cell state store with versioned records'],
+            ['Conflict handling', 'Impossible (serialized)', 'Transaction abort + retry logic in every scheduler'],
+            ['Testing', 'Combinatorial (all policies interact)', 'Per-scheduler (policies are independent)'],
+            ['Deployment risk', 'High (one binary serves all workloads)', 'Low per scheduler (only its workload is affected)'],
+            ['Global optimization', 'Easy (full view, full control)', 'Hard (no scheduler sees all pending decisions)'],
+          ],
+        },
+        'The cell state store must support high-throughput versioned reads and atomic compare-and-swap writes. In the paper\'s simulation, the store handled tens of thousands of transactions per second across a 10,000-machine cell. The snapshot size scales linearly with cell size -- roughly 1-2 KB per machine for resource counters, attributes, and running task lists. A 10,000-machine cell produces ~10-20 MB snapshots.',
+        'The practical complexity lives in retry policy. A naive "retry immediately on conflict" can create thundering-herd effects. Production implementations need exponential backoff, jitter, conflict-aware replanning (avoid the machine that caused the conflict), and circuit-breaker logic that escalates to a coordinator when conflict rates exceed a threshold.',
       ],
     },
-
     {
-      heading: 'The wall',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        {
+          type: 'bullets',
+          items: [
+            'Primary source: Schwarzkopf, Konwinski, Abd-El-Malek & Wilkes, "Omega: flexible, scalable schedulers for large compute clusters," EuroSys 2013. ACM DOI: https://dl.acm.org/doi/10.1145/2465351.2465386',
+            'Google Research page: https://research.google/pubs/omega-flexible-scalable-schedulers-for-large-compute-clusters/',
+            'Companion paper: Verma et al., "Large-scale cluster management at Google with Borg," EuroSys 2015 -- the production system that Omega\'s research informed.',
+            'Hindman et al., "Mesos: A Platform for Fine-Grained Resource Sharing in the Data Center," NSDI 2011 -- the two-level scheduling model that Omega contrasts against.',
+            'Boutin et al., "Apollo: Scalable and Coordinated Scheduling for Cloud-Scale Computing," OSDI 2014 -- Microsoft\'s take on distributed scheduling with shared state.',
+          ],
+        },
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'Lock-Free Queue', 'CAS and optimistic concurrency are the same mechanism at data-structure scale'],
+            ['Prerequisite', 'MVCC Internals & VACUUM', 'Snapshot isolation and version-based conflict detection are Omega\'s core mechanism borrowed from databases'],
+            ['Companion', 'Borg Cluster Scheduler Case Study', 'The monolithic scheduler that Omega\'s research aimed to evolve'],
+            ['Companion', 'Mesos Resource Manager Case Study', 'The two-level scheduling model in Omega\'s design-space comparison'],
+            ['Extension', 'Kubernetes Admission Policy Gate', 'How Omega\'s shared-state model evolved into Kubernetes\' API server with resourceVersion'],
+            ['Contrast', 'Bulkheads & Resource Isolation', 'Static partitioning -- the approach Omega argues against for flexibility'],
+          ],
+        },
       ],
     },
-
     {
-      heading: 'The core insight',
+      heading: 'Micro checks',
       paragraphs: [
-        "The core insight is the smallest idea that changes what can be proven.",
-        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
-        "Everything else in the topic should serve this one sentence.",
+        {
+          type: 'bullets',
+          items: [
+            'Can you explain why a scheduler that reads version 5 and commits against version 7 will always fail?',
+            'Can you trace a conflict through all four phases: snapshot, plan, commit-reject, retry?',
+            'Can you name two conditions under which optimistic scheduling degrades to worse-than-monolithic performance?',
+            'Can you describe how Kubernetes resourceVersion implements the same pattern as Omega cell-state versions?',
+          ],
+        },
       ],
     },
-
-    {
-      heading: 'How it works',
-      paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for omega-scheduler-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
 

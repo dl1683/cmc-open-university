@@ -200,154 +200,473 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for No-Vary-Search Query Key. How No-Vary-Search tells caches which query parameters can be ignored or reordered when matching otherwise identical HTTP responses..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation traces a cache lookup pipeline. A request URL enters on the left, splits into its path and query parameters, passes through a No-Vary-Search canonicalization rule, and resolves to a cache hit or miss on the right.',
+        {
+          type: 'bullets',
+          items: [
+            'Active nodes are the stage currently executing: the parameter being evaluated, the rule being applied, or the cache slot being checked.',
+            'Found nodes are stages that resolved successfully -- a rule matched, a canonical key was produced, or the cache returned a stored response.',
+            'Compare nodes are unresolved constraints: parameters not yet classified as ignorable or significant.',
+            'Removed nodes are outcomes the rule eliminated -- a cache miss that became a hit, or a parameter stripped from the lookup key.',
+          ],
+        },
+        'Switch between "query params" (the canonicalization pipeline) and "safety rules" (the parameter audit that decides which fields are safe to ignore). The first view shows the mechanism; the second shows the judgment that makes the mechanism correct.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'HTTP caches normally treat the target URI as part of the cache key, including the query string. That is safe, but it can be wasteful. `/story?id=42&utm_source=newsletter` and `/story?id=42&utm_source=social` may return the same article while occupying two cache entries.',
-        'The problem is query-key fragmentation. Tracking fields, referral tags, and harmless parameter ordering differences can turn one representation into many cache misses. Hit ratio falls, origin traffic rises, and users wait for duplicate work.',
-      ],
-    },
-    {
-      heading: 'Context',
-      paragraphs: [
-        'A cache key is a correctness boundary. It decides when a stored response can answer a later request. HTTP already has tools such as `Vary` for request-header dimensions, validators for revalidation, freshness metadata, and cache-control rules for storage and reuse.',
-        'No-Vary-Search targets one narrow dimension: the URL search component. It lets an origin describe which query parameters do not vary the representation, or how parameter ordering should be normalized before cache matching.',
-        'The core insight is that cache keys should represent response selection, not accidental URL noise. Query strings are often overloaded: some fields select content, some select presentation, some carry analytics, and some are irrelevant leftovers from navigation. No-Vary-Search gives the origin a way to separate those roles without asking the cache to guess.',
+        'HTTP caches key on the full target URI, including every byte of the query string. That is correct by default -- two different URLs might return two different responses. But query strings carry more than content selection. A single article page might be reached through dozens of campaign links, each appending its own tracking fields.',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            '/story?id=42&utm_source=newsletter&utm_medium=email',
+            '/story?id=42&utm_source=twitter&utm_campaign=launch',
+            '/story?id=42&utm_source=facebook&fbclid=abc123',
+            '/story?id=42&gclid=xyz789',
+            '',
+            'All four URLs return the same HTML. The server ignores everything except id=42.',
+            'The cache stores four separate entries for one representation.',
+          ].join('\n'),
+          label: 'Four cache entries, one response body',
+        },
+        'This is query-key fragmentation. Each tracking parameter combination creates a distinct cache key even though the response bytes are identical. Hit ratio drops in proportion to the number of campaign variants. Origin traffic rises. Users wait for network round trips that a warm cache should have prevented.',
+        {
+          type: 'note',
+          text: 'A major news site running 12 campaign variants per article across 5 platforms can fragment a single article into 60 cache entries. Multiply by thousands of articles and the cache becomes a graveyard of duplicates.',
+        },
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The conservative bug is keying by every byte of query spelling even when the server ignores some fields. Marketing links then defeat the cache for no user-visible reason.',
-        'The aggressive bug is worse: stripping parameters because they look like noise. A field named `variant`, `page`, `sort`, `color`, `currency`, `preview`, `account`, or `debug` may change the body, headers, permissions, or experiment assignment. If the cache ignores it, users can receive the wrong response.',
+        'The first instinct is to keep the default: key on the full URL, accept the fragmentation, and let cache eviction handle the duplicates. This is safe but wasteful. It works until origin load or CDN storage costs become a problem, or until prefetch and prerender optimizations need to match URLs that differ only by tracking noise.',
+        'The second instinct is more dangerous: strip "unimportant" query parameters at the CDN or reverse proxy before cache lookup. This requires the infrastructure to know which parameters matter, and that knowledge lives at the application layer, not the caching layer.',
+        {
+          type: 'table',
+          headers: ['Strategy', 'Safety', 'Hit ratio', 'Problem'],
+          rows: [
+            ['Full URL key', 'Correct by default', 'Low under fragmentation', 'Wastes cache on duplicates'],
+            ['Strip at CDN', 'Risky -- CDN guesses', 'High if guess is right', 'Wrong response if guess is wrong'],
+            ['Vary header', 'Correct for request headers', 'N/A for query strings', 'Vary operates on headers, not URL components'],
+            ['Cache-Control: no-store', 'Correct but defeats caching', 'Zero', 'Throws out the baby with the bathwater'],
+          ],
+        },
+        'None of these approaches let the origin declare which query parameters are irrelevant to response selection. The CDN guess approach is especially treacherous: a field named "ref" might be a referral tracker on an article page but a database reference on an API endpoint. The same parameter name can be ignorable on one route and load-bearing on another.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The fundamental tension is that cache correctness requires conservative keys, but cache efficiency requires minimal keys. Without a signaling mechanism, the cache must choose between safety (full URL, low hit ratio) and performance (stripped URL, risk of wrong content).',
+        {
+          type: 'diagram',
+          text: [
+            '  Origin knows:  "utm_source does not change the response"',
+            '  Cache knows:   nothing about parameter semantics',
+            '  ',
+            '  Gap: no protocol for the origin to tell the cache',
+            '       which query dimensions are noise',
+            '  ',
+            '  Result: cache keys by full URL spelling',
+            '          /page?id=1&utm=a  -->  entry A',
+            '          /page?id=1&utm=b  -->  entry B  (duplicate body)',
+            '          /page?utm=a&id=1  -->  entry C  (duplicate body, different order)',
+          ].join('\n'),
+          label: 'The knowledge gap between origin and cache',
+        },
+        'The wall is the missing contract. The origin has the knowledge. The cache has the storage. HTTP had no standard way for the origin to say "these query parameters do not vary the representation" -- until No-Vary-Search.',
+        {
+          type: 'note',
+          text: 'The Vary header solves the mirror-image problem for request headers: it tells the cache which headers DO vary the response. No-Vary-Search completes the picture for query parameters: it tells the cache which parameters do NOT vary the response.',
+        },
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'No-Vary-Search adds a canonicalization step before lookup. The browser or cache receives a request URL, applies the origin-declared search-parameter rule, and compares the canonical key against stored responses. The visible URL does not have to change.',
-        'The rule vocabulary can ignore named parameters, keep only exceptions, or normalize key order. The cache still respects the rest of HTTP caching: method, status, freshness, `Cache-Control`, `Vary`, credentials rules, validators, and storage policy.',
-        'This is not route rewriting. The origin still receives and logs the original URL when a network request happens. The optimization is about whether a later request can reuse an already stored representation.',
-      ],
-    },
-    {
-      heading: 'Representation safety',
-      paragraphs: [
-        'The safety test is representation equality. An ignored parameter must not change the response body, relevant response headers, cacheability, authorization result, personalization, language, price, experiment arm, or any other observable response dimension.',
-        'That test belongs at the origin contract, not in a cache guess. The server team must know that `utm_source` is analytics-only for article pages, while `id` selects the article and must remain in the key.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A news site serves article pages at `/story?id=42`. Campaign links add `utm_source`, `utm_medium`, and `utm_campaign`. The article body, title, cache headers, permissions, and language are selected by `id`, not by the UTM fields.',
-        'The first request to `/story?id=42&utm_source=newsletter` stores a cacheable response with a rule that ignores the UTM fields and normalizes key order. A later request for `/story?utm_source=social&id=42` can canonicalize to the same cache key and reuse the stored response.',
-        'The same site does not ignore `preview=true`, `lang=fr`, `subscriber=1`, or `ab=checkout-redesign` unless those fields are proven not to affect the representation on that route.',
+        'No-Vary-Search is a response header that declares a canonicalization rule over URLSearchParams. Instead of matching the raw query string byte-for-byte, the cache parses both the stored URL and the incoming URL into parameter sets, applies the origin-declared rule, and compares the canonical results.',
+        {
+          type: 'quote',
+          text: 'The No-Vary-Search HTTP response header specifies a set of rules that define how a URL\'s query parameters will affect cache matching. These rules dictate whether the same URL with different URL parameters should be saved as separate browser cache entries.',
+          attribution: 'MDN Web Docs, "No-Vary-Search" reference',
+        },
+        'The header value is a structured field dictionary (RFC 8941) with three optional directives that compose into a canonicalization algorithm:',
+        {
+          type: 'table',
+          headers: ['Directive', 'Type', 'Effect on cache key'],
+          rows: [
+            ['params=("a" "b")', 'Inner list', 'Ignore named parameters -- drop them before matching'],
+            ['params', 'Boolean true', 'Ignore ALL query parameters -- match on path alone'],
+            ['except=("id")', 'Inner list', 'Keep only these parameters -- ignore everything else (requires params=true)'],
+            ['key-order', 'Boolean true', 'Sort parameters by key before matching -- order no longer matters'],
+          ],
+        },
+        'The directives compose. A header can ignore specific parameters AND normalize key order in one rule. The cache applies the rule to both the stored response URL and the incoming request URL, then compares the canonical forms.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'In the query-params view, follow the request into `params`, then into the No-Vary-Search rule, then into the canonical key. The important point is that the user-facing URL can still contain tracking fields while the lookup key drops fields that the origin says are irrelevant.',
-        'In the safety-rules view, read the table as an audit. UTM fields are candidates for ignoring. Variant, pagination, sorting, and product options are kept because they usually change content. The plot shows why the rule matters: raw query keys fragment as campaign URLs multiply, while a correct canonical key keeps reuse high.',
-        'The visual should make students suspicious of global rules. A parameter can be harmless on one route and meaningful on another. The right mental model is route-specific representation safety: only remove a query dimension after proving that it does not change the response for that route family.',
+        'When the origin returns a cacheable response, it includes the No-Vary-Search header. The cache stores the response and its canonicalization rule together. On a later request, the cache parses the incoming URL, applies the stored rule, and checks whether the canonical form matches any stored entry.',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            'Step 1: Origin responds to /story?id=42&utm_source=newsletter',
+            '',
+            '  HTTP/1.1 200 OK',
+            '  Cache-Control: public, max-age=3600',
+            '  No-Vary-Search: key-order, params=("utm_source" "utm_medium" "utm_campaign" "fbclid" "gclid")',
+            '  Content-Type: text/html',
+            '',
+            '  <html>...article content...</html>',
+            '',
+            'Step 2: Cache stores the response.',
+            '  Stored URL:       /story?id=42&utm_source=newsletter',
+            '  Canonical key:    /story?id=42',
+            '  Rule:             ignore utm_source, utm_medium, utm_campaign, fbclid, gclid; sort keys',
+            '',
+            'Step 3: New request arrives for /story?utm_source=facebook&id=42&fbclid=xyz',
+            '  Raw URL:          /story?utm_source=facebook&id=42&fbclid=xyz',
+            '  Apply rule:       drop utm_source, fbclid; sort remaining keys',
+            '  Canonical key:    /story?id=42',
+            '  Match:            YES -- serve cached response',
+          ].join('\n'),
+          label: 'The canonicalization pipeline from request to cache hit',
+        },
+        'Three properties make this safe:',
+        {
+          type: 'bullets',
+          items: [
+            'The origin declares the rule, not the cache. Only the server knows which parameters affect its response.',
+            'The user-facing URL never changes. The browser address bar still shows the full URL with tracking parameters. Only the cache lookup key is canonicalized.',
+            'Fail-safe defaults. If the header is missing, malformed, or unrecognized, the cache falls back to strict full-URL matching. No silent data corruption.',
+          ],
+        },
+        'The canonicalization follows application/x-www-form-urlencoded parsing rules. Percent-encoded characters are decoded before comparison, so utm%5Fsource and utm_source match. The plus sign decodes to space. Parameter names are compared after full URL decoding, not as raw byte strings.',
+      ],
+    },
+    {
+      heading: 'The header syntax',
+      paragraphs: [
+        'No-Vary-Search uses RFC 8941 structured field dictionaries. The syntax matters because any parse error causes the entire header to be ignored -- a strict fail-safe.',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            '# Ignore specific parameters (denylist)',
+            'No-Vary-Search: params=("utm_source" "utm_medium" "fbclid")',
+            '',
+            '# Ignore ALL parameters (match on path only)',
+            'No-Vary-Search: params',
+            '',
+            '# Ignore all parameters EXCEPT these (allowlist)',
+            'No-Vary-Search: params, except=("productId" "variant")',
+            '',
+            '# Normalize parameter order only',
+            'No-Vary-Search: key-order',
+            '',
+            '# Combined: ignore tracking params and normalize order',
+            'No-Vary-Search: key-order, params=("utm_source" "gclid" "ref")',
+          ].join('\n'),
+          label: 'The five common header forms',
+        },
+        {
+          type: 'note',
+          text: 'Parameter lists use space-separated quoted strings inside parentheses, not commas. This is RFC 8941 inner list syntax: params=("a" "b") is correct; params=("a", "b") is a parse error and the entire header is silently dropped.',
+        },
+        {
+          type: 'table',
+          headers: ['Form', 'Ignored parameters', 'Kept parameters', 'Order matters?'],
+          rows: [
+            ['params=("a" "b")', 'a, b', 'Everything else', 'Yes (default)'],
+            ['params', 'All', 'None', 'N/A'],
+            ['params, except=("id")', 'All except id', 'id only', 'Yes (default)'],
+            ['key-order', 'None', 'All', 'No'],
+            ['key-order, params=("a")', 'a', 'Everything else', 'No'],
+          ],
+        },
+        'The except directive is only valid when params is boolean true (meaning "ignore all"). If except appears with params=("a" "b"), the header is malformed and silently ignored. This prevents contradictory rules.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because cache identity can be looser than raw URL spelling when the origin proves the representation is the same. The key only needs to preserve dimensions that can change the response.',
-        '`Vary` and No-Vary-Search solve mirror-image problems. `Vary` adds request-header dimensions that matter. No-Vary-Search removes query dimensions that do not matter. Both are declarations about representation selection.',
+        'Cache identity can be looser than raw URL spelling when the origin proves the representation is identical. The key insight is that a cache key is not "the URL" -- it is "whatever the origin says identifies this response." No-Vary-Search makes that declaration explicit for the query component.',
+        'The correctness argument rests on a single invariant:',
+        {
+          type: 'quote',
+          text: 'If parameter P is declared ignorable on route R, then for any two values v1 and v2 of P, the server MUST return byte-identical response bodies and semantically equivalent response headers for R?P=v1 and R?P=v2.',
+          attribution: 'Representation equivalence invariant',
+        },
+        'When this invariant holds, ignoring P during cache matching cannot serve wrong content. When it does not hold -- when P=red returns a red product image and P=blue returns a blue one -- ignoring P is a correctness bug, not a performance tradeoff.',
+        'Vary and No-Vary-Search are duals. Vary adds dimensions that matter (request headers). No-Vary-Search removes dimensions that do not matter (query parameters). Both narrow the gap between "every possible request variation" and "the actual dimensions that select a distinct response."',
+        {
+          type: 'diagram',
+          text: [
+            '  Full request space:  method + path + query + headers + body',
+            '           |',
+            '           |-- Cache-Control    --> should we cache at all?',
+            '           |-- method + path    --> base cache key',
+            '           |-- Vary             --> which request headers matter?  (adds dimensions)',
+            '           |-- No-Vary-Search   --> which query params matter?    (removes dimensions)',
+            '           |-- validators       --> is the stored copy still fresh?',
+            '           v',
+            '  Effective cache key:  method + path + significant_params + varied_headers',
+          ].join('\n'),
+          label: 'Where No-Vary-Search fits in the HTTP cache key construction',
+        },
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Speculation Rules and prefetch',
       paragraphs: [
-        'The upside is fewer duplicate cache entries, higher hit ratio, less origin load, and lower latency for public content reached through noisy links.',
-        'The cost is policy risk and deployment reality. The header is still experimental, so unsupported caches fall back to ordinary full-URL matching. That fallback is safe but loses the optimization.',
-        'The operational burden is proof. Teams need route-by-route parameter audits, response diffs, logs, and cache observability. A global rule that ignores a parameter everywhere is usually too broad.',
-        'The right adoption posture is conservative. Treat the header as a performance optimization for routes that already have stable cache semantics, not as a way to repair unclear URL design. If product or experimentation teams cannot say whether a parameter changes representation, keep it in the key.',
+        'No-Vary-Search becomes especially powerful with the Speculation Rules API. When the browser prefetches or prerenders a page, the prefetched URL may not exactly match the URL the user eventually navigates to. Without No-Vary-Search, a prefetch of /product?id=5 cannot be reused when the user clicks a link to /product?id=5&utm_source=email.',
+        {
+          type: 'code',
+          language: 'javascript',
+          text: [
+            '// Speculation Rules in a <script type="speculationrules"> block',
+            '{',
+            '  "prefetch": [{',
+            '    "urls": ["/product?id=5"],',
+            '    "expects_no_vary_search": "params=(\\"utm_source\\" \\"utm_medium\\")"',
+            '  }]',
+            '}',
+            '',
+            '// The browser prefetches /product?id=5',
+            '// User clicks /product?id=5&utm_source=email',
+            '// With No-Vary-Search in the response, the prefetch is reused',
+            '// Without it, the prefetch is wasted and a fresh fetch starts',
+          ].join('\n'),
+          label: 'Speculation Rules use expects_no_vary_search to predict cache matching',
+        },
+        'The expects_no_vary_search field in speculation rules tells the browser what No-Vary-Search value the response is expected to carry. The browser can start using the prefetched response optimistically, then confirm when the actual header arrives. If the response header does not match the expectation, the browser falls back to a normal fetch.',
+        {
+          type: 'note',
+          text: 'This is the primary production motivation for No-Vary-Search in Chromium. Prefetch and prerender are high-value optimizations -- they can make navigation feel instant. But tracking parameters on clicked links constantly invalidate prefetched responses. No-Vary-Search closes that gap.',
+        },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A documentation site serves pages at /docs?page=setup. Internal links use clean URLs. External links from email campaigns, social posts, and paid ads each add their own tracking parameters.',
+        {
+          type: 'table',
+          headers: ['Source', 'URL', 'Response body'],
+          rows: [
+            ['Internal nav', '/docs?page=setup', 'Setup guide HTML'],
+            ['Email campaign', '/docs?page=setup&utm_source=email&utm_medium=newsletter', 'Same HTML'],
+            ['Twitter link', '/docs?page=setup&utm_source=twitter&ref=t.co', 'Same HTML'],
+            ['Google ad', '/docs?page=setup&gclid=abc123', 'Same HTML'],
+            ['Different page', '/docs?page=api', 'API reference HTML (different)'],
+          ],
+        },
+        'The server returns:',
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            'HTTP/1.1 200 OK',
+            'Cache-Control: public, max-age=600',
+            'No-Vary-Search: key-order, params=("utm_source" "utm_medium" "utm_campaign" "utm_content" "utm_term" "gclid" "fbclid" "ref")',
+            'Vary: Accept-Encoding',
+            'Content-Type: text/html; charset=utf-8',
+          ].join('\n'),
+          label: 'Response headers for a documentation page',
+        },
+        'After the first request, all four tracking variants resolve to the same canonical key: /docs?page=setup. The cache serves the stored response for each subsequent request without contacting the origin. The "page" parameter stays in the key because it selects different content.',
+        'The Vary: Accept-Encoding header works independently -- it keys on the compression format of the request, which is a request-header dimension. No-Vary-Search handles the query-parameter dimension. Both operate on the same cached response without conflict.',
+      ],
+    },
+    {
+      heading: 'The parameter audit',
+      paragraphs: [
+        'The hardest part of deploying No-Vary-Search is not the header syntax. It is the parameter audit: classifying every query parameter on a route family as content-selecting, presentation-selecting, or irrelevant.',
+        {
+          type: 'table',
+          headers: ['Parameter', 'Changes body?', 'Changes headers?', 'Classification', 'Rule'],
+          rows: [
+            ['id, page, slug', 'Yes', 'Yes (Content-Length)', 'Content-selecting', 'KEEP -- must stay in cache key'],
+            ['lang, locale', 'Yes', 'Yes (Content-Language)', 'Content-selecting', 'KEEP -- different language is a different response'],
+            ['variant, color, size', 'Yes', 'Maybe', 'Content-selecting', 'KEEP -- different product renderings'],
+            ['sort, order, filter', 'Usually yes', 'Rarely', 'Presentation-selecting', 'KEEP unless client-side only'],
+            ['preview, draft', 'Yes', 'Yes (auth-gated)', 'Permission-gated', 'KEEP -- draft content differs from published'],
+            ['ab, experiment', 'Yes', 'Sometimes', 'A/B test arm', 'KEEP -- wrong experiment arm is a correctness bug'],
+            ['utm_source, utm_medium', 'No', 'No', 'Analytics-only', 'IGNORE -- safe to strip from cache key'],
+            ['fbclid, gclid', 'No', 'No', 'Click tracking', 'IGNORE -- added by ad platforms, not read by server'],
+            ['ref, referrer', 'Usually no', 'No', 'Referral tracking', 'MEASURE -- verify server does not use it for content selection'],
+          ],
+        },
+        {
+          type: 'note',
+          text: 'The audit must be per-route, not global. A parameter named "ref" might be an analytics referrer tag on article pages but a foreign-key reference on an API endpoint. A global ignore rule for "ref" would corrupt API responses while correctly optimizing article pages.',
+        },
+        'The audit process:',
+        {
+          type: 'bullets',
+          items: [
+            'Extract all query parameter names from server logs for the target route family.',
+            'For each parameter, issue two requests that differ only in that parameter value. Diff the response status code, body bytes, Content-Type, Content-Language, Set-Cookie, and any custom headers.',
+            'If the diff is empty, the parameter is a candidate for ignoring. If the diff is non-empty, the parameter is content-selecting and must stay in the key.',
+            'Test edge cases: null value vs. absent parameter, empty string vs. missing, duplicate parameter names, and percent-encoded variants of the same name.',
+            'Document the classification and get sign-off from the team that owns the route. Do not guess.',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The runtime cost of No-Vary-Search is a URLSearchParams parse and a key-set comparison on each cache lookup. This is negligible compared to a network round trip -- microseconds vs. milliseconds.',
+        {
+          type: 'table',
+          headers: ['Dimension', 'Without No-Vary-Search', 'With No-Vary-Search'],
+          rows: [
+            ['Cache entries per page', '1 per unique query string', '1 per unique canonical key'],
+            ['Hit ratio (10 campaign variants)', '~10% after first', '~90% after first'],
+            ['Origin requests', 'Proportional to URL variants', 'Proportional to distinct content'],
+            ['CDN storage', 'Duplicated per variant', 'Deduplicated'],
+            ['Prefetch reuse', 'Fails on parameter mismatch', 'Succeeds across tracking variants'],
+            ['Deployment effort', 'None', 'Parameter audit + header deployment'],
+          ],
+        },
+        'The real cost is organizational, not computational. The parameter audit requires coordination between the caching team, the application team, and the marketing team. A wrong classification -- ignoring a content-selecting parameter -- is a silent correctness bug that serves wrong content from cache. There is no error code, no exception, no log line. The cache confidently serves stale or mismatched content.',
+        {
+          type: 'note',
+          text: 'The fail-safe design of the header mitigates one class of risk: if the header syntax is invalid, the cache silently ignores it and falls back to strict matching. You get worse performance but correct behavior. The dangerous direction is a valid header with incorrect semantics -- a perfectly parsed rule that ignores a parameter it should keep.',
+        },
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The worst failure is serving the wrong representation: the wrong product color, stale pagination, a different search result page, an incorrect locale, a hidden preview, or a personalized response reused for the wrong request.',
-        'Another failure is misunderstanding the header as cache busting. It does the opposite. It tells caches that selected query variation is less important, so it should never be used for parameters meant to force distinct cache entries.',
-        'Duplicate parameter names and order-sensitive server parsing can also break assumptions. A key-order rule is safe only when the route treats parameter order as irrelevant.',
+        'The worst failure is serving the wrong response. If color=red and color=blue produce different product pages but the No-Vary-Search rule ignores "color", users see the wrong product. This is not a cache miss -- it is a cache lie. The response looks valid, returns 200, and renders correctly. It is just the wrong content.',
+        {
+          type: 'diagram',
+          text: [
+            '  Request 1:  /product?id=7&color=red     -->  cache stores RED page',
+            '  Request 2:  /product?id=7&color=blue    -->  cache serves RED page  <-- BUG',
+            '  ',
+            '  Rule:  No-Vary-Search: params=("color")  <-- WRONG: color selects content',
+            '  ',
+            '  The user sees a red product when they asked for blue.',
+            '  No error. No warning. No log. Just wrong content served with 200 OK.',
+          ].join('\n'),
+          label: 'The silent corruption failure mode',
+        },
+        'Other failure modes:',
+        {
+          type: 'bullets',
+          items: [
+            'Misunderstanding the header as cache-busting. No-Vary-Search does the opposite -- it makes caching more aggressive. Using it on parameters that should force distinct entries makes the cache collapse entries that should be separate.',
+            'Duplicate parameter names. If a URL contains sort=price&sort=date and the server treats these as a list, a key-order rule might reorder them and change the meaning. The spec parses via application/x-www-form-urlencoded which preserves duplicates, but the canonicalization may reorder them.',
+            'Order-sensitive server parsing. If the server interprets ?a=1&b=2 differently from ?b=2&a=1 (unusual but possible), a key-order rule will incorrectly merge them.',
+            'Parameter interaction effects. utm_source alone may not change content, but utm_source combined with ab_test might trigger different experiment routing. Parameter independence must be verified, not assumed.',
+            'Browser support gaps. As of mid-2026, No-Vary-Search is shipped in Chromium-based browsers but experimental or absent in Firefox and Safari. Unsupported browsers fall back to strict matching (safe but unoptimized). CDNs and intermediate caches may not implement it at all.',
+          ],
+        },
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Start with one public route family, such as article pages or documentation pages. List every query parameter seen in logs. Mark which fields select content, which fields select presentation, which fields affect permissions, and which fields are analytics-only.',
-        'Before rollout, diff responses for candidate ignored parameters across status, body, selected headers, cache-control, language, and personalization state. During rollout, watch hit ratio, origin traffic, `Cache-Status` where available, and error reports for wrong-content symptoms.',
-        'Keep a safe fallback. Caches that do not understand the header will continue using the full URL. That means the rule can improve supporting caches without making unsupported caches less correct.',
+        'The highest-value deployment targets are routes with high traffic, high cache-ability, and high tracking-parameter diversity. These are the routes where fragmentation costs the most and where the parameter audit is simplest (because the content-selecting parameters are well-known).',
+        {
+          type: 'table',
+          headers: ['Route family', 'Typical ignore list', 'Why it works'],
+          rows: [
+            ['News articles', 'utm_*, fbclid, gclid, ref', 'Article content is selected by slug/id only; tracking is purely analytics'],
+            ['Documentation pages', 'utm_*, ref, source', 'Docs are static per path; query params are navigation metadata'],
+            ['Product listing pages', 'utm_*, fbclid', 'Listing is selected by category/filter; ad tracking does not change results'],
+            ['Static landing pages', 'All (params)', 'Page content is fixed; all query params are tracking or A/B routing handled client-side'],
+          ],
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: [
+            '# Rollout checklist for a news article route',
+            '',
+            '1. Extract query param names from 7 days of access logs for /article/*',
+            '2. Classify each param: content-selecting vs analytics-only',
+            '3. For analytics-only candidates, diff response bodies across 100 URL pairs',
+            '4. Deploy header on staging with params=("utm_source" "utm_medium" "utm_campaign")',
+            '5. Monitor: Cache-Status hit ratio, origin request volume, error reports',
+            '6. Expand to fbclid, gclid after 48h of clean metrics',
+            '7. Add key-order after confirming server is order-insensitive',
+            '8. Document the rule in the caching runbook with the parameter audit results',
+          ].join('\n'),
+          label: 'Conservative rollout sequence',
+        },
+        'The fallback is always safe. Caches that do not understand the header use strict full-URL matching. This means No-Vary-Search is a progressive enhancement: supporting caches get better hit ratios, unsupporting caches behave exactly as before. No correctness risk from mixed support.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Browser support',
       paragraphs: [
-        'Primary sources: MDN No-Vary-Search at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/No-Vary-Search, the IETF HTTP draft at https://httpwg.org/http-extensions/draft-ietf-httpbis-no-vary-search.html, RFC 9111 HTTP Caching at https://www.rfc-editor.org/rfc/rfc9111, and MDN Vary at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary.',
-        'Then study HTTP Vary Cache-Key Normalization, HTTP Cache ETag Revalidation, Cache-Status HTTP Observability, CDN Request Flow, Resource Hints: Preload & Preconnect, and Tail Latency & p99 Thinking. No-Vary-Search is small, but it sits inside the full cache correctness stack.',
+        {
+          type: 'table',
+          headers: ['Engine', 'HTTP disk cache', 'Prefetch cache', 'Speculation Rules'],
+          rows: [
+            ['Chromium (Chrome, Edge, Opera)', 'Shipped', 'Shipped', 'Full support'],
+            ['Firefox', 'Experimental', 'Not yet', 'Not yet'],
+            ['WebKit (Safari)', 'No support', 'No support', 'No support'],
+          ],
+        },
+        'The IETF HTTP Working Group is standardizing the header (draft-ietf-httpbis-no-vary-search). The specification is past working group last call but not yet an RFC. Servers can deploy the header today with the understanding that non-Chromium clients fall back to strict matching -- which is the status quo, not a regression.',
       ],
     },
-      {
-      heading: 'The wall',
+    {
+      heading: 'Sources and study next',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        {
+          type: 'bullets',
+          items: [
+            'IETF draft specification: https://httpwg.org/http-extensions/draft-ietf-httpbis-no-vary-search.html -- the normative source for parsing rules, canonicalization algorithm, and security considerations.',
+            'MDN reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/No-Vary-Search -- browser-focused documentation with examples and compatibility tables.',
+            'RFC 9111, HTTP Caching: https://www.rfc-editor.org/rfc/rfc9111 -- the caching framework that No-Vary-Search extends. Understand cache keys, Vary, freshness, and validators before studying this header.',
+            'WICG nav-speculation explainer: https://github.com/WICG/nav-speculation/blob/main/no-vary-search.md -- the original design document explaining the Speculation Rules integration.',
+          ],
+        },
+        'Study next by role:',
+        {
+          type: 'table',
+          headers: ['Role', 'Topic', 'Why'],
+          rows: [
+            ['Prerequisite', 'HTTP Cache ETag Revalidation', 'Understand cache freshness and validation before studying key canonicalization'],
+            ['Prerequisite', 'HTTP Vary Cache-Key Normalization', 'Vary is the mirror-image mechanism -- it adds dimensions instead of removing them'],
+            ['Extension', 'CDN Request Flow', 'See how No-Vary-Search fits into multi-layer cache hierarchies'],
+            ['Extension', 'Cache-Status HTTP Observability', 'Observability is essential for verifying that canonicalization rules actually improve hit ratios'],
+            ['Case study', 'Resource Hints: Preload & Preconnect', 'Adjacent browser optimization that interacts with prefetch and cache behavior'],
+          ],
+        },
       ],
     },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for no-vary-search-query-key-case-study, continue to the next topic in the same track.'
+    {
+      heading: 'Micro checks',
+      paragraphs: [
+        {
+          type: 'bullets',
+          items: [
+            'State the representation equivalence invariant in one sentence. (A parameter is safe to ignore only when changing its value never changes the response body, status, or relevant headers for that route.)',
+            'Given /page?a=1&b=2 cached with No-Vary-Search: key-order, params=("b"), will /page?b=9&a=1 hit or miss? (Hit -- b is ignored and key order is normalized, so canonical key is /page?a=1 for both.)',
+            'Why is except only valid with params as a boolean? (Because except means "ignore all EXCEPT these" -- it inverts a universal ignore. It has no meaning when params already names a specific list.)',
+            'Name one failure mode that produces no error signal. (Ignoring a content-selecting parameter serves the wrong cached response with a 200 status code -- no error, no warning, no log entry.)',
+          ],
+        },
+      ],
+    },
+    {
+      heading: 'Try this now',
+      paragraphs: [
+        'Pick a web application you use or maintain. Open the browser network tab and navigate to the same page through two different links -- one clean, one with UTM parameters. Compare the response bodies. If they are identical, that route is a candidate for No-Vary-Search. Write the header value you would deploy and list every parameter you would keep in the cache key, with a one-sentence justification for each.',
+        'Then switch to the "safety rules" animation view. Trace the parameter audit table and predict which parameters the animation will classify as ignorable vs. kept. Run the animation and check your predictions against each frame.',
+      ],
+    },
   ],
-      },
-],
 };
 

@@ -213,148 +213,171 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Apache Gravitino Federated Metadata Lake Case Study. Apache Gravitino as a federated metadata lake: unify catalogs, schemas, tables, files, engines, tags, policies, lineage, and lakehouse governance..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation has two views. "Metadata lake" walks the hierarchy from metalake through catalogs, schemas, tables, filesets, and engines. "Governance plane" traces how tags, policies, ACLs, audit events, and lineage edges attach to assets and flow through engines.',
+        {type: 'bullets', items: [
+          'Active (highlighted) node: the metadata object or governance step currently being resolved.',
+          'Compare (orange) node: a parallel concern -- a region constraint, a lineage edge, or an alternative backend that the current step must respect.',
+          'Found (green) node: a resolved outcome -- an engine that can now query through the federation layer, or an audit record that proves a decision.',
+        ]},
+        {type: 'note', text: 'The matrix frames show metadata normalization across asset types and connector modes. Each cell is a translation decision. Empty or vague cells are places where the federation layer is doing real work to bridge semantic gaps between backends.'},
+        'At each frame, ask: what identity was resolved, what backend detail was preserved or hidden, and what governance fact is now enforceable or missing.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A mature data platform rarely has one catalog. It has Hive metastore tables, Iceberg tables, JDBC databases, object-store paths, feature tables, model artifacts, streaming topics, regional copies, and engine-specific permissions. Each system knows part of the truth. Users search one place, schedule jobs from another place, request access in a third place, and learn about lineage only after an incident.`,
-        `The naive answer is to build a dashboard that lists everything. That helps discovery for a while, but it does not solve execution. A dashboard can show that a table exists without giving Spark, Trino, Flink, or a notebook a reliable way to load it. It can display a PII tag without enforcing the tag at query time. It can show lineage without proving that the source metadata is fresh.`,
-        `Apache Gravitino is aimed at the harder problem: a federated metadata lake. It provides a common metadata model and service boundary across many asset types and backends while preserving the fact that those backends are different. The goal is not to pretend every system is one database. The goal is to give engines, users, and governance tools one consistent control plane for finding, describing, securing, and operating assets.`,
+        'A mature data platform accumulates catalogs the way a city accumulates plumbing. A Hive metastore holds warehouse tables. Iceberg manages lakehouse snapshots. A JDBC catalog exposes relational databases. Object stores hold raw files. A model registry tracks ML artifacts. A streaming platform owns topics. Each system stores metadata in its own format, with its own naming, its own access rules, and its own idea of what an "asset" is.',
+        {type: 'quote', text: 'The data catalog is the system of record for metadata. Without it, every team builds its own incomplete map of what data exists, who owns it, and whether it is safe to use.', attribution: 'Zhamak Dehghani, Data Mesh (2022)'},
+        'The cost of catalog sprawl is not just inconvenience. When a GDPR deletion request arrives, the compliance team has to manually trace a customer ID across Hive, Iceberg, S3 prefixes, feature tables, and model training sets. When a schema changes, downstream Spark jobs, Trino dashboards, and Flink pipelines break at different times with different error messages. When an access policy changes in one system, the other five do not know.',
+        'Apache Gravitino addresses this by providing a federated metadata lake: a single service boundary that exposes catalogs, schemas, tables, filesets, topics, models, tags, policies, and lineage across heterogeneous backends through one API. The key word is "federated." Gravitino does not replace backends. It coordinates metadata across them.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first thing every platform team tries is a metadata crawler. Scan object stores on a schedule, import Hive metastore entries, copy table descriptions into a search index, and ask teams to annotate owners in a spreadsheet or wiki.',
+        {type: 'code', text: '# Typical crawler pattern\nfor source in [hive_metastore, iceberg_catalog, s3_inventory, jdbc_pg]:\n    assets = source.list_tables()\n    for asset in assets:\n        central_index.upsert(\n            name=asset.name,\n            schema=asset.schema,\n            owner=guess_owner(asset),   # often wrong\n            location=asset.location,\n            last_crawled=now()\n        )', language: 'python'},
+        'This produces a searchable list. For a while, it solves discovery. But the list decays immediately. Schemas evolve between crawls. Tables move. Owners change teams. New engines bypass the catalog because direct connection strings are faster than looking things up. The crawler does not enforce anything -- it only reports what it found last time it ran.',
+        'The second attempt is point-to-point integration. The BI tool connects to Hive. Spark connects to Iceberg. A lineage collector subscribes to Airflow events. An access proxy checks a separate policy store. Each integration reduces some manual work but creates a mesh of partial truth. When a table is renamed, every integration has to independently agree on identity. When a policy changes, every execution boundary has to enforce it in its own way.',
+        {type: 'note', text: 'The crawler approach is not stupid. It works well when the platform has few backends, low schema churn, and no cross-system governance requirements. It fails when any of those assumptions stop holding.'},
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `A central inventory usually begins with crawlers and naming conventions. The platform team scans object stores, imports database schemas, copies table descriptions, and asks teams to annotate owners. That produces a searchable list, but the list starts decaying immediately. Schemas evolve, tables move, owners change, access rules drift, and new engines bypass the catalog because direct connection strings are faster.`,
-        `The next attempt is point-to-point integration. The BI tool integrates with one catalog. Spark integrates with another. A lineage collector subscribes to job events. An access proxy checks a separate policy store. This reduces some manual work but creates a mesh of partial truth. When a table is renamed, every integration has to agree on identity. When a policy changes, every execution boundary has to enforce it the same way.`,
-        `The wall is semantic mismatch. A relational catalog has databases and tables. A file store has paths and locations. A lakehouse table has snapshots, manifests, and commit rules. A model registry has versions and stages. A governance system has tags, roles, and audit records. Federation succeeds only if the shared model is strong enough to coordinate these systems without flattening away the details that make them safe.`,
+        'The wall is semantic mismatch across backend types.',
+        {type: 'table', headers: ['Backend', 'Asset model', 'Identity', 'Commit semantics', 'Access model'], rows: [
+          ['Hive Metastore', 'database.table with partitions', 'String name in namespace', 'Mutable; schema is advisory', 'Ranger or Sentry policies'],
+          ['Iceberg', 'table with snapshots, manifests, data files', 'Table UUID + metadata pointer', 'ACID commits via metadata swap', 'Storage-layer IAM or catalog ACLs'],
+          ['JDBC / PostgreSQL', 'schema.table with columns, constraints, views', 'OID in pg_class', 'Full ACID transactions', 'GRANT/REVOKE on database roles'],
+          ['S3 / object store', 'Bucket/prefix/object -- no schema', 'Object key (string path)', 'Eventual consistency (put-after-put)', 'IAM policies on ARN prefixes'],
+          ['Model registry', 'model with versions, stages, metrics', 'Model name + version integer', 'Immutable versions, mutable stage labels', 'Application-level RBAC'],
+        ]},
+        'A crawler that flattens these into rows of (name, schema, owner, location) loses the commit semantics that make Iceberg safe, the partition structure that makes Hive queryable, the version stages that make model promotion work, and the IAM boundaries that make S3 access controllable.',
+        'Federation succeeds only if the shared model is expressive enough to coordinate these systems without erasing the details that make each one correct. A unified API that hides the difference between "mutable Hive partition" and "ACID Iceberg snapshot" is not a simplification -- it is a lie that will cause data loss.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `Gravitino\'s top-level organizing idea is the metalake: a logical metadata domain that can contain multiple catalogs. Catalogs connect to backends or asset families. Under them are schemas, tables, filesets, topics, models, or other supported objects depending on the connector and version. This gives the platform a namespace that can span engines and storage systems without forcing every asset into one physical store.`,
-        `The important data structures are identifiers, catalog objects, schema objects, table and column definitions, fileset locations, model or topic metadata, user and role bindings, tags, policies, audit events, lineage edges, and connector configuration. The connective tissue is identity. If the same customer table appears through Iceberg, Trino, and a governance portal, the platform needs a stable way to say "these references describe the same governed asset."`,
-        `Connectors are the translation layer. They map Gravitino operations to backend-specific operations and expose backend capabilities through the shared API. A connector for a lakehouse catalog has to respect table commit semantics. A connector for filesets has to respect object-store paths and permissions. A connector for relational metadata has to handle database dialects, names, and type systems. Federation lives or dies in those adapters.`,
-      ],
-    },
-    {
-      heading: 'Governance plane',
-      paragraphs: [
-        `Governance is the reason a metadata lake must be operational rather than decorative. A tag such as PII, restricted, finance, or export-controlled is useful only if it participates in access decisions, job planning, audits, and ownership workflows. A policy is useful only if engines and storage boundaries actually respect it. A lineage edge is useful only if it is fresh enough to answer "what downstream assets did this bad source affect?"`,
-        `In a Gravitino-style design, a request should resolve the asset, identify the actor, check the relevant role or policy state, expose credentials with the smallest practical scope, and emit audit evidence. If the request produces a derived asset, lineage should connect input and output. The platform should be able to reconstruct why access was allowed, which connector was used, and what metadata version the engine saw.`,
-        `This is where federation becomes harder than inventory. The policy engine cannot live only in a UI. A query through Trino, a Spark batch job, and a Python process should not silently apply three different interpretations of the same tag. Gravitino can provide the common metadata surface, but enforcement still depends on connector behavior, engine integration, storage credentials, and audit coverage.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The design works because it separates metadata authority from compute engines. Engines should not need custom code for every catalog, policy convention, and object-store layout in the company. They should be able to ask a metadata service what an asset is, where it lives, what constraints apply, and how to access it. That does not remove engine-specific optimization, but it moves shared control-plane facts into one service boundary.`,
-        `It also works because the model is hierarchical without being single-backend. Metalake, catalog, schema, and asset identifiers create a stable path for discovery and ownership. Connectors keep backend-specific behavior close to the backend. Governance objects attach to the shared identity layer. That combination gives the platform a chance to answer both human questions and execution-time questions from the same source of truth.`,
-        `The word "federated" matters. A federated catalog should not copy all data into itself or claim to own every backend transaction. It should coordinate metadata, policy, and discovery while respecting the source system\'s commit and access semantics. When the backend is Iceberg, the table format still defines snapshots and manifests. When the backend is a JDBC database, the database still owns query execution and transaction semantics.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `Gravitino is strongest in heterogeneous lakehouse environments. If a company runs Spark for pipelines, Trino for interactive SQL, Flink for streaming, Iceberg or Hive for tables, object stores for raw files, and separate tools for models or features, catalog sprawl becomes a product problem. A shared metadata lake gives platform teams one place to expose asset discovery, ownership, tags, and access flows.`,
-        `It also wins when governance needs to cross storage boundaries. A customer attribute might begin in a database, land in an Iceberg table, feed a feature pipeline, and become part of a model training set. Without a shared metadata plane, each stage can have a different name, owner, and policy state. Federation gives the organization a way to preserve context as data moves.`,
-        `A third winning case is multi-engine onboarding. New engines and tools can integrate through a common catalog API rather than being handed a spreadsheet of Hive endpoints, object-store prefixes, JDBC URLs, and special-case permissions. The platform becomes easier to evolve because metadata access is no longer scattered across every job and notebook.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `The main failure mode is a lossy abstraction. If the shared model hides backend commit rules, table types, identity rules, or regional constraints, users will make unsafe assumptions. A catalog entry that looks uniform but behaves differently under each connector is worse than no abstraction because it creates false confidence.`,
-        `A second failure mode is stale metadata. Tags, owners, schemas, lineage, and location facts are not valuable just because they exist. They need freshness targets and reconciliation. If a source table changes but the metadata lake does not update, discovery and governance both degrade. If audit events arrive without asset identity, incident review becomes guesswork.`,
-        `A third failure mode is unenforced governance. Many systems can display policy; fewer can make every execution path obey it. Direct storage access, bypass credentials, unintegrated engines, and ad hoc service accounts can all defeat a beautiful catalog. The practical test is whether a forbidden access attempt fails at the boundary where work is actually done, not whether a tag appears on a web page.`,
+        'Gravitino introduces a three-level namespace -- metalake, catalog, schema -- that sits above backend-specific asset models without replacing them.',
+        {type: 'diagram', text: '  metalake ("production")\n      |\n      +-- catalog ("analytics-iceberg")\n      |       |\n      |       +-- schema ("events")\n      |               |\n      |               +-- table ("clicks")    [Iceberg connector]\n      |               +-- table ("sessions")  [Iceberg connector]\n      |\n      +-- catalog ("warehouse-pg")\n      |       |\n      |       +-- schema ("finance")\n      |               |\n      |               +-- table ("invoices")  [JDBC connector]\n      |\n      +-- catalog ("training-data")\n              |\n              +-- schema ("raw")\n                      |\n                      +-- fileset ("images")  [S3 fileset connector]', label: 'Gravitino namespace hierarchy spanning three different backends'},
+        'The metalake is a logical metadata domain. Catalogs connect to backends. Schemas group assets within a catalog. The identity path -- metalake.catalog.schema.asset -- is stable across engines. When Trino, Spark, and a governance portal all reference "production.analytics-iceberg.events.clicks," they resolve to the same governed asset even though the underlying storage is an Iceberg table on S3.',
+        {type: 'note', text: 'The connective tissue is identity, not data copy. Gravitino does not replicate table data. It provides a stable identifier that multiple engines and governance tools can agree on. If the same customer table appears through Iceberg, Trino, and a compliance portal, those references resolve to one governed object.'},
+        'Connectors are the translation layer. Each connector maps Gravitino REST operations to backend-specific operations and exposes backend capabilities through the shared API.',
+        {type: 'code', text: '// Gravitino REST API: create a table through the Iceberg connector\nPOST /api/metalakes/production/catalogs/analytics-iceberg/schemas/events/tables\n{\n  "name": "clicks",\n  "columns": [\n    {"name": "user_id", "type": "string", "nullable": false},\n    {"name": "event_type", "type": "string"},\n    {"name": "timestamp", "type": "timestamp"}\n  ],\n  "properties": {\n    "format": "parquet",\n    "location": "s3://lake/events/clicks"\n  }\n}\n// The Iceberg connector translates this into Iceberg table creation\n// with proper snapshot initialization and manifest management.', language: 'javascript'},
+        'A connector for Iceberg must respect snapshot isolation and manifest-based commit. A connector for JDBC must handle SQL dialects, column types, and database-level transactions. A connector for filesets must track object-store paths without inventing schema where none exists. Federation lives or dies in these adapters.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Measure connector freshness, failed syncs, asset lookup latency, policy-decision latency, audit completeness, lineage coverage, orphaned assets, duplicate identities, and direct-access bypasses. For user experience, measure search success, access request cycle time, and the number of jobs that still carry hard-coded catalog or storage endpoints.`,
-        `Run reconciliation jobs that compare Gravitino metadata against source catalogs. Test policy changes with canary identities. Sample audit logs and ask whether each event can answer who, what asset, which engine, which credential scope, which policy, and which lineage context. A metadata lake is healthy when it can answer operational questions under pressure, not just populate a schema browser.`,
+        'A metadata request flows through four layers: API, identity resolution, connector dispatch, and backend operation.',
+        {type: 'diagram', text: '  Client (Trino / Spark / governance UI)\n      |\n      v\n  [ Gravitino REST API ]     -- parse metalake.catalog.schema.asset\n      |\n      v\n  [ Identity resolution ]    -- resolve to catalog type + connector config\n      |\n      v\n  [ Connector dispatch ]     -- call backend-specific adapter\n      |         |         |\n      v         v         v\n  [Iceberg]  [JDBC]   [S3 fileset]\n  REST cat   pg_meta   list_objects\n  snapshot   txn       prefix scan', label: 'Request flow from client through Gravitino to heterogeneous backends'},
+        'For table discovery, a Trino connector plugin calls Gravitino instead of hard-coding Hive Metastore URIs. Gravitino resolves the catalog type, dispatches to the appropriate connector, and returns table metadata in a normalized format that Trino can consume. The engine never needs to know whether the underlying catalog is Hive, Iceberg REST, or JDBC.',
+        {type: 'table', headers: ['Operation', 'Gravitino layer', 'Iceberg connector', 'JDBC connector'], rows: [
+          ['List tables', 'GET /schemas/{s}/tables', 'Iceberg REST: GET /namespaces/{n}/tables', 'SELECT table_name FROM information_schema.tables'],
+          ['Get schema', 'GET /tables/{t}', 'Iceberg REST: GET /tables/{t} -> schema from metadata', 'SELECT column_name, data_type FROM columns'],
+          ['Create table', 'POST /tables', 'Iceberg REST: POST /tables with partition spec', 'CREATE TABLE with SQL DDL generation'],
+          ['Drop table', 'DELETE /tables/{t}', 'Iceberg REST: DELETE (purge or soft-delete)', 'DROP TABLE (cascade or restrict)'],
+        ]},
+        'Tags, roles, and policies attach to identifiers in the Gravitino namespace. A tag like "PII" applied to production.analytics-iceberg.events.clicks is stored in Gravitino, not in the Iceberg catalog. This means governance metadata is portable across backends -- the same tag can apply to an Iceberg table, a JDBC view, and a fileset.',
+      ],
+    },
+    {
+      heading: 'Governance plane',
+      paragraphs: [
+        'Tags, policies, and lineage are the reason a metadata lake must be operational, not decorative.',
+        {type: 'diagram', text: '  asset (table/fileset/model)\n      |\n      +-- tag: "PII"          -- classification\n      +-- tag: "finance"      -- domain ownership\n      +-- owner: "data-eng"   -- responsible team\n      |\n      v\n  [ policy engine ]\n      |\n      +-- rule: PII + analyst role -> mask columns\n      +-- rule: PII + export -> block\n      +-- rule: finance + external -> deny\n      |\n      v\n  [ engine integration ]      -- Trino plugin, Spark authorizer\n      |\n      v\n  [ audit log ]               -- who, what, when, which policy, outcome', label: 'Governance flow from tag classification to audit trail'},
+        'A PII tag is useful only if it participates in access decisions at query time. In Gravitino, the governance flow works like this: an asset receives tags, policies bind rules to tag-role combinations, engine integrations enforce those rules when a query arrives, and audit logs record the decision.',
+        {type: 'code', text: '// Tag a table as PII\nPOST /api/metalakes/production/catalogs/analytics-iceberg\n     /schemas/events/tables/clicks/tags\n{ "name": "PII", "properties": {"classification": "sensitive"} }\n\n// Policy check at query time (conceptual)\nfunction checkAccess(user, asset, operation) {\n  const tags = gravitino.getTags(asset);\n  const roles = gravitino.getRoles(user);\n  for (const policy of gravitino.getPolicies(tags, roles)) {\n    if (policy.denies(operation)) {\n      auditLog.write({user, asset, operation, decision: "DENY", policy});\n      throw new AccessDenied(policy.reason);\n    }\n  }\n  auditLog.write({user, asset, operation, decision: "ALLOW"});\n}', language: 'javascript'},
+        'Lineage connects inputs to outputs. When a Spark job reads from production.analytics-iceberg.events.clicks and writes to production.analytics-iceberg.reports.daily_summary, that edge should be recorded. When someone asks "what downstream assets are affected by a schema change in clicks?", lineage answers the question.',
+        {type: 'note', text: 'Governance metadata that only appears in a UI is theater. The practical test is: does a forbidden access attempt fail at the engine boundary where work actually happens, or does it succeed while a dashboard shows a red warning that nobody reads?'},
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The design works because it separates metadata authority from compute.',
+        {type: 'bullets', items: [
+          'Engines ask one service for asset identity, location, schema, and access rules instead of hard-coding per-backend connection logic.',
+          'The namespace hierarchy (metalake/catalog/schema/asset) provides stable cross-engine identity without requiring backends to adopt a shared naming scheme.',
+          'Connectors preserve backend-specific semantics (Iceberg snapshots, JDBC transactions, S3 eventual consistency) instead of flattening them into a false uniform model.',
+          'Governance objects (tags, policies, roles) attach to the shared identity layer, making them portable across backends.',
+          'Federation is additive: adding a new backend means writing one connector, not updating every engine.',
+        ]},
+        'The word "federated" is load-bearing. A federated catalog does not copy data into itself or claim to own backend transactions. It coordinates metadata and policy while respecting each source system\'s commit and access semantics. When the backend is Iceberg, snapshots and manifests still define correctness. When the backend is PostgreSQL, the database still owns transaction isolation.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        {type: 'table', headers: ['Operation', 'Latency cost', 'What grows', 'What stays flat'], rows: [
+          ['Asset lookup', 'One REST call + one connector call to backend', 'Grows with connector latency, not with total asset count', 'Gravitino lookup is O(1) by identifier path'],
+          ['List tables in schema', 'One REST call + one backend list', 'Proportional to tables in that schema', 'Unrelated catalogs are not touched'],
+          ['Tag assignment', 'One REST write to Gravitino store', 'Flat -- stored in Gravitino, not in backend', 'Backend is not contacted'],
+          ['Policy check', 'Tag fetch + role fetch + rule evaluation', 'Grows with number of applicable policies', 'Flat if policies are pre-cached per tag set'],
+          ['Connector sync', 'Backend-dependent (Hive: list partitions; Iceberg: read metadata.json)', 'Grows with backend catalog size', 'Gravitino overhead is minimal vs. backend I/O'],
+        ]},
+        'The dominant cost is connector latency, not Gravitino overhead. A Hive Metastore call that takes 200ms through Gravitino also takes ~180ms directly. The federation tax is the extra REST hop (typically 5-20ms) plus identity resolution.',
+        {type: 'note', text: 'The setup cost is significant. Each connector requires configuration, testing against the real backend, and validation that it preserves backend semantics faithfully. A Gravitino deployment with five connectors is a multi-week integration project, not a one-day install. The payoff comes only after multiple engines and governance tools share the federation layer.'},
+        'Doubling the number of catalogs doubles the connector configurations but does not slow down individual asset lookups. Doubling the number of engines using Gravitino adds load to the Gravitino service but simplifies each engine\'s catalog logic. The scaling curve favors organizations that are already paying the N-engines times M-backends integration tax.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        {type: 'table', headers: ['Scenario', 'Why Gravitino fits', 'Without federation'], rows: [
+          ['Heterogeneous lakehouse', 'Spark, Trino, Flink all resolve tables through one API', 'Each engine maintains its own catalog config; schema changes require N updates'],
+          ['Cross-system GDPR deletion', 'Trace a customer ID across Iceberg, JDBC, S3, and model inputs through one lineage graph', 'Manual spreadsheet audit across systems; weeks instead of hours'],
+          ['Multi-engine onboarding', 'New engine integrates once with Gravitino instead of learning every backend', 'New engine gets a spreadsheet of Hive URIs, JDBC strings, S3 prefixes, and special-case ACLs'],
+          ['Consistent PII enforcement', 'One PII tag triggers masking rules in Trino, Spark, and the BI tool', 'Each tool has its own PII definition; drift is invisible until an audit finds it'],
+          ['ML feature governance', 'Feature tables, training datasets, and model inputs share the same tag and lineage namespace', 'ML team maintains a separate registry disconnected from data platform governance'],
+        ]},
+        'The pattern is strongest when catalog sprawl has already become a product problem. If a company has one Hive Metastore and one engine, federation adds complexity without benefit. If it has five catalogs across three storage systems and four engines, the integration mesh is already O(n*m) and growing.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        {type: 'bullets', items: [
+          'Lossy abstraction: if the shared model hides backend commit rules, table types, or regional constraints, users make unsafe assumptions. A catalog entry that looks uniform but behaves differently under each connector is worse than no abstraction -- it creates false confidence that leads to data loss.',
+          'Stale metadata: tags, schemas, lineage, and owners need freshness targets. If a source table adds a column but the metadata lake still shows the old schema, downstream jobs break with confusing errors. Staleness in governance metadata is worse -- a stale "no PII" tag means regulated data flows without controls.',
+          'Unenforced governance: direct S3 access, bypass credentials, unintegrated engines, and ad hoc service accounts can all defeat the catalog. If an analyst can read the raw Parquet files on S3 without going through Gravitino, every tag and policy is advisory.',
+          'Connector fidelity: a connector that simplifies Iceberg commit semantics or drops JDBC transaction isolation to fit a generic API is a regression, not a federation. Every connector must be validated against the backend it wraps.',
+          'Single point of failure: if Gravitino is down, engines that depend on it for table resolution cannot run queries. High availability and graceful degradation (cached metadata, fallback to direct backend access) are operational requirements, not nice-to-haves.',
+        ]},
+        {type: 'note', text: 'The sharpest failure test: can a forbidden access attempt succeed by bypassing Gravitino and going directly to the storage layer? If yes, governance is decorative. The metadata lake must either control credential issuance or verify that storage-layer IAM enforces the same rules independently.'},
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `A data platform has an Iceberg lake for analytics, a relational warehouse for finance, object-store directories for training data, and a small model registry. Analysts use Trino. Engineers use Spark. ML teams use notebooks. Before federation, each team maintains its own asset list and access convention. A customer deletion request requires manual tracing across systems.`,
-        `The platform introduces Gravitino as the metadata lake. The analytics catalog exposes Iceberg tables. A fileset catalog tracks raw training datasets. A relational catalog exposes selected finance schemas. Tags mark PII and regulated data. Access policies bind roles to tags and catalogs. Job integrations write lineage edges from source tables to derived tables and model inputs.`,
-        `The result is not magic centralization. The Iceberg catalog still owns Iceberg table state. The warehouse still owns warehouse queries. Object storage still stores files. Gravitino owns the cross-system metadata view and gives engines and governance tools one place to resolve identity, policy, ownership, and discovery. The deployment is judged by whether access is consistently enforced and whether incidents can be traced quickly.`,
+        'A data platform has four backends: an Iceberg catalog on S3 for analytics, a PostgreSQL warehouse for finance, S3 directories for ML training data, and a small MLflow model registry. Three engines consume data: Trino (interactive SQL), Spark (batch pipelines), and Jupyter notebooks (ML experimentation).',
+        {type: 'diagram', text: '  Before federation:\n\n  Trino -----> Hive Metastore -----> S3 (analytics)\n  Trino -----> JDBC config --------> PostgreSQL (finance)\n  Spark -----> Iceberg catalog -----> S3 (analytics)\n  Spark -----> JDBC config --------> PostgreSQL (finance)\n  Jupyter ---> boto3 direct --------> S3 (training data)\n  Jupyter ---> MLflow client -------> MLflow (models)\n\n  6 integration paths. Each carries its own auth, naming, and schema logic.\n  PII tags exist in a wiki page. Lineage is tribal knowledge.\n\n  After federation:\n\n  Trino ----+\n  Spark ----+--> Gravitino REST API --> Iceberg connector --> S3\n  Jupyter --+                       --> JDBC connector ----> PostgreSQL\n                                    --> Fileset connector --> S3 (training)\n                                    --> Model connector ---> MLflow\n\n  3 integration paths to one API.\n  Tags, policies, and lineage live in Gravitino.', label: 'Before and after: integration path reduction through federation'},
+        'The platform team configures four Gravitino catalogs under one metalake called "production." Tags mark PII columns in the finance schema and in the analytics events table. A policy rule binds PII + analyst-role to column masking in Trino and Spark. Job integrations emit lineage edges from source tables to derived tables.',
+        {type: 'code', text: '// Customer deletion: trace all assets containing user_id\nGET /api/metalakes/production/lineage?asset=analytics-iceberg.events.clicks\n    &direction=downstream&depth=5\n\nResponse:\n{\n  "edges": [\n    {"from": "analytics-iceberg.events.clicks",\n     "to": "analytics-iceberg.reports.daily_summary", "type": "transform"},\n    {"from": "analytics-iceberg.reports.daily_summary",\n     "to": "training-data.raw.click_features", "type": "export"},\n    {"from": "training-data.raw.click_features",\n     "to": "models.prod.click_predictor_v3", "type": "training_input"}\n  ]\n}\n// Deletion scope: 4 assets across 3 catalogs, found in one API call\n// vs. manual spreadsheet audit across 4 systems', language: 'javascript'},
+        'The deployment is judged by three metrics: (1) access decisions are consistent across engines -- a Trino query and a Spark job that touch the same PII column both apply masking; (2) a deletion request can be fully traced in under one hour instead of two weeks; (3) new engines integrate in days by pointing at the Gravitino API instead of collecting backend credentials from five teams.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Apache Gravitino home page at https://gravitino.apache.org/ and Apache Gravitino documentation at https://gravitino.apache.org/docs/1.2.1/.`,
-        `Study this with Iceberg REST Catalog Protocol Case Study for catalog APIs, OpenLineage Metadata Lineage Graph Case Study for lineage events, Zanzibar Authorization Case Study and OPA Rego Policy Decision Graph for access control, lakeFS Data Lake Version Graph Case Study for versioned data operations, and Feature Store for governed ML features.`,
+        {type: 'bullets', items: [
+          'Apache Gravitino documentation: https://gravitino.apache.org/docs/ -- architecture guide, connector reference, REST API specification.',
+          'Apache Gravitino GitHub: https://github.com/apache/gravitino -- source code, connector implementations, integration tests.',
+          'Zhamak Dehghani, Data Mesh (O\'Reilly, 2022) -- the organizational argument for federated data ownership that metadata lakes operationalize.',
+          'Apache Iceberg specification: https://iceberg.apache.org/spec/ -- the table format whose commit semantics a Gravitino Iceberg connector must preserve.',
+        ]},
+        {type: 'table', headers: ['Role', 'Topic', 'Why'], rows: [
+          ['Prerequisite', 'Iceberg REST Catalog Protocol Case Study', 'Understand the catalog API that Gravitino federates over for lakehouse tables'],
+          ['Prerequisite', 'Zanzibar Authorization Case Study', 'Relationship-based access control is the theory behind federated policy enforcement'],
+          ['Extension', 'OpenLineage Metadata Lineage Graph Case Study', 'Lineage event collection that feeds the lineage edges Gravitino stores'],
+          ['Extension', 'OPA Rego Policy Decision Graph', 'Policy-as-code evaluation that can power Gravitino policy decisions'],
+          ['Contrast', 'lakeFS Data Lake Version Graph Case Study', 'Versioned data operations at the storage layer vs. metadata federation above it'],
+          ['Related', 'Feature Store', 'Governed ML features as a specialized metadata domain within the federation'],
+        ]},
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-
-      {
-        heading: 'Learning map',
-        paragraphs: [
-          'Before this topic, unlock all prerequisites and define the required preconditions.',
-          'After this topic, trace where this idea appears in one larger path on this site.',
-          'Use unlock relationships to keep one path and one checkpoint per review cycle.',
-        ],
-      },
-
-      {
-        heading: 'Micro checks',
-        paragraphs: [
-          {
-            type: 'bullets',
-            items: [
-              'Can you state one invariant in one sentence?',
-              'Can you prove one transition with pre and post state?',
-              'Can you name one hidden edge case in one line?',
-              'Can you transfer this mechanism to a neighboring domain?',
-            ],
-          },
-        ],
-      },
-
-      {
-        heading: 'Try this now',
-        paragraphs: [
-          'Build one input manually and predict every step before running the animation.',
-          'If your predicted final state matches the animation for apache-gravitino-federated-metadata-lake-case-study, continue to the next topic in the same track.'
   ],
-      },
-],
 };
