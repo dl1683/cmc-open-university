@@ -378,6 +378,7 @@ export const article = {
           ],
         },
         'In the lag-math view, follow the gap between the demand curve and the capacity curves. The vertical distance between demand and cold capacity at any point is the traffic that must be shed or queued. The warm capacity curve closes that gap earlier. In the warm-pool view, watch how the gate routes requests to hot, warm, or cold replicas, and how cache state affects useful throughput. In the scale-audit view, read each ledger row as evidence for or against the current autoscaling policy.',
+        {type: 'callout', text: 'Warm capacity matters because requested replicas do not help users until weights, runtimes, and routes are ready.'},
       ],
     },
     {

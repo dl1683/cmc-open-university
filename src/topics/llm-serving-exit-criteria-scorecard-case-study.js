@@ -237,6 +237,7 @@ export const article = {
         'The animation traces the lifecycle of an LLM serving optimization from proposal to production ship. In the "readiness gates" view, active nodes mark the current decision surface: load testing, quality evaluation, or scorecard aggregation. Found nodes mark gates that have been satisfied with durable evidence. The path from "change" to "ship" is not a pipeline -- it is a control loop where failing any gate feeds back to the lever.',
         'In the "regression loop" view, active edges trace the canary-to-rollback feedback path. The rollback node returning to "change" is the key structural claim: rollback is not failure, it is the mechanism that makes experimentation safe. If rollback were absent, canary deployment would be an irreversible bet.',
         'The matrices show gate structure. Each row is a dimension the optimization must satisfy. Each column splits the target from the failure mode. A single red cell in the failure column is enough to block release, even if every other gate is green.',
+        {type: 'callout', text: 'A serving optimization ships only when every gate proves benefit, contained failure, and rollback.'},
       ],
     },
     {

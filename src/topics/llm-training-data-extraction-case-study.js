@@ -280,6 +280,7 @@ export const article = {
       paragraphs: [
         'Training-data extraction exists as a topic because generative models can memorize and emit pieces of their training data. A language model is trained to predict the next token. If a rare string appears many times, appears in a rigid format, or is strongly associated with a prefix, the model may learn to continue that string exactly. That is not only a theoretical privacy issue. It matters for support tickets, emails, logs, medical notes, source code, private chats, copyrighted text, API keys, and any corpus that mixes useful examples with sensitive records.',
         'The case study is about the full loop, not a clever prompt. An attacker generates many samples, ranks the suspicious ones, searches for matches, and verifies whether an output corresponds to training data or a reference corpus. A defender needs the same structure in reverse: source ledgers, dedupe records, PII span logs, canaries, red-team extraction runs, and release gates. Without evidence, a team cannot distinguish harmless fluent text from memorized sensitive text.',
+        {type: 'callout', text: 'Extraction risk is measured by generate, rank, verify, and gate, not by a scary prompt demo.'},
       ],
     },
     {

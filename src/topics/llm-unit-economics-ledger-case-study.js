@@ -327,6 +327,7 @@ export const article = {
       paragraphs: [
         'An LLM unit-economics ledger measures the cost of useful answers, not the cost of tokens in isolation. It starts with inference physics: input tokens, output tokens, prefill, decode, KV cache residency, hardware, and utilization. Then it adds the product layer: routing, cache hits, retries, verifier calls, policy rejects, fixed operations, support burden, privacy boundaries, and quality gates. The final unit is cost per accepted answer.',
         'That distinction matters because the product does not sell raw token generation. It sells a support answer, a legal draft, a coding suggestion, an agent action, a summary, or an ambient feature. A cheap response that fails quality and must be retried is not cheap. A route that saves model spend but breaks p99 latency is not cheaper in the product sense. A ledger makes those hidden costs visible.',
+        {type: 'callout', text: 'Price the accepted product outcome, not the raw token stream.'},
       ],
     },
     {

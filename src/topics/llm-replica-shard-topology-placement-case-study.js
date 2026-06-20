@@ -232,6 +232,8 @@ export const article = {
       paragraphs: [
         `A model-serving fleet has two very different ways to use more GPUs. It can run more full copies of the model, or it can split one model across several devices and make those devices act as one serving unit. Both choices add hardware. They do not add the same kind of capacity.`,
         `Replica-versus-shard placement exists because LLM serving is constrained by weight memory, KV-cache memory, interconnect bandwidth, queueing, and tail latency at the same time. A full replica keeps the token path short, but it duplicates weights on every serving unit. A shard group fits larger models and more complex parallelism, but every request now depends on coordination inside the group.`,
+        {type: `callout`, text: `Treat topology as a priced serving choice, not a GPU count.`},
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/9/9a/NetApp_ONTAP_AI.jpg`, alt: `A rack containing a NetApp storage system and NVIDIA DGX supercomputer hardware.`, caption: `NetApp All-Flash FAS system with NVIDIA DGX supercomputer, photo by Qdrddr, Wikimedia Commons, CC BY-SA 4.0.`},
         `The practical question is not "how many GPUs do we have?" The question is "what topology is the request entering?" If the topology is a single warm replica, the router mostly cares about queue depth, cache locality, version, and memory headroom. If the topology is a shard group, the router must also care about tensor-parallel collectives, pipeline balance, expert placement, fabric health, and group-level failure.`,
       ],
     },

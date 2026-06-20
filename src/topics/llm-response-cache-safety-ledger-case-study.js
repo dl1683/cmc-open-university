@@ -435,6 +435,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A response cache can save the most expensive thing in an LLM product: a full model call that produces an answer the system has already produced before. The same cache can also replay a private, stale, policy-invalid, or tool-authorized answer in the wrong context. The safety ledger exists because a cached LLM response is product behavior, not just bytes behind a key.',
+        {type: 'callout', text: 'A cache hit is only a candidate until policy, freshness, and tenant boundaries approve reuse.'},
         'The ledger is the application-layer control plane for exact keys, semantic candidates, policy gates, version clocks, admission rules, eviction rules, and audit rows. It decides whether a previous full answer may be reused, whether a candidate must be denied, and whether a new response may be stored. That decision has to preserve tenant boundaries, model contracts, retrieval freshness, tool permissions, and risk policy.',
       ],
     },

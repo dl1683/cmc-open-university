@@ -390,6 +390,8 @@ export const article = {
       paragraphs: [
         'An LLM serving stack can be overloaded even while the GPUs look busy and the request counter looks healthy. Long prompts consume prefill time, active sequences consume KV cache, decode steps stretch inter-token latency, and callers have deadlines. The system needs a front-door decision before an accepted request becomes expensive failed work.',
         'The goal is goodput: useful answers completed before their deadline. Accepted-request count is a weaker metric because an accepted request that times out after prefill has already burned GPU time, KV memory, retrieval work, and retry budget.',
+        {type: 'callout', text: 'Admission protects goodput by rejecting doomed work before it consumes GPU time and KV memory.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Queueing_node_service_digram.png', alt: 'Diagram of arrivals entering a queueing node with several service positions and one departure path.', caption: 'Simple queueing node diagram by Dt-rush-8, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

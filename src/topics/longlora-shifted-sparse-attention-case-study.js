@@ -336,6 +336,8 @@ export const article = {
       paragraphs: [
         'LongLoRA is a method for extending the context window of pretrained language models without paying the full cost of dense long-context fine-tuning. The practical problem is familiar: a model trained for a shorter context may fail or degrade when asked to use much longer sequences. Training it densely at the target length is expensive because attention cost grows quickly with sequence length.',
         'The method combines parameter-efficient tuning with shifted sparse attention during training. LoRA-style adapters reduce the number of trainable parameters. Shifted sparse attention reduces the cost of training on long sequences. The goal is not to invent a new serving architecture from scratch. The goal is to adapt an existing model to longer contexts at a more affordable training cost.',
+        {type: 'callout', text: 'LongLoRA reduces long-context training cost, but serving cost and long-range evaluation remain separate gates.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a9/Absolute_positional_encoding.png', alt: 'Heatmap visualization of absolute positional encoding values across token positions and embedding dimensions.', caption: 'Absolute positional encoding illustration by Nils Blumer, Wikimedia Commons, CC BY 4.0.'},
       ],
     },
     {

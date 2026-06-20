@@ -214,6 +214,8 @@ export const article = {
           ],
         },
         'In the matrix views, rows are sync records or failure modes, and columns are properties (what is stored, why it matters, what symptom appears, or what control exists). Watch the "why it matters" column: every record exists to prevent a specific class of resend, data loss, or bloat.',
+        {type: 'callout', text: 'Local-first sync makes history durable first, then uses peer state to move only missing changes.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt: 'Directed acyclic graph with edges flowing through a topological ordering from earlier nodes to later nodes.', caption: 'Topological ordering of a directed acyclic graph by David Eppstein, Wikimedia Commons, CC0.'},
         {
           type: 'note',
           text: 'The animation uses a single document with two peers for clarity. Production sync engines manage hundreds of documents across dozens of peers, with per-document heads, per-peer sync state, and per-transport retry policies. The data structures are the same; the bookkeeping multiplies.',
