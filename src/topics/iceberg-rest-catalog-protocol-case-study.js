@@ -227,6 +227,7 @@ export const article = {
         'The catalog API view traces a request from engine to object storage. Active nodes are the components handling the current operation. Found nodes hold the final data the engine needs. Compare nodes highlight where authority shifts -- from engine to catalog, or from catalog to storage.',
         'The commit safety view traces a write through conflict detection. Active nodes are the path the commit takes. The retry branch (compare) shows what happens when the base has moved. The apply branch (found) shows a successful atomic swap of the metadata root pointer.',
         'In both views, edge labels name the contract between components. Read them as verbs: the engine calls, the catalog loads, the table roots, the metadata scans. Each edge is a network boundary with its own latency and failure mode.',
+        {type:'callout', text:'The REST catalog turns table metadata authority into one protocol boundary so engines ask for safe commits and scoped access instead of embedding catalog logic.'},
       ],
     },
     {

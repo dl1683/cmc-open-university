@@ -216,6 +216,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Delete formats" walks the metadata graph from snapshot through manifest list to data manifests and delete manifests, then shows the three delete encodings (equality, position, deletion vector) side by side. "Scan planning" shows how a reader attaches delete metadata to data files and applies row-level filtering during execution.',
+        {type:'callout', text:'Row deletes stay cheap because Iceberg records delete evidence beside data files and pays the filtering debt during planning, reading, and compaction.'},
         {
           type: 'bullets',
           items: [

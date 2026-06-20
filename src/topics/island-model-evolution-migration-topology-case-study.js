@@ -225,6 +225,8 @@ export const article = {
       paragraphs: [
         `Evolutionary search is attractive when the object being optimized is hard to differentiate or hard to describe analytically: a neural architecture, a robot controller, a program, a schedule, a game-playing policy, or a simulation-heavy design. The algorithm keeps a population of candidates, mutates and recombines them, evaluates their fitness, and lets stronger candidates influence the next generation. That gives the search a way to move without gradients, but it also creates a classic failure: a population can become too similar too early.`,
         `The island model exists to fight that collapse while using parallel hardware well. Instead of one global population, it runs several semi-independent subpopulations called islands. Each island explores its own region of the search space, and only occasional migrants cross between islands. The data-structure problem is controlled information flow: discoveries should travel, but not so quickly that every island becomes a copy of the current winner.`,
+        {type:`callout`, text:`Island models make migration topology part of the search bias, balancing local diversity against controlled spread of discoveries.`},
+        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/c/c2/Island_population_model_of_an_evolutionary_algorithm.png`, alt:`Island model diagram with eight subpopulations connected by migration edges`, caption:`Island population model diagram by Studi90, via Wikimedia Commons, CC BY-SA 4.0.`},
       ],
     },
     {

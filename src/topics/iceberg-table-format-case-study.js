@@ -217,6 +217,8 @@ export const article = {
       paragraphs: [
         'Apache Iceberg is an open table format for large analytical datasets. It does not merely define a file layout. It defines table metadata: schemas with field IDs, snapshots, manifest lists, manifests, data files, delete files, partition specs, and catalog commits.',
         'The case-study lesson is that a data lake table needs a control plane. Parquet files store bytes efficiently, but a table also needs atomic commits, snapshot isolation, time travel, schema evolution, partition evolution, and efficient planning over many files.',
+        {type:'callout', text:'Iceberg makes the table a versioned metadata root, so snapshots and manifests define the data set instead of directory listing.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Apache_Iceberg_Logo.svg', alt:'Apache Iceberg project logo', caption:'Apache Iceberg logo by Sophinie Kim for The Apache Software Foundation, via Wikimedia Commons, Apache License 2.0.'},
       ],
     },
     {

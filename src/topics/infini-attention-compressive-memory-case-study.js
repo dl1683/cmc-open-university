@@ -314,6 +314,8 @@ export const article = {
       paragraphs: [
         'The animation shows Infini-attention as a dataflow graph: each segment of input tokens enters the block and splits into two paths. The local-attention path (highlighted active) performs standard masked dot-product attention over the current segment. The memory path reads compressed older context from a bounded matrix M. A learned gate mixes the two outputs, and the combined result exits the block.',
         'Active nodes are operations happening now. The "found" highlight on the output node marks the final mixed result. When edges from both the local and memory paths converge at the gate, the animation is showing the core contract: recent tokens get exact attention, older tokens get approximate recall from compressed state, and a per-head scalar gate decides how much to trust each source.',
+        {type:'callout', text:'Infini-attention trades exact old tokens for bounded associative memory while preserving exact local attention for the current segment.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/Transformer%2C_full_architecture.png', alt:'Standard Transformer encoder-decoder architecture diagram', caption:'Transformer architecture diagram by dvgodoy, via Wikimedia Commons, CC BY 4.0.'},
         {
           type: 'note',
           text: 'The word "infinite" in the paper title is aspirational, not literal. The architecture provides bounded-memory processing for unbounded-length inputs. Recall quality degrades with distance -- the question is how gracefully.',

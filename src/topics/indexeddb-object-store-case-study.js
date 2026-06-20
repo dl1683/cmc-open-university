@@ -236,6 +236,7 @@ export const article = {
           ],
         },
         'In the matrix views, rows are record shapes, cursor query plans, transaction types, or production failure modes. Columns show role versus data-structure lesson, access path versus use case, or failure mode versus design response. Watch the key-range column: it is the primitive that turns sorted order into a query API.',
+        {type:'callout', text:'IndexedDB is a local database because sorted stores, indexes, and transactions create durable access paths instead of one serialized blob.'},
         {
           type: 'note',
           text: 'The animation uses a small number of nodes for readability. A real IndexedDB database may hold dozens of object stores, each with multiple indexes, serving hundreds of concurrent cursor operations across tabs and workers. The contracts -- key ordering, transaction atomicity, structured-clone isolation -- are the same at any scale.',

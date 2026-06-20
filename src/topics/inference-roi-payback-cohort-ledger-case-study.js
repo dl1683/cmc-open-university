@@ -245,6 +245,7 @@ export const article = {
       paragraphs: [
         'AI features make product cost visible at request time. A search summary, coding agent, support copilot, or autonomous workflow can spend tokens, tool calls, retrieval, GPU time, and human review on every use. The team needs to know whether that spend creates enough value for the cohort that caused it.',
         'An inference ROI payback cohort ledger joins feature flags, stable cohorts, runtime traces, token-cost spans, cloud cost allocation, value events, quality scores, and incident risk. LLM Unit Economics Ledger Case Study tells you what one accepted answer costs. This ledger asks whether the feature paid back for a specific user group over a specific time horizon.',
+        {type:'callout', text:'AI payback is credible only when cost, value, quality, and risk rows share the same cohort boundary.'},
       ],
     },
     {

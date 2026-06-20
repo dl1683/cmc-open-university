@@ -228,6 +228,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type:"callout", text:"An incident graph is useful when every candidate remains a hypothesis with typed evidence, counterevidence, and a reversible test."},
+        {type:"image", src:"https://upload.wikimedia.org/wikipedia/commons/5/52/Ishikawa_Fishbone_Diagram.svg", alt:"Ishikawa fishbone diagram showing causes leading to an effect", caption:"Ishikawa fishbone cause-and-effect diagram by FabianLange, via Wikimedia Commons, CC BY-SA 3.0."},
       ],
     },
     {

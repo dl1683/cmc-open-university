@@ -234,6 +234,8 @@ export const article = {
       paragraphs: [
         'An IP router receives a packet, looks at the destination address, and must choose an outgoing interface before the next packet arrives. The hard part is that the routing system may know many overlapping truths about the same address. There is a default route for everything, a provider route for a large block, a regional route for a smaller block, and a customer or edge route for one subnet inside that region.',
         'The forwarding information base, or FIB, exists because the hot path cannot run the whole routing protocol. BGP, static routes, connected interfaces, policy, metrics, and next-hop reachability all belong in route selection. Packet forwarding needs a compact data structure with one semantic contract: among all prefixes that match the destination, use the most specific one.',
+        {type:'callout', text:'Longest-prefix match works because lookup remembers the deepest route-bearing ancestor while walking the destination address path.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/Radix_tree.svg', alt:'Radix tree diagram with compressed prefix branches', caption:'Radix tree diagram by Cmglee, via Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

@@ -247,6 +247,8 @@ export const article = {
         'The animation has two views. In "liveness to graph," active nodes are basic blocks whose live sets are being examined. Found markers show where a live-set entry becomes an interference edge. The matrix rows map definitions to the values live alongside them -- each overlap is a conflict that forbids register sharing.',
         'In "color and spill," each graph node is a virtual register. An edge means two values are simultaneously live somewhere. Active nodes are being colored (assigned a physical register). Compare markers highlight spill candidates -- values the allocator may evict to memory. When a node is removed and labeled "spill," the compiler must rewrite the program to store and reload that value.',
         'The pressure plot shows how many values are live at each program point. When the curve rises above the horizontal register-count line, some value must spill. Watch for the moment pressure exceeds capacity -- that is where the allocator earns its keep.',
+        {type:'callout', text:'Register allocation becomes tractable when simultaneous liveness is encoded as graph edges and colors become physical registers.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b7/Graph_with_all_three-colourings_2.svg', alt:'Colored graph showing valid three-colorings', caption:'Graph showing valid three-colorings by Arbor and Booyabazooka, via Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {
