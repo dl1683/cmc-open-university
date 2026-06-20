@@ -243,6 +243,7 @@ export const article = {
         'Network operators need measurements while the network is busy, degraded, or under attack. They want to know which flows are heavy, which flows changed, whether traffic entropy shifted, and how the flow-size distribution looks across switches. The hard part is that measurement must happen at packet speed with limited fast memory.',
         'A full flow log is too expensive for the data plane. A pure matrix sketch is compact, but it hides the identities of important flows behind hashed counters. Elastic Sketch exists because real traffic is skewed. A few elephant flows carry much of the byte volume, while many mice flows appear briefly and contribute mostly through aggregate tail mass.',
         'The design spends rich state where identity matters and cheap approximate state where aggregate signal is enough. That is the educational point: the data structure follows the workload shape instead of pretending every flow deserves the same representation.',
+        {type:'callout', text:'Elastic Sketch works because the memory layout follows traffic skew: keep identity for elephants and approximate the long tail instead of treating every flow alike.'},
       ],
     },
     {

@@ -221,6 +221,8 @@ export const article = {
       paragraphs: [
         'Amazon Dynamo is a highly available key-value store described in the 2007 SOSP paper. It was built for Amazon services where rejecting a write during a failure could be worse than accepting temporary inconsistency. A shopping cart is the usual intuition: if the system is uncertain during a partition, preserving the user\'s intent and reconciling later can be better than refusing the update.',
         'The paper is useful because it does not treat failure as a rare exception. It designs the normal path and the failure path together. Machines fail, network partitions happen, membership views lag, and replicas diverge. Dynamo composes several mechanisms so the system can keep accepting reads and writes while continuously repairing disagreement.',
+        {type:'callout', text:'Dynamo preserves availability by accepting work on reachable replicas first, then making divergence explicit with causality metadata and repair paths.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/71/Consistent_Hashing_Sample_Illustration.png', alt:'Consistent hashing ring showing servers placed around a 360-degree circle and a blob assigned to the next clockwise server.', caption:'Consistent hashing sample illustration by WikiLinuz, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

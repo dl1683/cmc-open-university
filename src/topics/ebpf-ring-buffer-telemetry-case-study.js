@@ -338,6 +338,8 @@ export const article = {
           type: 'note',
           text: 'The animation uses an 8-slot ring and two CPUs for readability. Production rings are megabytes, dozens of CPUs produce concurrently, and records vary from 40 bytes to several kilobytes. The state machine is the same -- free, reserved, ready, consumed -- but the scale changes which costs dominate.',
         },
+        {type:'callout', text:'The ring buffer is a bounded kernel-to-user contract: producers reserve and publish records without blocking, while loss remains explicit and measurable.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b7/Circular_buffer.svg', alt:'Circular buffer shown as a ring of fixed slots that wraps around from end to beginning.', caption:'Circular buffer diagram by Cburnett, CC BY-SA 3.0/GFDL, via Wikimedia Commons.'},
       ],
     },
     {

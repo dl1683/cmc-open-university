@@ -195,6 +195,7 @@ export const article = {
       paragraphs: [
         "Rate limiting exists because shared services need a way to say no before overload turns into an outage. A gateway may sit in front of login, payments, search, inference, or internal APIs where one caller can consume capacity that belongs to everyone else. The rate limiter turns a product or reliability rule into a per-request decision: allow this request now, slow it down, or reject it with a clear retry signal.",
         "Envoy is a natural enforcement point because traffic already crosses it. But the important lesson is not that Envoy can return 429. The important lesson is that rate limiting is a data-modeling problem. Before a counter can be checked, the proxy has to decide what kind of traffic this request represents and which fairness boundary it should spend from.",
+        {type:"callout", text:"Envoy rate limiting is a classification problem before it is a counter problem: the descriptor vector defines the fairness boundary that quota should spend from."},
       ],
     },
     {

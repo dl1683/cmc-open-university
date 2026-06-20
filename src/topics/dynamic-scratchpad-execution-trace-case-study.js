@@ -273,6 +273,7 @@ export const article = {
       paragraphs: [
         'Execution traces teach models what code does, but long programs create a context wall. A loop with thousands of steps can be simple to execute and still too long to keep as a prompt transcript. A dynamic scratchpad solves the prompt-facing part of that problem by keeping only the current state needed to continue.',
         'Instead of asking a model to append every line-level state forever, the model updates one self-contained state map: program counter, locals, iterator counts, stack frames, heap references, and confidence. Execution Trace State Diff Case Study records what happened. A dynamic scratchpad defines the compact state a model must carry if it wants to continue simulating the program after thousands of steps.',
+        {type:'callout', text:'A dynamic scratchpad is not a shorter transcript; it is a replayable current-state contract that earns compression only when the next legal step can be derived from the fields it keeps.'},
       ],
     },
     {

@@ -197,6 +197,7 @@ export const article = {
       paragraphs: [
         'EAGLE is a speculative decoding method for large language model serving. It tries to reduce the number of expensive target-model decoding iterations by proposing several future tokens at once, then asking the target model to verify those proposals. The final output still depends on target verification. The draft is a way to save time, not a permission to let a weaker model change the answer contract.',
         'The distinctive idea in EAGLE is to draft at the feature level. Instead of using only a small token-level draft model, EAGLE predicts hidden features near the top of the target model and then converts those features into token candidates. Later versions use dynamic draft trees, where branch width and depth depend on confidence for the current prefix. The case study is valuable because it connects model internals, tree data structures, calibration, and serving economics in one mechanism.',
+        {type:'callout', text:'EAGLE turns speculative decoding into a verified proposal economy: hidden features make better draft branches, and target verification decides what can be committed.'},
       ],
     },
     {

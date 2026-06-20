@@ -327,6 +327,8 @@ export const article = {
         `BPF_MAP_TYPE_LPM_TRIE exists because packet programs often need range semantics, not exact-key semantics. A firewall rule may allow 10.0.10.0/24 while denying one bad host inside it. A routing rule may have a default route, a corporate /8, a service /24, and a host /32. The packet path needs the most specific matching rule without scanning every CIDR entry on every packet.`,
         `A normal hash map is the wrong shape for that question. It can answer "is this exact key present?" but it cannot naturally answer "which stored prefix is the longest prefix of this address?" You could store every host address covered by every CIDR, but that explodes memory. You could scan a list of CIDRs, but that puts linear work in a latency-sensitive kernel path.`,
         `The LPM trie map gives eBPF programs a kernel-resident data structure for longest-prefix match. User space loads prefixes and values. The BPF program builds a lookup key from a packet address and asks the map for the deepest matching prefix. The value can represent a route, identity, allow/deny action, redirect target, or any policy data the program understands.`,
+        {type:`callout`, text:`An LPM trie moves CIDR policy out of linear scans by making prefix specificity the lookup invariant: the deepest matching address path wins.`},
+        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/c/cd/Patricia_tree.png`, alt:`Patricia tree example with branching nodes labeled by bit positions and leaves for string keys.`, caption:`Patricia tree example by WikiLinuz, CC BY-SA 4.0, via Wikimedia Commons.`},
       ],
     },
     {

@@ -361,6 +361,8 @@ export const article = {
       paragraphs: [
         'Transformer decoding normally spends the full stack of layers on every generated token. That is simple, but it treats a comma, a stock phrase, a code identifier, and a disputed factual answer as equally hard. Early-exit inference asks whether some tokens can stop after a shallower layer without paying for the rest of the model.',
         'There are two deployment shapes. In confidence-gated early exit, an intermediate prediction is accepted when a calibrated gate says the risk is low enough. In self-speculative decoding, early layers draft tokens and later layers verify or repair them, so the shortcut is protected by the same model path that would have generated the full-depth answer.',
+        {type:'callout', text:'Early-exit serving treats transformer depth as a conditional resource: easy tokens can stop early only when a gate or verifier keeps the output contract intact.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/Transformer%2C_full_architecture.png', alt:'Full transformer architecture diagram with encoder and decoder stacks, attention blocks, feed-forward layers, normalization, and output head.', caption:'Transformer full architecture diagram by dvgodoy, CC BY 4.0, via Wikimedia Commons.'},
       ],
     },
     {

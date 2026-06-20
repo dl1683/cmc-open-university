@@ -181,6 +181,7 @@ export const article = {
       paragraphs: [
         `A confidential workload is only useful if the sensitive capability arrives after the workload proves what it is. If a database password, model key, signing key, or API token is baked into the image, mounted from the host, or attached only to the VM identity, the enclave boundary is mostly decorative. The surrounding host may be able to read the material before the protected code starts.`,
         `Secret release is the bridge between remote attestation and practical authority. Attestation provides signed evidence about the measured program and environment. A release policy decides whether that exact measured program, under that caller, tenant, requested scope, freshness window, and public key binding, may receive a narrow secret.`,
+        {type:`callout`, text:`Secret release turns attestation into authority only when the policy binds measurement, caller, scope, freshness, and an enclave-held key before any secret becomes usable.`},
       ],
     },
     {
