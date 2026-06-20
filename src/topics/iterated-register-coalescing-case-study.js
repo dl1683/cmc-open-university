@@ -248,6 +248,8 @@ export const article = {
       paragraphs: [
         'A compiler wants to keep values in a small number of physical registers. Before allocation, the compiler often has many virtual registers, each representing a live range. Some live ranges overlap in time and cannot share a register. Others are connected by copy instructions such as Y = X, where using the same register for X and Y would make the copy unnecessary.',
         'Register coalescing is the attempt to remove those copies by assigning copy-related live ranges to the same physical register. Iterated register coalescing does this inside a graph-coloring allocator instead of as a separate cleanup pass. That placement matters because the allocator can still see interference, register pressure, fixed-register constraints, and possible spills.',
+        {type:'callout', text:'Coalescing is safe only when copy removal is negotiated with interference and register pressure, not bolted on after allocation.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/90/Petersen_graph_3-coloring.svg', alt:'A Petersen graph whose adjacent vertices have different colors.', caption:'Petersen graph 3-coloring, Chris-martin, public domain, via Wikimedia Commons.'},
       ],
     },
     {

@@ -201,6 +201,8 @@ export const article = {
         'A direct market-data feed does not deliver a ready-made current order book. It delivers a protocol: sequenced binary messages that say an order was added, executed, cancelled, deleted, replaced, or affected by a trading-state change. Each serious consumer builds its own local book by replaying those messages in order.',
         'That local book matters because downstream systems make decisions from it. Trading strategies read best bid and offer, depth, imbalance, queue position, and recent trades. Risk systems reconcile fills against visible liquidity. Simulators and backtests need a realistic event stream. Surveillance systems need to know what the market looked like before and after an event.',
         'The reconstruction problem exists because snapshots alone are too coarse for many uses. A snapshot can say there are 10,000 shares at a price. It cannot always say which order reference was reduced, which order lost priority after replacement, whether a cancel removed displayed liquidity before an execution, or whether a sequence gap made the local view stale.',
+        {type:'callout', text:'Order-book reconstruction is a replay problem: sequence numbers, order-reference maps, and gap recovery turn raw feed messages into a defensible local market view.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/29/NASDAQ_Market_Site_201506.jpg', alt:'NASDAQ MarketSite studio with market data screens and cameras.', caption:'NASDAQ MarketSite studio, Luca Marfe, CC BY 2.0, via Wikimedia Commons.'},
       ],
     },
     {

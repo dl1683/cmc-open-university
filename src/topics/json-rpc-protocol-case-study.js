@@ -204,6 +204,7 @@ export const article = {
       paragraphs: [
         `JSON-RPC exists because many systems need a small, language-neutral way to say "call this named method with these parameters and tell me the result." Editors talk to language servers. Agent hosts talk to tools. Local applications talk to subprocesses. Services talk over HTTP or WebSocket. In all of those cases, the caller needs a compact envelope that can carry a request, a response, or an error without inventing a new protocol each time.`,
         `The data-structure lesson is not the JSON syntax. It is the correlation discipline. A request has a method, optional params, and maybe an id. A response carries the same id and either a result or an error. A notification omits the id, so the sender deliberately gives up the reply channel. That tiny shape creates a reliable join key between two asynchronous timelines.`,
+        {type:`callout`, text:`JSON-RPC works because every asynchronous request and response carries enough envelope structure to rejoin the right timeline.`},
       ],
     },
     {

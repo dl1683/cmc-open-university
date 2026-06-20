@@ -201,6 +201,7 @@ export const article = {
         'Jailbreak mutation search exists because manual red-teaming finds important failures but does not scale across model versions, policies, tools, retrieval contexts, and product surfaces. Once a team has a seed failure, it needs to know whether nearby variants also break the system and whether a fix actually closes the family of failures.',
         'The danger is volume without learning. A generator can produce thousands of strange prompts that look adversarial but test the same boundary again and again. A safety team can then drown in duplicates while missing the one mutation that crosses from harmless text into a real tool, data, or policy failure.',
         'A mutation search graph turns red-team exploration into a data structure. It records the seed, mutation operator, parent relationship, target surface, model response, tool behavior, judge result, dedupe family, severity, rerun rate, fix status, and regression case. The goal is reproducible safety evidence, not prompt weirdness.',
+        {type:'callout', text:'A mutation graph turns red-team exploration from prompt volume into reproducible evidence about families of failures and fixes.'},
       ],
     },
     {

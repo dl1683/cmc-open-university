@@ -186,6 +186,7 @@ export const article = {
         'A JavaScript Proxy changes the path an object operation takes. Instead of a property read, write, function call, construction, enumeration, or descriptor operation going straight to the target object, it first reaches a handler. The handler can intercept that operation through traps such as get, set, has, apply, construct, ownKeys, and defineProperty.',
         'That makes Proxy an interposition primitive. It is not just a nicer getter or setter. It can stand in front of the object protocol itself. The target still exists, but the caller no longer talks to it directly.',
         'This is powerful at boundaries: logging, validation, compatibility shims, lazy objects, access control, membranes, and test doubles. It is also dangerous as a default data model because it makes ordinary object operations run user code.',
+        {type:'callout', text:'A Proxy makes object access programmable, so the same hook that enables membranes and validation can also defeat the assumptions behind fast property access.'},
       ],
     },
     {

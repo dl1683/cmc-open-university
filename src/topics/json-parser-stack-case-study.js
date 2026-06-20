@@ -214,6 +214,7 @@ export const article = {
       paragraphs: [
         'The "token stack" view traces a lexer-plus-stack parser through a small JSON document. Active nodes are the pipeline stage currently processing a token. Found nodes mark a complete, valid result. The graph edges show data flow: bytes enter the lexer, tokens enter the parser, the parser pushes and pops stack frames, and completed values reach the emit node.',
         'The "structure errors" view shows what happens when a token violates the current frame expectation. Removed nodes mark the output path that error cases never reach. Watch the error node light up -- it means the stack detected a structural violation that pure tokenization would miss.',
+        {type:'callout', text:'JSON parsing is simple only at the token layer; correctness comes from stack frames that remember the active container and the next legal token.'},
         {
           type: 'note',
           text: 'The matrix views show token-by-token traces. Each row is one token; the columns show what kind of token the lexer produced and what action the parser took. Highlighted cells in the "parser action" column are the stack operations -- push, pop, or an expectation check.',

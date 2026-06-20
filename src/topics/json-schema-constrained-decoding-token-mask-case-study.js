@@ -405,6 +405,7 @@ export const article = {
       paragraphs: [
         'JSON is the boundary where many LLM systems stop being chat and start acting like software. Tool calls, extraction jobs, workflow commands, agent plans, and typed API requests all need values in predictable fields. If the output is malformed, the caller either retries, repairs, drops the request, or lets a bad argument reach another system.',
         'JSON Schema constrained decoding exists because instruction-following is not the same as enforcement. A prompt can ask for valid JSON, but the sampler can still choose a quote, comma, key, or value that makes the object unparsable or incomplete. A constrained decoder turns the schema into a decode-time contract: at each step, illegal tokens receive probability zero before sampling.',
+        {type:'callout', text:'Constrained decoding moves schema compliance from hopeful post-processing into the sampler itself, where illegal next tokens can be removed before they exist.'},
       ],
     },
     {

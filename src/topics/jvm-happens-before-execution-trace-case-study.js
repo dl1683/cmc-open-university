@@ -253,6 +253,7 @@ export const article = {
         'Concurrent Java programs do not run under the simple story most beginners imagine. One thread can write a value, another thread can run later, and the second thread may still be allowed to see an older value unless the program created the right synchronization relationship.',
         'A JVM happens-before trace exists to make that relationship explicit. It records ordinary reads and writes, volatile accesses, monitor actions, thread lifecycle actions, program-order edges, synchronization edges, and the write observed by each read. The point is not just replaying source lines. The point is explaining which observations are legal under the Java Memory Model.',
         'This matters for debuggers, concurrency tests, deterministic replay, trace-based education, and code-world-model datasets. A model trained on value logs can memorize interleavings while missing the actual rule: visibility is controlled by happens-before relationships, not by wall-clock intuition.',
+        {type:'callout', text:'A happens-before trace explains concurrency by recording the synchronization edges that make a read legal, not just the wall-clock order that made it surprising.'},
       ],
     },
     {

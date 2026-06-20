@@ -310,6 +310,8 @@ export const article = {
       paragraphs: [
         'Distributed systems often need to place a key on one of N buckets: cache shards, table partitions, work queues, or logical tablets. The placement should be balanced, deterministic, and stable when capacity grows.',
         'Modulo hashing gives deterministic balance with no metadata, but it is unstable under growth. Changing N changes most remainders. Jump consistent hash targets the narrower and very useful case where buckets are dense integers 0 through N - 1 and capacity is usually added by increasing N.',
+        {type:'callout', text:'Jump consistent hash narrows the problem on purpose: dense bucket numbers make growth stable without storing a ring or per-bucket metadata.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/71/Consistent_Hashing_Sample_Illustration.png', alt:'A circular hash ring with server icons and a request hash value.', caption:'Consistent hashing sample illustration, WikiLinuz, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
