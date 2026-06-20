@@ -200,6 +200,7 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {type:'callout', text:'Context should follow causality, not wall-clock time. If request A schedules a promise continuation, that continuation must see request A\\u2019s trace ID even if request B ran between scheduling and execution.'},
         'Context should follow causality, not wall-clock time and not a mutable global. If request A schedules a promise continuation, that continuation should see request A values even if request B ran in the middle. If a background worker starts a new job, it should receive only the context the system chose to send with that job.',
         'Node models this with async resources and APIs such as `AsyncLocalStorage`. A store is associated with an async execution chain. When the runtime creates related async work, the association can be preserved. Later, deep code can ask for the current store and receive the values for the logical operation that is running.',
         'The invariant is isolation by async lineage. Two overlapping requests may use the same functions, same database client, and same logger, but their stores should remain separate. If that invariant breaks, observability becomes misleading and authority-bearing context can become dangerous.',
@@ -216,6 +217,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt:'Process state transitions', caption:'Async context tracks state across process boundaries — promise continuations, timers, and worker messages each propagate context differently. Source: Wikimedia Commons, CC BY-SA 3.0'},
         'At request entry, middleware creates a store such as `{ traceId, requestId, tenantId, deadline, logger }` and runs the handler inside that store. Libraries below the handler can call a getter to read the current store. The code that reads the store does not need every route and helper to pass the values by hand.',
         'Promise continuations usually preserve context through runtime hooks. Callback-style APIs may need binding so the callback runs under the store that was current when it was registered. Timers may need the store to be captured when the timer is scheduled. Streams and event emitters need care because one emitter can deliver events for many logical operations.',
         'Queues and worker threads require a different rule. A message crossing a process or thread boundary does not magically carry process-local context. The sender must serialize selected fields, and the receiver must create a new store for the new execution. That store may continue the trace, but it should not blindly copy every request value.',

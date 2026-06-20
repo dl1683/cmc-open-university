@@ -215,6 +215,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'Web browser testing', caption:'Browser automation frameworks like Playwright auto-wait for actionability before clicking — visible, enabled, stable, and unobscured. Source: Wikimedia Commons, CC BY-SA 4.0'},
         'The action-gate view traces a single browser action through its precondition pipeline. Active nodes are the gate currently being evaluated. Found nodes (green) mark the final action dispatch. Compare nodes (orange) mark the locator origin, reminding you that every gate re-resolves from a fresh query -- never a stale DOM handle.',
         'The flaky-click view traces a failed action backward to its mechanical cause. Active nodes are the failure diagnosis path. Compare nodes mark the original action attempt that triggered the failure. The trace node collects classified failure reasons so retries can be targeted.',
         'The wait-budget plot shows success probability (pass) against wait time, with a cost curve overlaid. The knee marker is the diminishing-returns point where longer waits buy little reliability but add latency.',

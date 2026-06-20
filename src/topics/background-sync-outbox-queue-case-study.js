@@ -204,6 +204,8 @@ export const article = {
     {
       heading: 'Core insight',
       paragraphs: [
+        {type:'callout', text:'The sync tag is only a wakeup handle — the real durability comes from the IndexedDB queue. If the queue is empty, the sync event fires but does nothing. If the tab dies, the queue survives. This is the browser version of the Transactional Outbox pattern.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'HTTP protocol', caption:'Background Sync retries failed HTTP requests from a durable queue — the service worker acts as a persistent message consumer. Source: Wikimedia Commons, CC BY-SA 4.0'},
         'The core data structure is a persistent queue in IndexedDB. Each row needs an operation id, payload, idempotency key, status, attempt count, next retry time, and reconciliation metadata. The sync tag is only a wakeup handle.',
         'This is the browser version of Transactional Outbox and Message Queue. The producer is a page, the durable queue is IndexedDB, and the consumer is a service worker or foreground fallback. The invariant is that a mutation is either safely queued, acknowledged by the server, or visible to the user as failed.',
       ],

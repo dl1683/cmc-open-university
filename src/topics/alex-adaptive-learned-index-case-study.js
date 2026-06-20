@@ -246,7 +246,9 @@ export const article = {
           text: 'We propose a new framework for designing learned index structures that can effectively support modifications.',
           attribution: 'Ding et al., "ALEX: An Updatable Adaptive Learned Index" (SIGMOD 2020), Section 1',
         },
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/46/B-tree.svg', alt:'B-tree index structure', caption:'Traditional B-trees use separator keys at internal nodes. ALEX replaces these with learned linear models that predict position directly. Source: Wikimedia Commons, CC BY-SA 3.0'},
         'An ordered index maps keys to positions. A B-tree does this with separator keys at internal nodes and sorted records in leaf pages. A learned index replaces those separators with a model trained on the key distribution: given a key, predict its rank in sorted order, jump close, and correct with a short local search.',
+        {type:'callout', text:'The first learned index paper (Kraska et al., 2018) showed models can be faster than B-trees for static reads — but production indexes are not static. ALEX is the answer: a learned index that adapts to inserts, deletes, and distribution shifts.'},
         'The first learned index paper (Kraska et al., 2018) showed that models can be faster than B-trees for read-only lookups over static data. The catch: production indexes are not read-only or static. They receive inserts, deletes, updates, and distribution shifts. A dense sorted array has no spare slots for new keys. A model trained on yesterday\'s distribution predicts poorly after today\'s inserts. A static learned index is a fast snapshot, not a living data structure.',
         {
           type: 'table',

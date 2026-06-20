@@ -216,6 +216,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt:'Distributed trace network', caption:'Agent traces form span trees — each tool call, LLM generation, and handoff becomes a child span under the root agent span. Source: Wikimedia Commons, The Opte Project, CC BY 2.5'},
+        {type:'callout', text:'An agent trace is not a log — it is a tree. The root span is the agent run. Child spans are LLM calls, tool invocations, guardrail checks, and handoffs. This structure makes it possible to compute critical-path latency, cost attribution, and failure isolation.'},
         'The animation has two views. "Span tree" shows the structural skeleton of a single agent run: trace root, agent span, generation span, tool span, handoff, guardrail, approval, checkpoint, cost aggregation, output, and debug dashboard. "Debug loop" shows the incident workflow: alert, filter, span search, state retrieval, root cause, fix, replay, eval, and ship.',
         {
           type: 'bullets',

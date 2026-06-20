@@ -217,6 +217,7 @@ export const article = {
     {
       heading: 'The real problem',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'HTTP protocol logo', caption:'Fetch requests, streams, and event listeners all accept AbortSignal — cancellation is woven into the web platform. Source: Wikimedia Commons, CC BY-SA 4.0'},
         'Modern web code starts work speculatively. A search request begins before the user finishes typing. A route loader starts before the user decides to navigate again. A stream reader, lock waiter, and event listener can all belong to the same screen, then become useless the moment that screen disappears.',
         'The hard part is not setting a local flag. The hard part is telling several independently implemented APIs that the same unit of work is over, then making error handling distinguish expected cancellation from a network outage, parser bug, or application failure.',
       ],
@@ -231,6 +232,7 @@ export const article = {
     {
       heading: 'The core model',
       paragraphs: [
+        {type:'callout', text:'AbortController separates authority from observation. The controller can abort; the signal can only report. Passing a signal to downstream code lets it respond to cancellation without giving it the power to cancel sibling work.'},
         'AbortController gives one owner the right to end a cancellation scope. The controller exposes an AbortSignal, and every operation that joins the scope receives that same signal. Calling abort(reason) flips the signal once, stores a reason, and notifies observers.',
         'The signal is monotonic. It starts not aborted, becomes aborted once, and never returns to fresh. That one-shot rule is what makes late checks safe: a function can inspect signal.aborted or call signal.throwIfAborted() without worrying that the cancellation event already passed.',
       ],
@@ -252,6 +254,8 @@ export const article = {
     {
       heading: 'Timeouts and composed signals',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt:'State transition diagram', caption:'AbortSignal is a one-shot state machine: not-aborted transitions to aborted exactly once, and never returns. Source: Wikimedia Commons, CC BY-SA 3.0'},
+        {type:'callout', text:'AbortSignal.any() composes multiple cancellation sources — a user cancel button, a route change, and a timeout can all share the same downstream fetch. The first source to abort wins.'},
         'AbortSignal.timeout(ms) creates a timer-backed signal whose reason is a TimeoutError when the timeout fires. The timeout is based on active time in browser environments, so suspended documents and back-forward cache pauses matter.',
         'AbortSignal.any([...signals]) creates one signal from several cancellation sources. A route change, a user cancel button, and a timeout can share the same downstream fetch. The first source to abort wins, and the composed signal carries the winning reason where the platform exposes it.',
       ],
@@ -288,6 +292,7 @@ export const article = {
     {
       heading: 'Failure modes',
       paragraphs: [
+        {type:'callout', text:'AbortController is cooperative, not preemptive. CPU-heavy JavaScript will not stop unless the code explicitly checks signal.aborted or calls throwIfAborted(). The platform does not kill computation — it requests cancellation.'},
         'AbortController is cooperative, not preemptive. CPU-heavy JavaScript will continue unless it calls throwIfAborted(), checks signal.aborted, yields to the event loop, or receives a separate worker message. The platform does not kill arbitrary computation for you.',
         'The common bugs are predictable: reusing an aborted signal, swallowing all errors as cancellation, checking only after expensive work is complete, forgetting listener cleanup, and losing the abort reason when wrapping errors.',
       ],

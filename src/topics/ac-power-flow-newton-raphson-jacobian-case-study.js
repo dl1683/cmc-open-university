@@ -209,6 +209,7 @@ export function* run(input) {
 }
 
 export const article = {
+  intro: {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/bb/Eiffel_Tower_and_electrical_grid.jpg', alt:'Electrical power grid infrastructure', caption:'Power flow analysis computes voltages and currents across a grid — the Newton-Raphson method solves the nonlinear equations that govern AC networks. Source: Wikimedia Commons, Taxiarchos228, CC BY-SA 3.0'},
   references: [
     { title: 'MATPOWER Manual 8.0', url: 'https://matpower.org/docs/MATPOWER-manual-8.0.pdf' },
     { title: 'MATPOWER AC Power Flow', url: 'https://matpower.app/manual/matpower/ACPowerFlow.html' },

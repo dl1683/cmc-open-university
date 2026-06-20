@@ -301,6 +301,7 @@ export const article = {
     {
       heading: 'The problem',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt:'Network of interconnected agents', caption:'Agent-to-agent communication mirrors internet routing: discovery, capability negotiation, and structured message exchange across trust boundaries. Source: Wikimedia Commons, The Opte Project, CC BY 2.5'},
         'Agent systems stop being simple when one agent needs another agent to do real work. A travel assistant may need a payments agent. A coding assistant may need a deployment agent. An enterprise assistant may need HR, IT, procurement, and legal agents. These systems are often built by different teams, run behind different boundaries, and use different internal tools. They still need a way to discover each other, delegate work, exchange status, and deliver results.',
         'Agent2Agent, or A2A, addresses that boundary. The central design choice is opacity. A client agent should not need access to the remote agent internal prompts, tool graph, memory, or private reasoning. It should be able to inspect a capability manifest, send a task-oriented message, follow public task state, receive artifacts, and apply its own trust and authorization rules around the interaction.',
       ],
@@ -322,6 +323,7 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {type:'callout', text:'A2A\\u2019s key design: opacity. A client agent should not need access to the remote agent\\u2019s internal prompts, tool graph, memory, or reasoning. It only sees the Agent Card (capabilities), Task (state machine), Messages (interaction), and Artifacts (results).'},
         'A2A separates discovery, task coordination, and result delivery. The Agent Card is a manifest and routing data structure. The Task is the durable unit of delegated work. Messages are interaction events. Artifacts are outputs. Parts carry concrete payloads such as text, files, or structured data. This gives both sides a shared vocabulary without exposing implementation internals.',
         'The deeper insight is that agent collaboration should look like distributed workflow, not prompt concatenation. A client can ask a remote agent to do a job, then observe public state and artifacts. The remote agent remains responsible for its own tools, memory, policies, and execution. This keeps the boundary narrow enough to secure and stable enough to compose.',
       ],

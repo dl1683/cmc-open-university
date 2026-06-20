@@ -221,6 +221,7 @@ export const article = {
     {
       heading: 'Baseline and wall',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/60/Myoglobin.png', alt:'Protein 3D structure', caption:'Protein structure prediction requires modeling thousands of atom coordinates simultaneously. AlphaFold 3 extends this to full biomolecular complexes. Source: Wikimedia Commons, AzaToth, Public domain'},
         'A naive baseline would handle each molecule type with separate rules: predict a protein backbone, dock a ligand afterward, model nucleic acids separately, and patch confidence together late. That loses the joint interaction problem. Interfaces, ligand poses, ions, and modified residues can all depend on each other.',
         'Another baseline is deterministic coordinate regression: feed the sequence and directly predict one final structure. The wall is uncertainty. Biomolecular complexes can have multiple plausible arrangements, weak evidence in some regions, and interfaces where the local atom geometry looks plausible but the global placement is uncertain.',
         'AlphaFold 3 uses conditional diffusion to make sampling part of the representation. It starts from noisy atom coordinates and repeatedly denoises under molecular context, then reports confidence so users can separate a high-confidence hypothesis from a weak one.',
@@ -229,6 +230,7 @@ export const article = {
     {
       heading: 'Core invariant',
       paragraphs: [
+        {type:'callout', text:'AlphaFold 3\\u2019s central invariant: every coordinate update stays tied to molecular conditioning. The diffusion module denoises atom positions while sequence, MSA, and pairwise features continuously guide the process. Coordinates without confidence scores are not predictions — they are guesses.'},
         'The central invariant is that every coordinate update stays tied to molecular conditioning. Sequence, MSA, template, and pair features are not discarded when diffusion starts. They keep informing how the noisy atom cloud should move toward a plausible complex.',
         'Tokenization is the first important design choice. Standard residues and nucleotides can be represented at token level, while ligands, ions, and chemically detailed pieces may need atom-level treatment. The model has to preserve chemical detail without turning every large biomolecule into an unaffordable flat atom sequence.',
         'The second invariant is that coordinates and confidence travel together. A predicted structure without pLDDT, PAE, pTM, ipTM, or related confidence signals is not enough for scientific use, because the risky region is often exactly the region the user cares about.',

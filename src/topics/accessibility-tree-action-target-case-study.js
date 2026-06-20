@@ -232,6 +232,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'Web browser interface', caption:'Browsers build an accessibility tree from every page — merging DOM, CSS, ARIA, and native semantics into a structured representation. Source: Wikimedia Commons, CC BY-SA 4.0'},
         'A browser agent must convert natural language into a specific UI action: click this button, type into that field, select this option. The agent sees a page with dozens to hundreds of interactive elements, many visually similar, some hidden, some disabled. It must pick exactly one target and act on it without submitting the wrong form, deleting the wrong record, or clicking a stale overlay.',
         'Pixels alone cannot distinguish a disabled button from an enabled one, a hidden template from a visible control, or two identically styled links in different page regions. Raw HTML exposes implementation details -- framework wrappers, generated class names, Shadow DOM boundaries -- rather than user-perceived controls. The agent needs a representation that captures what each element is, what it is called, and whether it is currently actionable.',
         {
@@ -280,6 +281,7 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {type:'callout', text:'The useful unit for browser agents is not a pixel coordinate or a CSS selector — it is a candidate row: role + name + state + bounding box + parent region. This is information retrieval over UI elements.'},
         'The useful unit is not a coordinate, a DOM node, or a selector. It is a candidate row: a structured record that joins semantic evidence to mechanical actionability.',
         {
           type: 'table',
@@ -302,12 +304,14 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt:'Decision tree for element selection', caption:'Action targeting works like a decision tree: snapshot the page, extract candidates, rank by instruction match, verify actionability, and observe the result. Source: Wikimedia Commons, CC BY-SA 4.0'},
         'The pipeline has five stages: snapshot, extract, rank, verify, and observe.',
         {
           type: 'diagram',
           text: 'Stage 1: SNAPSHOT\n  Browser renders page --> builds accessibility tree\n  Runtime calls getAccessibleSnapshot() or equivalent\n\nStage 2: EXTRACT\n  Walk tree --> for each node with actionable role:\n    record {role, name, state, bbox, locator, parent, nearby_text}\n  Filter: drop hidden, drop decorative, drop structural-only\n  Result: candidate table (typically 20-80 rows on a complex page)\n\nStage 3: RANK\n  Query = parsed instruction ("click the refundable fare option")\n  Score each candidate:\n    +3  exact name match ("Refundable")\n    +2  role match (button or radio for "click")\n    +1  parent region match (inside flight card)\n    +1  enabled state\n    -2  offscreen or hidden\n    -1  recently failed target\n  Sort by score, take top-k\n\nStage 4: VERIFY\n  Re-resolve locator in current DOM\n  Check: exists? visible? enabled? stable? unobscured?\n  If any check fails: fall back to next candidate\n\nStage 5: OBSERVE\n  Perform action (click, type, select)\n  Take new snapshot\n  Compare: did expected state change occur?\n  If not: failure --> repair data --> re-enter at Stage 3',
           label: 'The five-stage action targeting pipeline',
         },
+        {type:'callout', text:'The browser has already done the hard work. Chromium\\u2019s accessibility tree merges DOM structure, CSS visibility, ARIA attributes, and native HTML semantics. Browser agents reuse this existing computation instead of building their own page understanding from scratch.'},
         'Stage 1 uses the browser\'s own accessibility APIs. Chromium exposes the accessibility tree through CDP (Chrome DevTools Protocol) via the Accessibility.getFullAXTree command. Playwright wraps this in ARIA snapshot format, a YAML-like serialization of roles and names. The key insight is that the browser has already done the hard work of merging DOM, CSS, ARIA, and native semantics.',
         {
           type: 'code',
