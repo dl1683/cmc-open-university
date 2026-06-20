@@ -378,6 +378,7 @@ export const article = {
       paragraphs: [
         'LLM serving has two very different kinds of work. Prefill reads the prompt and builds KV cache for every prompt token. Decode extends active streams one token at a time. Prefill is usually large and compute dense. Decode is small but latency sensitive because a user notices every pause between streamed tokens.',
         'Chunked prefill exists because long prompts are now normal. A coding agent can send a repository summary, tool schema, recent conversation, and retrieved files in one request. If the server treats that prompt as one indivisible prefill, it can block decode iterations for users who are already streaming. The scheduler needs a way to make the long prompt progress while keeping active streams responsive.',
+        {type:'callout', text:'Chunked prefill turns long prompt work into resumable budgeted slices so decode latency stays protected without starving new requests.'},
       ],
     },
     {

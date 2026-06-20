@@ -278,6 +278,8 @@ export const article = {
         `A naive attempt at saving space is to lower the replication factor. Two replicas are cheaper than three, but they narrow the failure budget sharply. A disk failure plus a second correlated fault during recovery can become a data-loss event. One copy is not a storage system; it is a wish with a checksum.`,
         `Another naive attempt is to compress or deduplicate everything. Those techniques help when data has redundancy, but they do not replace a durability strategy. A compressed object still needs a failure model. A deduplicated chunk still needs placement and repair. Capacity optimization below the object layer cannot answer the question "how many independent failures can this placement group survive?"`,
         `Erasure coding answers a different question: how can the cluster store enough independent information to recover the object without storing complete replicas? The wall it hits is that independence must be real, not just mathematical. If six chunks are placed across six OSDs under one rack, then a rack outage can remove all six at once. The code profile and the CRUSH rule must be designed together.`,
+        {type:'callout', text:'Erasure-coded pools save capacity only when the coding profile and CRUSH placement preserve a real failure budget.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b4/Code_d%27effacement_optimal_1.gif', alt:'Animated erasure-code diagram showing data reconstructed from redundant encoded symbols', caption:'Optimal erasure-code animation showing redundant recoverable symbols. Source: Wikimedia Commons, Code d\'effacement optimal 1.gif.'},
       ],
     },
     {

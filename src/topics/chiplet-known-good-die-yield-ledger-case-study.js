@@ -208,6 +208,8 @@ export const article = {
         `Known-good-die discipline exists because a multi-die package multiplies risk before it multiplies value. A package can contain logic chiplets, I/O dies, HBM stacks, bumps, package routes, and thermal interfaces. If one component is weak, the finished package may fail even though every other component was expensive and good.`,
         `A monolithic die has a simpler failure boundary: test the die, package it, test the package, then bin the result. A chiplet product has more combinations. A bad die can waste good companion dies. A weak bond can ruin a kit made from good dies. A marginal link can pass a cheap test and fail under heat or workload stress.`,
         `The goal is to move evidence upstream. Before assembly, each die should carry a structured record: lot, wafer position, test conditions, speed bin, voltage curve, thermal behavior, memory repair state, link margin, and traceability. The package planner uses those records to build a compatible kit instead of treating assembly as a guess followed by one final exam.`,
+        {type:'callout', text:'Known-good-die is a structured evidence ledger that moves yield risk upstream before assembly multiplies the cost of a weak component.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/dc/Probe_card.JPG', alt:'Probe card used for wafer-level semiconductor testing', caption:'Probe card used in wafer testing, the upstream screen behind known-good-die workflows. Source: Wikimedia Commons, Ajoones, CC BY 3.0.'},
       ],
     },
     {

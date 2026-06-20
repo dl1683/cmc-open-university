@@ -350,6 +350,7 @@ export const article = {
           ],
         },
         'Chain of Draft is a prompting strategy that replaces verbose intermediate reasoning with compact draft notes -- just enough state to solve the problem, written in minimal tokens. The model still reasons step by step, but each step is a few words or symbols instead of a full sentence.',
+        {type:'callout', text:'Chain of Draft is safe only when compression removes narration while preserving every load-bearing piece of decision state.'},
       ],
     },
     {

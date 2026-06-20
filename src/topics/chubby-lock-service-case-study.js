@@ -169,6 +169,7 @@ export const article = {
       paragraphs: [
         'Large distributed systems need a small number of facts to be more reliable than the machines using them: who is leader, which server owns a shard, where a service endpoint lives, what configuration is current, and whether a participant is still considered alive.',
         'Chubby matters because it turns those facts into a deliberately small control-plane service. It gives clients coarse locks, small files, directories, watches, sessions, and a replicated master. The paper is a lesson in restraint: make coordination reliable, then keep the heavy data path out of the lock service.',
+        {type:'callout', text:'Chubby works by making rare control-plane facts reliable while keeping hot data-path work out of the lock service.'},
       ],
     },
     {

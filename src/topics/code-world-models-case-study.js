@@ -244,6 +244,7 @@ export const article = {
           text: 'what code does when executed',
         },
         'That short phrase is the whole educational point. If a learner understands CWM only as another benchmark table, they miss the reusable design pattern: when a domain has state, actions, and an oracle, the best data often records the transition process rather than only the final answer.',
+        {type:'callout', text:'Code world models matter because execution traces teach causal state transitions that static code text only implies.'},
       ],
     },
     {

@@ -181,6 +181,7 @@ export const article = {
       paragraphs: [
         'Kubernetes turns every node into a small network switch. Pods appear and disappear, Services point at changing backend sets, NetworkPolicies describe allowed flows, and operators still expect packets to move at line rate. The hard part is not only routing. The system has to route, load-balance, apply policy, translate addresses, remember connection state, and explain drops while cluster state changes underneath it.',
         'Cilium exists because that work sits on the boundary between the Kubernetes control plane and the Linux packet path. Kubernetes stores desired state in the API server. Packets arrive at kernel hooks on each node. If every packet decision has to climb back into user space, the datapath pays extra context switches and queues exactly where latency and throughput are most sensitive. If every state change becomes a large pile of static rules, the node becomes hard to update and hard to inspect.',
+        {type:'callout', text:'Cilium eBPF datapath works by materializing Kubernetes intent into verified kernel programs and mutable maps for local packet decisions.'},
       ],
     },
     {

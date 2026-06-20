@@ -196,6 +196,8 @@ export const article = {
         `Chiplet interconnect exists because the old "one product, one monolithic die" assumption stopped being the only practical path for high-end systems. A giant die can be expensive, hard to yield, and forced onto one process node even when logic, SRAM, analog I/O, and memory-facing circuits want different manufacturing tradeoffs. Splitting the product into chiplets lets designers mix nodes, reuse blocks, and scale memory bandwidth.`,
         `The split creates a new problem: the package becomes a network. Compute dies, HBM stacks, cache slices, I/O chiplets, interposers, bridges, organic substrates, bumps, power delivery, and cooling all share one physical envelope. The interconnect is the data structure that makes the pieces act like one product.`,
         `For AI accelerators, this is not packaging trivia. Model throughput depends on getting weights, activations, KV cache blocks, and collective traffic to the right compute engines at the right time. A compute die with excellent arithmetic units can stall if HBM bandwidth, die-to-die reach, package escape, or thermal limits choke the feed path.`,
+        {type:'callout', text:'A chiplet package should be designed as a constrained network whose links, not just dies, determine system performance.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1f/Power5.jpg', alt:'Ceramic multi-chip module with several processor and cache dies on one package', caption:'IBM POWER5 ceramic multi-chip module showing multiple dies on one package. Source: Wikimedia Commons, Carsten Schulz, CC BY-SA 3.0/GFDL.'},
       ],
     },
     {
