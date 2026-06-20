@@ -221,7 +221,8 @@ export const article = {
       paragraphs: [
         "Dremel exists for a specific pain: analysts want interactive answers over enormous nested datasets. The data is often log-like or protocol-buffer-like. Records contain optional fields, repeated fields, and deeply nested structures. The questions, however, usually touch only a few paths: count pages by country, group requests by language, compute an error rate, or inspect one repeated field.",
         "A batch system can answer those questions, but it makes exploration slow. Write a job, wait for scheduling, scan the dataset, materialize output, and repeat for the next question. Dremel was designed as a complement to heavy batch pipelines: keep the data in a form that large scans can read quickly, then fan out SQL-like aggregation work across many machines.",
-        "The case study matters because it joins two ideas that are often taught apart. Columnar storage saves work by reading only the fields the query needs. A serving tree saves work by pushing partial aggregation down toward the shards. The speed comes from both layout and execution topology."
+        "The case study matters because it joins two ideas that are often taught apart. Columnar storage saves work by reading only the fields the query needs. A serving tree saves work by pushing partial aggregation down toward the shards. The speed comes from both layout and execution topology.",
+        {type: "callout", text: "Dremel gets interactivity by avoiding work twice: columnar nested storage skips unused fields, and the serving tree reduces raw scans into partial aggregates near the shards."},
       ],
     },
     {

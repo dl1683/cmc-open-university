@@ -242,6 +242,7 @@ export const article = {
       paragraphs: [
         "Activation steering exists because we often find a direction or probe that appears to represent a concept, then want to use it as a control knob. If a model has a caution feature, a refusal feature, a sentiment feature, or a topic feature, it is tempting to add that vector and expect the behavior to move cleanly in that direction.",
         "The problem is that language-model behavior is not produced by Euclidean distance alone. The final object the user sees is a probability distribution over tokens. Softmax turns logits into that distribution, and small-looking changes can move probability mass sharply when the distribution is already peaked. Dual steering exists to ask a more careful question: how do we change a target concept while limiting damage to the rest of the distribution?",
+        {type: "callout", text: "Dual steering treats behavior control as movement on the softmax probability geometry, where target lift must be balanced against full-distribution drift."},
       ],
     },
     {

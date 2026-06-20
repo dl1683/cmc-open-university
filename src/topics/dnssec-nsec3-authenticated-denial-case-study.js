@@ -177,6 +177,8 @@ export const article = {
         'DNSSEC signs DNS answers so a resolver can reject forged data. That promise is incomplete unless absence is signed too. An attacker who can forge NXDOMAIN can make a real host look missing, block mail delivery, or hide a service even though the positive records are protected.',
         'A signed negative answer has to prove a precise fact: this owner name does not exist, or this owner exists but does not have the requested RR type. The resolver must verify that fact from signed zone data instead of trusting the response code.',
         'NSEC3 is the hashed version of authenticated denial. It keeps the signed gap proof from NSEC, but the sorted chain is built over hashes of owner names instead of literal owner names.',
+        {type: 'callout', text: 'Authenticated denial is not an empty answer; it is a signed proof that the hash of the missing name falls inside a committed gap and that no wildcard can legitimately answer.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ea/Illustration_of_NSEC_and_NSEC3_chains_in_DNSSEC.svg', alt: 'Diagram of NSEC and NSEC3 chains showing a missing DNS name mapped into a hashed interval proof.', caption: 'NSEC and NSEC3 chain illustration by Matthäus Wander, own work, CC0 1.0, via Wikimedia Commons.'},
       ],
     },
     {

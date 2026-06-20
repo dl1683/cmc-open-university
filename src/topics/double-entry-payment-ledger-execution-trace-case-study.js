@@ -235,6 +235,8 @@ export const article = {
       paragraphs: [
         'A payment is a distributed side effect with financial consequences. The customer presses pay, the processor authorizes, the ledger records, an event leaves the service, settlement arrives later, and any network hop can fail after doing real work.',
         'The hard question is not whether the happy path can charge a card. The hard question is whether the system can prove, after a timeout or dispute, that one intended payment created exactly one durable money movement and that every later correction is visible.',
+        {type: 'callout', text: 'The ledger is the source of truth because every external payment attempt collapses into one append-only, balanced journal fact plus explicit correction facts for later changes.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2a/Pacioli.jpg', alt: 'Portrait of Luca Pacioli at a table with a student, books, geometric instruments, and a hanging polyhedron.', caption: 'Portrait of Luca Pacioli with a student, attributed to Jacopo de Barbari, public-domain artwork, via Wikimedia Commons.'},
       ],
     },
     {

@@ -269,6 +269,7 @@ export const article = {
       paragraphs: [
         `Compiler optimizers want direct answers to value questions. When an instruction uses x, which assignment of x does it mean? In ordinary mutable code, the answer depends on control flow. One branch may assign x = 1, another branch may assign x = 2, and a loop may assign x = x + 1 on every backedge. The same source name hides several possible reaching definitions.`,
         `Static Single Assignment form repairs that ambiguity by giving every definition a unique name. Each use should refer to exactly one SSA definition. That makes later analyses sparse: constant propagation, dead-code elimination, global value numbering, and many loop optimizations can follow use-def edges instead of repeatedly solving the full reaching-definitions problem over the raw control-flow graph.`,
+        {type: 'callout', text: `SSA construction turns ambiguous mutable names into a sparse value graph by placing phis where dominance stops and then renaming along the dominator tree.`},
       ],
     },
     {

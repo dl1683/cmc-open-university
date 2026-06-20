@@ -206,6 +206,7 @@ export const article = {
       paragraphs: [
         'DOM event propagation is the browser mechanism that delivers an event to a target and to the ancestors that are allowed to observe it. A click on a button is not only a callback on that button. Dispatch builds a path of EventTargets, runs capture listeners from the outer side toward the target, runs target listeners, and then runs bubble listeners back outward when the event type bubbles.',
         'The composed path is the event path as exposed through Event.composedPath(). It matters because modern pages are not plain trees of public elements. Shadow DOM creates component boundaries. An event may cross those boundaries if it is composed, and the platform may retarget the event so outside code sees the host rather than private internal nodes.',
+        {type: 'callout', text: 'DOM dispatch is a precomputed path walk whose visible target can change at component boundaries, so robust handlers reason from currentTarget, event flags, and composedPath rather than raw descendants.'},
       ],
     },
     {

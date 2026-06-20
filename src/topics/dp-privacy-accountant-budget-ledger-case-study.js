@@ -202,6 +202,7 @@ export const article = {
       paragraphs: [
         `Differential privacy is not only a training trick. It is a release claim about how much one person's data can affect what an outside observer sees. In private machine learning, that claim is usually stated as epsilon and delta. Epsilon is the privacy-loss budget, and delta is a small failure probability. The lower the budget, the stronger the privacy guarantee, but the harder it is to keep model utility high.`,
         `The problem is that privacy loss composes. One noisy gradient step spends a little budget. One private checkpoint spends budget. Repeated experiments, releases, and model updates spend more. A team can start with a serious DP-SGD implementation and still lose track of what has been spent if accounting lives in a notebook, a model card, or a one-time review. The privacy accountant budget ledger exists to keep the mathematical guarantee connected to the actual training run and release decision.`,
+        {type: 'callout', text: `A privacy accountant is a release gate that composes actual training parameters into cumulative privacy loss before accuracy can tempt the team past its budget.`},
       ],
     },
     {

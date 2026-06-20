@@ -216,6 +216,7 @@ export const article = {
       paragraphs: [
         `DWB is a local navigation controller used in the Nav2 ecosystem. It is based on the Dynamic Window Approach: instead of planning a complete route from start to goal, it chooses the next safe velocity command for the robot. The global planner may already have produced a path through the building. DWB's job is narrower and more urgent. Given the robot's current velocity, acceleration limits, footprint, local costmap, and nearby segment of the global path, decide what command should be sent now.`,
         `The controller can be understood as three linked data structures. The first is a velocity lattice: sampled linear and angular velocity pairs that are reachable soon. The second is a rollout table: for each sampled command, simulate the short trajectory it would create. The third is a critic score sheet: obstacle cost, path alignment, goal alignment, oscillation behavior, and other plugin scores are combined into a ranking. The lowest valid score becomes the next command.`,
+        {type: 'callout', text: `DWB makes local navigation inspectable by sampling only reachable velocity commands, rolling out their futures, and ranking the collision-free candidates with separate critics.`},
       ],
     },
     {

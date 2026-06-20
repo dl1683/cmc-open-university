@@ -192,6 +192,8 @@ export const article = {
       paragraphs: [
         'Apache Druid is built for event analytics where data keeps arriving and users expect interactive answers. A dashboard asks for the last hour of traffic by country. An operations team filters incidents by service and region. A product manager slices signups by platform, campaign, and time bucket. The workload is repetitive, filter-heavy, time-oriented, and latency-sensitive.',
         'The central data structure is the segment. A Druid datasource is not one giant mutable table. It is a collection of immutable, time-bounded, columnar files with indexes and metadata. Segments can be published, moved to deep storage, loaded by historical servers, cached, compacted, replicated, and retired. Once you treat the segment as the physical unit of analytics, Druid query behavior becomes much easier to reason about.',
+        {type: 'callout', text: 'A Druid segment is the unit where time partitioning, column layout, indexes, rollup, and cluster lifecycle meet, so query speed depends on segment shape as much as hardware.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/df/Apache_Druid_Architecture.svg', alt: 'Diagram of an Apache Druid cluster with query node, data nodes, deep storage, and master node components.', caption: 'Apache Druid cluster architecture diagram by Bucketsbuckets, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
