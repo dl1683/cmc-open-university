@@ -175,6 +175,7 @@ export const article = {
       paragraphs: [
         'Cross-site scripting is dangerous because a small injection can become same-origin code execution. Once attacker JavaScript runs inside the page, it can read DOM state, send authenticated requests, steal tokens exposed to script, and act as the user.',
         'Content Security Policy exists because the browser sees every script candidate before it executes. A strict `script-src` policy turns that moment into an authorization check. The page no longer says "run any inline code that appears in the HTML." It says "run only code that carries a valid proof."',
+        {type:'callout', text:'Strict CSP shifts script execution from placement trust to browser-verified proof: a matching nonce, exact hash, or policy-approved trust chain.'},
       ],
     },
     {

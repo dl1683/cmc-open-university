@@ -352,6 +352,7 @@ export const article = {
         `A contextual bandit chooses one action after observing context, then receives reward only for the action it actually took. A news site shows one story. An ad system shows one ad. A search page chooses one ranking treatment. The system never observes what the user would have done if a different action had been shown.`,
         `That missing counterfactual is the central problem. Product teams want to improve policies without sending every risky candidate directly to users. They want to ask whether a new ranker, exploration rule, or personalization model would have performed better using old traffic. Ordinary analytics logs cannot answer that question because they record what happened, not how likely the old policy was to make the choice it made.`,
         `Logged policy evaluation exists to make future counterfactual evaluation possible. The online system logs enough information about each randomized decision that a future policy can be evaluated honestly before live exposure. The most important field is the propensity: the probability that the logging policy assigned to the action it actually chose.`,
+        {type:'callout', text:'Logged bandit evaluation is only honest where the old policy propensity log gives the new policy overlapping, weighted evidence.'},
       ],
     },
     {

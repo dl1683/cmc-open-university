@@ -190,6 +190,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Spectre-class CPU attacks proved that any process sharing an address space with cross-origin data can extract that data through timing side channels. SharedArrayBuffer and high-resolution timers make the attack practical from JavaScript. Browsers disabled SharedArrayBuffer entirely in January 2018, then brought it back only for pages that prove their cross-origin boundaries are explicit.',
+        {type:'callout', text:'Cross-origin isolation is a conjunctive contract: the document opts into isolation and every cross-origin resource must explicitly opt into being embedded.'},
         {
           type: 'quote',
           text: 'To be able to use SharedArrayBuffer, your document needs to be in a secure context. For top-level documents, two headers need to be set to cross-origin isolate your site.',

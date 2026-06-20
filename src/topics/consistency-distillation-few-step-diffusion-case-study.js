@@ -251,6 +251,8 @@ export const article = {
           ],
         },
         'That gap between 2 seconds and 80 milliseconds is the difference between a batch pipeline and an interactive tool. A designer dragging a strength slider, an editor painting an inpainting mask, or a chat interface generating inline images needs sub-second feedback. Consistency distillation exists to close that gap by training a student model to take large jumps along the teacher trajectory while landing on the same clean endpoint.',
+        {type:'callout', text:'Few-step diffusion works when the student preserves the teacher endpoint invariant, not when it merely skips sampler steps.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/99/X-Y_plot_of_algorithmically-generated_AI_art_of_European-style_castle_in_Japan_demonstrating_DDIM_diffusion_steps.png', alt:'A grid of Stable Diffusion DDIM outputs from random noise to a castle image as sampler steps increase.', caption:'DDIM sampling steps demonstration. Source: Wikimedia Commons, Benlisquare, CC BY-SA 4.0.'},
       ],
     },
     {

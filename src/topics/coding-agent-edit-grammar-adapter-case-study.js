@@ -254,6 +254,7 @@ export const article = {
       paragraphs: [
         'Edit is the most dangerous operation in a coding-agent trace because it changes the workspace. A model can choose the right high-level fix and still fail because the local runtime expects a different patch grammar, line numbers drifted, or the replacement matched too many spans.',
         'A coding-agent edit grammar adapter separates what the agent wants to change from how the local environment accepts edits. The stable object is a typed edit intent: target path, locator, precondition, transformation, postcondition, verifier, and rollback metadata. A unified diff, search-replace block, whole-file rewrite, IDE API call, AST transform, or typed tool call is only one binding of that intent.',
+        {type:'callout', text:'Edit adapters make patch formats replaceable by treating every edit as a verified, rollbackable state transition.'},
         'This matters for curriculum because editing is where abstract reasoning meets a real filesystem. A learner should not leave with the idea that a patch is just text. A patch is a proposed state transition with authority, scope, evidence, and rollback cost.',
       ],
     },

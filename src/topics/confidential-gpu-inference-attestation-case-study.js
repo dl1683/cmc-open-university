@@ -182,6 +182,7 @@ export const article = {
       paragraphs: [
         `Modern inference moves sensitive material through the accelerator path. Proprietary weights, user prompts, retrieved documents, KV cache, logits, outputs, and telemetry may all touch GPU memory or buffers next to it. CPU-only confidential computing leaves a gap if plaintext data is protected while it enters the VM and then exposed when it moves into an ordinary accelerator runtime.`,
         `Confidential GPU inference exists to close that gap without giving up GPU throughput. The tenant or model owner wants evidence that the confidential VM, GPU device state, driver stack, model artifact, key-release policy, and serving path match an approved deployment before encrypted weights or private prompts become usable.`,
+        {type:'callout', text:'Confidential GPU inference only holds if key release and every serving queue bind CPU evidence, accelerator state, model identity, and tenant labels together.'},
       ],
     },
     {

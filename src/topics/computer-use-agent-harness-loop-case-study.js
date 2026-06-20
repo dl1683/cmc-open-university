@@ -262,6 +262,8 @@ export const article = {
           attribution: 'Anthropic, "Computer Use Tool" documentation (2025)',
         },
         'Most business workflows still live behind GUIs. Legacy ERPs, insurance portals, government forms, internal admin consoles, desktop accounting software -- these systems expose buttons and text fields, not REST endpoints. Building a dedicated API integration for each one is expensive and fragile. A computer-use agent operates the existing interface: it sees the screen, proposes clicks and keystrokes, and waits for the result.',
+        {type:'callout', text:'A computer-use agent is safer when the harness owns observation, policy, execution, and trace, while the model only proposes actions.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/67/Basic_model_of_HCI.png', alt:'A simple loop showing computer output becoming user input and user output becoming computer input across an interface.', caption:'Basic model of human-computer interaction. Source: Wikimedia Commons, Dr. Greywolf, CC BY-SA 4.0.'},
         'The problem is not capability. A multimodal model can read a screenshot, identify a "Submit" button, and output coordinates. The problem is authority. A bare screenshot loop gives the model the same power as the logged-in user: access to credentials, financial controls, personal data, and irreversible actions. Without a harness, the agent is an unaudited insider.',
         {
           type: 'table',

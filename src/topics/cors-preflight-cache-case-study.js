@@ -200,6 +200,7 @@ export const article = {
       paragraphs: [
         'Browsers run untrusted scripts from many origins in the same user agent. A page from one site should not freely drive privileged APIs on another site just because the user is logged in there. At the same time, real applications depend on cross-origin APIs. A frontend served from `app.example` may need to call `api.example`, a dashboard may call a metrics service, and a browser extension or hosted console may need a controlled path to a separate backend.',
         'CORS preflight is the browser mechanism for asking permission before a non-simple cross-origin request leaves script control. The key phrase is "request shape." The browser is not only asking whether an origin can talk to a server. It is asking whether this origin may send this method, with these request headers, credentials mode, and target URL. The answer can be cached, but only inside a tightly scoped preflight cache.',
+        {type:'callout', text:'A CORS preflight cache stores scoped permission for a request shape, not a blanket right to call an origin.'},
       ],
     },
     {

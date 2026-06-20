@@ -201,6 +201,8 @@ export const article = {
       paragraphs: [
         'Confidential computing is for the moment when encrypted data has to be used. Encryption at rest protects bytes on disk. TLS protects bytes on the network. Neither one answers the question a key server cares about before it releases a secret: what code is running right now, with what configuration, inside what isolation boundary?',
         'Remote attestation is the answer shape. A workload asks the platform for signed evidence about its measured state. A verifier checks that evidence against policy. Only then does it release a key, model shard, data token, or other narrow capability. The point is not trust in a machine name. The point is trust in measured runtime state.',
+        {type:'callout', text:'Remote attestation turns secret release into a predicate over fresh, signed runtime evidence rather than a credential check on a named machine.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/93/Trust_boundary_illustration_confidential_computing.jpg', alt:'A comparison of trust boundaries for no confidential computing, VM isolation, process isolation, and function isolation.', caption:'Trust boundary illustration of confidential computing. Source: Wikimedia Commons, HudsonAttests, CC BY-SA 4.0.'},
       ],
     },
     {
