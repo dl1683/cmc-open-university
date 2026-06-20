@@ -204,6 +204,7 @@ export const article = {
         'Research systems fail when they smooth disagreement into neutral prose. Two sources conflict, and the answer says "experts disagree" without explaining whether the difference comes from date, scope, method, metric, definition, or incentive. That is not synthesis. It is abdication.',
         'A contradiction resolution graph exists to keep disagreement explicit until it is understood. It stores claims, exact source spans, conflict types, probes, scope decisions, and final writing moves. The graph lets the report explain why sources differ instead of averaging incompatible statements.',
         'This is a critical data structure for deep research, market reports, benchmark analysis, legal summaries, medical literature reviews, and any agent that must answer from multiple sources without laundering uncertainty into confidence.',
+        {type:'callout', text:'A contradiction graph preserves disagreement as typed evidence until scope, method, metric, or freshness explains the conflict.'},
       ],
     },
     {

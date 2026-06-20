@@ -359,6 +359,8 @@ export const article = {
         'A Redis sorted set stores unique members ordered by numeric scores. The public API looks simple: add a member with a score, fetch a member score, ask for a rank, scan a score window, remove old entries, or return the top N. The interesting lesson is that one logical data type has to serve two very different access patterns.',
         'A leaderboard needs ordered reads. A rate limiter needs timestamp windows. A scheduler may need the earliest due job. At the same time, updates usually arrive by member: this player scored again, this request id is new, this job should be removed. A single access path does not cover both sides cleanly.',
         'Redis sorted sets exist as a production compromise: give the user one abstraction, but maintain the internal structures needed for member lookup and ordered traversal. In the large representation, that means a dictionary plus a skip list. The API hides the composition; performance depends on it.',
+        {type:'callout', text:'A Redis sorted set is one abstraction backed by two synchronized access paths: a dictionary for identity and a skip list for order.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/86/Skip_list.svg', alt:'Skip list diagram with linked nodes at multiple levels.', caption:'Sample skip list with four levels; Wojciech Mula, public domain, via Wikimedia Commons.'},
       ],
     },
     {

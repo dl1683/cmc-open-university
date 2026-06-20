@@ -261,6 +261,7 @@ export const article = {
         'A backtracking regex engine matches by making a choice, pushing alternative choices onto a stack, and retrying those alternatives if the current path fails. That execution model is convenient and expressive, but ambiguous nested repetitions can create an enormous retry tree.',
         'ReDoS, or regular expression denial of service, happens when an attacker supplies a pattern, input, or both that make the engine spend excessive CPU exploring doomed alternatives. The classic teaching pattern is ^(a+)+$ against a long run of a characters followed by a non-matching suffix such as !.',
         'This matters because regexes often sit on request paths: validators, routers, log parsers, WAF rules, syntax highlighters, import filters, and search boxes. A tiny pattern can become an unbounded CPU program if the engine explores too many alternatives.',
+        {type:'callout', text:'Catastrophic backtracking appears when a choice stack replays many equivalent parses against the same late failure instead of merging them.'},
       ],
     },
     {

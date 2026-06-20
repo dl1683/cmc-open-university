@@ -235,6 +235,7 @@ export const article = {
           ],
         },
         'The "thread per core" view shows how a Kafka API request reaches the correct shard reactor and stays local. The "raft partitions" view shows how that shard replicates data through a per-partition Raft group and where backpressure surfaces.',
+        {type:'callout', text:'Shard-per-core makes each partition replica owned by one reactor, trading hidden locks for explicit routing, placement, and backpressure boundaries.'},
         {
           type: 'note',
           text: 'The matrix views are ownership tables. Each row is a partition or a lifecycle stage. Read them as the mapping that determines which core handles which work -- and where skew, lag, or I/O pressure appears.',

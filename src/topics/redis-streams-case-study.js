@@ -195,7 +195,8 @@ export const article = {
       paragraphs: [
         "Redis Streams exist because many applications need more than a simple queue but less than a full distributed log platform. A web service may need to append jobs, let several workers share the work, retry entries abandoned by crashed workers, inspect recent history, and cap memory growth. Redis Lists can push and pop, but they do not provide a rich replay and consumer-group model.",
         "A stream is a named, append-oriented sequence of entries. Each entry has an ordered ID and field-value pairs. Producers append. Consumers read by ID, block waiting for new entries, or participate in a consumer group. Redis tracks group progress and pending deliveries on the server side.",
-        "The topic matters because Redis Streams sit in a useful middle zone. They are not Kafka. They are not a relational table. They are not a durable workflow engine. They are a compact operational log inside Redis, with enough delivery bookkeeping to build lightweight pipelines when Redis is already part of the architecture."
+        "The topic matters because Redis Streams sit in a useful middle zone. They are not Kafka. They are not a relational table. They are not a durable workflow engine. They are a compact operational log inside Redis, with enough delivery bookkeeping to build lightweight pipelines when Redis is already part of the architecture.",
+        {type:"callout", text:"Redis Streams turn a Redis key into a compact append log plus server-side delivery state, so retry and replay live beside the data instead of inside each worker."},
       ],
     },
     {

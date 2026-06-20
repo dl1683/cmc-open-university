@@ -243,6 +243,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for requestAnimationFrame Frame Budget. How requestAnimationFrame queues one-shot callbacks before repaint, shares frame timestamps, and turns animation into a budgeted scheduling problem..",
+        {type:"callout", text:"requestAnimationFrame is not a timer; it is a pre-paint scheduling slot where visual work must fit inside the remaining frame budget."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",

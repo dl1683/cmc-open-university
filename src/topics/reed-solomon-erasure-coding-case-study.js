@@ -277,6 +277,8 @@ export const article = {
       paragraphs: [
         'Storage systems need durability without always paying for full replication. Three replicas are simple and fast to read, but they store three full copies. At large scale, that space overhead becomes the dominant cost.',
         'Reed-Solomon erasure coding protects data by splitting it into k data shards and adding m coding shards. A stripe with k data shards and m coding shards can reconstruct from any k surviving shards, so it tolerates up to m known missing shards with less space than full replication.',
+        {type:'callout', text:'Reed-Solomon trades full copies for independent equations, so any threshold-sized survivor set can reconstruct the original stripe.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/0/03/DeepSpaceFEC.png', alt:'Block diagram of a deep-space forward error correction encoder and decoder chain.', caption:'Deep-space concatenated coding system using a Reed-Solomon encoder and decoder; Kirlf, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

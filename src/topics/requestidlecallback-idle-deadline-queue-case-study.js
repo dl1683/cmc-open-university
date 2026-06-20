@@ -349,6 +349,7 @@ export const article = {
         'Pages often have useful work that should happen eventually but should not compete with input or paint: warming a search index, pruning caches, rolling up analytics, precomputing suggestions, or preparing optional data. requestIdleCallback gives that work a chance to run when the browser sees spare main-thread time.',
         'The API is a deadline queue for optional maintenance. The callback receives an IdleDeadline with timeRemaining() and didTimeout, so application code can spend a small budget and then get out of the way.',
         'The topic matters because background work often becomes accidental foreground work. A page can load quickly and then jank as "non-urgent" work runs in long chunks. Idle scheduling forces that work to become resumable, bounded, and cancelable.',
+        {type:'callout', text:'requestIdleCallback turns optional background work into a deadline-checked queue where every slice can pause, resume, or be canceled.'},
       ],
     },
     {

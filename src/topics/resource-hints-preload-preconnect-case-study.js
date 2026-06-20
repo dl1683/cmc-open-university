@@ -208,6 +208,7 @@ export const article = {
       paragraphs: [
         'Resource hints exist because browsers discover some critical work too late. HTML parsing is fast, but JavaScript-discovered images, CSS imports, fonts, third-party origins, and server-generated HTML can delay the request that actually determines first render or LCP.',
         'The problem is scheduling, not decoration. A hint tells the browser that part of the load graph is important before the normal discovery path would prove it.',
+        {type:'callout', text:'Resource hints only help when they move a real critical-path edge earlier without crowding out more important requests.'},
       ],
     },
     {

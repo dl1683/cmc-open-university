@@ -154,6 +154,7 @@ export const article = {
           label: 'Each instruction names its source and destination slots explicitly',
         },
         'The stack-versus-register view is a tradeoff matrix. Active cells highlight the key differentiator (dispatch count). Compare cells show where the stack design has an advantage (instruction size). At each frame, ask: where does this design spend its cost -- in bytes per instruction, or in instructions per expression?',
+        {type:'callout', text:'A register VM pays wider bytecode to name frame slots directly, reducing the dispatch work spent on stack shuffling.'},
       ],
     },
     {
