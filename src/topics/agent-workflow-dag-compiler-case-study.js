@@ -235,6 +235,7 @@ export const article = {
     {
       heading: 'The problem',
       paragraphs: [
+        {type:'callout', text:'The fundamental tension: agents need freedom to handle uncertainty, but production workflows need explicit control flow, typed contracts, approval gates, and audit trails. The DAG compiler resolves this by confining agent autonomy to bounded nodes inside an explicit graph — deterministic where possible, model-driven only where necessary.'},
         'A useful agent system has to do more than answer once. It may fetch data, classify intent, call tools, ask for approval, perform side effects, retry failures, verify results, and leave an audit trail. If that control flow lives only inside a prompt transcript, the system is hard to resume, inspect, budget, or trust.',
         'The operational problem is turning an open-ended goal into a plan that is explicit enough for production and flexible enough for model work. The system needs to know which parts are deterministic workflow, which parts need agent judgment, where humans must approve, and what evidence proves each step ran correctly.',
       ],

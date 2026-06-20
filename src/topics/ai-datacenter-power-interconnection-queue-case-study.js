@@ -245,6 +245,8 @@ export const article = {
     {
       heading: "Why this exists",
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/e/e5/Electrical_substation.jpg', alt:'Electrical substation with transformers and high-voltage switching gear', caption:'An electrical substation — the physical gate between the utility grid and a datacenter. GPU orders are fast; interconnection studies, substation upgrades, switchgear delivery, and energization tests operate on slower clocks measured in quarters, not weeks. Source: Wikimedia Commons, Z22, CC BY-SA 3.0'},
+        {type:'callout', text:'Contracted megawatts and energized megawatts are different numbers. The gap between them is where capacity claims become misleading — a signed power contract, a completed grid study, an installed substation, and a rack safely serving AI traffic are four separate states with four separate proof objects and four separate clocks.'},
         "AI datacenter capacity is not real when GPUs are ordered. It becomes real when a site has usable power, tested cooling, network-ready racks, and an operations policy that allows sustained load. The gap between those two states is where many capacity claims become misleading.",
         "The power interconnection queue exists because physical infrastructure moves on slower clocks than chip procurement or cloud sales. A site may need utility applications, grid studies, substation work, switchgear, feeder upgrades, environmental permits, cooling changes, load-bank tests, and acceptance procedures. Each gate has a different owner and a different proof object.",
       ],

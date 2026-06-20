@@ -272,6 +272,7 @@ export const article = {
           text: 'If the same bug-fix pattern appears in both training and evaluation under different surface forms, the benchmark measures memorization, not generalization.',
           attribution: 'Core problem statement for coding-agent data pipelines',
         },
+        {type:'callout', text:'The core problem: surface-level transcript diversity hides behavioral duplication. Three agents that use different shell commands to find the same bug and apply the same patch have produced one lesson, not three. Without dedupe, training overweights the ritual and evaluation inflates the score.'},
         'Coding-agent factories produce thousands of successful rollouts per day. A factory runs an agent against a pinned issue, records the tool calls, captures the final patch, confirms it passes the test oracle, and stores the trajectory. But three agents that use grep, rg, and direct file open to find the same assertion failure, apply the same guard, and pass the same test have produced one lesson wrapped in three transcripts.',
         'The damage is twofold. Training overweights the repeated pattern -- the model learns the patch ritual rather than the debugging skill. Evaluation inflates accuracy -- a "held-out" task that shares a mutation template, test oracle, or patch hunk with training data is not truly held out.',
         {

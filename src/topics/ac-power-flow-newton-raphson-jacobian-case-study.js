@@ -234,6 +234,7 @@ export const article = {
           text: 'The load flow problem is the backbone problem of power system analysis. Its solution is required before any other analysis -- fault studies, stability studies, optimal dispatch, and expansion planning -- can proceed.',
           attribution: 'Stott & Alsac, "Fast Decoupled Load Flow," IEEE Trans. PAS, 1974',
         },
+        {type:'callout', text:'AC power flow is the computational foundation under every grid operation — fault analysis, stability assessment, optimal dispatch, expansion planning, and real-time monitoring all require a converged power-flow solution as their starting point. Without it, no other power systems analysis can begin.'},
         'A power grid operator needs a steady-state operating point before asking harder questions. Given a network model -- generators, loads, transformer taps, shunts, and branch impedances -- what are the voltage magnitudes and angles at every bus? Are active and reactive power balanced? Are voltages within limits? Will a proposed outage or dispatch change leave the system in a plausible state?',
         'AC power flow answers that baseline question. It solves for bus voltages that satisfy nonlinear active-power and reactive-power balance equations. Nearly every other grid study starts from this result: contingency analysis, voltage-security assessment, transfer-limit studies, optimal power flow, state-estimation comparisons, restoration planning, and operator-training simulations.',
         {

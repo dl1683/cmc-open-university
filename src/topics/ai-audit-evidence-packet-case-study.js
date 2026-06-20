@@ -335,6 +335,8 @@ export const article = {
           text: 'A high-risk AI system shall be accompanied by technical documentation drawn up before that system is placed on the market or put into service and which shall be kept up to date.',
           attribution: 'EU AI Act, Article 11(1) -- technical documentation requirement for high-risk AI systems',
         },
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b0/European_Parliament_Strasbourg_Hemicycle_-_Diliff.jpg', alt:'European Parliament hemicycle in Strasbourg where the EU AI Act was debated and adopted', caption:'The European Parliament chamber where the EU AI Act was adopted. Article 11 requires high-risk AI systems to carry technical documentation kept up to date — the audit evidence packet is the data structure that makes that requirement operational. Source: Wikimedia Commons, Diliff, CC BY-SA 3.0'},
+        {type:'callout', text:'An audit evidence packet is not paperwork — it is a queryable graph that connects a product claim to every proof object a reviewer would sample. If a regulator asks "why was model v23 approved for hiring on May 14, and what protected-group failures were still open?" the packet must answer with traceable evidence, not a narrative.'},
         'An audit evidence packet is the data structure that makes that question answerable. It links intended use, risk register rows, data lineage records, model version hashes, evaluation scorecards, guardrail configurations, monitoring signals, incident reports, and corrective-action records into a single, versioned, queryable graph. The packet does not make a system safe. It makes the safety claim inspectable.',
       ],
     },

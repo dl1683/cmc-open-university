@@ -242,6 +242,8 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/84/NVIDIA_headquarters%2C_Santa_Clara_-_panoramio.jpg', alt:'NVIDIA headquarters in Santa Clara, a central node in the AI infrastructure capital loop', caption:'NVIDIA headquarters in Santa Clara. The chip vendor sits at the top of the AI capital loop: GPUs flow to clouds, clouds sell to labs, labs sell to apps, apps sell to users, and financing flows back to the next hardware order. Source: Wikimedia Commons, Coolcaesar, CC BY-SA 3.0'},
+        {type:'callout', text:'The core analytical question is not "bubble or not." It is: which edges in the capital loop carry real end-user ROI, which carry committed-but-unproven capacity, and which depend on financing that assumes future demand that has not yet materialized? A directed evidence graph keeps those cases separate instead of collapsing them into a single verdict.'},
         'AI infrastructure markets are full of loops. A chip vendor sells accelerators to a cloud. The cloud sells reserved capacity to a model lab. The lab sells API access to applications. The applications sell AI features to end users. Cash, contracts, vendor credit, and equity financing then flow back toward the next hardware order.',
         'That loop can be a healthy industrial buildout, a fragile capital cycle, or a mixture of both. A circular financing demand graph exists to keep those cases separate. It turns a vague debate about bubbles into a set of edges that can be checked: who paid, who borrowed, who committed, who consumed capacity, and who got real value from the workload.',
       ],

@@ -195,6 +195,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'A corrective action is not done because someone wrote that it is done. It is done when the system has replayable evidence: the incident prompt re-run against the fixed system, the trace diff showing what changed, and the regression case added to the safety register. Without falsifiable closure, corrective actions become administrative fiction.'},
         'An AI incident corrective-action ledger exists because post-deployment failures need more than a postmortem. A serious incident can involve a user report, trace logs, model version, prompt, retrieved context, tool call, policy decision, severity judgment, reporting deadline, mitigation, rerun evidence, and audit packet. If those pieces live in separate documents, the organization cannot prove what happened or what changed.',
         'AI systems also change quickly. A fix that worked on Friday may disappear after a model upgrade, prompt edit, tool-policy change, index rebuild, or data refresh. The ledger makes the incident replayable so the same failure can become a regression case instead of a one-time story.',
         'The purpose is not bureaucracy for its own sake. The ledger protects users and teams by making closure falsifiable. A corrective action is not done because someone wrote that it is done. It is done when the system has evidence that the cause was addressed and the incident case now passes or is otherwise contained.',
