@@ -382,6 +382,7 @@ export const article = {
       paragraphs: [
         'RetNet, or Retentive Network, is a sequence-model architecture aimed at one of the central costs of Transformers: attention over growing history. Full self-attention is powerful because the current token can compare itself directly against all previous token keys and values. During inference, that means storing a KV cache that grows with sequence length, layer count, head count, head dimension, and precision. Long contexts and many concurrent users make that cache expensive.',
         'RetNet asks whether a model can keep much of the benefit of attention while carrying a fixed-size recurrent state during decoding. It belongs in the same broad conversation as RWKV, Mamba, Kimi Linear, StreamingLLM, and other attempts to escape the worst parts of unbounded token history. The goal is a hard triangle: parallel training, efficient recurrent inference, and competitive quality.',
+        {type:'callout', text:'RetNet turns long token history into a decay-weighted serving state so the same memory rule can train in parallel and decode with bounded cache pressure.'},
       ],
     },
     {

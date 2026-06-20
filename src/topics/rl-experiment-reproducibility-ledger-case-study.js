@@ -364,6 +364,7 @@ export const article = {
       paragraphs: [
         'Reinforcement-learning results are unusually easy to overstate. A single lucky seed, drifting environment, changed reward, hidden simulator patch, or weak stress test can make an impressive curve mean very little.',
         'An RL experiment reproducibility ledger exists to make those claims inspectable. It records code versions, environment versions, simulator assets, reward-function versions, random seeds, rollout budgets, raw reward events, evaluation slices, confidence intervals, stress tests, and release decisions.',
+        {type:'callout', text:'An RL result is credible only when the score is tied to replayable rows for code, environment, reward, seeds, stress tests, and release decisions.'},
       ],
     },
     {

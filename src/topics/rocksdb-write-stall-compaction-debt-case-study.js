@@ -324,6 +324,8 @@ export const article = {
       paragraphs: [
         'The stall cascade view traces how a write enters RocksDB and where debt accumulates along the path from WAL through memtable, immutable memtable, L0, lower levels, and the compaction workers that service them. Active nodes are the current pressure point. Found nodes are outcomes the engine has committed to. The edge from stall back to writers is the backpressure signal that makes the whole system visible.',
         'The recovery loop view reverses the direction: measurement feeds diagnosis, diagnosis identifies the active gate, and the gate dictates which lever family to adjust. If you skip the first frame and jump to knobs, you are tuning blind.',
+        {type:'callout', text:'A RocksDB write stall is backpressure from accumulated compaction debt, not a random pause in the write path.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/f2/LSM_Tree.png', alt:'Diagram of an LSM tree with data moving from memory into multiple sorted on-disk levels.', caption:'LSM tree diagram by Ben Stopford, CC BY-SA 4.0, via Wikimedia Commons.'},
         {
           type: 'note',
           text: 'At each frame, ask: which queue is growing, which resource is saturated, and what evidence would prove the backlog is draining? If you cannot answer the third question, the stall has not been diagnosed.',

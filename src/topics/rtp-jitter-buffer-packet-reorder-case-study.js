@@ -209,6 +209,7 @@ export const article = {
       paragraphs: [
         'The "packet reorder" view shows the RTP receiver pipeline: packets arrive from the network, get sorted by sequence number, wait in the jitter buffer, and release to the decoder at playout time. Active nodes are the stage currently processing a packet. Found nodes mark stages where media has been successfully delivered or measured. The plot frame shows arrival times versus the playout schedule -- any arrival dot above the playout line arrived too late and becomes late loss.',
         'The "playout control" view shows the adaptive delay policy. Active cells mark the benefit of each strategy; compare cells mark the risk. The RTCP feedback frame highlights the control loop that connects receiver measurements back to the sender.',
+        {type:'callout', text:'A jitter buffer is a bounded sequence-indexed reorder window that trades added latency for in-order media before each playout deadline.'},
         {
           type: 'note',
           text: 'At each frame, ask: did this packet arrive before its playout deadline? If yes, the buffer absorbs the jitter. If no, the receiver must conceal or skip. That single question drives every design decision in the system.',

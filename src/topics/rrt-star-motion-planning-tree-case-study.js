@@ -191,6 +191,8 @@ export const article = {
       paragraphs: [
         'A robot motion plan lives in continuous configuration space. Grid search can work for small maps, but a robot arm, drone, or car may have many degrees of freedom. Discretizing every dimension finely becomes impossible.',
         'Sampling-based planners avoid filling the whole space. They probe it. RRT* grows a tree through valid states and improves that tree over time.',
+        {type:'callout', text:'RRT* converts random exploration into improving motion plans by rewiring the tree whenever a cheaper local connection becomes available.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/62/Rapidly-exploring_Random_Tree_%28RRT%29_500x373.gif', alt:'Animated rapidly exploring random tree growing through a two-dimensional space.', caption:'Animated RRT growth by Javed Hossain, CC BY-SA 3.0, via Wikimedia Commons.'},
       ],
     },
     {

@@ -316,6 +316,8 @@ export const article = {
       paragraphs: [
         `Long-context transformers run into a plain hardware wall: the sequence is too large for one accelerator to hold and process comfortably. Attention connects every query token to key-value tokens. Even when kernels avoid materializing the full attention matrix, the activations, KV blocks, masks, temporary buffers, and gradients still create a large memory and bandwidth problem. Cutting the context shorter is easy, but it changes the task.`,
         `RingAttention exists because some workloads genuinely need long contexts: long video, long documents, codebases, scientific sequences, agent traces, retrieval-heavy training examples, and multi-turn transcripts. The goal is not to invent approximate attention. The goal is to keep exact attention while distributing the sequence dimension across devices so no single device owns the whole context.`,
+        {type:'callout', text:`RingAttention preserves exact attention by keeping query shards stationary, rotating key-value blocks, and treating the schedule ledger as part of correctness.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/75/RingNetwork.svg', alt:'Ring network diagram with six connected nodes arranged in a loop.', caption:`Ring network diagram by GW Simulations, public domain, via Wikimedia Commons.`},
       ],
     },
     {

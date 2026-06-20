@@ -188,6 +188,7 @@ export const article = {
       paragraphs: [
         'RoCE lets RDMA traffic run over Ethernet. That is useful for AI clusters because the same Ethernet switching ecosystem can carry storage, control traffic, and high-speed GPU communication. With GPUDirect RDMA, a NIC can move data close to GPU memory paths without the same CPU involvement as ordinary socket traffic. Training and inference systems can then use Ethernet for all-reduce, all-to-all, parameter movement, KV cache movement, or storage reads.',
         'The hard part is that RDMA reacts badly to ordinary loss. A dropped packet can trigger recovery paths that are much more expensive than a normal TCP retransmission story, and collective communication makes tail latency contagious. One slow rank can stall the whole group. RoCE lossless fabric exists to keep RDMA queues from dropping under normal operation while still preventing congestion from spreading without control.',
+        {type:'callout', text:'Lossless RoCE is an ordered queue-control loop where ECN and DCQCN should prevent congestion before PFC becomes emergency protection.'},
       ],
     },
     {

@@ -214,6 +214,7 @@ export const article = {
         'RLVR means reinforcement learning with verifiable rewards. It is used when a model can produce an answer and an automatic checker can decide whether the answer is correct. Math, code, theorem proving, and structured tool tasks are natural fits. If the verifier is reliable, the reward is cleaner than a vague preference label. The model can sample reasoning traces, receive a reward, and shift probability toward traces that pass.',
         'This case study exists because that shift can be misunderstood. A model can become better at producing a correct first answer while becoming worse at covering the full set of correct solution strategies. Pass@1 can rise while pass@k flattens or falls relative to the base model. That is not a contradiction. It means the policy became more concentrated.',
         'The distinction matters for reasoning systems. A product user may care most about the first answer. A research team may care whether the model still contains broad problem-solving support. An agent system may care whether self-consistency, verifier search, or fallback sampling can still discover rare correct paths. RLVR can improve sampling efficiency, but efficiency is not the same as expanded capability.',
+        {type:'callout', text:'RLVR can improve pass@1 while narrowing the reachable set of correct strategies, so capability claims need coverage metrics as well as first-answer accuracy.'},
       ],
     },
     {

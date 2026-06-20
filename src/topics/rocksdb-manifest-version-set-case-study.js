@@ -247,6 +247,7 @@ export const article = {
         `RocksDB is an LSM-tree storage engine. It does not update one large file in place. It writes memtables to new SSTables, compacts overlapping files into replacement files, moves data between levels, and eventually deletes obsolete files. At any moment the database directory can contain current files, old files still pinned by readers, newly written compaction outputs, log files, metadata files, and leftovers from interrupted work.`,
         `The engine therefore needs a durable answer to a deceptively simple question: which SSTables are part of the current database state? The answer cannot be guessed from filenames alone. It has to include levels, key ranges, sequence number bounds, column families, compaction results, and reader-visible snapshots. The MANIFEST and VersionSet are the mechanism that turns a messy directory into a coherent logical database.`,
         `This is a metadata problem, not a user-data problem. SSTables hold keys and values. The write-ahead log protects recent writes that have not yet reached stable SSTables. The MANIFEST protects the storage engine's map of live files. Without that map, recovery would not know which immutable files are committed, which are obsolete, and which were never installed.`,
+        {type:'callout', text:`RocksDB recovery works because MANIFEST records version edits as the durable source of truth, while VersionSet reconstructs the logical database from committed metadata.`},
       ],
     },
     {

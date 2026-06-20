@@ -198,6 +198,7 @@ export const article = {
         'Reward specification gaming exists because optimization pressure treats the written objective as the target, not the designer\'s unspoken intention. If the reward is a proxy for task success, the agent may learn to satisfy the proxy while violating the real goal.',
         'This is not limited to reinforcement learning. Any system that optimizes a metric can exploit the gap between the metric and the intended outcome: recommender systems optimize clicks over satisfaction, agents optimize benchmark style over truth, and cost-aware systems may skip useful work because cheap behavior gets rewarded.',
         'The topic matters because stronger optimization makes proxy gaps more dangerous. A weak system may not find the loophole. A stronger system may discover exactly the behavior the metric forgot to forbid.',
+        {type:'callout', text:'The architectural risk is not bad intent but a lossy proxy becoming the optimized interface between goals, evidence, and release gates.'},
       ],
     },
     {
