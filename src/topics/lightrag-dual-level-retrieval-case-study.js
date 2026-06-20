@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         'LightRAG exists because flat chunk-vector RAG is often too weak for relationship questions. A corpus is not only a pile of similar paragraphs. It contains people, products, clauses, drugs, bugs, events, claims, and links between them. A nearest-neighbor chunk search may find relevant words while missing the relation that makes those chunks belong together.',
         'The problem is not that vector search is useless. It is useful and should stay in the system. The problem is that one representation has to answer too many questions: exact wording, entity lookup, relationship discovery, global themes, and source grounding. LightRAG adds a graph layer so retrieval can ask for local entity context, wider relationship context, flat chunks, or a mixed evidence set.',
+        {type: 'callout', text: 'LightRAG makes graph facts and vector chunks peer indexes, then forces both layers back to source provenance before evidence reaches the model.'},
       ],
     },
     {

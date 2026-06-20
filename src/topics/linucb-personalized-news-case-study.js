@@ -314,6 +314,7 @@ export const article = {
       paragraphs: [
         'LinUCB is a contextual bandit algorithm for choosing among actions when the system sees features before acting and receives reward only for the action it chose. The Yahoo personalized news case is the canonical example: a visitor arrives, a pool of eligible news articles is available, the system chooses one story, and the only immediate reward is whether that visitor clicked the displayed story.',
         'The algorithm combines a linear reward estimate with an uncertainty bonus. For each candidate article, it asks two questions: how good does this article look for this visitor, and how uncertain is the estimate in this feature direction? The selected article is the one with the highest upper confidence bound, not necessarily the one with the highest current mean. That optimism is how LinUCB explores without choosing randomly all the time.',
+        {type: 'callout', text: 'LinUCB explores through uncertainty geometry, choosing the action with the best upper confidence bound instead of random novelty.'},
       ],
     },
     {

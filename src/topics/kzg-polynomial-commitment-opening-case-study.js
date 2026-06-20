@@ -219,6 +219,8 @@ export const article = {
       paragraphs: [
         `Many systems need to commit to a large object and later prove small facts about it. A rollup may publish a commitment to blob data. A stateless-client design may want a compact proof that one position in a large vector has a claimed value. A proof system may need to bind a prover to a polynomial before revealing selected evaluations.`,
         `A KZG polynomial commitment solves a narrow version of that problem. The prover commits once to a degree-bounded polynomial, then later opens the commitment at selected points. The verifier checks the claimed value without downloading the whole polynomial.`,
+        {type: `callout`, text: `KZG makes a large object verifiable by binding it to one polynomial commitment and proving each opening as a quotient relation checked in the exponent.`},
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/5/5a/Lagrange_polynomial.svg`, alt: `Graph showing Lagrange basis polynomials and their interpolating polynomial through four points.`, caption: `Lagrange polynomial diagram by Glosser.ca and Rayhem, Wikimedia Commons, CC BY-SA 3.0 or GFDL.`},
       ],
     },
     {

@@ -209,6 +209,8 @@ export const article = {
       paragraphs: [
         'A market needs a deterministic way to decide who trades first when many participants want to buy and sell the same instrument. The limit order book is that state machine: it stores resting interest, exposes the best bid and ask, and applies venue rules to incoming orders.',
         'Price-time priority is the common fairness rule. The best price wins first. Among orders at the same price, the oldest live order usually wins first. The data structure exists to make that rule fast, auditable, and replayable.',
+        {type: 'callout', text: 'Price-time priority is implemented by ordered price maps plus FIFO queues, with an order-id index making cancels and fills local.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/14/Order_book_depth_chart.gif', alt: 'Animated order book depth chart with bids on the left and asks on the right.', caption: 'Order book depth chart by Kjerish, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

@@ -177,6 +177,7 @@ export const article = {
       paragraphs: [
         'Late materialization exists because many queries discard most rows before they need wide payload columns. Reading, decoding, and allocating those payloads early wastes I/O, CPU, and memory bandwidth.',
         'The practical problem is row-shaped thinking. A query result is row-shaped, but execution does not have to become row-shaped until the plan proves which rows survive.',
+        {type: 'callout', text: 'Late materialization keeps a candidate set alive until predicates prove which rows deserve expensive payload reads.'},
       ],
     },
     {

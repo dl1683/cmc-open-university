@@ -221,6 +221,7 @@ export const article = {
       paragraphs: [
         `Lance is an open lakehouse format designed for AI and multimodal data. It is not just a vector database and not just a columnar file. The format stack covers data files, table manifests, index artifacts, and catalog coordination. A dataset can contain images, text, audio references, metadata, labels, embeddings, and derived features while still behaving like a versioned table on object storage.`,
         `The problem Lance addresses is selective access. AI workloads often need both scans and random reads. Training may stream columns across many rows. Retrieval may filter by metadata, search an embedding index, fetch the original blobs or captions for a small candidate set, and rerank them. Traditional analytics formats are excellent at large scans, but multimodal retrieval and dataset iteration put pressure on random access, versioning, deletion handling, and index lifecycle.`,
+        {type: `callout`, text: `Lance coordinates table versions, fragments, deletion files, and vector indexes so retrieval and training pin the same multimodal snapshot.`},
       ],
     },
     {

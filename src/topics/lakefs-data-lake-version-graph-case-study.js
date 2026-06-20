@@ -222,6 +222,8 @@ export const article = {
       paragraphs: [
         'A data lake looks like a directory tree, but production data work needs more than paths. Teams need to publish tables, backfill partitions, test feature datasets, roll back bad releases, and prove which files a model or dashboard read. Plain object storage gives durable blobs and cheap listing, but it does not give a release process.',
         'lakeFS adds a version-control layer over object stores. It gives data teams repositories, branches, commits, merges, tags, hooks, and reproducible reads while the physical bytes remain in S3, GCS, Azure Blob, or a compatible store. The system is best read as a metadata control plane that names and protects versions of lake objects.',
+        {type: 'callout', text: 'lakeFS turns object storage paths into versioned logical refs, so publication, rollback, and reproducibility become metadata operations instead of risky blob rewrites.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt: 'Directed acyclic graph shown with vertices ordered so each edge points from earlier to later.', caption: 'Topological ordering diagram by David Eppstein, Wikimedia Commons, CC0.'},
       ],
     },
     {

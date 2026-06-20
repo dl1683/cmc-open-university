@@ -351,6 +351,8 @@ export const article = {
       paragraphs: [
         'The tier-ladder view shows the full lookup path from a hashed prefix key through four storage tiers: GPU HBM, pinned CPU memory, local SSD, and a remote cache pool. Active (highlighted) nodes are the ones participating in the current lookup. The "dec" node at the end represents active decode, which can only consume KV blocks that have been promoted into HBM.',
         'The promote-path view isolates the two asymmetric data flows. A blocking get loads a cold block upward through staging tiers into HBM before decode can proceed. An async put copies completed blocks downward for future reuse without stalling the current request. The eviction audit view shows the policy layer: which blocks earn scarce HBM, which spill to cheaper tiers, and which get dropped.',
+        {type: 'callout', text: 'A tiered KV cache works only when exact block identity and promotion cost decide whether to reuse state, spill it, or recompute it.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/0c/ComputerMemoryHierarchy.svg', alt: 'Diagram of a computer memory hierarchy from CPU registers and caches down to disk storage.', caption: 'Computer memory hierarchy diagram by Danlash, vectorized by Fred the Oyster, Wikimedia Commons, public domain.'},
         {
           type: 'note',
           text: 'Inference rule for the animation: if a block key matches on all fields (token prefix, model id, adapter, position scheme, dtype, block size) and the block is resident in HBM, attention can read it directly. If the key matches but the block is in a lower tier, promotion must complete before decode uses it. If no key matches, prefill recomputes the block from scratch.',

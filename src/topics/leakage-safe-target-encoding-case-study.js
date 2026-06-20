@@ -312,6 +312,8 @@ export const article = {
       paragraphs: [
         'Target encoding converts a categorical value into a statistic of the target for that value. Instead of giving merchant_42 a one-hot column, encode it as the smoothed fraud rate observed for merchant_42. Instead of one-hotting publisher_id, encode it as historical click-through rate. This is a compact, high-signal data structure: category key -> sum, count, prior, smoothing policy, timestamp or fold boundary, and version.',
         'The danger is built into the name: the encoder uses y. If a training row receives a statistic that includes its own label, the row has leaked part of the answer into its features. High-cardinality categories make this especially bad. A near-unique user_id can become an almost perfect label copier unless the encoding is ordered, cross-fitted, smoothed, or replaced by a safer native categorical method. Feature Hashing Signed Projection Primer is the sibling option when you need bounded memory and streaming rather than label-rate statistics.',
+        {type: 'callout', text: 'Safe target encoding treats every row label as forbidden input for that row, using folds, time order, and smoothing to preserve signal without leakage.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/KfoldCV.gif', alt: 'Animated diagram of 3-fold cross-validation with training and testing folds rotating across observations.', caption: 'K-fold cross-validation diagram by MBanuelos22, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
