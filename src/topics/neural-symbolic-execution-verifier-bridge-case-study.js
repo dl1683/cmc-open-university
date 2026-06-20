@@ -200,6 +200,7 @@ export const article = {
         'Coding agents are good at producing plausible patches, explanations, and tests. Plausible is not the same as correct. A generated diff may satisfy the visible example while breaking a boundary case, removing an invariant, masking an error, or passing a shallow test suite for the wrong reason.',
         'A neural-symbolic verifier bridge exists to separate proposal from acceptance. The neural side is useful because it can search a large space of repairs and hypotheses. The symbolic or executable side is useful because it can check specific claims against program semantics, path constraints, test commands, type systems, or runtime behavior.',
         'The bridge is not a promise of full formal verification for every change. It is a system pattern: let the model propose, force the proposal through typed checks, return concrete counterexamples when checks fail, and store a proof ledger when checks pass. The value is disciplined feedback, not blind faith in either the model or the verifier.',
+        {type:'callout', text:'A verifier bridge keeps neural generation creative while moving acceptance to typed obligations, counterexamples, executable checks, and proof ledgers.'},
       ],
     },
     {

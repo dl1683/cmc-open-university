@@ -207,6 +207,8 @@ export const article = {
       paragraphs: [
         `InnoDB is MySQL's default transactional storage engine, and its central storage choice is easy to miss: the table is organized around a clustered index. In ordinary MySQL schemas that clustered index is the primary key. The leaf pages of that B+ tree contain the row data itself, not just pointers to rows stored somewhere else.`,
         `That makes the primary key more than a logical identifier. It is the physical order of the table, the path for direct row lookup, the unit of locality in the buffer pool, the key carried by secondary indexes, and a major influence on insert behavior. A schema designer who treats the primary key as only an application ID is ignoring the storage layout.`,
+        {type:'callout', text:`InnoDB makes the primary key a storage layout: the clustered B+ tree leaf is the row, so every secondary access inherits that physical choice.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/37/Bplustree.png', alt:'Diagram of a B+ tree with internal keys and linked leaf nodes.', caption:'A B+ tree stores search keys in internal nodes and data entries in linked leaves, the shape InnoDB uses for clustered and secondary indexes. Source: Wikimedia Commons, Grundprinzip, CC BY 3.0'},
       ],
     },
     {

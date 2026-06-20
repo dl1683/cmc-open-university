@@ -212,6 +212,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Streams consumers" traces the publish-store-deliver pipeline: a publisher sends to a subject, the stream captures and persists the message, and consumers present delivery views to application workers. "Retention replay" shows how retention policy, failure handling, and consumer cursor interact to determine what replay actually means.',
+        {type:'callout', text:'JetStream works by separating subject routing, stored stream history, consumer cursors, and business side effects into different ownership layers.'},
         {
           type: 'bullets',
           items: [

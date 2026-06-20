@@ -312,6 +312,8 @@ export const article = {
       paragraphs: [
         `A namespaced Merkle tree exists because a shared data layer has a different proof problem from a single-application database. Many applications publish shares into the same block. A rollup, payment app, game, or bridge usually wants only its own data, but it must know that the server did not omit one of its shares. A normal Merkle proof can prove that one returned leaf is in the committed tree. It cannot, by itself, prove that all leaves for one application were returned.`,
         `Celestia-style data availability makes that completeness question central. Light nodes sample random coordinates to test whether block data is available, while applications fetch complete namespace slices for their own blobs. The shared root has to support both questions. The tree must authenticate bytes, authenticate namespace order, and give a verifier enough boundary evidence to reject a partial namespace response.`,
+        {type:'callout', text:`Namespaced Merkle trees turn selective retrieval into an interval proof: sorted namespaces and min-max ranges let a verifier reject hidden shares without scanning the whole block.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Binary hash tree with leaves and parent hashes up to a top hash.', caption:'A Merkle tree authenticates leaves through parent hashes; namespaced Merkle trees add namespace ranges to make skipped subtrees checkable. Source: Wikimedia Commons, Azaghal and David Gothberg, CC0'},
       ],
     },
     {

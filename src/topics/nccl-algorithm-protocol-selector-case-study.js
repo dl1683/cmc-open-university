@@ -223,6 +223,8 @@ export const article = {
       paragraphs: [
         'A collective call has a simple surface contract. The program says all-reduce this tensor, broadcast this parameter shard, or gather these slices across these ranks. NCCL has to turn that contract into device work. It must decide which ranks talk first, which links they use, how a tensor is split, which protocol moves each slice, how many channels run in parallel, and whether the chosen path is legal on the current hardware.',
         'That decision matters because modern GPU nodes are not uniform boxes. Two ranks can be close through NVLink, farther through PCIe, or forced through a NIC and a switch. A collective can be a tiny latency-sensitive control message or a multi-gigabyte gradient bucket. The same API call can therefore require very different plans. The selector exists to make that plan depend on the communicator, topology, message size, collective type, software version, and runtime support instead of on a fixed rule copied from an older cluster.',
+        {type:'callout', text:'NCCL performance comes from selecting a complete execution plan for the current topology, message size, collective, channels, protocol, and transport path.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt:'Nvidia GV100 GPU die.', caption:'A GV100 GPU die, a reminder that collective plans depend on real accelerator topology and transport hardware. Source: Wikimedia Commons, Nvidia, Public domain'},
       ],
     },
     {

@@ -188,6 +188,7 @@ export const article = {
       paragraphs: [
         'A mobile robot does not navigate with point geometry. It has a footprint, localization error, controller lag, wheel slip, sensor delay, and physical inertia. A grid cell that is technically free may still be a bad place to drive if the robot body would scrape a wall, clip a table leg, or leave no margin for tracking error.',
         'A planner that treats the world as only blocked or free can produce paths that pass one cell away from lethal obstacles. Those paths look legal in the occupancy grid and unsafe in the hallway. The costmap inflation layer exists to turn obstacle evidence into a clearance field so path search can prefer routes with usable space.',
+        {type:'callout', text:'Inflation turns obstacle evidence into a clearance cost field, so path search can prefer safer space before final collision checks.'},
         'Nav2 costmaps are layered 2D grids used by planner and controller servers. Static maps, obstacle observations, voxel or range data, keepout filters, and inflation all contribute to the master costmap. Inflation is the layer that says how costly it should be to drive near cells already considered dangerous.',
       ],
     },

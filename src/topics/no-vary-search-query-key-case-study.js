@@ -211,6 +211,8 @@ export const article = {
           ],
         },
         'Switch between "query params" (the canonicalization pipeline) and "safety rules" (the parameter audit that decides which fields are safe to ignore). The first view shows the mechanism; the second shows the judgment that makes the mechanism correct.',
+        {type:'callout', text:'No-Vary-Search is safe only when the origin can prove which query parameters do not change the representation, turning noisy URLs into canonical cache keys.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'HTTP logo used by the IETF HTTP Working Group.', caption:'No-Vary-Search changes HTTP cache-key construction for query parameters that the origin proves are representation-neutral. Source: Wikimedia Commons, IETF HTTP Working Group, Public domain'},
       ],
     },
     {

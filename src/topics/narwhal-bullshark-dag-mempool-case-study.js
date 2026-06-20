@@ -324,6 +324,8 @@ export const article = {
       paragraphs: [
         'Narwhal is a DAG-based mempool for Byzantine validators. Its main idea is to separate reliable transaction dissemination from transaction ordering. Instead of making the consensus leader collect and re-broadcast all transaction data, validators and workers create certified batch vertices in a shared DAG. Consensus can then order references to data that has already been disseminated.',
         'Bullshark is a consensus protocol that interprets that DAG. It uses deterministic anchors, strong support, waves, and topological ordering to turn the partially ordered DAG into a linear ledger. The useful mental model is two layers: Narwhal builds an availability-certified causal history; Bullshark reads commitment decisions out of that history.',
+        {type:'callout', text:'Narwhal moves byte dissemination out of the ordering bottleneck by making the mempool itself a certified DAG that Bullshark can deterministically linearize.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt:'Directed acyclic graph arranged so all arrows point forward in topological order.', caption:'Topological ordering shows how a DAG can be read as a sequence while respecting causal edges. Source: Wikimedia Commons, David Eppstein, CC0'},
       ],
     },
     {
