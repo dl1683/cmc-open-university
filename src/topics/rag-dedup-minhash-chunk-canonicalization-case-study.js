@@ -232,6 +232,8 @@ export const article = {
       paragraphs: [
         `Retrieval-augmented generation depends on the context window spending tokens on distinct, current evidence. Real corpora fight that assumption. Help centers mirror pages. PDFs contain repeated headers and page numbers. Release notes copy old wording with one date changed. Legal and policy documents keep stale versions online. Email threads repeat the same answer through quoted replies. If all of that text reaches the vector index unchanged, top-k retrieval can fill with five versions of the same chunk while missing exceptions, procedures, or dates.`,
         `RAG deduplication exists to make the corpus behave like evidence rather than a pile of files. It combines normalization, shingling, MinHash, locality-sensitive hashing, exact verification, and canonical chunk records. The goal is not to erase provenance. The goal is to index one representative chunk while preserving backlinks to every source version, so retrieval gets novelty and citations still know where the statement appeared.`,
+        {type:'callout', text:`MinHash finds likely duplicate chunks cheaply, while canonicalization decides the durable evidence identity that retrieval should search and provenance should preserve.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/6d/Venn_A_intersect_B.svg', alt:'Venn diagram showing the intersection of sets A and B.', caption:`Venn diagram of set intersection. MinHash estimates overlap between shingle sets so the dedup pipeline can find likely near-duplicates before exact verification. Source: Wikimedia Commons, Cepheus, Public domain.`},
       ],
     },
     {

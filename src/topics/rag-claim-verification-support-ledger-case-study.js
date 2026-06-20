@@ -321,6 +321,7 @@ export const article = {
       paragraphs: [
         'RAG systems are often judged by whether they show citations, but citations are only handles. A cited document can be on-topic while failing to support the sentence beside it. A support ledger exists to answer a narrower question: for each claim in the answer, what exact source span supports it, contradicts it, weakly relates to it, is stale for it, or is missing entirely?',
         'This matters because generated answers mix facts. One paragraph can contain a supported date, an over-broad scope claim, a contradicted number, and a cause statement that no source proves. Response-level scores blur those cases. A claim verification ledger lowers the unit of judgment until each fact can be checked and routed to keep, repair, block, retry, redact, or audit.',
+        {type:'callout', text:'A support ledger turns RAG citation quality into claim level release control by binding each fact to the exact source span, corpus version, access scope, label, and required action.'},
       ],
     },
     {

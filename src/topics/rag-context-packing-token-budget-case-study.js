@@ -256,6 +256,8 @@ export const article = {
         'RAG context packing exists because retrieval does not answer the final prompt-design question. Retrieval can return a pool of plausible chunks. The model still receives a fixed budget of tokens, and that budget has to carry evidence, instructions, source handles, user context, and sometimes tool results.',
         'Dumping raw top-k chunks into the prompt wastes tokens on duplicates, stale context, boilerplate, and passages that are relevant to the general topic but not to the exact question. Worse, it can bury the one decisive span in the middle of a long context where the model underuses it.',
         'The context packer is the post-retrieval layer that decides which evidence enters the prompt, how much of each chunk survives, where the evidence is placed, and which citation handles remain attached. It turns a retrieval pool into a compact, ordered, auditable evidence packet.',
+        {type:'callout', text:'Context packing is retrieval budgeting: every included token must earn its place by adding useful, nonredundant, auditable evidence to the prompt.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/fd/Knapsack.svg', alt:'Knapsack problem illustration with boxes of different weights and values.', caption:'Knapsack problem illustration. Context packing has the same budget shape: choose the highest-value evidence that fits within a fixed token limit. Source: Wikimedia Commons, Dake, CC BY-SA 2.5.'},
       ],
     },
     {

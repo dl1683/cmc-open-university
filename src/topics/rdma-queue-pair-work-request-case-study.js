@@ -216,6 +216,8 @@ export const article = {
       paragraphs: [
         'RDMA exists because some systems cannot afford to treat networking as a stream of kernel-mediated copies. A storage server, distributed database, training job, or inference cluster may move small control messages and large data buffers at rates where extra copies, syscalls, interrupts, and scheduler wakeups dominate the useful work.',
         'Remote Direct Memory Access moves bytes between registered memory regions through the network adapter. The remote CPU does not have to run an application receive handler for every data movement on the hot path. That promise is attractive, but it is also dangerous. If a NIC can DMA into process memory, the system needs explicit objects that describe which memory is legal, which endpoint may use it, which operation is outstanding, and when ownership returns.',
+        {type:'callout', text:'RDMA is fast because ownership moves into explicit verbs objects: registered memory, queue pairs, work requests, and completions define what the adapter may touch and when buffers are safe again.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/ab/Infinibandport.jpg', alt:'Close-up of InfiniBand switch ports on a network module.', caption:'InfiniBand switch ports. RDMA verbs expose the hardware data path through registered memory, queue pairs, work requests, and completions. Source: Wikimedia Commons, Omukosan-shibo, CC BY 2.5.'},
       ],
     },
     {

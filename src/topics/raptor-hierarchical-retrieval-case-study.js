@@ -206,6 +206,8 @@ export const article = {
       paragraphs: [
         'RAPTOR, short for Recursive Abstractive Processing for Tree-Organized Retrieval, is a RAG architecture that builds a tree of summaries above ordinary text chunks. Instead of retrieving only short contiguous chunks, it recursively embeds, clusters, and summarizes chunks so the index contains both detailed leaves and higher-level abstractions.',
         'The core paper states the motivation directly: flat RAG often misses holistic document context because it retrieves short chunks. RAPTOR builds a tree with different levels of summarization and retrieves from that tree at inference time: https://arxiv.org/abs/2401.18059. The official implementation is at https://github.com/parthsarthi03/raptor.',
+        {type:'callout', text:'RAPTOR makes summaries searchable evidence objects, so retrieval can choose between broad parent context and leaf level proof instead of flattening every question into top-k chunks.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt:'Binary tree diagram with parent and child nodes.', caption:'Binary tree diagram. RAPTOR uses a tree of summaries and leaf chunks so retrieval can move between abstraction levels. Source: Wikimedia Commons, Derrick Coetzee, Public domain.'},
       ],
     },
     {

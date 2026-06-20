@@ -203,6 +203,8 @@ export const article = {
       paragraphs: [
         'The "readahead window" view traces how sequential reads teach the kernel to prefetch. Active nodes are the current stage of the I/O path -- the application offset, the cache lookup, and the ahead window. Found nodes mark storage completing a prefetch. Compare nodes highlight policy resets when the access pattern breaks.',
         'The "dirty writeback throttling" view traces the lifecycle of a buffered write: data enters the page cache, folios are marked dirty, thresholds trigger background flushers, and writers may be throttled. Active nodes are the dirty-to-clean pipeline. Compare nodes are the threshold lines on the dirty memory plot.',
+        {type:'callout', text:'The page cache is the shared structure; readahead speculates only when access patterns justify it, while dirty writeback batches writes without letting memory pressure escape its bounds.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/Simplified_Structure_of_the_Linux_Kernel.svg', alt:'Simplified Linux kernel structure diagram showing system calls, virtual file system, file systems, and device layers.', caption:'Simplified Linux kernel structure. Readahead and dirty writeback sit in the file I/O path between application calls, the page cache, and block storage. Source: Wikimedia Commons, ScotXW, CC BY-SA 4.0/GFDL.'},
         {
           type: 'note',
           text: 'The safe inference at each frame: if a node is active and the edge leading to it is highlighted, data has reached that stage. If a downstream node is not yet active, the data has not propagated there. Watch how readahead flags turn one prefetch hit into the trigger for the next prefetch window.',

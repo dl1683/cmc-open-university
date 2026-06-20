@@ -245,6 +245,7 @@ export const article = {
         'A RAG index lifecycle exists because the retrieval corpus is not static. Documents change, permissions change, chunking rules change, embedding models change, citation extractors change, and customers expect the system to keep serving while all of that happens.',
         'Toy RAG systems usually treat the index as a batch artifact: parse files, chunk text, embed chunks, query vectors. Production systems need more. They need source document versions, stable chunk IDs, vector IDs, citation spans, metadata filters, tombstones, index snapshots, validation gates, and a serving alias that tells applications which physical index is live.',
         'This operational layer decides whether RAG can be changed safely. Re-embedding with a new model changes vector dimensions and ranking behavior. Re-chunking changes offsets and citations. Deletes must hide stale evidence before compaction finishes. A blue/green alias lets the system rebuild safely instead of mutating the only production index in place.',
+        {type:'callout', text:'A safe RAG index rebuild depends on stable identities and an atomic serving alias, so construction, validation, promotion, rollback, and compaction stay separate.'},
       ],
     },
     {

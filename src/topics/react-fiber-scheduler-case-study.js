@@ -218,6 +218,8 @@ export const article = {
         'React has to turn a changing component tree into host updates while keeping the interface responsive. A small page can reconcile recursively and patch the DOM immediately. A large application can receive typing, clicks, network data, Suspense reveals, and background transitions while a previous render is still expensive.',
         'Fiber exists because the old call-stack-shaped renderer gave React too little control over time. Once a recursive render started, the browser could be blocked until the traversal finished. Fiber turns reconciliation into explicit units of work that React can prioritize, pause, resume, abandon, and finally commit.',
         'The important data-structure shift is that UI identity and scheduler bookkeeping live in nodes. A fiber is not just a virtual DOM element. It is a work record with tree links, pending props, lanes, flags, state, and an alternate copy used to prepare the next tree.',
+        {type:'callout', text:'Fiber splits rendering from committing by storing UI identity and scheduler state in heap nodes that React can pause, resume, prioritize, abandon, and finally publish coherently.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a7/React-icon.svg', alt:'React logo with atom-like rings around a central dot.', caption:'React logo. Fiber stores UI identity and scheduler bookkeeping in work nodes that React can render before committing. Source: Wikimedia Commons, Facebook, CC BY-SA 1.0.'},
       ],
     },
     {

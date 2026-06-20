@@ -204,6 +204,7 @@ export const article = {
       paragraphs: [
         `Modern React screens do not render from one ready object. A route can depend on a code chunk, a server-rendered stream, a data record, an image, a permissions check, and a user-triggered refresh. Some of that work finishes before render. Some finishes during render. Some fails. Some should keep old content visible while fresh content is loading.`,
         `Suspense exists because local loading flags do not scale to that shape. A screen needs explicit boundaries that say which part of the UI may wait together, which fallback belongs there, and when React should retry the render after pending work settles.`,
+        {type:'callout', text:`Suspense works when pending work is represented as a cache record and a boundary decision, so React can wait without committing half-ready UI.`},
       ],
     },
     {

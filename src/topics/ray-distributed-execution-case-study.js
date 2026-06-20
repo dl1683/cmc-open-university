@@ -200,6 +200,8 @@ export const article = {
       paragraphs: [
         'Ray is a distributed execution framework built for programs that do not fit cleanly into a fixed batch pipeline. The original OSDI paper framed the target as emerging AI applications: reinforcement learning, simulation, training, serving, and search workloads that create new work while they run. These applications mix short CPU tasks, long-lived stateful workers, GPU computation, large tensors, and feedback loops.',
         'A static system can be excellent when the work graph is known in advance. MapReduce works well for batch stages. Pregel works well for vertex-centric graph supersteps. A message queue works well for decoupled services. Ray targets a different shape: a Python program launches remote tasks and actors, receives futures, branches based on partial results, and keeps submitting more work. The execution graph is a live data structure, not a file written before the job starts.',
+        {type:'callout', text:'Ray exposes dynamic work as object references and actors, giving the runtime a live dependency graph it can schedule without forcing the program into a fixed batch plan.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt:'Directed acyclic graph with arrows showing dependencies between nodes.', caption:'Directed acyclic graph. Ray turns object references into a live dependency graph that schedules ready tasks as upstream objects finish. Source: Wikimedia Commons, David W., Public domain.'},
       ],
     },
     {
