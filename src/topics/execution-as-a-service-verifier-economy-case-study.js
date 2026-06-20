@@ -185,6 +185,7 @@ export const article = {
       paragraphs: [
         'A transcript is weak training material for an agent. It can show what the model said, but it may not prove that the action ran, changed the right state, preserved constraints, or would work again tomorrow. For code, that proof may be tests and a patch. For robotics, it may be simulator success plus device telemetry. For finance, it may be a leak-free backtest. The scarce object is not the conversation; it is a reproducible execution with a trusted verdict.',
         'Execution-as-a-service is the infrastructure layer that turns tasks into runnable episodes. It owns environments, sandboxes, tools, time limits, secrets policy, verification oracles, proof records, and release gates. The verifier economy is the market that forms around that layer when models become easier to copy than clean execution data.',
+        {type:'callout', text:'The scarce asset is not the agent transcript but the verified execution episode: state, action, result, and proof under a replayable oracle.'},
       ],
     },
     {

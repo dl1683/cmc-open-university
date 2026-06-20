@@ -206,6 +206,7 @@ export const article = {
       paragraphs: [
         'epoll is Linux readiness notification for many file descriptors. User space creates an epoll instance, registers descriptors and event masks with epoll_ctl, then calls epoll_wait to receive descriptors that are ready for I/O.',
         'The core data-structure insight is the split between the interest list and the ready list. The interest list is the watched set. The ready list is the current batch of watched descriptors with available events. That split is why a server can track many quiet sockets without scanning every one on every loop turn.',
+        {type:'callout', text:'epoll scales because the kernel separates the durable watch set from the short ready queue, so user space handles only descriptors whose state changed.'},
       ],
     },
     {

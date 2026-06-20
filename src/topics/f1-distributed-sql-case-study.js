@@ -210,6 +210,7 @@ export const article = {
       paragraphs: [
         'AdWords needed strong correctness for business data, but also needed the productivity of SQL, secondary indexes, schema evolution, and ad-hoc querying. Manual sharding can scale storage, but it pushes transaction boundaries, joins, consistency, and resharding pain into application code.',
         'F1 is Google\'s distributed SQL database built on Spanner for AdWords. It shows that a distributed database is not just a storage substrate. The user-facing contract includes relational schema, SQL, distributed transactions, change publishing, application latency patterns, and operational migration away from hand-managed shards.',
+        {type:'callout', text:'F1 makes distributed SQL usable by placing relational semantics above Spanner while forcing locality and coordination costs back into schema and workflow design.'},
       ],
     },
     {

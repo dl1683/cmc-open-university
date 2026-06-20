@@ -204,6 +204,7 @@ export const article = {
         'The first view shows the xDS update flow: a control plane pushes versioned configuration resources through xDS streams into an Envoy data-plane proxy. Active (highlighted) nodes are the resources currently being pushed. Found markers show resources that Envoy has accepted and can serve from. Compare markers show components waiting to receive updates.',
         'The second view shows the request path after configuration is loaded. Active markers trace the hot path from proxy to upstream. Found markers show the policies (routes, clusters, endpoints) that Envoy resolves locally, without calling the control plane.',
         'At each frame, ask: what configuration changed, what dependency must already exist before this change is safe, and what would break if the order were reversed.',
+        {type:'callout', text:'The mesh works because policy changes travel as versioned xDS state to local proxies, keeping the request path independent of the control plane.'},
       ],
     },
     {

@@ -168,6 +168,8 @@ export const article = {
       paragraphs: [
         'ext4 uses JBD2, the Journaling Block Device layer, to make filesystem metadata recoverable after a crash. File operations do not change one isolated record. Creating, extending, truncating, linking, or renaming a file can touch directory entries, inode fields, extent trees, allocation bitmaps, block group descriptors, timestamps, and quota state. If power fails halfway through those updates, the disk can contain a mixture that no longer describes a valid filesystem.',
         'The journal is a redo log for those related metadata changes. ext4 can write a transaction to the journal, mark it committed, and later checkpoint the same changes to their normal home locations. On restart, recovery replays committed transactions and ignores incomplete ones. The result is not that every application write is durable. The result is that the filesystem structure can return to a coherent state quickly.',
+        {type:'callout', text:'JBD2 makes crash recovery a commit-boundary problem: replay complete metadata transactions, ignore partial ones, and keep data ordering separate from application durability.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/Simplified_Structure_of_the_Linux_Kernel.svg', alt:'Diagram of Linux kernel layers showing file systems between the virtual file system and block device layer.', caption:'Simplified Linux kernel structure, showing where file systems sit between VFS and the block layer; ScotXW, Wikimedia Commons, CC BY-SA 4.0/GFDL.'},
       ],
     },
     {

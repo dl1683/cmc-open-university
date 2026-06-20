@@ -218,6 +218,7 @@ export const article = {
         `Long sequences do not only contain facts. They contain changes to facts. A document can introduce a person's old title, then later say the person moved to a new role. A repository trace can show an API returning one shape, then a migration changing the return value. A useful sequence memory should store evidence, but it should also revise old evidence when the sequence itself says the world changed.`,
         `Fast-weight memory is one way to think about that problem. Instead of treating attention as a lookup over all past tokens, linear attention can be read as a small writable memory inside the model. Each token writes into a temporary weight matrix. Later tokens query that matrix. The memory is "fast" because it changes during the sequence, unlike the model's trained parameters.`,
         `The delta-rule version asks a sharper question: if the memory already returns something for this key, should the new token add another value, or should it correct the current mapping? That distinction matters whenever a later fact is supposed to replace, refine, or override an earlier one.`,
+        {type:`callout`, text:`Delta-rule memory treats sequence state as a writable mapping that should correct stale associations, not merely accumulate another blurred fact.`},
       ],
     },
     {

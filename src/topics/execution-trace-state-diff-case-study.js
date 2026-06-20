@@ -258,6 +258,7 @@ export const article = {
       paragraphs: [
         'A model can read code text and still miss what the code does at runtime. Mutation, aliases, exceptions, loop edges, and returns are state changes, not just words in a file. An execution trace state diff records those changes one step at a time.',
         'Each event stores a source location, stack frame, locals, heap object ids, aliases, control-flow edge, exception or return value, and the before/action/after diff. This is the data-structure version of the Code World Models idea: teach models what code does by showing machine state transitions.',
+        {type:'callout', text:'A useful code trace records before/action/after state with object identity, so runtime behavior can be replayed instead of merely described.'},
       ],
     },
     {

@@ -203,6 +203,7 @@ export const article = {
         'An executable repository image exists because a coding-agent task is only as good as its replay environment. A prompt that says "fix this bug" is weak evidence. A runnable repository image with a failing command, logs, patch, passing command, and digest is a task that can be audited.',
         'Without an executable snapshot, every rerun is exposed to dependency drift, base-image changes, package-index changes, local machine differences, environment variables, and test-command drift. A benchmark can look like it measures coding skill while actually measuring who happened to have the right environment.',
         'The build cache exists because execution evidence is expensive. Building a clean image for every task is too slow and costly at benchmark-factory scale. A content-addressed cache lets the factory reuse safe layers while still pinning the exact image that produced the proof.',
+        {type:'callout', text:'A coding task becomes evidence only when the environment digest, commands, logs, patch, and cache keys form one replayable proof chain.'},
       ],
     },
     {

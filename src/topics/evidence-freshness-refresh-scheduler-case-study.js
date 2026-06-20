@@ -226,6 +226,7 @@ export const article = {
       paragraphs: [
         'An evidence freshness refresh scheduler exists because research does not age evenly. A definition from a standard may remain useful for years. A cloud price, product limit, security advisory, model leaderboard, legal rule, release note, or benchmark result can become stale in days. Deep research systems often produce long reports with many claims. Rerunning the whole report every time one source changes is expensive, but leaving date-sensitive claims untouched is how confident answers become quietly wrong.',
         'The scheduler turns freshness into a claim-level property. It tracks when a claim was supported, what source and span supported it, what kind of claim it is, how volatile that class is, which watch query can update it, and which report sections depend on it. This connects claim graphs, source ledgers, cache invalidation, feature freshness SLOs, and temporal workflows. The basic engineering lesson is simple: state that can go stale needs metadata, invalidation rules, repair jobs, and version history.',
+        {type:'callout', text:'Freshness becomes maintainable when each claim has its own support ledger, TTL, dependency edges, and refresh job instead of inheriting a report-level date.'},
       ],
     },
     {

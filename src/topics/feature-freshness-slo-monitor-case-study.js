@@ -230,6 +230,7 @@ export const article = {
       paragraphs: [
         `Online models do not only depend on model weights. They depend on data arriving on time. A fraud model may need a card velocity feature from the last few minutes. An ETA model may need fresh road speed. A ranking model may need recent clicks. If those values are old, the model can still return a confident score, but the score is now answering yesterday's question.`,
         `A feature freshness SLO monitor exists to make that hidden contract explicit. The contract is not "the feature job is running." It is "the value served to this model for this entity is fresh enough for this prediction." That distinction matters because online feature systems have several clocks: event time at the source, processing time in the stream, materialization time in the feature pipeline, publication time in the online store, and lookup time at serving.`,
+        {type:`callout`, text:`Freshness monitoring works when every served feature carries age, source progress, SLO policy, and fallback state into the prediction path.`},
       ],
     },
     {
