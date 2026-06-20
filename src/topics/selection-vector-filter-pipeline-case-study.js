@@ -195,6 +195,7 @@ export const article = {
       paragraphs: [
         'Selection vectors exist because query engines often learn that a row is dead before they need to touch most of its data. A log table may have a timestamp column, a tenant column, a message string, request headers, and a nested payload. A predicate might only need timestamp and tenant. If the engine can reject rows there, it should not copy or decode the wide columns yet.',
         'The data-structure problem is row identity. A vectorized engine works on a batch of rows at a time, usually a fixed-size chunk. Filtering changes the live set inside that chunk, but the original column vectors still hold the values in stable positions. A selection vector is the small structure that says which positions are still active.',
+        {type:'callout', text:'Selection vectors turn row positions into the control plane so filters can kill work before wide values move.'},
       ],
     },
     {

@@ -221,6 +221,8 @@ export const article = {
         'Many LLM applications do not want free-form prose. They want JSON that parses, tool arguments that match a schema, enum choices from an allowed set, or a multi-step agent program where several branches share the same prompt history. A normal prompt can ask the model to follow the shape, but it does not make invalid tokens impossible.',
         'The serving system also has a performance problem. Application code often treats every branch, retry, and tool call as a new prompt string. The model server then sees many independent requests even when they share a long system prompt, a common conversation prefix, or a fixed output grammar. That loses both correctness and reuse opportunities.',
         'SGLang is interesting as a case study because it turns language-model programs into runtime state. Generation, selection, forked prompt streams, prefix reuse, and output constraints are represented explicitly, so the backend can schedule them, share KV cache, and enforce structured generation during decoding.',
+        {type:'callout', text:'Structured generation becomes reliable and fast when program state, prefix cache state, and FSM constraint state reach the scheduler together.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9d/DFAexample.svg', alt:'Deterministic finite automaton state diagram with labeled transitions.', caption:'DFA example state diagram, by Cepheus, public domain, via Wikimedia Commons.'},
       ],
     },
     {

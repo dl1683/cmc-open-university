@@ -229,6 +229,7 @@ export const article = {
       paragraphs: [
         "Long-context memory claims are easy to inflate because the advertised capacity is simple and the actual behavior is not. A model can accept 128K tokens, pass a simple needle-in-haystack demo, and still fail when the important fact appears in the middle, must be combined with another fact, is overwritten later, or sits inside code with local dependencies. A serving stack can also look efficient in a notebook and then miss a production p99 latency target.",
         "A sequence-memory evaluation ledger exists to separate those cases. It is a structured record of what kind of memory was tested, where the evidence was placed, what task demanded it, how the architecture stored or compressed state, and what happened under realistic serving conditions. The ledger turns a vague claim like 'long context works' into rows that can be inspected and repeated.",
+        {type:"callout", text:"A sequence-memory ledger makes long context measurable by preserving the shape of failures instead of averaging them away."},
         "This matters because sequence memory is no longer one mechanism. Full attention, grouped or paged KV cache, sliding windows, retrieval, linear attention, state-space models, delta-rule memory, fast weights, xLSTM-style recurrence, and test-time neural memory all preserve different information in different ways. A single average score cannot tell a team which one is failing or why.",
       ],
     },

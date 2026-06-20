@@ -335,6 +335,8 @@ export const article = {
       paragraphs: [
         "The self-organizing AI design pattern is useful when a system should grow, adapt, repair, or search from local interactions instead of following one central script. The designer defines repeated units, local state, local communication, update rules, environmental feedback, and evaluation pressure. The global behavior is the long-run outcome of many small updates.",
         "This pattern connects cellular automata, neural cellular automata, Hebbian plasticity, quality-diversity search, intrinsic motivation, and open-ended evolution. Those topics can look separate at first. The unifying question is practical: how do we design a system whose parts can coordinate without a complete blueprint, and how do we prove that the resulting behavior is robust rather than merely interesting to watch?",
+        {type:"callout", text:"Self-organization is an engineering pattern when local rules, perturbation tests, and archives replace one brittle central blueprint."},
+        {type:"image", src:"https://upload.wikimedia.org/wikipedia/commons/2/2b/Sample_run_of_Rule_110_elementary_cellular_automaton%2C_starting_from_single_cell.png", alt:"Rule 110 cellular automaton space-time diagram starting from a single cell.", caption:"Rule 110 elementary cellular automaton sample run, by LucasVB, CC0, via Wikimedia Commons."},
       ],
     },
     {

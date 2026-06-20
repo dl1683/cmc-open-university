@@ -194,6 +194,7 @@ export const article = {
       paragraphs: [
         'The write-path view traces one record from producer through serializer, registry, Kafka, and consumer. Active nodes are the components handling data right now. Found nodes are components whose work is done for this message. Compare nodes show the Kafka topic waiting to receive bytes.',
         'The evolution-safety view focuses on the compatibility gate. Active nodes are the registry and compatibility checker deciding whether a new schema version is safe. Compare nodes show the Kafka topic that would receive unsafe data if the gate were absent.',
+        {type:'callout', text:'A registry makes schema identity a control-plane decision so producers can evolve events before unsafe bytes reach the log.'},
         {
           type: 'note',
           text: 'Each frame answers one question: who owns the schema identity at this moment? Follow the schema id as it moves from registry to wire to consumer cache. That transfer of identity is the mechanism that makes independent evolution possible.',

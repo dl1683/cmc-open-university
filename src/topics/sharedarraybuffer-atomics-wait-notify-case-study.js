@@ -247,6 +247,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type:"callout", text:"Shared memory is useful only when the bytes have a small explicit protocol for ownership, ordering, sleep, wake, and backpressure."},
+        {type:"image", src:"https://upload.wikimedia.org/wikipedia/commons/b/b7/Circular_buffer.svg", alt:"Conceptual circular buffer ring divided into slots.", caption:"Circular buffer conceptual ring, by Cburnett, CC BY-SA 3.0 or GFDL, via Wikimedia Commons."},
       ],
     },
     {

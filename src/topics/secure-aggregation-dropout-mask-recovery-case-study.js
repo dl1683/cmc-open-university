@@ -189,6 +189,8 @@ export const article = {
       paragraphs: [
         `Secure aggregation lets a server compute the sum of many client-held vectors without seeing any one client vector in the clear. In federated learning, those vectors are usually model updates from phones, browsers, hospitals, vehicles, or other edge participants. The server wants the aggregate update because it improves the global model. The clients and privacy policy do not want the server to inspect Alice's gradient, Bob's typed-word statistics, or one hospital's local contribution.`,
         `The hard version is not the clean classroom sum. Real clients drop out. A phone loses connectivity, a laptop sleeps, a training job times out, or a participant fails an attestation check. A client may participate in setup, help create masks, and then disappear before uploading the masked update. The protocol must still either recover a valid aggregate or abort without quietly exposing survivor updates.`,
+        {type:'callout', text:`Dropout recovery is safe only when it repairs dead-client mask residue without exposing any live client update.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/66/3_polynomials_of_degree_2_through_2_points.svg', alt:'Three polynomial curves passing through the same two points.', caption:'Three degree-2 polynomials through two points, by Vlsergey, CC BY 3.0, via Wikimedia Commons.'},
       ],
     },
     {

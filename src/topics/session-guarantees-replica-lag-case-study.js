@@ -171,6 +171,7 @@ export const article = {
       paragraphs: [
         'Replicated systems often serve reads from nearby or lightly loaded replicas. That keeps latency low, but it can make one user see time run backward. A user edits a profile, refreshes, lands on a lagging replica, and sees the old profile.',
         'Session guarantees solve that user-facing problem without requiring global linearizability. They include read-your-writes, monotonic reads, monotonic writes, and writes-follow-reads. The system does not promise that every replica is current. It promises that this session will not contradict the history it has already observed.',
+        {type:'callout', text:'Session guarantees scope freshness to one user history by carrying a high-water mark through replica routing.'},
       ],
     },
     {
