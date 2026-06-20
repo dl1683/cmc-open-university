@@ -211,6 +211,7 @@ export const article = {
       paragraphs: [
         'A SQL query describes the result, not the procedure. The same query can be a sequential scan, an index scan, a bitmap scan, a nested-loop join, a hash join, a merge join, a parallel plan, or some mixture of those choices. The PostgreSQL planner exists because picking that procedure by hand would make SQL brittle and unportable.',
         'The planner is a decision system over imperfect information. It knows table definitions, index definitions, constraints, sampled statistics, and cost constants. It does not know the exact future cache state, every parameter value, or every correlation in the data unless those facts are represented in statistics or query shape.',
+        {type:'callout', text:'The planner is a search engine over legal execution paths, and cardinality estimates are the evidence that makes one path look cheaper than another.'},
       ],
     },
     {

@@ -205,6 +205,7 @@ export const article = {
         'Some critical sections are real even though they do not map cleanly to one database row. A tenant billing run, migration runner, scheduled job, cache warmer, data backfill, or cross-table maintenance task may need exactly one owner.',
         'A row lock works when the row is the resource. Advisory locks exist for the cases where the application has to define the resource itself. The application chooses an integer key, asks PostgreSQL to coordinate that key, and agrees that every conflicting worker will use the same key before doing the protected work.',
         'PostgreSQL manages lock compatibility, waiting, and release behavior. Your code defines what the key means.',
+        {type:'callout', text:'Advisory locks are only as correct as the key convention: PostgreSQL serializes integer names, but the application defines what those names mean.'},
       ],
     },
     {

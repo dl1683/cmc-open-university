@@ -336,6 +336,7 @@ export const article = {
       paragraphs: [
         'PostgreSQL uses MVCC, so an UPDATE normally creates a new tuple version rather than overwriting the old row in place. If every update also adds fresh entries to every secondary index, a high-update table pays write amplification twice: once in the heap and again across its indexes.',
         'A HOT update is PostgreSQLs page-local escape hatch. When an UPDATE does not change columns referenced by ordinary indexes and the new tuple version fits on the same heap page, PostgreSQL can avoid adding new secondary index entries. The index keeps pointing at the root heap line pointer, and readers follow the on-page version chain to the visible tuple.',
+        {type:'callout', text:'HOT works by keeping logical row identity stable in the index while same-page heap versions absorb update churn.'},
         'PostgreSQL documents HOT directly: it is possible when indexed columns are unchanged and there is enough free space on the page containing the old row. The same page-locality rule is the data-structure heart of the feature: https://www.postgresql.org/docs/current/storage-hot.html.',
       ],
     },

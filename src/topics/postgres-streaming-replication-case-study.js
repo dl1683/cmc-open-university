@@ -186,6 +186,7 @@ export const article = {
         'The WAL-stream view shows the write path as a pipeline: client commit, primary WAL write, WAL sender, WAL receiver, standby replay, and read replica. Active highlights mark the current stage of WAL propagation. Found highlights mark stages where data is durable or committed.',
         'The replication-modes matrix compares asynchronous, synchronous, quorum, and cascading replication. Each row is one commit contract between the primary and its standbys. The lag-surfaces matrix breaks replication position into four distinct measurements: sent, written, flushed, and replayed LSN.',
         'The failover-lag view traces what happens when the primary dies. Each row is one step in the promotion sequence. Risk columns name the failure mode at each step. Read the whole sequence top to bottom to see why failover is a procedure, not a toggle.',
+        {type:'callout', text:'Streaming replication works because WAL is already an ordered history that standbys can replay, but every commit mode chooses a different point in the latency and data-loss tradeoff.'},
       ],
     },
     {

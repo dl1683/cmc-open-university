@@ -203,6 +203,7 @@ export const article = {
       paragraphs: [
         'MVCC lets readers and writers avoid blocking each other in many common cases, but a database still needs locks. Schema changes, row updates, foreign-key checks, advisory coordination, vacuum work, and transaction-id waits all need a shared place to decide who may proceed and who must wait.',
         'The PostgreSQL lock manager is that place. It turns resource identity into lock-table entries, records granted holders, queues incompatible waiters, and gives the deadlock detector enough structure to distinguish normal waiting from impossible waiting.',
+        {type:'callout', text:'Deadlock detection becomes simple once every blocked backend is turned into an edge in a wait-for graph.'},
         'Without this shared structure, a production incident would look like vague slowness: one session stuck, another apparently idle, a migration half-running, and no reliable way to explain who is blocking whom.',
       ],
     },

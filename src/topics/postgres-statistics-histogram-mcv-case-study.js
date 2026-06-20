@@ -243,6 +243,8 @@ export const article = {
       paragraphs: [
         'The PostgreSQL planner has to choose a plan before the query runs. It has to decide whether to use an index, scan a table, build a hash table, sort rows, or drive a nested loop without first reading all candidate rows.',
         'Planner statistics are the cheap data model that makes that possible. They summarize table size, value frequency, nulls, ranges, and selected multi-column relationships so the planner can estimate row counts before committing to a plan.',
+        {type:'callout', text:'Planner statistics are a compact model of skew, ranges, nulls, and correlations, not a copy of the table.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1d/Example_histogram.png', alt:'Histogram with frequency bars over numeric x values.', caption:'Example histogram generated from simulated data, by Visnut, Wikimedia Commons, CC BY-SA 3.0/GFDL.'},
       ],
     },
     {

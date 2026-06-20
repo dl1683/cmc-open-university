@@ -223,6 +223,8 @@ export const article = {
       paragraphs: [
         `A transmission grid is built from physical equipment: buses, lines, transformers, breakers, shunts, generators, and loads. Operators see topology. Numerical tools need equations. The bus admittance matrix, usually called Y-bus, is the data structure that turns the network graph into the electrical model used by solvers.`,
         `Y-bus connects bus voltages to current injections. Once assembled, it becomes the common foundation for AC power flow, state estimation, contingency analysis, optimal power flow, voltage studies, and many planning workflows. If the matrix is wrong, every downstream result can look mathematically polished while describing the wrong grid.`,
+        {type:'callout', text:`Y-bus is the compiled form of grid topology: a sparse matrix that lets numerical solvers operate on the same physical network operators see.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt:'Sparse matrix pattern with black nonzero entries on a white background.', caption:`Finite element sparse matrix, by Oleg Alexandrov, Wikimedia Commons, public domain.`},
       ],
     },
     {

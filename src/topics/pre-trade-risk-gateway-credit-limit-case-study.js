@@ -209,6 +209,7 @@ export const article = {
       paragraphs: [
         `A pre-trade risk gateway is the part of an electronic trading stack that decides whether an incoming order is allowed to reach the matching sequencer. It sits in front of the book. It receives order-entry messages such as FIX NewOrderSingle or OUCH Enter Order, checks the session and risk state, and either forwards the order or rejects it with an auditable reason.`,
         `The key boundary is before sequencing. Once an order reaches a matching engine, it may rest on the book, match immediately, affect priority, or generate executions that cannot be undone by pretending the order never existed. A pre-trade gate stops bad intent while it is still just an inbound command. That is different from post-trade surveillance, cancel logic, or reconciliation after the market has already changed.`,
+        {type:'callout', text:`A pre-trade gateway turns market risk into admission control by making every order pass bounded checks before it can alter sequenced market state.`},
       ],
     },
     {
