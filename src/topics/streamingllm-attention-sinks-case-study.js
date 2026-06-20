@@ -335,6 +335,7 @@ export const article = {
         'A decoder-only language model stores key/value tensors for previous tokens so each new token can attend to the past without recomputing the whole prefix. That KV cache is essential for fast generation, but it grows linearly with sequence length. A long-running chat, transcript, monitoring stream, or agent session cannot keep every past token in GPU memory forever.',
         'A pure sliding window seems like the simple answer: keep only the most recent tokens and evict everything older. StreamingLLM shows why that can fail. Many decoder-only models rely heavily on a small set of initial tokens that act as attention sinks. Drop those tokens and generation can become unstable even if the recent window remains.',
         'StreamingLLM exists to make long streams practical with bounded cache. Keep the first few sink tokens, keep a rolling recent window, and evict the middle. The cache stops growing with total conversation length while preserving the prefix anchors and local context the model needs for fluent continuation.',
+        {type:'callout', text:'StreamingLLM bounds KV memory by pinning attention-sink prefix tokens while sliding a recent suffix and evicting the middle.'},
       ],
     },
     {

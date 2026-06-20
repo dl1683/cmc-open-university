@@ -183,6 +183,8 @@ export const article = {
       'Physical qubits are noisy. A useful quantum computer needs logical information to survive bit flips, phase flips, measurement error, leakage, and hardware drift. The surface code is one of the main proposals for doing that with local checks on a two-dimensional layout.',
       'The quantum hardware does not hand the control system a neat list of errors. It hands over repeated stabilizer measurements. The classical decoder has to infer a correction from those measurements quickly enough that the logical computation can continue.',
       'This is why the topic is both quantum and classical. The protected state lives in a code, but the decision problem is an online graph problem running on ordinary hardware. The decoder is part of the machine, not an optional analysis tool after the experiment.',
+      {type:'callout', text:'Surface-code decoding turns noisy stabilizer histories into a fast classical matching problem whose answer keeps logical state alive.'},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a2/ToricCodeLattice.png', alt:'Square toric-code lattice with a highlighted vertex stabilizer and plaquette stabilizer.', caption:'Toric code lattice with vertex and plaquette stabilizers; Woottonjames, CC BY 3.0, via Wikimedia Commons.'},
     ] },
     { heading: 'Why the obvious approach fails', paragraphs: [
       'The obvious approach is to find the qubit that flipped and flip it back. That cannot work because the code deliberately avoids measuring the data qubits directly. Measuring them would reveal and damage the logical information. Instead, the machine measures stabilizer checks that say whether local parity constraints changed.',

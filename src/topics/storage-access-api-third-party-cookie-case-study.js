@@ -186,6 +186,7 @@ export const article = {
       paragraphs: [
         'The Storage Access API exists because the web is moving away from ambient third-party cookies. For years, an embedded iframe could often read cookies for its own origin while the user was visiting a different top-level site. That made single sign-on widgets, comment boxes, payment frames, and subscription checks easy to build. It also let trackers join a user across unrelated sites without a meaningful moment of consent.',
         'Modern browsers increasingly block or partition cross-site state. That is the right privacy direction, but it creates a compatibility problem for user-facing embeds that really do need first-party account state. The API is a narrow request path: an embedded document can check whether it has access to unpartitioned storage, ask the browser for access when appropriate, and handle denial without pretending the old cookie model still exists.',
+        {type:'callout', text:'The API turns ambient cross-site cookie reach into a browser-mediated capability with explicit granted, denied, and fallback states.'},
       ],
     },
     {

@@ -224,6 +224,7 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         'Substrait exists because modern data systems rarely stay inside one query engine. A user may define a view in SQL, build a dataframe in Python, optimize a plan in Calcite or DataFusion, execute fragments in Velox or DuckDB, and move intermediate artifacts through services written in different languages. The hard part is not drawing boxes named scan, filter, and join. The hard part is preserving the exact meaning of those boxes when the producer and consumer do not share planner classes, parser settings, SQL dialect, function registry, or type system. Substrait treats a query plan as a portable data structure: relation nodes, expressions, field references, types, function anchors, extension declarations, and serialization rules. The artifact is meant to be inspected, validated, stored, transmitted, and either executed or rejected by a different system.',
+        {type:'callout', text:'Substrait treats a query plan as a portable semantic contract that another engine must either understand exactly or reject before execution.'},
       ],
     },
     {

@@ -420,6 +420,8 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Structured Pruning and N:M Sparsity. A model-compression case study: score weights, build N:M masks, pack sparse operands, verify sparse kernels, and roll out only when quality gates hold..",
+        {type:"callout", text:"N:M sparsity wins by constraining pruning into hardware-regular groups instead of chasing arbitrary zero patterns."},
+        {type:"image", src:"https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png", alt:"Black nonzero entries scattered across a mostly empty sparse matrix.", caption:"Sparse matrix pattern from a finite-element problem; Oleg Alexandrov, public domain, via Wikimedia Commons."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",

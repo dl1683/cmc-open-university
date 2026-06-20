@@ -199,6 +199,7 @@ export const article = {
         'A synthetic bug mutation oracle exists because coding-agent evaluation needs many verified repair tasks, and real bugs are scarce, uneven, and expensive to label. A good benchmark task needs a clean repository, an observable failure, a plausible repair, and proof that the repair actually fixes the failure.',
         'Synthetic mutation can create more tasks, but only if the mutations are realistic and the labels are trustworthy. Randomly damaging text creates nonsense. Mutating code without a failing test creates invisible bugs. Accepting a repair without a passing proof creates noisy training data.',
         'The oracle is the data structure that keeps this honest. It mutates a clean program, proves that the mutation causes an observable failure, asks for or records a repair, and stores the full failing-to-passing proof chain.',
+        {type:'callout', text:'A synthetic repair task is valid only when the oracle proves the clean baseline, injected failure, repaired pass, rerun stability, and split isolation.'},
       ],
     },
     {

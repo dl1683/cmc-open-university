@@ -203,6 +203,7 @@ export const article = {
         'Surrogate-assisted evolution exists because some objective functions are too expensive to call casually. A candidate wing may require a CFD simulation. A robot controller may require a physical trial. A molecule may require a wet-lab assay. A chip layout may require a slow verification run. A model architecture may require hours of training. Plain evolutionary search can burn the budget exploring candidates that a cheaper model could have rejected.',
         'The method keeps the useful part of evolutionary search: generate diverse candidates, mutate, recombine, select, and repeat. It changes how candidates are evaluated. Instead of sending every candidate to the true objective, the system stores an archive of true evaluations, fits a surrogate model on that archive, uses the surrogate to screen many candidates cheaply, and spends true evaluations only on selected infill points.',
         'The trust-region part exists because a surrogate is a proxy, not an oracle. The search loop will push toward places where the surrogate predicts high value. Those are exactly the places where a learned proxy can be wrong. A trust region limits where surrogate recommendations are allowed to guide expensive decisions and uses true evaluation error to expand, shrink, or reset that region.',
+        {type:'callout', text:'Surrogate-assisted evolution separates cheap proposal from expensive truth, then uses trust regions to decide when the proxy deserves influence.'},
       ],
     },
     {

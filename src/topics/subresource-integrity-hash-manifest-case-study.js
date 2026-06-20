@@ -186,6 +186,8 @@ export const article = {
       paragraphs: [
         `Web pages often load scripts and styles from build output, CDNs, package mirrors, analytics vendors, and third-party widgets. If those bytes change unexpectedly, the browser may run code the site owner did not intend to ship. HTTPS protects the connection to the host, but it does not prove that the host served the same artifact the release pipeline produced.`,
         `Subresource Integrity exists to let the page declare the expected digest of a script or stylesheet. The browser downloads the resource, hashes the actual bytes, compares the result with the integrity metadata, and only then executes the script or applies the stylesheet. The decision happens inside the browser before the resource is trusted.`,
+        {type:'callout', text:`SRI makes release bytes addressable by digest so the browser can block silent asset mutation before execution.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/2b/Cryptographic_Hash_Function.svg', alt:'Several text inputs passing through a cryptographic hash function to produce very different digests.', caption:'SHA-1 avalanche-effect diagram; Jorge Stolfi based on work by Helix84, public domain, via Wikimedia Commons.'},
       ],
     },
     {

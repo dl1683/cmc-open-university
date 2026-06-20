@@ -202,6 +202,7 @@ export const article = {
       paragraphs: [
         'Coding agents do not become useful from static prompt-answer pairs alone. Real software work happens inside repositories with dependencies, build scripts, failing tests, hidden assumptions, style conventions, and years of accumulated design choices. A repo-to-gym factory exists because the training unit has to move closer to that real working environment.',
         'SWE-smith is useful to study as a data factory, not just as a benchmark generator. It starts from repositories, wraps them as executable gyms, creates repair tasks, runs agents, verifies outcomes, and promotes only the artifacts that can be replayed and trusted. The output is not merely more examples. It is examples with environment state, proof, provenance, rejection reasons, and split discipline.',
+        {type:'callout', text:'A repo-to-gym factory promotes coding-agent data only when each task carries replayable environment, proof, provenance, and split evidence.'},
       ],
     },
     {

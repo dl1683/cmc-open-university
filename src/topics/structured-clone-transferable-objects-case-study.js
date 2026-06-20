@@ -246,6 +246,7 @@ export const article = {
       paragraphs: [
         'Browser programs constantly cross realm boundaries. A page sends data to a worker. A worker sends a result back. IndexedDB stores a value for later. A service worker talks to a client. These boundaries are useful because they isolate work, but they also require a clear rule for what it means to pass a JavaScript value from one realm to another.',
         'JSON was never enough for that job. It loses Maps, Sets, Dates, typed arrays, ArrayBuffers, cycles, repeated references, errors, blobs, and many platform objects. It also pretends every message is text-shaped. Structured clone exists as the platform serialization mechanism for supported data graphs. Transferable objects exist for the cases where copying a resource is wasteful or where ownership should move instead of duplicate.',
+        {type:'callout', text:'Structured clone makes realm crossing a data contract, while transferables move ownership when copying bytes would waste time or memory.'},
       ],
     },
     {
