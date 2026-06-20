@@ -220,6 +220,8 @@ export const article = {
           ],
         },
         'In the matrix views, rows are ML-KEM objects or parameter sets, and columns are properties (shape, visibility, cost, use case). Watch the visibility column: the entire security argument depends on which objects are public and which stay private.',
+        {type:'callout', text:'ML-KEM turns key exchange into a public ciphertext transport while keeping the shared secret inside a checked module-lattice computation.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/97/Equilateral_Triangle_Lattice.svg', alt:'Equilateral triangular lattice points arranged in a regular grid.', caption:'Equilateral triangle lattice, a simple visual proxy for module-lattice cryptography. Image by Jim.belk, public domain, Wikimedia Commons.'},
         {
           type: 'note',
           text: 'The animation uses symbolic labels, not real polynomial coefficients. Real ML-KEM operates over degree-255 polynomials with coefficients modulo 3329. The structure shown -- seed expansion, NTT multiply, compress, check -- matches the actual pipeline in FIPS 203.',

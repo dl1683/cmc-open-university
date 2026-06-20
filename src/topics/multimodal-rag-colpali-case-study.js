@@ -225,6 +225,7 @@ export const article = {
       paragraphs: [
         'Multimodal RAG exists because many documents do not store their meaning as plain paragraphs. Policies, invoices, scientific papers, medical forms, engineering drawings, slides, dashboards, and regulatory exhibits communicate through layout, tables, figures, checkboxes, visual marks, captions, row and column alignment, and page position. A text-only RAG pipeline can extract words from those documents and still lose the fact that mattered. The answer may be encoded by a tick mark next to a label, a trend line crossing a threshold, a table cell under a grouped header, or a figure referenced from a footnote.',
         'The core data-structure change is that evidence is no longer one list of text chunks. A robust system keeps linked surfaces: OCR tokens, page images, image patches, table cells, chart regions, bounding boxes, captions, document metadata, permissions, embeddings, and cross-page references. Retrieval becomes a fusion problem over multiple evidence types. The system is not trying to make vision replace text. It is trying to preserve the original document geometry long enough for the final answer to be grounded in the actual evidence.',
+        {type:'callout', text:'Multimodal RAG works when retrieval preserves linked evidence surfaces instead of flattening every document into text chunks.'},
       ],
     },
     {

@@ -214,6 +214,8 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Regional ingestion" shows the write path: tasks export metrics to collectors, collectors route data to regional storage, and a configuration plane pushes schemas and rules to each region. "Global query and schema" shows the read path: a global query plane federates across regions, merges partial results, and returns a unified answer to the SRE or dashboard.',
+        {type:'callout', text:'Monarch separates regional write locality from global read federation, then uses metric schemas to make merged answers valid.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Google_data_center.jpg', alt:'Exterior of a Google data center in The Dalles, Oregon with a Google sign in front.', caption:'Google data center in The Dalles, Oregon. Photo by Lambtron, CC BY-SA 4.0, Wikimedia Commons.'},
         {
           type: 'bullets',
           items: [

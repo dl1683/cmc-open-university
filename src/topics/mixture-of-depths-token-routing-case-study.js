@@ -337,6 +337,8 @@ export const article = {
         `Dense transformers spend roughly the same block compute on every token position. That is simple and powerful, but it is wasteful when a sequence contains punctuation, repeated context, easy glue words, and a few hard tokens that carry the real burden of reasoning or prediction.`,
         `Mixture-of-Depths exists to ask a sharper question at each transformer block: which token positions need this layer right now? A learned router scores positions, the top k positions run the block, and the rest route around it through the residual path.`,
         `The goal is adaptive compute without an uncontrolled dynamic graph. The token identities can change by layer, but the capacity k is fixed ahead of time. That gives the model freedom to allocate depth while giving the system a predictable compute budget.`,
+        {type:'callout', text:`MoD keeps layer compute predictable by fixing capacity while letting the router decide which token positions spend that capacity.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/Transformer%2C_full_architecture.png', alt:'Diagram of a standard transformer encoder-decoder architecture with attention and feed-forward blocks.', caption:'Standard transformer architecture. Image by dvgodoy, CC BY 4.0, Wikimedia Commons.'},
       ],
     },
     {

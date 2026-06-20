@@ -475,6 +475,7 @@ export const article = {
       paragraphs: [
         'Mixture-of-Experts layers exist to decouple parameter count from per-token compute. A dense feed-forward block runs the same parameters for every token. A sparse MoE block holds many expert MLPs but activates only one or a few for each token, so the model can gain capacity without paying the full dense cost on every step.',
         'That idea only becomes a real system when routing decisions are turned into bounded buffers, communication counts, expert batches, and a combine plan. The topic is not only model architecture. It is the data structure that lets a transformer layer scatter tokens across experts and then reconstruct one output vector per original token.',
+        {type:'callout', text:'Production MoE is a routing ledger problem: token identity, expert choice, capacity slot, destination rank, and combine weight must survive every shuffle.'},
       ],
     },
     {

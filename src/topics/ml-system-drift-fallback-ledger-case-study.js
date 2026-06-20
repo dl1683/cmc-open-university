@@ -249,6 +249,7 @@ export const article = {
       paragraphs: [
         `An offline model score is a snapshot. Production is a stream. User behavior changes, products launch, policies change, prompts move, retrieval indexes age, embeddings get rebuilt, vendors update models, latency shifts, prices move, and the system keeps answering users while all of that happens.`,
         `A drift and fallback ledger exists because a shipped ML product is not only a model. It is a monitored service with inputs, outputs, retrieval, routing, cost, quality feedback, fallbacks, owners, and recovery actions. The ledger makes those moving parts visible in one operational record so decay is detected, routed, and explained instead of discovered through customer pain.`,
+        {type:'callout', text:`A drift ledger turns production decay into traceable state by joining model behavior, retrieval health, cost, latency, fallback route, and owner.`},
       ],
     },
     {

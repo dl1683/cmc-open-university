@@ -214,6 +214,8 @@ export const article = {
       paragraphs: [
         `Digital signatures let anyone verify that a message, package, certificate, firmware image, or ledger entry came from the holder of a signing key. They solve a different problem from encryption. The point is not secrecy. The point is public, durable accountability: this exact message was authorized and has not been changed.`,
         `ML-DSA is the NIST-standardized module-lattice signature scheme derived from CRYSTALS-Dilithium and specified in FIPS 204. It exists because large quantum computers would break widely deployed classical signature systems such as RSA and ECDSA. A post-quantum migration needs signatures that keep verification public while changing the hard math underneath.`,
+        {type:'callout', text:`Rejection sampling makes Dilithium safe by treating a failed signing attempt as a normal privacy-preserving branch, not an exception.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/97/Equilateral_Triangle_Lattice.svg', alt:'Equilateral triangular lattice points arranged in a regular grid.', caption:'Equilateral triangle lattice, a simple visual proxy for lattice structure. Image by Jim.belk, public domain, Wikimedia Commons.'},
       ],
     },
     {

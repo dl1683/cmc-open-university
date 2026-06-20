@@ -280,6 +280,7 @@ export const article = {
       paragraphs: [
         'The "protocol shape" view traces the architecture from host through client to server, then fans out to tools, resources, and prompts. Active nodes are the layer currently under discussion. Found nodes are capabilities that have been negotiated and are available. Compare nodes are participants whose role is being contrasted with the active set.',
         'The "security model" view traces the threat surface from transport choice through authentication and tool gating to the actual side effect. Active nodes are the security boundary in focus. Compare nodes show the alternative transport or auth path being contrasted.',
+        {type:'callout', text:'MCP is a typed capability boundary where tools, resources, prompts, roots, and sampling have different owners and control rules.'},
         {
           type: 'note',
           text: 'One safe inference rule: if a server node is active and its edge to a capability node is highlighted, that capability has been declared during initialization. If the capability node is not yet active, the client has not discovered or invoked it, and no model can use it.',

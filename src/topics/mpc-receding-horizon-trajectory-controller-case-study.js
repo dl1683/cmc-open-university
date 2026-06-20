@@ -218,6 +218,8 @@ export const article = {
       paragraphs: [
         'Model predictive control, or MPC, is a receding-horizon controller. It predicts future states with a model, solves a constrained optimization problem over a short horizon, applies only the first control, then repeats with fresh state at the next control tick.',
         'For robot and vehicle path tracking, MPC is useful because it can reason about future curvature, steering limits, acceleration limits, smoothness, tracking error, and actuator bounds in one problem. Pure pursuit chooses a target point. MPC chooses a feasible sequence and then trusts only the first command.',
+        {type:'callout', text:'MPC makes one safe command by optimizing a short future, executing only the first step, and replanning from fresh state.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/11/MPC_scheme_basic.svg', alt:'Diagram showing measured output, reference trajectory, predicted output, and manipulated variable over a model predictive control horizon.', caption:'Basic model predictive control scheme. Image by Martin Behrendt, CC BY-SA 3.0 or GFDL, Wikimedia Commons.'},
       ],
     },
     {

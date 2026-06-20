@@ -280,6 +280,7 @@ export const article = {
       paragraphs: [
         'Model inversion exists as a privacy problem because a model output can reveal more than the product team meant to expose. A classifier may not return a database row, but its confidence scores can still help infer a sensitive field, a class prototype, or a training-distribution pattern. The model becomes a compressed statistical object that answers questions about the data used to shape it.',
         'The risk is sharpest when an API returns rich signals: full probability vectors, logits, embeddings, explanations, nearest-neighbor style outputs, or high-resolution confidence scores. These signals are useful for ranking, debugging, calibration, and user experience. They can also give an attacker feedback about which guessed input is closer to the hidden value.',
+        {type:'callout', text:'Model inversion risk comes from treating confidence as harmless metadata when it can act as a search signal over hidden data.'},
         'Fredrikson, Jha, and Ristenpart introduced model inversion attacks that exploit confidence information in machine-learning APIs: https://dl.acm.org/doi/10.1145/2810103.2813677. A public PDF is available at https://rist.tech.cornell.edu/papers/mi-ccs.pdf. The durable lesson is broader than one paper: output contracts are privacy decisions, not just interface design.',
       ],
     },
