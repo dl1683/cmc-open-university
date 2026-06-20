@@ -377,6 +377,8 @@ export const article = {
       paragraphs: [
         `Operational transformation, usually shortened to OT, is a way to make collaborative editing feel local while still converging across users. Each editor applies the user's own change immediately. The network later delivers other people's changes, and those changes may have been written against an older document. OT rewrites the incoming operation so it means the same thing in the local document's current coordinate system.`,
         `The small example is the whole problem in miniature. Alice and Bob both start with ABCD. Alice inserts X after A, producing AXBCD. Bob deletes C, producing ABD. Bob's delete was written as delete position 2 in the original document, but position 2 in Alice's current document is now B. Alice must transform Bob's delete so it targets position 3. Bob must transform Alice's insert against his local delete. If the transform rules are correct, both users end at AXBD without waiting for locks.`,
+        {type:'callout', text:`OT works by translating remote operations from their original base version into the current local coordinate system, preserving intent without locking editors.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/58/Basicot.png', alt:'Diagram showing concurrent edits transformed so replicated documents converge.', caption:'Basic operational transformation example, by Nusnus, CC BY-SA 3.0 or GFDL, via Wikimedia Commons.'},
       ],
     },
     {

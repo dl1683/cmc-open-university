@@ -205,6 +205,7 @@ export const article = {
       paragraphs: [
         'Many writes are slow only because the network is slow. A like, todo add, reorder, or draft edit often has an obvious expected result, and forcing the user to wait for confirmation makes the interface feel broken.',
         'Optimistic UI exists to show the expected result immediately while still keeping enough data to admit failure, retry, rollback, or reconcile with the server result.',
+        {type:'callout', text:'Optimistic UI is safe only when immediate feedback is backed by an explicit mutation log that can project, settle, retry, or roll back intent.'},
       ],
     },
     {

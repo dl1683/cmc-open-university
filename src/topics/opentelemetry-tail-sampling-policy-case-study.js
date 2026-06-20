@@ -180,6 +180,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The graph traces spans flowing through the OpenTelemetry tail sampling processor. Each node is a stage: arrival, buffering, timer, policy evaluation, keep/drop decision, backend export, or memory pressure. Each edge is a data-flow dependency.',
+        {type:'callout', text:'Tail sampling turns trace retention into a bounded join over span evidence, so the collector can keep complete high-value traces instead of random fragments.'},
         {
           type: 'bullets',
           items: [

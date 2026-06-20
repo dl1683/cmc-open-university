@@ -219,6 +219,8 @@ export const article = {
         'Apache Parquet exists because analytical queries read data differently from transactional applications. A transaction often needs one whole row: customer, status, amount, timestamp, address, and so on. An analytical query often needs two or three columns across billions of rows. A row format forces the reader to drag unused bytes through storage, network, decompression, and CPU.',
         'Parquet makes physical layout match analytical access. It groups rows into row groups, stores each column of a row group as a contiguous column chunk, breaks chunks into encoded and compressed pages, and puts metadata in a footer so readers can plan before scanning.',
         'The teaching point is that a file format is a data structure. Parquet is not just "CSV but faster." It is a layout that lets query engines skip columns, skip row groups, compress similar values together, reconstruct nested records, and use write-time metadata as read-time evidence.',
+        {type:'callout', text:'Parquet is a file-format data structure: row groups preserve table chunks while column chunks, pages, and footer metadata make analytical scans skip work.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/47/Apache_Parquet_logo.svg', alt:'Apache Parquet logo.', caption:'Apache Parquet logo, by The Apache Software Foundation, vectorized by Vulphere, Apache License 2.0 and public-domain text logo notice, via Wikimedia Commons.'},
       ],
     },
     {

@@ -224,6 +224,7 @@ export const article = {
       paragraphs: [
         'Parquet already helps analytical queries by storing columns separately and by recording row-group metadata in the footer. That is enough to skip large regions when a predicate cannot match a whole row group. The problem is that row groups are deliberately large. A row group may hold hundreds of thousands or millions of rows so scans are efficient, but a selective query may need only a few pages inside it.',
         'The Parquet page index exists to make pruning smaller than a row group. It gives a reader page-level statistics and page byte locations before the reader walks the data pages. The result is not a database index. It is a compact skip map inside a column chunk.',
+        {type:'callout', text:'The page index turns Parquet metadata into a page-level skip map by separating match decisions from byte locations before the scan begins.'},
       ],
     },
     {

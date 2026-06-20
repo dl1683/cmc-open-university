@@ -314,6 +314,8 @@ export const article = {
           ],
         },
         'In the weighted-particles view, watch the plot frame where sensor evidence splits particles into high-weight and low-weight groups. The separation is not arbitrary -- it reflects how well each hypothesis explains the lidar scan. In the resampling-collapse view, watch the ESS-gated curve stay higher than the always-resample curve. That gap is the diversity cost of unnecessary resampling.',
+        {type:'callout', text:'A particle filter represents belief as weighted hypotheses, then resamples only when weight collapse threatens the diversity needed for future evidence.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/bb/Particle2dmotion.svg', alt:'Particle cloud spreading around a robot motion path.', caption:'Particle motion belief distribution, by Daniel Lu, CC BY-SA 3.0, via Wikimedia Commons.'},
         {
           type: 'note',
           text: 'One safe inference rule: if ESS is above the threshold, the weighted cloud is still diverse enough to carry the posterior. Resampling at that point would delete minority hypotheses that might matter after the next observation.',

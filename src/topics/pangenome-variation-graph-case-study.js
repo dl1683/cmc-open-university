@@ -186,6 +186,8 @@ export const article = {
         'A linear reference genome is a powerful coordinate system, but it is only one path through the variation present in a population. It stores one sequence as the main text and describes other alleles as edits against that text. That is convenient for tools and reports, but it gives the reference allele a privileged position.',
         'The privilege shows up as reference bias. A read carrying an alternate allele, insertion, deletion, or population-specific sequence can map poorly because the aligner searches a path that does not contain the true sequence. The read may receive lower mapping quality, appear as mismatches, become soft-clipped, or fail to seed in the first place.',
         'A pangenome variation graph exists to make multiple genome paths first-class. Shared sequence is represented once, variants become branches, and known haplotypes or assemblies are stored as paths through the same graph. The mapper can then search the variation space directly instead of treating every sample as a damaged copy of one reference.',
+        {type:'callout', text:'A pangenome graph removes reference privilege by storing shared sequence once and representing real genomes as paths through variant branches.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b4/VariationGraph.png', alt:'Variation graph showing aligned DNA sequences converted into branch paths.', caption:'Variation graph illustration, by Alsa74, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

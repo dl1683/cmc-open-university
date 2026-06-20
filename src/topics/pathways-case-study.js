@@ -213,6 +213,7 @@ export const article = {
       paragraphs: [
         'Pathways exists because large ML programs stopped looking like one uniform operation repeated across identical devices. Data parallel training still matters, but modern systems also need tensor parallelism, pipeline stages, sparse experts, multimodal branches, preprocessing, retrieval, serving-time routing, and work that changes shape by input. A rigid runtime can make these programs run, but it often forces researchers to rewrite the model around the limitations of the execution system.',
         'The Pathways paper is best treated as a control-plane case study. It asks how one logical runtime can express a distributed ML program, place pieces of that program on accelerator islands, track asynchronous dependencies, and keep expensive hardware busy. The topic connects TensorFlow Dataflow Case Study, Ray Distributed Execution Case Study, Borg Cluster Scheduler Case Study, Parameter Server Case Study, Pipeline Parallelism, Tensor Parallelism, and Mixture of Experts. Each of those topics covers one pressure; Pathways puts the pressures into one serving and training runtime.',
+        {type:'callout', text:'Pathways treats a large ML program as a dependency graph over futures, letting independent work proceed while one logical runtime coordinates placement and transfers.'},
       ],
     },
     {

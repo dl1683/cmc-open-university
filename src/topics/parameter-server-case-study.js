@@ -212,6 +212,7 @@ export const article = {
       paragraphs: [
         'A parameter server is a distributed machine-learning architecture for a specific pressure: the model state is too large, too frequently updated, or too sparsely accessed for a simple single-machine loop. Workers process training data. Server nodes own shared parameters. Workers pull the parameter ranges they need, compute updates, and push those updates back to the servers that own the relevant state.',
         'The design matters because training is not only math. It is also a distributed state-management problem. Gradients have to move across the network. Model variables have to be partitioned, replicated, checkpointed, and recovered. Some algorithms need strict synchronization. Others can tolerate stale reads if the extra throughput improves wall-clock convergence. A parameter server makes those choices explicit instead of hiding them behind one vague idea of "distributed training."',
+        {type:'callout', text:'A parameter server turns model training into a sharded state-management system where consistency, ownership, and update routing are explicit design choices.'},
       ],
     },
     {
