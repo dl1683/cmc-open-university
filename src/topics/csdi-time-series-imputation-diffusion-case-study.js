@@ -222,6 +222,7 @@ export const article = {
         'Time-series systems usually want a complete rectangular table: one row per variable, one column per timestamp, and a value in every cell. Real data rarely arrives that way. Hospital monitors drop readings. Industrial sensors go offline. Markets close or halt. Mobile devices sample irregularly. The missing entries are not a small formatting problem; they are part of the data-generating process.',
         'The naive goal is to fill the blanks so downstream code can keep running. The stronger goal is to fill them while preserving uncertainty and the fact that they were missing. A blood-pressure gap during a cuff failure is different from a smooth gap in a weather station. A market gap during a halt is different from an ordinary weekend. The mask can carry signal.',
         'CSDI, Conditional Score-based Diffusion for Imputation, exists for this harder version. It treats missing values as conditional generation. The model uses observed values as evidence and samples plausible completions for target positions. The output is not just a patched table. It is a distribution over possible tables.',
+        {type:'callout', text:'CSDI works only when the value matrix, observation mask, target mask, and sample distribution remain separate artifacts instead of being collapsed into a filled table.'},
       ],
     },
     {

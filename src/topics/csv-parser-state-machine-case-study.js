@@ -224,6 +224,8 @@ export const article = {
         'CSV looks like the simplest format in the world until real data arrives. Names contain commas. Notes contain newlines. Quotes appear inside quoted fields. Export tools disagree about dialect details. A parser that works for clean demo rows can silently corrupt production data.',
         'The important idea is that the same character can mean different things depending on parser state. A comma outside quotes ends a field. A comma inside quotes is data. A newline outside quotes ends a record. A newline inside quotes is data. A quote inside a quoted field may close the field, or it may be the first half of an escaped quote.',
         'That makes CSV a practical finite-state machine. The states are small, but the consequences matter because CSV is used at the boundary between spreadsheets, databases, ETL jobs, uploads, analytics tools, and finance workflows.',
+        {type:'callout', text:'CSV parsing is a state problem: delimiters only become structure after the parser knows whether it is inside a quoted field.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9e/Turnstile_state_machine_colored.svg', alt:'State diagram with Locked and Unlocked states and coin and push transitions.', caption:'State-machine transition diagram. Source: Wikimedia Commons, Chetvorno, CC0 1.0.'},
       ],
     },
     {

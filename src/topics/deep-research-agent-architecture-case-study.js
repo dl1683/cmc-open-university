@@ -252,6 +252,7 @@ export const article = {
       paragraphs: [
         'Deep research agents exist because serious research tasks are not one prompt and one answer. They involve source discovery, query reformulation, reading, extraction, contradiction tracking, synthesis, citation support, freshness checks, and final writing.',
         'The architecture matters because a fluent answer can be wrong in many ways: weak sources, stale facts, unsupported claims, hidden contradictions, shallow search, or no audit trail. A research agent needs a workflow that makes evidence and uncertainty visible.',
+        {type:'callout', text:'A deep research agent is trustworthy only when claims, sources, contradictions, freshness, and synthesis state are first-class artifacts rather than hidden prompt context.'},
       ],
     },
     {

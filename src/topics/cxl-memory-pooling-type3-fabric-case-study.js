@@ -224,6 +224,7 @@ export const article = {
       paragraphs: [
         `CXL memory pooling exists because memory capacity is usually bought in the wrong shape. A server can run out of DRAM while the next rack has idle memory trapped behind another CPU socket. A fleet owner can buy enough local DRAM for every peak, but then most of that memory sits dark when the workload mix changes.`,
         `The useful promise is not magic remote RAM. The promise is a managed warm tier: byte-addressable memory that can be assigned, resized, and monitored through a fabric instead of being soldered permanently to one host. That turns memory from a fixed per-server bill into a capacity pool with ownership, placement, health, and policy metadata.`,
+        {type:'callout', text:'CXL pooling turns memory capacity into a managed fabric resource, but placement, ownership, and health metadata decide whether the extra bytes are useful.'},
       ],
     },
     {

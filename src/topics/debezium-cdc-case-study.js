@@ -208,6 +208,7 @@ export const article = {
         'Applications rarely write to a single database and stop. Orders need search indexes updated, caches invalidated, analytics tables fed, and downstream services notified. Every one of those side effects must follow the committed database state -- not precede it, not duplicate it, not miss it.',
         'The straightforward solution is for every code path that writes the database to also publish an event. This is the dual-write pattern: one transaction to the database, one publish to Kafka or a queue, hope they both succeed. It works in the happy path. It breaks under crashes, rollbacks, bulk SQL, and maintenance scripts.',
         'CDC exists because the database already records committed changes in a durable, ordered log. PostgreSQL calls it the WAL (write-ahead log). MySQL calls it the binlog. These logs exist for crash recovery and replication. CDC reuses that same source to feed downstream systems, replacing fragile dual writes with a single pipeline anchored to committed truth.',
+        {type:'callout', text:'Debezium is reliable because it moves the event boundary to the database commit log, leaving consumers to handle replay, schema evolution, and idempotency explicitly.'},
       ],
     },
     {

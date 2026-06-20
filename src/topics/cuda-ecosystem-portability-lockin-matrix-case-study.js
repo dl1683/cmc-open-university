@@ -251,6 +251,7 @@ export const article = {
       paragraphs: [
         'CUDA portability lock-in exists because GPU software is not just kernels. It is compilers, libraries, profilers, collective communication, memory allocators, graph capture, vendor extensions, build systems, container images, and operational habits.',
         'A team may say it wants accelerator portability, but the real question is where its code, performance assumptions, and debugging workflows depend on one vendor ecosystem. A lock-in matrix makes those dependencies visible.',
+        {type:'callout', text:'Accelerator portability is a workload-evidence problem across libraries, kernels, collectives, tooling, and people, not a checkbox for translated source code.'},
       ],
     },
     {

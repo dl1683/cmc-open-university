@@ -284,6 +284,8 @@ export const article = {
           ],
         },
         'Incremental models solve the second half of the case study: warehouse cost. A fact table with four years of events does not need four years of recomputation every hour if only the last batch changed. The hard question is whether the cheap run preserves the same business result that a full rebuild would have produced.',
+        {type:'callout', text:'dbt has two independent contracts: the DAG proves build order and blast radius, while incremental materialization proves the stored table still matches the promised rebuild window.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt:'Directed acyclic graph arranged in topological order with arrows flowing from earlier to later nodes.', caption:'Topological ordering of a DAG. Source: Wikimedia Commons, David Eppstein, CC0 1.0.'},
       ],
     },
     {

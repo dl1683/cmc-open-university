@@ -193,6 +193,7 @@ export const article = {
       paragraphs: [
         'Application teams often need infrastructure without wanting every cloud-provider knob. Platform teams want to expose a stable product API while still owning networks, databases, policies, secrets, quotas, and lifecycle rules.',
         'Crossplane exists to turn Kubernetes into an infrastructure control plane. It lets platform teams define composite APIs, map those APIs to managed resources through Compositions, and let provider controllers reconcile external cloud resources.',
+        {type:'callout', text:'Crossplane turns infrastructure from scattered provider knobs into a reconciled resource graph where a stable product API owns the contract and provider resources own implementation.'},
       ],
     },
     {

@@ -275,6 +275,7 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         'Data availability sampling exists because modular blockchain systems want many parties to check that data was published without forcing every participant to download every byte. Rollups and other execution layers can compute state transitions elsewhere, but they still need the underlying data to be public long enough for honest parties to reconstruct inputs, verify proofs, or challenge fraud. A block header or commitment alone is not enough. A malicious producer can commit to data and then withhold the actual bytes. Full download by every node solves availability, but it caps throughput at what ordinary nodes can fetch, store, and verify. Data availability sampling, or DAS, tries to keep light nodes light while making withholding attacks likely to be caught.',
+        {type:'callout', text:'DAS makes withholding expensive by erasure-coding data before sampling, then treats availability as probabilistic confidence rather than proof that a header is honest.'},
       ],
     },
     {
