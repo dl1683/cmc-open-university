@@ -215,6 +215,8 @@ export const article = {
       paragraphs: [
         'A research system can find more sources than it can read well. Search engines, vector indexes, news feeds, academic databases, and internal corpora all return candidates. The scarce resource is not only web bandwidth. It is attention, context window, citation trust, and the number of claims a final report can support without becoming a pile of weak references.',
         'A source authority triage priority queue sits between retrieval and citation. Retrieval says this item might be relevant. Triage says this item deserves reading now, this one is a duplicate, this one is stale, this one is useful only as a lead, and this one is too risky to quote. The data structure turns source choice into an auditable scheduling problem.',
+        {type:'callout', text:'Source triage is a scheduling problem: read the evidence most likely to support, challenge, or change the report.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/69/Min-heap.png', alt:'Complete binary min heap with the smallest value at the root.', caption:'Complete binary min heap diagram by Vikingstad, Wikimedia Commons, public domain.'},
       ],
     },
     {

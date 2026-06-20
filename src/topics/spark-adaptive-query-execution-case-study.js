@@ -220,6 +220,8 @@ export const article = {
         'Spark Adaptive Query Execution is a runtime optimization layer for Spark SQL. It exists because a distributed SQL engine must choose a physical plan before it has seen the true runtime shape of the data. Catalog statistics, file statistics, sampled estimates, and user hints can be useful, but they are often incomplete or stale. Filters may be more selective than expected. Columns may be correlated. One key may be far hotter than the rest. A table that looks large at planning time may become small after a predicate.',
         'A static plan has to commit early. It chooses join strategies, shuffle partition counts, exchange boundaries, and task shapes before the shuffle output is materialized. If the estimate is wrong, the cluster pays: it can sort and shuffle data that should have been broadcast, create hundreds of tiny tasks that spend more time scheduling than computing, or leave one skewed partition running while the rest of the stage is idle.',
         'AQE adds a feedback loop. Spark still starts with an initial plan, but it treats completed query stages as new evidence. Once a shuffle stage finishes, Spark knows real output sizes and partition sizes. That evidence can be used to rewrite downstream parts of the physical plan before those parts run.',
+        {type:'callout', text:'AQE treats completed shuffle stages as evidence, then changes only the downstream physical work that has not run yet.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/f3/Apache_Spark_logo.svg', alt:'Apache Spark wordmark with orange star.', caption:'Apache Spark logo by Apache Software Foundation, Wikimedia Commons, Apache License 2.0.'},
       ],
     },
     {

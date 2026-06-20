@@ -213,6 +213,7 @@ export const article = {
       paragraphs: [
         'Spark RDDs, or Resilient Distributed Datasets, are immutable, partitioned, distributed collections with lineage. They were introduced to make in-memory reuse practical for cluster workloads such as iterative machine learning and interactive data mining. The problem was not that MapReduce could not process large data. The problem was that many important jobs reused the same working set repeatedly, and writing every stage to durable storage made those jobs slow.',
         'The RDD idea changed the fault-tolerance bargain. Instead of replicating every intermediate result or writing every stage to disk, Spark records how each partition can be recomputed. Cache the data that is worth keeping. If a partition is lost, use lineage to rebuild the missing piece. That is cheaper than up-front replication when transformations are deterministic and recomputation is not too expensive.',
+        {type:'callout', text:'RDDs make cached cluster data recoverable by storing a deterministic recipe for rebuilding lost partitions instead of eagerly replicating every intermediate.'},
       ],
     },
     {

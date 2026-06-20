@@ -215,6 +215,8 @@ export const article = {
       paragraphs: [
         'Post-quantum cryptography is not one replacement algorithm. ML-KEM covers key establishment, ML-DSA covers lattice-based signatures, and SLH-DSA covers stateless hash-based signatures. SLH-DSA, standardized in FIPS 205 and based on SPHINCS+, matters because it gives systems a signature option whose security story is built mostly from hash functions rather than lattice assumptions.',
         'That conservative assumption base is useful for long-lived trust anchors. Firmware, root certificates, audit logs, software releases, and archival records may need signatures that remain credible across many years. SLH-DSA is not chosen because it is small. It is chosen when a hash-based fallback or defense-in-depth signature family is worth the extra bytes.',
+        {type:'callout', text:'SLH-DSA buys stateless post-quantum signatures by moving enough hash proof material into each signature for public recomputation.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Binary hash tree showing leaf blocks, intermediate hashes, and a top hash.', caption:'Binary hash tree diagram by Azaghal, based on David Gothberg original, Wikimedia Commons, CC0.'},
       ],
     },
     {

@@ -209,6 +209,7 @@ export const article = {
           text: 'Safe inference rule: if two warehouses both read shared storage but neither shares compute with the other, then scaling or suspending one warehouse cannot affect the latency or correctness of queries on the other.',
         },
         'The matrix views show the cloud services layer decomposed into its four responsibilities (metadata, optimizer, transactions, security) and the query execution pipeline decomposed into its five stages (parse, plan, scan, exchange, result). The "shared-data architecture" view focuses on structural separation; the "elastic query execution" view focuses on how a query flows through that structure.',
+        {type:'callout', text:'Snowflake turns cloud object storage into the durable source of truth while virtual warehouses become disposable compute boundaries.'},
       ],
     },
     {

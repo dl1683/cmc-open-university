@@ -381,6 +381,7 @@ export const article = {
       paragraphs: [
         'An LLM serving fleet rarely has one kind of request. Some prompts are short chats, some are long-context coding tasks, some need low latency, some can wait, some require a stronger model, and some should be rejected before they harm p99 latency.',
         'An SLO-aware router exists to make those tradeoffs explicit. It sends each request to a model, replica, batch, or queue based on latency targets, cost, quality needs, cache locality, and current load.',
+        {type:'callout', text:'An LLM router is a control plane that scores work, risk, cache locality, and live fleet state before admission.'},
       ],
     },
     {

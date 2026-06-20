@@ -219,6 +219,7 @@ export const article = {
       paragraphs: [
         "Many program-analysis questions are not plain boolean questions. A symbolic executor may need to know whether an 8-bit addition can wrap. A compiler may need to know whether two expressions are equivalent under bit-vector semantics. A verifier may need to know whether an array read after a store must return the stored value. These questions contain booleans, but they also contain arithmetic, arrays, fixed-width words, equality, and functions.",
         "SMT means satisfiability modulo theories. It keeps the SAT idea of searching for a satisfying assignment, but adds background theories that understand richer objects. A modern SMT solver can combine boolean structure with linear arithmetic, bit-vectors, arrays, datatypes, uninterpreted functions, and sometimes quantifiers. The point is not to avoid logic. The point is to use the right logic for program-like values.",
+        {type:"callout", text:"SMT solvers scale by letting a SAT search propose Boolean assignments while theory solvers reject impossible semantic combinations."},
       ],
     },
     {

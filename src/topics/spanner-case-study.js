@@ -170,6 +170,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type:"callout", text:"Spanner gets global SQL semantics by composing consensus, atomic commit, MVCC, and bounded clock uncertainty into one timestamp contract."},
+        {type:"image", src:"https://upload.wikimedia.org/wikipedia/commons/2/27/President_Pi%C3%B1era_receives_ESO%27s_first_atomic_clock.jpg", alt:"Rack-mounted atomic clock with analog meters and controls.", caption:"Atomic clock photo by ESO, Wikimedia Commons, CC BY 4.0."},
       ],
     },
     {

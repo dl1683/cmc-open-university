@@ -190,6 +190,8 @@ export const article = {
       paragraphs: [
         'The simplest approach is broad rerendering. Store state, rerun a component or template when that state changes, and let the render pass rediscover what the screen should look like. This is robust and often fast enough. The cost is that the runtime may revisit a large subtree to update one derived value or one text node.',
         'The opposite approach is manual wiring. After quantity changes, call updateSubtotal. After subtotal changes, call updateTotal. After total changes, call updateDom. This looks efficient at first, but the dependency list becomes a second program. It is easy to forget one callback, run callbacks in the wrong order, or leave a stale callback after a branch stops using a value.',
+        {type:'callout', text:'The runtime becomes efficient when it records the dependency graph while values are read and uses that graph to invalidate only downstream work.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/fe/Tred-G.svg', alt:'Directed acyclic graph with five labeled nodes and arrows showing dependencies.', caption:'Directed acyclic graph diagram by Lyonsam, Wikimedia Commons, public domain.'},
       ],
     },
     {
