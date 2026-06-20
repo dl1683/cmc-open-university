@@ -196,6 +196,7 @@ export const article = {
       paragraphs: [
         'Apache Hudi is a lakehouse table format for record-level upserts, deletes, incremental pulls, and table services over object-store files. Its main data structures are the timeline, file groups, file slices, indexes, copy-on-write tables, merge-on-read tables, and compaction.',
         'The key lesson is that an update-heavy lake table is a storage engine. It cannot pretend that Parquet files are mutable database pages. It has to map record keys to file groups, write new immutable pieces, and let readers reconstruct a valid table state from committed history.',
+        {type:'callout', text:'Hudi makes mutable lake data safe by separating committed table history from immutable file pieces, so readers choose a timeline instant instead of trusting stray objects in storage.'},
       ],
     },
     {

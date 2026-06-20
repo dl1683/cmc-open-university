@@ -166,6 +166,7 @@ export const article = {
       'Prometheus decides that an alert expression is active. Alertmanager decides what humans should hear about it. That second step exists because a real outage can create hundreds of related alert instances, repeated notifications, and symptoms from systems that are only downstream of the first failure.',
       { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Server monitoring infrastructure', caption: 'Production infrastructure generates thousands of alerts — routing and grouping prevent alert fatigue. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0' },
       'The data-structure lesson is label routing. Alert labels are keys, the route tree is a matcher hierarchy, grouping keys batch equivalent alerts, silences are time-bounded predicates, and inhibition rules encode dependency edges between source and target alerts.',
+      {type:'callout', text:'Alertmanager turns alert floods into label scoped decisions: route by ownership, group by incident shape, silence by explicit time window, and inhibit downstream noise when a stronger source alert explains it.'},
       'Primary sources: Alertmanager overview at https://prometheus.io/docs/alerting/latest/alertmanager/ and configuration reference at https://prometheus.io/docs/alerting/latest/configuration/.',
     ] },
     { heading: 'The obvious approach', paragraphs: [

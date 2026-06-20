@@ -233,6 +233,8 @@ export const article = {
       paragraphs: [
         'The "rib pipeline" view traces a BGP UPDATE from peer arrival through Adj-RIB-In, import policy, the decision process, Loc-RIB, and finally the FIB. Active nodes are the current stage of the route. Found nodes are the forwarding result. Compare nodes show where the pipeline has not yet committed.',
         'The "best path case" view walks through a concrete route selection: three candidates for one prefix, policy filters, local preference comparison, and failover when the winner withdraws. Watch which attributes decide each step.',
+        {type:'callout', text:'BGP turns neighbor route claims into forwarding action through staged RIBs, with policy and trust boundaries between every stage.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/36/Internet_Connectivity_Distribution_%26_Core.svg', alt:'Diagram of tier 1 and tier 2 internet connectivity', caption:'Internet connectivity depends on independently operated networks exchanging reachability, the control problem BGP organizes. Source: Wikimedia Commons, Ludovic.ferre, CC BY-SA 3.0.'},
         {
           type: 'note',
           text: 'At each frame, if a node is active and its inbound edge is highlighted, that stage has received or produced routing state. If a downstream node is not yet active, no forwarding decision has been made there. The pipeline is sequential -- each stage must complete before the next can act.',
@@ -242,17 +244,13 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          attribution: 'Yakov Rekhter, RFC 4271 co-author',
-          text: 'BGP is not about finding the shortest path. It is about expressing policy.',
-        },
-        'The internet is not one network. It is roughly 75,000 autonomous systems (ASes) -- independently operated networks run by ISPs, enterprises, cloud providers, universities, and governments. No single authority decides how traffic flows between them. Each AS has its own business relationships, peering agreements, transit contracts, and traffic-engineering goals. BGP exists because these networks need to exchange reachability information while each retaining the right to make independent routing decisions.',
+        'First principles first: the internet is not one network. It is roughly 75,000 autonomous systems (ASes) -- independently operated networks run by ISPs, enterprises, cloud providers, universities, and governments. No single authority decides how traffic flows between them. Each AS has its own business relationships, peering agreements, transit contracts, and traffic-engineering goals. BGP exists because these networks need to exchange reachability information while each retaining the right to make independent routing decisions.',
+        'Inside one AS, routing is mostly an engineering optimization problem: find reachable paths through routers controlled by one operator. Between ASes, routing becomes a sovereignty problem: a network needs to say which prefixes it can reach, which neighbors may use that reachability, which business relationship should win, and which route claims are too risky to accept. BGP is the distributed data structure that lets thousands of separately governed networks publish those claims without handing control to a central planner.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/3/36/Internet_Connectivity_Distribution_%26_Core.svg',
           alt: 'Internet connectivity distribution showing core, transit, and edge autonomous systems in a hierarchical topology',
-          caption: 'The internet\'s AS-level topology. Core networks (Tier 1 providers) peer with each other settlement-free. Transit networks buy upstream from Tier 1 and sell downstream to enterprises. BGP is the protocol that stitches all of these independent routing domains together. Source: Wikimedia Commons, CC BY-SA 3.0.',
+          caption: 'The internet\'s AS-level topology. Core networks (Tier 1 providers) peer with each other settlement-free. Transit networks buy upstream from Tier 1 and sell downstream to enterprises. BGP is the protocol that stitches all of these independent routing domains together. Source: Wikimedia Commons, Ludovic.ferre, CC BY-SA 3.0.',
         },
         'Your network may learn several possible paths for the same prefix from transit providers, peers, route reflectors, internal routers, or customer links. The router cannot treat those updates as packet-forwarding truth. It has to store candidates, apply policy, choose one local view, decide what to advertise, and then program the forwarding plane.',
         'The RIB split is the data model that keeps those duties separate. Adj-RIB-In is what neighbors have told the router. Import policy filters or rewrites that candidate state. Loc-RIB is the router\'s selected local routing information. Adj-RIB-Out is what this router is prepared to tell a neighbor after export policy. The FIB is the packet-speed table used by forwarding hardware or the kernel datapath.',
@@ -291,9 +289,9 @@ export const article = {
         'The wall is policy. The shortest AS path is not always the path an operator wants. A paid customer route may outrank a peer route. A route from one neighbor may be accepted only for certain prefixes. A route may carry communities that request no-export behavior, blackhole handling, prepending, or local preference changes. The router needs a programmable decision surface before packets are affected.',
         {
           type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/6/60/Submarine_cable_map_umap.png',
-          alt: 'World map showing submarine cable connections between continents',
-          caption: 'The physical substrate of BGP: submarine cables connecting continents. Each cable landing station connects autonomous systems that must negotiate reachability through BGP. A single misconfigured BGP session at one of these interconnection points can reroute traffic for entire countries. Source: Wikimedia Commons, CC BY-SA 4.0.',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/a/a5/1901_Eastern_Telegraph_cables.png',
+          alt: 'World map of Eastern Telegraph Company submarine telegraph cable routes in 1901',
+          caption: 'Long-haul routing has always depended on physical paths across oceans and continents. BGP adds a control plane above that substrate: it decides which commercial and administrative path should carry reachability over the physical world. Source: Wikimedia Commons, unknown author, Public domain.',
         },
         'The second wall is churn. Paths are withdrawn, links fail, route reflectors update, prefixes flap, and validation state changes. If the router discards every losing candidate, a failure of the current winner forces a slow rediscovery process. If it retains alternatives, the best-path process can promote a backup already present in Adj-RIB-In.',
         'The third wall is blast radius. BGP mistakes propagate. A route leak can redirect traffic across the wrong network. A prefix hijack can attract traffic to an unauthorized origin. A stale next hop can blackhole traffic. The data structure is not academic; its invariants are operational safety rules.',
@@ -317,7 +315,7 @@ export const article = {
           ],
         },
         'BGP is a path-vector protocol. Each route advertisement carries the complete sequence of AS numbers the route has traversed. When AS 64501 advertises prefix 203.0.113.0/24 to AS 64502, it prepends its own AS number to the path. AS 64502 sees the path [64501] and knows the route originated at 64501. If 64502 re-advertises the route to AS 64503, the path becomes [64502, 64501]. If that advertisement ever loops back to AS 64501, it sees its own number in the path and rejects it.',
-        'This is fundamentally different from link-state protocols like OSPF, which flood the complete topology to every router and then run Dijkstra\'s algorithm locally. Link-state works beautifully inside a single organization (one AS), but it cannot scale to 75,000 autonomous systems. It also cannot express policy -- there is no way to say "prefer customer routes over peer routes" in a link cost.',
+        'This is fundamentally different from link-state protocols like OSPF, which flood the complete topology to every router and then run Dijkstra\'s algorithm locally. Link-state works beautifully inside a single organization (one AS), but it cannot scale to 75,000 autonomous systems. It also has the wrong abstraction for interdomain policy: a link cost cannot faithfully encode customer revenue, peering contracts, export restrictions, route validation, and traffic-engineering intent across independent organizations.',
         {
           type: 'note',
           text: 'BGP uses TCP (port 179) as its transport, not raw IP like OSPF. This means BGP sessions are point-to-point, reliable, and ordered. A BGP speaker maintains a separate TCP session with each neighbor. The protocol does not flood -- it sends updates only when routes change.',
@@ -375,15 +373,15 @@ export const article = {
         },
         {
           type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/0/09/BGP_FSM.svg',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/a/a8/BGP_FSM.svg',
           alt: 'BGP finite state machine showing the states Idle, Connect, Active, OpenSent, OpenConfirm, and Established with transitions between them',
-          caption: 'The BGP finite state machine. A BGP session transitions through Idle, Connect, Active, OpenSent, OpenConfirm, and Established states. Route advertisements only flow in the Established state. Understanding the FSM matters because a session that never reaches Established produces no routes -- and a session that drops from Established triggers withdrawal of all routes learned from that peer. Source: Wikimedia Commons, CC BY-SA 3.0.',
+          caption: 'The BGP finite state machine. A BGP session transitions through Idle, Connect, Active, OpenSent, OpenConfirm, and Established states. Route advertisements only flow in the Established state. Understanding the FSM matters because a session that never reaches Established produces no routes -- and a session that drops from Established triggers withdrawal of all routes learned from that peer. Source: Wikimedia Commons, Johannes Roessel, CC BY-SA 3.0.',
         },
         'The critical insight is that steps 2-3 (weight and local preference) are entirely operator-controlled. They override everything else. This is how a network engineer says "always prefer customer routes over peer routes" or "always exit through this specific transit provider." The AS path length at step 5 only matters if the operator has not already decided at steps 2-3.',
         {
           type: 'code',
           language: 'javascript',
-          body: '// Simplified BGP decision process.\nfunction selectBestPath(candidates) {\n  let eligible = candidates.filter(r => r.nextHopReachable);\n  if (eligible.length === 0) return null;\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 3: Highest LOCAL_PREF (operator policy dominates)\n  const maxLP = Math.max(...eligible.map(r => r.localPref));\n  eligible = eligible.filter(r => r.localPref === maxLP);\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 5: Shortest AS_PATH\n  const minLen = Math.min(...eligible.map(r => r.asPath.length));\n  eligible = eligible.filter(r => r.asPath.length === minLen);\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 7: Lowest MED (only compare routes from same neighbor AS)\n  // Step 8: Prefer eBGP over iBGP\n  eligible = eligible.filter(r => r.sessionType === \'ebgp\') || eligible;\n\n  // Step 9: Lowest IGP metric to next hop (hot-potato routing)\n  const minIGP = Math.min(...eligible.map(r => r.igpCost));\n  eligible = eligible.filter(r => r.igpCost === minIGP);\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 11: Lowest router ID (deterministic tiebreaker)\n  eligible.sort((a, b) => a.routerId.localeCompare(b.routerId));\n  return eligible[0];\n}',
+          body: '// Simplified BGP decision process.\nfunction selectBestPath(candidates) {\n  let eligible = candidates.filter(r => r.nextHopReachable);\n  if (eligible.length === 0) return null;\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 3: Highest LOCAL_PREF (operator policy dominates)\n  const maxLP = Math.max(...eligible.map(r => r.localPref));\n  eligible = eligible.filter(r => r.localPref === maxLP);\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 5: Shortest AS_PATH\n  const minLen = Math.min(...eligible.map(r => r.asPath.length));\n  eligible = eligible.filter(r => r.asPath.length === minLen);\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 7: Lowest MED (only compare routes from same neighbor AS)\n  // Step 8: Prefer eBGP over iBGP, but keep iBGP if no eBGP path remains.\n  const ebgp = eligible.filter(r => r.sessionType === \'ebgp\');\n  if (ebgp.length > 0) eligible = ebgp;\n\n  // Step 9: Lowest IGP metric to next hop (hot-potato routing)\n  const minIGP = Math.min(...eligible.map(r => r.igpCost));\n  eligible = eligible.filter(r => r.igpCost === minIGP);\n  if (eligible.length === 1) return eligible[0];\n\n  // Step 11: Lowest router ID (deterministic tiebreaker)\n  eligible.sort((a, b) => a.routerId.localeCompare(b.routerId));\n  return eligible[0];\n}',
         },
         'Step 9 deserves special attention: hot-potato routing. When multiple eBGP exits exist for the same prefix with the same local preference and AS path length, the router picks the exit closest to itself in the interior network. This means traffic leaves the AS as quickly as possible, minimizing the sending AS\'s cost. The receiving AS then carries the traffic further. This is the default economic behavior of transit networks.',
       ],
@@ -438,7 +436,7 @@ export const article = {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif',
           alt: 'Animation showing packets being switched through network nodes along different paths',
-          caption: 'Packet switching in action. Each router makes an independent forwarding decision based on its FIB. BGP\'s job is to populate those FIBs with consistent, policy-compliant forwarding entries so that packets reach their destination even though no single router sees the full path. Source: Wikimedia Commons, CC BY-SA 3.0.',
+          caption: 'Packet switching in action. Each router makes an independent forwarding decision based on its FIB. BGP\'s job is to populate those FIBs with consistent, policy-compliant forwarding entries so that packets reach their destination even though no single router sees the full path. Source: Wikimedia Commons, Oddbodz, CC BY-SA 3.0.',
         },
         'Import policy runs before the candidate can become local truth. Policy can reject the route, prefer it, lower its preference, attach tags, modify attributes allowed by the deployment, or route it into a particular table. This is where business intent enters the algorithm. The best mathematical path and the best commercial path are often different.',
         'The decision process compares eligible candidates using the 13-step ladder described above. The comparison is deterministic: given the same eligible candidates and policies, the same route wins. This determinism is essential for convergence -- if routers made different choices from the same inputs, the network would oscillate.',
@@ -463,13 +461,13 @@ export const article = {
         },
         'Now assume the router at AS 64503 learns three candidates for 203.0.113.0/24 from different peers. Peer A offers AS path [64501, 64496] with local preference 200 (set by import policy because 64501 is a paid customer). Peer B offers AS path [64502] with local preference 150. Peer C offers an even lower MED but matches an import filter that rejects it.',
         'A naive shortest-path rule would be tempted by B (path length 1) or C (lowest MED). The actual policy-shaped decision picks A. Local preference is an operator-controlled signal at step 3, and it dominates AS path length at step 5. The network is saying that traffic should leave through A even if B appears shorter in the path vector. Peer C never reaches the comparison because policy removes it from eligibility.',
-        'Now peer A withdraws the route. If peer B is still retained as a candidate and its next hop remains reachable, the router can rerun the decision process and promote B into Loc-RIB. The FIB update still has to be published carefully, but the control plane does not need to ask the entire internet for a fresh answer. This is why retaining losing candidates matters -- reconvergence from Adj-RIB-In takes milliseconds; reconvergence from scratch takes minutes.',
+        'Now peer A withdraws the route. If peer B is still retained as a candidate and its next hop remains reachable, the router can rerun the decision process and promote B into Loc-RIB. The FIB update still has to be published carefully, but the control plane does not need to ask the entire internet for a fresh answer. This is why retaining losing candidates matters: promoting a known backup can be much faster than rediscovering reachability across the AS graph, where convergence can take seconds to minutes.',
       ],
     },
     {
       heading: 'The global routing table: scale and structure',
       paragraphs: [
-        'As of 2024, the global BGP routing table contains approximately 1 million IPv4 prefixes and 200,000 IPv6 prefixes. These numbers grow steadily as address space is fragmented for traffic engineering, multihoming, and DDoS mitigation. Every BGP-speaking router on the default-free zone (DFZ) must store and process all of these routes.',
+        'By 2024, the global BGP routing table was operating at roughly million-prefix scale. A June 2026 CIDR Report snapshot showed 1,061,942 IPv4 prefixes and 78,895 autonomous systems, which is the right order of magnitude to keep in your head: every default-free router is participating in a distributed database with around a million destination records and tens of thousands of independent origin domains. These numbers grow as address space is fragmented for traffic engineering, multihoming, and DDoS mitigation.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg',
@@ -478,14 +476,14 @@ export const article = {
         },
         {
           type: 'table',
-          headers: ['Metric', 'Approximate value (2024)', 'Trend'],
+          headers: ['Metric', 'Approximate value', 'Trend'],
           rows: [
-            ['IPv4 prefixes in DFZ', '~1,000,000', 'Growing ~5-8% per year'],
+            ['IPv4 prefixes in DFZ', '~1,000,000 in 2024; 1,061,942 in June 2026 CIDR Report snapshot', 'Growing steadily as prefixes fragment'],
             ['IPv6 prefixes in DFZ', '~200,000', 'Growing ~15-20% per year'],
-            ['Active autonomous systems', '~75,000', 'Growing ~3-5% per year'],
-            ['Full table memory (per router)', '~2-4 GB RAM', 'Grows with prefix count'],
+            ['Active autonomous systems', '~75,000 in 2024; 78,895 in June 2026 CIDR Report snapshot', 'Growing as more networks multihome'],
+            ['Full table memory (per router)', 'Implementation-dependent GB-scale control-plane state', 'Grows with prefix count, path diversity, and retained alternatives'],
             ['Convergence time (single prefix)', '30 seconds to 15 minutes', 'Depends on MRAI timers, dampening, path exploration'],
-            ['BGP UPDATE messages per day', 'Billions globally', 'Spikes during outages and route leaks'],
+            ['BGP UPDATE volume', 'Low during calm periods, bursty during outages and route leaks', 'Spikes when many prefixes flap or a major AS withdraws'],
           ],
         },
         'Convergence time is a critical operational metric. When a route changes, the update must propagate through the AS graph. BGP uses Minimum Route Advertisement Interval (MRAI) timers -- typically 30 seconds for eBGP -- to batch updates and prevent flooding. This means a single route change can take minutes to fully propagate. During that window, different routers have different views of the network, and packets may take suboptimal or even looping paths.',
@@ -516,9 +514,9 @@ export const article = {
         'Finally, the design works because BGP is incremental. The internet is too large for every small change to rebuild everything from scratch. Route updates modify candidate sets, decision processes rerun for affected prefixes, selected routes change, and forwarding tables are updated for the consequences.',
         {
           type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg',
-          alt: 'Server racks in a data center showing the physical infrastructure that BGP routing connects',
-          caption: 'Data center infrastructure at the Wikimedia Foundation. Every server rack connects to the internet through routers running BGP. The routing decisions made by BGP determine which physical paths traffic takes across thousands of miles of fiber to reach these servers. Source: Wikimedia Commons, CC BY-SA 3.0.',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/1/11/Submarine_cable_cross-section_3D_plain.svg',
+          alt: 'Cross-section diagram of a submarine communications cable showing protective layers and optical fibers',
+          caption: 'BGP chooses logical reachability, but those paths eventually ride physical media such as submarine fiber. A routing table cannot route around damage unless another physical and commercial path exists. Source: Wikimedia Commons, Oona Raisanen, Public domain.',
         },
       ],
     },
@@ -530,15 +528,15 @@ export const article = {
           type: 'table',
           headers: ['Incident', 'Date', 'What happened', 'Root cause', 'Impact'],
           rows: [
-            ['Pakistan YouTube hijack', 'Feb 2008', 'Pakistan Telecom (AS 17557) announced YouTube\'s prefix 208.65.153.0/24 as a more-specific /25', 'Government-ordered block implemented as a BGP hijack that leaked to upstream PCCW', 'YouTube unreachable globally for ~2 hours'],
-            ['Facebook outage', 'Oct 4, 2021', 'Facebook (AS 32934) withdrew all BGP routes for its prefixes', 'Maintenance command accidentally removed all BGP peering configurations', 'Facebook, Instagram, WhatsApp down for ~6 hours. DNS failed because resolvers couldn\'t reach Facebook\'s authoritative nameservers.'],
+            ['Pakistan YouTube hijack', 'Feb 2008', 'Pakistan Telecom (AS 17557) announced 208.65.153.0/24, a more-specific route for part of YouTube\'s address space', 'Government-ordered domestic block implemented as a BGP announcement that leaked upstream to PCCW', 'YouTube unreachable globally for ~2 hours'],
+            ['Facebook outage', 'Oct 4, 2021', 'Facebook\'s backbone command caused border routers and DNS sites to withdraw BGP advertisements', 'A maintenance command disconnected the backbone and removed reachability to authoritative DNS infrastructure', 'Facebook, Instagram, WhatsApp down for ~6 hours. DNS failed because resolvers could not reach Facebook\'s authoritative nameservers.'],
             ['Cloudflare/Verizon leak', 'Jun 24, 2019', 'A small ISP (AS 396531) leaked 20,000+ prefixes through Verizon (AS 701)', 'BGP optimizer at a small PA ISP leaked internal routes to transit; Verizon had no route filtering', 'Cloudflare, Amazon, and others saw traffic rerouted through a small ISP not equipped to handle it'],
           ],
         },
-        'The Pakistan YouTube hijack is the textbook case. Pakistan Telecom was ordered to block YouTube domestically. An engineer implemented the block by originating YouTube\'s prefix 208.65.153.0/24 as two more-specific /25 routes (208.65.153.0/25 and 208.65.153.128/25). Because longest-prefix match means more-specific routes always win in the FIB, these /25 announcements overrode YouTube\'s legitimate /24 everywhere they propagated. The routes leaked to PCCW (a major transit provider) and spread globally. YouTube was unreachable worldwide for approximately two hours until PCCW withdrew the bogus routes.',
-        'The Facebook outage of October 2021 was self-inflicted. A routine maintenance command intended to assess backbone capacity accidentally removed all BGP peering configurations. Facebook\'s border routers withdrew all routes for Facebook-owned prefixes. Because Facebook\'s DNS authoritative servers were also behind those prefixes, DNS resolution for facebook.com, instagram.com, and whatsapp.com failed globally. The recovery was slowed because Facebook\'s internal tools -- also dependent on the same network -- were unreachable, and physical access to data centers required badge systems that relied on the downed network.',
+        'The Pakistan YouTube hijack is the textbook case. Pakistan Telecom was ordered to block YouTube domestically. The block was implemented by originating 208.65.153.0/24, a more-specific route for part of YouTube\'s address space than the broader route many networks already knew. Because longest-prefix match means the more-specific route wins in the FIB, traffic followed the bogus announcement wherever it propagated. The route leaked to PCCW, a major transit provider, and spread globally. YouTube was unreachable worldwide for approximately two hours until the route was withdrawn.',
+        'The Facebook outage of October 2021 was self-inflicted. A routine maintenance command intended to assess backbone capacity disconnected Facebook\'s backbone from the rest of the network. The loss of internal reachability caused the systems hosting Facebook\'s authoritative DNS to withdraw their BGP advertisements, so resolvers could no longer reach the nameservers for facebook.com, instagram.com, and whatsapp.com. Recovery was slowed because many internal tools and access systems depended on the same network that was down.',
         {
-          type: 'callout',
+          type: 'note',
           text: 'The Facebook outage revealed a dangerous dependency: when your DNS infrastructure depends on the same BGP announcements as your services, a BGP withdrawal becomes a total outage. This is why critical infrastructure should maintain routing independence from the services it supports.',
         },
       ],
@@ -556,7 +554,7 @@ export const article = {
             ['Not Found', 'No ROA exists for this prefix', 'Accept (default) -- most prefixes still lack ROAs'],
           ],
         },
-        'RPKI adoption has grown significantly: as of 2024, approximately 50% of IPv4 routes have valid ROAs, up from under 10% in 2019. Major networks (Cloudflare, Google, AT&T, NTT) now drop RPKI-invalid routes entirely. If RPKI had been widely deployed in 2008, the Pakistan YouTube hijack would have been automatically rejected by validating routers because Pakistan Telecom was not authorized to originate YouTube\'s prefix.',
+        'RPKI adoption has grown significantly. By 2024, a large share of the routed table had valid ROAs, and many major networks reject RPKI-invalid routes. If RPKI had been widely deployed and enforced in 2008 with correct ROAs for YouTube\'s space, the Pakistan YouTube hijack would have been rejected by validating routers because Pakistan Telecom was not authorized to originate that prefix.',
         'RPKI does not solve all problems. It validates origin only -- it does not prevent route leaks (where a valid route is re-advertised to an unintended neighbor). BGPsec (RFC 8205) was designed to validate the entire AS path, but it has seen almost zero deployment due to performance costs (cryptographic validation per hop) and operational complexity. The practical defense against route leaks remains careful import/export filtering, community-based signaling, and monitoring systems like RIPE RIS and RouteViews.',
         {
           type: 'note',
@@ -609,7 +607,7 @@ export const article = {
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 4271, "A Border Gateway Protocol 4 (BGP-4)", especially the RIB definitions and Decision Process: https://datatracker.ietf.org/doc/html/rfc4271. RFC 9069 discusses Loc-RIB access through BMP and restates the Loc-RIB role: https://datatracker.ietf.org/doc/html/rfc9069. RFC 6811 covers RPKI-based route origin validation: https://datatracker.ietf.org/doc/html/rfc6811.',
+        'Primary sources: RFC 4271, "A Border Gateway Protocol 4 (BGP-4)", especially the RIB definitions and Decision Process: https://datatracker.ietf.org/doc/html/rfc4271. RFC 4456 covers BGP route reflection: https://datatracker.ietf.org/doc/html/rfc4456. RFC 1997 defines communities: https://datatracker.ietf.org/doc/html/rfc1997. RFC 2439 defines route flap damping: https://datatracker.ietf.org/doc/html/rfc2439. RFC 6811 covers RPKI-based route origin validation: https://datatracker.ietf.org/doc/html/rfc6811. CIDR Report provides current global table snapshots: https://www.cidr-report.org/as2.0/.',
         {
           type: 'bullets',
           items: [
