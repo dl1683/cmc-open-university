@@ -168,6 +168,8 @@ export const article = {
       paragraphs: [
         'DNS is full of repeated misses. Users mistype hostnames, bots probe random names, deploys delete records, and applications retry after failures. Without negative caching, every repeated miss can walk from the recursive resolver to root, TLD, and authoritative servers again.',
         'Negative caching exists to make authoritative absence reusable for a bounded time. A resolver can answer repeated NXDOMAIN or NODATA queries locally, reducing user latency and protecting authoritative servers from useless traffic.',
+        {type: 'callout', text: 'Negative caching is bounded reuse of authoritative absence, with the cache key and TTL carrying the safety guarantee.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Domain_name_space.svg', alt: 'Diagram of the DNS namespace tree with delegated zones and resource-record sets.', caption: 'Domain name space and zone-delegation diagram, LionKimbro and Wereldburger758, public domain, via Wikimedia Commons.'},
       ],
     },
     {

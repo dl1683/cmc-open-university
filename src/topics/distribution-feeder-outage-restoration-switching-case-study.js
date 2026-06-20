@@ -219,6 +219,8 @@ export const article = {
       paragraphs: [
         `A distribution outage is not solved by finding any path from a source to a dark load. The utility must isolate the fault, avoid energizing unsafe equipment, preserve protection assumptions, respect crews in the field, and restore as much priority load as possible. Reachability is only the first layer.`,
         `That makes restoration a constrained graph-control problem. The graph contains substations, feeder sections, load blocks, protective devices, normally-open ties, switches, faulted sections, DERs, ratings, voltage constraints, telemetry confidence, and crew clearance. A useful planner has to reason about topology and electrical state at the same time.`,
+        {type: 'callout', text: `Outage restoration is guarded state-space search, where every switch action must preserve safety, radiality, electrical limits, and operator rollback.`},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/87/A_recloser_installed_on_a_remote_feeder.jpg', alt: 'A utility pole with a recloser installed on a rural distribution feeder.', caption: 'Recloser installed on a rural distribution feeder, TheEnergeticEngineer, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

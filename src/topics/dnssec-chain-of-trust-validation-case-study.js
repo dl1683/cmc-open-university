@@ -182,6 +182,8 @@ export const article = {
       paragraphs: [
         "Classic DNS is a distributed naming system, not a proof system. It can tell a resolver that `www.example.com` has an address, but the base protocol does not prove that the answer was signed by the zone owner or left unchanged in transit. That gap made forged answers and cache poisoning valuable attacks.",
         "DNSSEC adds data origin authentication and integrity. A validating resolver does not merely ask what answer came back. It asks whether the answer can be proven by signatures and key delegations that connect back to a configured trust anchor, normally the root key.",
+        {type: "callout", text: "DNSSEC validation is a proof path through delegated keys, not a signature check on the final RRset alone."},
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/d/d2/DNS_schema.svg", alt: "Schematic diagram of the domain-name hierarchy from a root node through top-level domains and subdomains.", caption: "DNS hierarchy diagram, TilmannR, based on work by Hank van Helvete and George Shuklin, CC BY-SA 2.5, via Wikimedia Commons."},
       ],
     },
     {

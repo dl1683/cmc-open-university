@@ -237,6 +237,7 @@ export const article = {
           type: 'note',
           text: 'The animation uses small integer step counts and short token sequences for readability. Production diffusion servers handle hundreds of concurrent requests with 8-64 denoise steps, variable block sizes, and per-route confidence policies. The scheduling structure is the same -- the fields and thresholds scale.',
         },
+        {type: 'callout', text: 'A diffusion LLM scheduler batches by denoise-state compatibility, not by the autoregressive prefill/decode shape.'},
       ],
     },
     {

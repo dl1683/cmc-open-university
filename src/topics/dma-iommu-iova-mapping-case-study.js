@@ -180,6 +180,8 @@ export const article = {
       paragraphs: [
         'DMA is the mechanism that lets a device move bytes to or from main memory without asking the CPU to copy every byte. An NVMe controller can write disk data into page-cache pages. A NIC can fill receive buffers. A GPU or accelerator can read command buffers and write results. The CPU still sets up the operation, but the hot transfer path belongs to the device.',
         'The hard part is address meaning. A driver owns a CPU-visible buffer, usually reached through a kernel virtual address. The device cannot safely use that pointer. It needs an address in the device DMA address space, and on many machines that address is an I/O virtual address translated by an IOMMU. The Linux DMA API is the contract that turns a CPU buffer into a device-visible token with a direction, length, and lifetime.',
+        {type: 'callout', text: 'A DMA mapping is a temporary device-side capability, not a CPU pointer handed to hardware.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d6/MMU_and_IOMMU.svg', alt: 'Diagram comparing CPU virtual-address translation through an MMU with device-address translation through an IOMMU.', caption: 'MMU and IOMMU address-translation diagram, DTR after Intgr, public domain, via Wikimedia Commons.'},
       ],
     },
     {

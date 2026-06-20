@@ -218,6 +218,8 @@ export const article = {
       paragraphs: [
         'Vector search starts with a simple promise: given an embedding, return nearby embeddings that probably represent similar items. The difficult version appears when the collection is too large to keep every full vector and every graph edge in RAM. A billion vectors can make an otherwise elegant in-memory nearest-neighbor index financially or physically unrealistic.',
         'DiskANN exists for that pressure point. It treats SSD storage, RAM cache, graph layout, compressed scoring, and beam search as one data structure. The goal is not merely to store vectors on disk. The goal is to spend a small number of useful SSD reads per query while keeping recall high enough for search, recommendation, or retrieval-augmented generation.',
+        {type: 'callout', text: 'DiskANN works because the graph, beam, cache, compression, and SSD layout are tuned as one bounded-I/O data structure.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1a/2023_Dysk_SSD_Patriot_P210_2TB.jpg', alt: 'A 2.5-inch solid-state drive photographed on a neutral background.', caption: '2.5-inch Patriot P210 SSD, Jacek Halicki, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

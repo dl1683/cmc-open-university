@@ -223,6 +223,7 @@ export const article = {
       paragraphs: [
         'DNS TTLs are freshness contracts, but real authoritative paths fail. Nameservers time out, networks partition, DDoS attacks hit authority, and service-discovery control planes have outages. If a resolver discards an expired positive RRset at the exact moment authority is unreachable, users can lose a working service even though the last known answer is probably still useful.',
         'Serve-stale exists to choose bounded old data over immediate failure during a refresh outage. It is a resolver resilience policy, not a claim that TTLs stopped mattering.',
+        {type: 'callout', text: 'Serve-stale keeps availability by treating expired positive answers as deadline-limited fallbacks, not as fresh truth.'},
       ],
     },
     {

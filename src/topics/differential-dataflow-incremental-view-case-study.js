@@ -240,6 +240,7 @@ export const article = {
       paragraphs: [
         `Differential dataflow exists because many useful computations are too expensive to rerun from scratch after every small change. A dashboard, recommendation graph, fraud detector, search index, or materialized database view may receive a tiny update while depending on billions of older records. Recomputing the whole answer is easy to reason about, but it wastes work and creates latency that grows with total history rather than with the actual change.`,
         `The hard version is not just maintaining a simple count. Real computations join streams, retract old facts, run nested iteration, and need answers at logical times. A user can move from one region to another. An order can be corrected. A graph edge can appear and later disappear. Differential dataflow gives these systems a precise model: represent data as signed differences, route those differences through a dataflow graph, index reusable state, track progress with frontiers, and compact history when it is safe.`,
+        {type: 'callout', text: `The maintained view is a ledger of signed changes plus indexed history, with frontiers deciding when old detail can safely disappear.`},
       ],
     },
     {

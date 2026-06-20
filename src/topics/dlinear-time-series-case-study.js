@@ -226,6 +226,7 @@ export const article = {
       paragraphs: [
         'DLinear is a forecasting baseline from the paper Are Transformers Effective for Time Series Forecasting? The case study matters because it attacked a common shortcut in machine learning research: if transformers work well for language, then attention-heavy models should also dominate long-term numeric forecasting. The paper introduced LTSF-Linear, a family of one-layer linear baselines, and showed that those simple models were hard to beat on several long-horizon benchmarks.',
         'DLinear is the decomposition member of that family. It splits a time series into a trend component and a residual seasonal component, applies a linear forecasting head to each, and adds the two forecasts. The model is deliberately small. That is the lesson. Complexity is useful only when it captures structure the simple model misses. If the task mostly rewards ordered lag weights, trend, and repeated seasonal shape, a direct linear bias can be stronger than an expensive attention stack.',
+        {type: 'callout', text: 'The DLinear lesson is that a small model with the right decomposition can beat a large model that ignores the simplest structure in the task.'},
       ],
     },
     {

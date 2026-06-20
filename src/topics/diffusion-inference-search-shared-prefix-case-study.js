@@ -234,6 +234,7 @@ export const article = {
       paragraphs: [
         `Language-model search is usually explained with autoregressive models: generate the next token, branch into several possible next tokens, score the partial answers, and continue. That works, but it repeats a large amount of work. Every candidate has its own left-to-right path. The model also carries a separate KV-cache history for each surviving branch. Beam search, tree-of-thought search, and verifier-guided sampling can improve quality, but the bill rises quickly because each branch keeps asking the model to extend a different prefix.`,
         `Diffusion language models change the shape of the problem. They do not have to commit one token at a time from left to right. A masked diffusion model can start with a partly or fully masked sequence, denoise many positions in parallel, and decide later which slots deserve more attention. That makes a new inference-time search pattern possible. If several candidate answers share the same early denoising trajectory, the system can do the coarse work once, then branch only after the important uncertainties become visible.`,
+        {type: 'callout', text: `In diffusion search, the reusable prefix is shared model state, so the controller should branch only when uncertainty becomes decision-critical.`},
       ],
     },
     {
