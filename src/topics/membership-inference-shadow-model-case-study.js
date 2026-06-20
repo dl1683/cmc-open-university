@@ -286,6 +286,7 @@ export const article = {
       paragraphs: [
         'Membership inference asks a narrow question with serious privacy consequences: was this exact record in the training set of this model? The attacker does not need to steal the record, recover a label, or invert the model into a readable sample. Participation can be the secret. If the model was trained on hospital discharges, fraud investigations, genetic tests, therapy chats, or disciplinary records, proving that one person appears in the training data can reveal something sensitive even when every individual prediction looks ordinary.',
         'This topic exists because machine learning privacy is not only about encrypting datasets at rest. A trained model can become a side channel. The classic black-box result by Shokri, Stronati, Song, and Shmatikov showed that confidence vectors can leak train-versus-holdout fingerprints, especially when a model overfits and exposes rich probabilities. The case study here treats membership inference as both an attack and a release audit: if an outside party can learn participation from model behavior, the model is carrying private evidence out through its API.',
+        {type:'callout', text:'Membership inference treats model confidence as behavioral evidence of training participation, so privacy must be audited as a release property.'},
       ],
     },
     {

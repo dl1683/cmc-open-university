@@ -230,6 +230,8 @@ export const article = {
       paragraphs: [
         'Mesa is Google\'s geo-replicated, near-real-time analytic data warehouse for critical measurement data. It was built for data that needs to be fresh enough for operational and business decisions, consistent enough for people to trust, and replicated enough to survive regional failures. Advertising and measurement data are a good mental model: new facts arrive continuously, corrections happen, dashboards must stay responsive, and inconsistent reports can directly affect decisions.',
         'The case study matters because it teaches that a warehouse is not only a query engine. It is also a versioned distributed system. Mesa has to ingest updates, maintain materialized views, expose consistent versions to readers, compact data, replicate across regions, and support corrections. Freshness and correctness are not separate product features; they are architecture constraints.',
+        {type:'callout', text:'Mesa separates data arrival from data visibility, letting fresh updates become trustworthy only when a committed version is coherent.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/2d/Google_datacenter_%282007%29_-_panoramio_-_erwinboogert_%282%29.jpg', alt:'Exterior view of a Google data center building in Eemshaven, Netherlands.', caption:'Google data center in Eemshaven, 2007. erwinboogert, CC BY-SA 3.0, via Wikimedia Commons.'},
       ],
     },
     {

@@ -201,6 +201,7 @@ export const article = {
       paragraphs: [
         'Medusa is a multi-token decoding method for large language models. It attaches several lightweight heads to a target model so one forward pass can propose tokens for future positions. Those proposals are arranged into a candidate tree and verified with a tree-attention mask. The goal is to emit more than one token per expensive target iteration while preserving the target model contract through verification.',
         'The method is important because it shows that speculative decoding does not always require a separate draft model. Medusa keeps the backbone and adds future-token heads. That makes the data structures especially clear: head output tables, top-k candidate pools, parent-linked trees, ancestry masks, accepted-prefix ledgers, and fallback controls. A curriculum should teach it as a systems mechanism, not as a magic speedup label.',
+        {type:'callout', text:'Medusa speeds decoding only when the candidate tree preserves ancestry and the target model verifies the accepted prefix.'},
       ],
     },
     {

@@ -200,6 +200,8 @@ export const article = {
       paragraphs: [
         'A matching engine cannot allow two gateways to race the same book. If two crossing commands arrive at nearly the same time, the venue needs one official order of application, one official book mutation sequence, and one replayable audit trail.',
         'The sequencer exists to assign that total order. The event log exists so the book can be explained, reconstructed, reconciled, and recovered. This is not only a trading concern; it is the general systems problem of turning concurrent inputs into deterministic state.',
+        {type:'callout', text:'The sequencer turns concurrent order flow into one replayable history, so book state becomes a deterministic derivation rather than a race.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/86/NYSE_%E0%B8%99%E0%B8%B2%E0%B8%A2%E0%B8%81%E0%B8%A3%E0%B8%B1%E0%B8%90%E0%B8%A1%E0%B8%99%E0%B8%95%E0%B8%A3%E0%B8%B5_%E0%B9%80%E0%B8%82%E0%B9%89%E0%B8%B2%E0%B8%A3%E0%B9%88%E0%B8%A7%E0%B8%A1%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%9B%E0%B8%A3%E0%B8%B0%E0%B8%8A%E0%B8%B8%E0%B8%A1%E0%B8%AA%E0%B8%A1%E0%B8%B1%E0%B8%8A%E0%B8%8A%E0%B8%B2%E0%B8%AA%E0%B8%AB%E0%B8%9B%E0%B8%A3%E0%B8%B0%E0%B8%8A%E0%B8%B2%E0%B8%95%E0%B8%B4_-_Flickr_-_Abhisit_Vejjajiva_%2815%29.jpg', alt:'View of the New York Stock Exchange trading floor with desks, screens, and NYSE banners.', caption:'NYSE trading floor, 2009. Photo by Peerapat Wimolrungkarat for Government of Thailand, CC BY 2.0, via Wikimedia Commons.'},
       ],
     },
     {

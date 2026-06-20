@@ -219,6 +219,7 @@ export const article = {
       paragraphs: [
         'One naive approach is to build one giant scheduler that understands every workload. The scheduler would know how Spark stages work, how Hadoop map tasks prefer data blocks, how MPI jobs need gang scheduling, how service tasks should be restarted, and how every future framework will express its needs. In small environments this can look attractive because one control plane can enforce one policy. At cluster scale, it becomes a bottleneck for innovation. Every new framework has to teach the central scheduler a new set of concepts.',
         'Another naive approach is to expose raw machines and let frameworks compete directly. That avoids central policy work, but it pushes fairness, isolation, recovery, and utilization into the wrong layer. A greedy framework can consume machines while peers wait. A failed worker can leave stale state. Operators lose the ability to apply quota and priority consistently. Mesos sits between those extremes. It is not a full framework scheduler, and it is not a free-for-all machine pool.',
+        {type:'callout', text:'Mesos keeps the common cluster layer thin by offering resources while framework schedulers keep workload-specific placement logic.'},
       ],
     },
     {

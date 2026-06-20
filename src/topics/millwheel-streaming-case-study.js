@@ -214,6 +214,7 @@ export const article = {
         'MillWheel exists because many useful computations do not arrive as neat daily files. Ads are clicked now, fraud signals arrive now, monitoring events arrive now, and users expect dashboards or alerts before the next batch job. A streaming system has to process an unbounded input while machines fail, messages repeat, and events arrive out of order.',
         'A stateless stream processor is simple. Read a message, run a callback, emit a result, acknowledge the message. That model works for filtering, parsing, and routing. It fails for the workloads that made MillWheel important: per-user counters, session windows, anomaly detectors, joins against recent history, and alerts that depend on what happened earlier for the same key.',
         'The real problem is state plus time plus failure. If a worker increments a per-key count and crashes before the update is durable, the next worker may miss the event. If it emits an alert and then crashes before acknowledging input, replay may emit the alert again. If event time differs from processing time, a window can close before a late record arrives. MillWheel treats those problems as the streaming contract rather than as application footnotes.',
+        {type:'callout', text:'MillWheel makes streaming correct by coupling per-key state, timers, input acknowledgments, and output effects into one replay-safe contract.'},
       ],
     },
     {

@@ -181,6 +181,7 @@ export const article = {
       paragraphs: [
         'A long-term metrics backend has to accept high-rate Prometheus remote-write traffic without putting every sample on one machine. It also has to survive node churn, tenant bursts, and rolling upgrades while keeping recent samples available.',
         'A Mimir-style write path exists to split that problem cleanly. Distributors validate and shard incoming series. Ingesters own recent series state. A hash ring decides which ingesters receive each series.',
+        {type:'callout', text:'A Mimir-style ring maps each series key to replicated ingester owners, but write safety depends on membership state and acknowledgments.'},
       ],
     },
     {

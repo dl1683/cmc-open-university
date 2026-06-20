@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         'Metrics are excellent at telling you that something changed. A latency histogram can show that checkout p99 jumped. It cannot, by itself, show which request caused one of those slow observations or what happened inside that request.',
         'Traces are excellent at explaining one request. They are too expensive and too detailed to replace aggregate metrics. Metric exemplars exist to connect the two: keep the metric aggregated, but attach a bounded pointer from an interesting observation to one concrete trace or span.',
+        {type:'callout', text:'Exemplars preserve one trace join key at metric observation time, giving aggregate histograms a bounded path back to concrete requests.'},
       ],
     },
     {

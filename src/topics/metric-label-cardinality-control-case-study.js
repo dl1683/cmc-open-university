@@ -243,6 +243,7 @@ export const article = {
       paragraphs: [
         'Dimensional metrics are powerful because labels let teams ask operational questions without creating a new metric for every slice. A service can expose one request counter and use labels for method, status, route, region, version, and tenant tier. Dashboards and alerts can then aggregate across the dimensions that matter.',
         'The same mechanism can break the monitoring system. A time series is the metric name plus the full set of label values. Every unique combination creates storage, index, memory, and query work. Metric label cardinality control exists so observability remains reliable during incidents instead of becoming another system that fails under surprise input.',
+        {type:'callout', text:'Metric labels are schema, not scratch space: bounded dimensions keep aggregates useful while high-cardinality facts move to traces and logs.'},
       ],
     },
     {

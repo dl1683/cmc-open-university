@@ -210,6 +210,7 @@ export const article = {
         'mini-SWE-agent is valuable because it strips a coding agent down to the loop that actually changes the world: build context, ask the model for an action, execute that action, record the observation, update the budget, and repeat until a verifier or stop condition ends the run.',
         'That makes it a good teaching object. Many agent systems bury the same loop under planners, memories, reflection prompts, dashboards, and routing layers. Those extras may help, but this case study asks a sharper question: which contracts must exist before any of those extras matter?',
         'The answer is not "just call the model." A small agent still needs a tool grammar, an environment boundary, a transcript, a current-diff record, a cost counter, a stop rule, and a verifier. Without those pieces, the agent cannot be debugged, compared, or trusted.',
+        {type:'callout', text:'A small coding agent works when the transcript, tool grammar, environment boundary, budget, and verifier are explicit contracts.'},
       ],
     },
     {
