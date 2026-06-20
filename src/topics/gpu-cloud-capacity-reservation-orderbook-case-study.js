@@ -245,6 +245,8 @@ export const article = {
       paragraphs: [
         'GPU reservations exist because accelerator supply is scarce, expensive, and not fully fungible. A company can have a large contract and still fail a launch if the reserved capacity is in the wrong zone, on the wrong GPU generation, behind the wrong network topology, bound to a different tenant, outside the launch window, or blocked by quota.',
         'The orderbook makes those facts explicit. It treats reserved capacity as typed state that must be matched, held, metered, used, and released. This is not only a finance topic. It connects procurement, platform scheduling, customer commitments, inference routing, training windows, and idle-capacity leakage into one operational control problem.',
+        {type:'callout', text:'A GPU reservation is useful only when its typed attributes match the workload, time window, topology, quota, and owner.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9a/NetApp_ONTAP_AI.jpg', alt:'Rack display containing 100Gb network switches, NetApp storage, and NVIDIA DGX systems.', caption:'NetApp All-Flash FAS system with NVIDIA DGX, photo by Qdrddr, Wikimedia Commons, CC BY-SA 4.0/GFDL.'},
       ],
     },
     {

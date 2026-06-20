@@ -213,6 +213,7 @@ export const article = {
       paragraphs: [
         'Monitoring systems need recent time-series data to be cheap enough to keep hot. Operators ask dashboards and alert rules about the last minutes or hours constantly, and they need answers during incidents. If recent samples spill into slow storage too early, observability becomes less useful exactly when it matters.',
         'Gorilla was Facebook Meta\'s in-memory time-series database design for recent monitoring data. Beringei carried the same idea into an open-source storage engine. The key lesson is that compression can change the storage tier where data lives, not merely reduce a bill after the fact.',
+        {type:'callout', text:'Gorilla-style compression wins because the codec is shaped around ordered per-series chunks that match the hot query path.'},
       ],
     },
     {

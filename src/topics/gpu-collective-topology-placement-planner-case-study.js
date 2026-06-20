@@ -217,6 +217,7 @@ export const article = {
       paragraphs: [
         'A collective algorithm is only as good as the rank placement it receives. The program may create ranks 0 through 7 and ask for an all-reduce, but the hardware sees GPUs, PCIe roots, NVLink domains, NUMA nodes, NICs, switch ports, and network rails. If logical neighbors land on distant devices, a good collective can still take a bad path. If scale-out flows all choose one rail, average GPU utilization can hide a tail-latency problem.',
         'The placement planner exists to make rank mapping an explicit part of distributed training and serving. It decides where ranks should run before NCCL, the framework, and the scheduler turn device visibility into execution. The planner is not a replacement for NCCL topology awareness. It is the layer that states the intent: these ranks are tensor-parallel neighbors, these replicas should be spread, these buckets should stripe across rails, and this launch must fail if the actual topology does not match.',
+        {type:'callout', text:'Rank placement is graph mapping: expensive communication edges should land on the cheapest physical links the hardware can provide.'},
       ],
     },
     {

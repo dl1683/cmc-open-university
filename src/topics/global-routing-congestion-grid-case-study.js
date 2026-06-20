@@ -215,6 +215,8 @@ export const article = {
         `After placement, the chip has legal cell coordinates but not physical wires. Every signal net needs metal shapes, vias, spacing, shielding where needed, and connections to pins. Exact detailed routing for the whole chip from scratch is too large and rule-heavy: tracks, layers, design-rule spacing, macro obstructions, antenna effects, and pin access all interact.`,
         `Global routing creates a coarse plan before exact geometry. It divides the chip into routing regions, often called G-cells, and models the boundaries between regions as edges with capacity. Each net receives a coarse route tree through this grid. The result is not final metal. It is a guide that says which regions and layers a net should use and where the design is likely to run out of routing resources.`,
         `The point is early evidence. If a macro channel has demand six and capacity four, detailed routing does not need to spend hours proving the obvious. Placement, buffering, layer assignment, or macro planning may need to change. Global routing gives the flow a congestion map with ownership and available detours.`,
+        {type:`callout`, text:`Global routing turns exact metal into a capacity graph so congestion becomes measurable, owned, and repairable before detailed routing begins.`},
+        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/a/ac/Motorola68040die.jpg`, alt:`Close-up macro photograph of a Motorola 68040 die with visible interconnect regions and bond wires.`, caption:`Motorola 68040 die, photo by Farwestern and Gregg M. Erickson, Wikimedia Commons, CC BY 3.0.`},
       ],
     },
     {

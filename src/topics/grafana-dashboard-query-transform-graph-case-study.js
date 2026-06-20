@@ -165,6 +165,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Panel graph" traces the data-flow pipeline inside a single Grafana panel: dashboard scope, variable injection, query dispatch, data-source fetch, frame return, transformation, and visualization. "Dashboard ops" exposes the operational knobs that decide whether that pipeline helps during an incident or overloads the metrics backend.',
+        {type:'callout', text:'A Grafana panel is trustworthy only when every visible value can be traced from variable scope through query, frame, transform, and visualization.'},
         {
           type: 'bullets',
           items: [

@@ -228,6 +228,7 @@ export const article = {
       paragraphs: [
         `A streaming system receives facts before it knows the whole story. Mobile clients reconnect after being offline. Ad impressions arrive before clicks. Sensors buffer readings and upload them later. A payment event may be processed after a refund event even though the payment happened first. The business question is usually phrased in event time: how many checkouts happened between 10:00 and 10:05, which users were active in a session, what was the p99 latency during an incident window? The machine sees processing time: when bytes arrived at a worker.`,
         `The Google Dataflow Model matters because it treats this mismatch as the central design problem, not as an implementation detail. Streaming is not merely batch computation with an endless input. A useful stream processor must say what time a record belongs to, when a partial answer is worth emitting, how corrections are represented, and when the system is allowed to give up on very late data.`,
+        {type:`callout`, text:`Dataflow makes time a first-class contract by separating event time, processing time, watermarks, triggers, and correction policy.`},
       ],
     },
     {

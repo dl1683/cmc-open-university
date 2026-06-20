@@ -325,6 +325,8 @@ export const article = {
       paragraphs: [
         'GPU allocation is too expensive and synchronization-heavy to treat like ordinary throwaway memory in hot inference paths. Frameworks keep memory in pools so tensors can reuse device blocks without returning every free to the driver.',
         'That creates a new failure mode: reserved memory can be high while live tensor memory is lower, and fragmentation can make a large allocation fail even when total free bytes look sufficient. The allocator needs a ledger, not guesses from nvidia-smi.',
+        {type:'callout', text:'GPU memory failures are often block-shape and lifetime failures, so the allocator ledger matters more than a single free-byte total.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4a/External_Fragmentation.svg', alt:'Diagram of external memory fragmentation showing free and allocated blocks.', caption:'External fragmentation diagram by Hjasud, retouched by Incnis Mrsi, Wikimedia Commons, CC0.'},
       ],
     },
     {

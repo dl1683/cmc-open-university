@@ -224,6 +224,8 @@ export const article = {
       paragraphs: [
         'Neighbor sampling is the training trick that makes Graph Neural Networks practical on graphs too large for full-batch message passing. Instead of updating every node over every edge in one step, the loader chooses seed nodes, samples bounded neighborhoods, gathers features, and trains on the resulting computation graph. This turns a graph-scale problem into a sequence of subgraph mini-batches.',
         'GraphSAGE introduced the core inductive idea: learn an aggregation function that samples and aggregates local neighborhoods so embeddings can be generated for unseen nodes: https://arxiv.org/abs/1706.02216. That idea connects Graph Neural Networks to ordinary mini-batch training while preserving graph structure.',
+        {type:'callout', text:'Neighbor sampling makes the loader part of the model by bounding each batch while preserving the dependency cone that message passing needs.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/98/Network-graph.png', alt:'Colorful graph visualization with clustered nodes and edges.', caption:'Network graph visualization by Savionasc, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

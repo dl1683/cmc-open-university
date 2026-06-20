@@ -197,6 +197,8 @@ export const article = {
       paragraphs: [
         'The Google File System is a lesson in designing from the real workload instead of from an inherited interface. Early Google storage was not dominated by people opening small files, editing them in place, and expecting workstation-style POSIX behavior. It was dominated by crawled web data, logs, index shards, batch jobs, and large derived files. Files were often huge. Reads were often long and sequential. Writes were often appends. Failures were not rare incidents; they were normal events in a fleet made from many commodity machines.',
         'A conventional file system tries to make storage look like a reliable local disk. GFS starts from the opposite assumption. Machines fail, disks fail, networks drop messages, and applications can participate in recovery if the storage system gives them the right contract. The design is therefore less elegant in the abstract and more honest in production. It chooses high throughput, large-scale recovery, and simple operational repair over complete file-system generality.',
+        {type:'callout', text:'GFS works because compact metadata stays centralized while bulk data, mutation ordering, and repair move to the machines that own the bytes.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9d/Wikimedia_Servers-0051_19.jpg', alt:'Rows of black server racks in a bright data center corridor.', caption:'Wikimedia server racks, photo by Helpameout, Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {
