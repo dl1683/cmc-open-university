@@ -225,6 +225,7 @@ export const article = {
         'The one-pixel attack is a clean way to teach a disturbing fact about neural networks: a model can be highly accurate on normal images and still be sensitive to tiny, targeted input changes. The attack asks whether changing only one pixel can make an image classifier choose the wrong class.',
         'The point is not that all real attacks use one literal pixel. The point is that high-dimensional models can make brittle decisions, and the boundary between classes can pass surprisingly close to natural-looking inputs. One pixel is a microscope for studying that boundary.',
         'For learners, the constraint is useful because it removes excuses. The image is not covered with noise, the label is not changed by a human, and the attack budget is easy to inspect. If a model fails anyway, the failure has to be explained through model geometry, feature sensitivity, and search.',
+        {type:'callout', text:'A one-pixel attack shows that robustness depends on decision-boundary geometry, not on whether an input change looks meaningful to humans.'},
       ],
     },
     {

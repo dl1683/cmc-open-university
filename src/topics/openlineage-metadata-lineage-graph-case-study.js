@@ -221,6 +221,8 @@ export const article = {
         'Data teams need to answer impact questions before they change a table, schema, job, column, dashboard, feature set, or quality rule. Without lineage, the answer lives in tribal knowledge, stale diagrams, warehouse naming conventions, and emergency chat threads after something breaks.',
         'OpenLineage exists to make data movement observable as a typed event stream. Jobs emit events with runs, input datasets, output datasets, and facets. A lineage backend turns those events into a graph that can answer upstream source questions, downstream blast-radius questions, run-history questions, ownership questions, and data-quality questions.',
         'The practical constraint is freshness. A lineage diagram drawn by hand is useful the day it is drawn and suspect the day after. Data platforms change through scheduler edits, dbt models, notebooks, CDC streams, warehouse jobs, dashboards, manual backfills, and one-off scripts. A production lineage graph has to be built from systems that actually move data.',
+        {type:'callout', text:'OpenLineage turns data movement into evidence by recording each run as graph edges plus facets, not as a hand-maintained diagram.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/fe/Tred-G.svg', alt:'Directed graph with five labeled nodes and arrows between them.', caption:'Example directed acyclic graph; original by Lyonsam, public domain, via Wikimedia Commons.'},
       ],
     },
     {

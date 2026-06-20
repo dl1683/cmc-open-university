@@ -213,6 +213,8 @@ export const article = {
       paragraphs: [
         'The animation shows a cluster cell with three specialized schedulers -- batch, service, and ML -- connected to a shared cell-state node, which in turn connects to physical machines. Active (highlighted) nodes mark the scheduler or machine currently involved in a placement decision. Found edges mark successful commits. Compare edges mark competing schedulers whose transactions may conflict.',
         'In the "shared-state scheduling" view, watch how all three schedulers read from the same cell state simultaneously and propose placements independently. In the "conflicts and retries" view, follow a single conflict through the optimistic transaction lifecycle: two schedulers read the same snapshot, both target machine A, one commits first, and the loser refreshes and retries.',
+        {type:'callout', text:'Omega turns cluster scheduling from one serialized policy engine into parallel planners guarded by a shared state store that rejects stale placements.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/71/Amazon_AWS_us-west-2_morrow_east_AZ_01.jpg', alt:'Aerial view of several large data center buildings.', caption:'AWS us-west-2 availability zone, used here as a generic large cluster setting; photo by Tedder, CC BY-SA 4.0, via Wikimedia Commons.'},
         {
           type: 'note',
           text: 'The key visual inference: if two schedulers both show active edges to the same machine, one transaction will fail at commit. The cell state node is the single source of truth that detects and rejects the conflict.',

@@ -199,6 +199,8 @@ export const article = {
       paragraphs: [
         'Telemetry systems need distributions, not only averages. A service can have a healthy mean latency while the p99 is broken. Request size, queue time, retry delay, and RPC duration can also span orders of magnitude, so a small number of fixed-width buckets often puts resolution in the wrong place.',
         'OpenTelemetry exponential histograms exist to let SDKs aggregate high-dynamic-range measurements into a compact distribution. The representation gives roughly stable relative precision across small and large values while keeping aggregation inside the metrics pipeline instead of exporting every raw event.',
+        {type:'callout', text:'Exponential histograms make distribution cost explicit by trading scale for precision before raw measurements leave the SDK.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/2a/Wikipedia_bincounts.svg', alt:'Three histograms of the same data using different bin counts.', caption:'Sample histogram with different bin sizes; image by Zckub, CC0 public domain dedication, via Wikimedia Commons.'},
       ],
     },
     {

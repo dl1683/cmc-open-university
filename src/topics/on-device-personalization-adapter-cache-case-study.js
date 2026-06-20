@@ -193,6 +193,7 @@ export const article = {
         'The animation has two views. The adapter-cache view traces the lifecycle of personal state from server shipment through local tuning, caching, and rollback. The personal-eval view traces how federated evaluation measures whether personalization helped without exporting raw user data.',
         'Active nodes are the current decision point. Found markers are state whose validity has been confirmed by a guard (hash check, schema match, TTL). Removed markers are state that failed a guard and must be purged. Compare markers show the fallback path the system uses when personal state is absent or invalid.',
         'In the histogram frame, the "hurt" marker at the left tail and the "win" marker at the right show why a single positive average is dangerous: the distribution, not the mean, drives the release gate.',
+        {type:'callout', text:'Personalization stays safe when the global base model remains immutable and every local adapter is treated as versioned cache state with rollback guards.'},
       ],
     },
     {

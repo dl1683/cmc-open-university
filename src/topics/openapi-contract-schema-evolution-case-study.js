@@ -224,6 +224,7 @@ export const article = {
       paragraphs: [
         'OpenAPI exists because an HTTP API is more than server code. It is a contract between callers, servers, documentation, generated clients, test suites, gateways, and operators. A path, method, request body, response schema, status code, authentication rule, and example all shape what clients believe they can send and receive. If that contract lives only in prose or in scattered handler code, every consumer has to infer behavior from implementation details.',
         'A good OpenAPI document makes the contract machine-readable. It describes paths, operations, parameters, request bodies, responses, schemas, security, examples, callbacks, and reusable components. Tools can then generate SDKs, render docs, validate requests, build mocks, run contract tests, and check compatibility before a release. The practical reason is simple: once many clients depend on an API, changing a field is a migration problem, not just a code change.',
+        {type:'callout', text:'An OpenAPI contract is a dependency graph where schema edits must be diffed by client-visible compatibility rather than by line changes.'},
       ],
     },
     {

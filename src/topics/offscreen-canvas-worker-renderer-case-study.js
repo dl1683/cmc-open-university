@@ -211,6 +211,7 @@ export const article = {
         'Canvas rendering can compete with input handlers, layout work, app code, and accessibility updates on the main thread. A map, timeline, chart, game, or scientific viewer can make the page feel broken even when the rendering code is technically correct.',
         'OffscreenCanvas exists to move canvas drawing into a worker while the DOM canvas still occupies its place in the document. The page can keep handling layout, controls, text, focus, and accessibility while the worker owns the pixel pipeline.',
         'The teaching point is ownership. The renderer is not cloned into another thread. The page transfers control to an OffscreenCanvas, transfers that object to a worker, and then talks to the renderer through an explicit message protocol.',
+        {type:'callout', text:'OffscreenCanvas is an ownership transfer pattern: DOM and input stay on the main thread while pixels and render state move behind an explicit worker protocol.'},
       ],
     },
     {

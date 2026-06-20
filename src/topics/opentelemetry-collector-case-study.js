@@ -216,6 +216,7 @@ export const article = {
       paragraphs: [
         'Modern systems do not emit one clean stream of diagnostic data. They emit traces, metrics, logs, profiles, events, runtime stats, host stats, Kubernetes metadata, and vendor-specific fields from many languages and frameworks. That data has to cross process boundaries, network boundaries, compliance boundaries, and cost boundaries before it becomes useful in a dashboard or incident review. Without a shared layer, every service has to know where telemetry goes, which fields are allowed, how to retry, which attributes must be renamed, and which data should be sampled.',
         'The OpenTelemetry Collector exists because telemetry became infrastructure. It is a vendor-neutral process that receives observability signals, applies policy, and exports them to one or more backends. The goal is not only convenience. The goal is to move operational decisions out of application business logic and into a pipeline that platform teams can configure, deploy, audit, and monitor. Instrumentation libraries still create spans and measurements, but the Collector becomes the place where production traffic policy is enforced.',
+        {type:'callout', text:'The Collector is a policy graph on the telemetry path, so reliability, cost, privacy, and routing decisions belong in processors and topology.'},
       ],
     },
     {

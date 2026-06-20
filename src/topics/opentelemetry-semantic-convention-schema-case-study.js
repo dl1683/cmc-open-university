@@ -167,6 +167,7 @@ export const article = {
       paragraphs: [
         'Observability data is only useful when separate signals can be compared. During an incident, engineers move from a latency chart to a trace, from a trace to a log line, from a log line to a deployment, and from a deployment to the service owner. That movement depends on shared names. If one library says service, another says app, another says service_name, and another omits the field entirely, the backend has data but not structure. Search becomes manual and dashboards become fragile.',
         'OpenTelemetry semantic conventions exist to define common names and meanings for telemetry attributes. They cover resources, instrumentation scopes, spans, metrics, logs, events, profiles, and domain-specific operations such as HTTP, databases, messaging, cloud infrastructure, and runtimes. The point is not decoration. The point is correlation. A stable service.name, deployment.environment, service.version, cloud.region, http.route, and error.type can join evidence across signals without guessing.',
+        {type:'callout', text:'Semantic conventions are the schema layer that lets traces, metrics, logs, and deployments join into one incident narrative.'},
       ],
     },
     {
