@@ -224,6 +224,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'An actionable click is not a selector match; it is a proof that the browser will deliver the event to the intended element at that moment.'},
         {type: 'quote', text: 'The selector matched is not the same as the browser will deliver this event to the intended element.', attribution: 'Playwright actionability documentation, core design principle'},
         'A browser action is a state transition against a moving target. Between the moment an agent or test decides to click a button and the moment the mouse event fires, the page can re-render the element, animate it to a new position, cover it with a cookie banner, disable it during validation, or replace the DOM node entirely via a framework reconciliation pass.',
         'Traditional automation sends raw input events and hopes the page is ready. That works on static demos. On production UIs with transitions, lazy loading, skeleton screens, modals, and client-side routing, the gap between "element exists" and "element is ready for input" is the entire reliability problem.',

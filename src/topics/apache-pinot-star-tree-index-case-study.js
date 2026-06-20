@@ -218,6 +218,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'A star-tree is a workload-shaped shortcut: it stores the rollups a dashboard keeps asking for so query time pays for matching aggregates, not raw rows.'},
         'Apache Pinot serves low-latency analytical queries over immutable segments. A dashboard query such as "revenue by country for the last hour" may touch millions of event rows per segment even when the answer has only a few groups.',
         'Columnar storage, dictionaries, inverted indexes, and sorted columns reduce scan work, but repeated aggregation still burns CPU if every query has to re-sum the same raw rows. A star-tree index exists for the repeated case: precompute the rollups that the workload keeps asking for, then read those rollups at query time.',
       ],
@@ -233,6 +234,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'A star node means "all values for this dimension from here down." Instead of storing only raw documents, the segment also stores documents whose dimension value is a wildcard and whose metric columns already contain aggregates.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/52/OLAP_Cube.svg', alt:'OLAP cube with product, city, and time dimensions', caption:'OLAP cube showing dimensions that can be sliced and rolled up — star-tree indexing pre-aggregates selected combinations of these dimensions inside a Pinot segment. Source: Wikimedia Commons, OLAP Cube.svg, Konrad Roeder and Rehua, CC BY-SA 3.0.'},
         'That wildcard is the useful compression. If the query does not need to distinguish device, the server can use the `country=US, device=*` document instead of adding `country=US, device=mobile` and `country=US, device=web` from raw rows.',
         'The index is workload-shaped, not universal. The configured split dimensions, aggregation functions, max leaf records, and skipped star-node dimensions decide which rollups exist and which queries can use them.',
       ],

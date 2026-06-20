@@ -240,7 +240,9 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
+        {type:'callout', text:'Architectural complexity is not size; it is the distance a change can travel. The more dependencies a local edit can reach, the more the organization pays for every future change.'},
         "The architectural complexity cost case study comes from Daniel Sturtevant's MIT thesis \"System Design and the Cost of Architectural Complexity.\" The thesis studies complexity that arises from breakdowns in hierarchy and modularity. Instead of treating complexity as a vague feeling, it represents software architecture as dependency networks and design structure matrices, then relates those structures to organizational costs.",
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/36/A_sample_Design_Structure_Matrix_%28DSM%29.png', alt:'Sample design structure matrix with dependency marks between seven elements', caption:'A design structure matrix makes dependency marks visible as cells — the thesis uses this representation to link architecture shape to defect and productivity costs. Source: Wikimedia Commons, A sample Design Structure Matrix (DSM).png, DeKXer, CC BY-SA 3.0/GFDL.'},
         'The key idea is propagation cost. If a change in one file can reach many other files through dependencies, the system is harder to change safely. Core-periphery structure, cycles, and back edges make local edits nonlocal. Developers experience that as coordination burden, more tests to update, more regressions, and slower delivery.',
       ],
     },

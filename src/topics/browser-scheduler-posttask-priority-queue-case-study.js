@@ -364,9 +364,11 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'postTask does not make JavaScript preemptive. It only helps when work is small enough to yield, urgent work has a higher lane, and stale work can be cancelled.'},
         'The browser main thread has to run input handlers, JavaScript, style, layout, paint, and framework work without making typing and scrolling feel stuck. One long task can block all of it.',
         'Applications often create work with different urgency. Echoing a keystroke is urgent. Recomputing visible rows is important but chunkable. Rebuilding a search index can wait. A plain FIFO queue cannot express those differences.',
         'scheduler.postTask gives application-owned main-thread tasks named priorities: user-blocking, user-visible, and background. The lesson is a real browser API, but the data-structure idea is a priority queue plus cancellation scopes plus resumable chunk cursors.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c4/Max-Heap-new.svg', alt:'Binary max-heap with highest-priority value at the root', caption:'A heap is a common priority-queue implementation; use this only as an analogy for browser task priority, not as a claim about the browser internal scheduler. Source: Wikimedia Commons, Max-Heap-new.svg, Kelott, CC BY-SA 4.0.'},
       ],
     },
     {

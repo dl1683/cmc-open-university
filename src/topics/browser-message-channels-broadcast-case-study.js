@@ -225,6 +225,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'MessageChannel is for one scoped conversation; BroadcastChannel is for disposable same-origin signals. The browser moves messages, but your protocol owns durability, ordering, and backpressure.'},
         'Modern browser applications are no longer one script running in one page. A single app may have several tabs open, a dedicated worker doing CPU work, a shared worker coordinating state, a service worker handling network and cache behavior, and iframes or embedded contexts that need controlled communication. These contexts do not share a normal call stack, but they still need to coordinate.',
         'MessageChannel and BroadcastChannel exist because browser coordination needs two different shapes. Sometimes you need a private request/reply pipe between two contexts. Sometimes you need a same-origin announcement that every interested context can hear. Using one global message handler for both shapes becomes confusing quickly.',
         'The educational point is that transport is not protocol. The browser gives you structured-clone messages, transferable ports, and broadcast fanout. You still have to decide what a request means, how replies match requests, where durable state lives, how cancellation works, and what happens when a context closes.',

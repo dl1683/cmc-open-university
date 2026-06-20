@@ -212,12 +212,14 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'BSR only wins when zeros have shape. It turns clusters of nonzeros into dense tiles the hardware can use, but scattered sparsity becomes padded work.'},
         {
           type: 'quote',
           text: 'The key to sparse matrix performance is not the number of zeros -- it is whether the storage format matches the structure the hardware can exploit.',
           attribution: 'Observation from the NVIDIA cuSPARSE design guide',
         },
         'Many sparse matrices are not random dust. Finite-element stiffness matrices have 3x3 or 6x6 blocks corresponding to degrees of freedom per node. Block-pruned transformer weights have 32x32 or 64x64 tiles aligned to GPU warp dimensions. Graph adjacency matrices from community-structured networks cluster nonzeros into dense diagonal blocks.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt:'Sparse matrix from a finite element problem, with nonzero entries shown in black', caption:'Sparse matrices from finite element problems often reveal exploitable block structure rather than random zeros. Source: Wikimedia Commons, Finite element sparse matrix.png, Oleg Alexandrov, public domain.'},
         'The standard scalar sparse format, CSR, stores one row pointer, one column index, and one value per scalar nonzero. For a matrix with 10,000 nonzeros, CSR stores 10,000 column indices. If those nonzeros happen to fall in 100 dense 10x10 blocks, BSR stores 100 block-column indices instead -- a 100x reduction in index metadata -- and each block becomes a regular dense tile that the hardware knows how to multiply fast.',
         {
           type: 'note',

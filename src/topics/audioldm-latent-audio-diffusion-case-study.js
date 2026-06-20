@@ -211,7 +211,9 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'AudioLDM works because it moves the hard part into a smaller space: denoise compact audio latents first, then pay the waveform cost only at decode time.'},
         'Text-to-audio generation must produce acoustic scenes, not labels. "Rain in a metal warehouse with distant thunder" requires reverberant metal surfaces, continuous rain texture at steady energy, a transient thunder event placed at a plausible time, and distance cues that separate the thunder from the foreground rain. A classifier can tag "rain" and "thunder." A generative model must compose them into a physically coherent sound field.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c5/Spectrogram-19thC.png', alt:'Spectrogram of a spoken phrase with frequency over time and intensity by color', caption:'A spectrogram turns audio into time-frequency structure, the kind of representation latent audio models compress and decode. Source: Wikimedia Commons, Spectrogram-19thC.png, Aquegg, public domain.'},
         {
           type: 'quote',
           text: 'We propose AudioLDM, a text-to-audio generation framework that leverages a latent space trained with audio data only, while conditioning is provided by CLAP text embeddings at inference.',

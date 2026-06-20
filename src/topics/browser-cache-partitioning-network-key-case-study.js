@@ -202,6 +202,7 @@ export const article = {
     {
       heading: 'Why it exists',
       paragraphs: [
+        {type:'callout', text:'Cache partitioning makes the cache key answer a privacy question: who is allowed to observe this hit? A miss under another site context is the feature, not a regression.'},
         'Browser cache partitioning exists because a cache is a memory system, and memory can leak information even when the bytes are protected. A website usually cannot read the response body of another site, but it may be able to measure whether loading a known URL is unusually fast. If the speed difference reveals that some other top-level site already warmed the resource, the cache has become a cross-site side channel.',
         'The old performance intuition was simple: the same URL should reuse the same browser-local cache entry. That gave public CDNs a strong advantage because one site could warm a library and another site could reuse it. The privacy problem is that reuse also created observable shared state. A fast request for a rare script, avatar URL, tracking pixel, font, or account-specific image can reveal a bit of browsing history or user state.',
         'Partitioning changes the trust boundary. The browser still caches. It still uses freshness, validators, Vary, and revalidation. The difference is that the lookup is scoped by site context before the ordinary HTTP cache key is considered. A resource fetched while visiting one top-level site should not automatically become a browser-local hit while visiting an unrelated top-level site.',

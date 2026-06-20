@@ -224,6 +224,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Block diffusion is a serving compromise: keep block order causal so length and streaming still work, but denoise several uncertain tokens inside the current block at once.'},
         'Autoregressive LLMs are easy to serve because they grow text left to right. The prefix is fixed, the KV cache is reusable, and the model can stop at an end token. The cost is serial generation: one token decision depends on the previous token decision.',
         'Discrete diffusion language models offer a different promise. They can refine several masked tokens in parallel and can revise uncertain positions. The cost is that plain diffusion is awkward for arbitrary-length text, streaming, and cache-based serving. Block diffusion exists to bridge those two worlds.',
       ],
