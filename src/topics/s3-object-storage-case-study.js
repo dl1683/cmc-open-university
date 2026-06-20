@@ -213,6 +213,7 @@ export const article = {
       paragraphs: [
         'The object-namespace view traces one request through the S3 data model: client to bucket to key to object bytes, with metadata and prefix partitioning branching off the key. Active nodes are the current request path. Found nodes mark guarantees now in effect (strong consistency on metadata). The compare marker on the prefix node highlights the design lever most teams overlook.',
         'The lakehouse-storage view adds a second layer. Active nodes show where S3 stores bytes; compare nodes show where correctness actually lives (the table format, not the object API). At each frame, ask: which layer owns this guarantee, and what happens if that layer crashes mid-operation?',
+        {type:'callout', text:'S3 owns durable named blobs; table, transaction, and filesystem semantics belong to layers above it.'},
         {
           type: 'note',
           text: 'The slash characters in S3 keys look like directory separators, but the animation treats the key as one flat string. Every "folder" you see in the AWS console is a rendering convention, not a stored directory object.',

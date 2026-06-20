@@ -255,6 +255,7 @@ export const article = {
       paragraphs: [
         'S3 multipart upload exists because large object uploads are too expensive to treat as one fragile request. A single network failure should not force an 80 GB file to restart from byte zero.',
         'The practical problem is resumable, parallel, verifiable upload with a clear commit point. Parts may arrive in any order, but the final object must have one ordered shape.',
+        {type:'callout', text:'Multipart upload makes retry scope, ordering, integrity, and commit state explicit for one large object.'},
       ],
     },
     {

@@ -230,6 +230,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation traces how a decoding policy transforms raw logits into billed output tokens. The "decoder knobs" view walks the sampling pipeline from logits through temperature, top-k, top-p, and stop rules to the cost ledger. The "budget ledger" view walks the cost-accounting loop from request classification through decoding, verification, and billing.',
+        {type:'callout', text:'A sampling profile is a spend policy because every decoding choice changes accepted tokens, retries, verifier load, and latency.'},
         {
           type: 'bullets',
           items: [

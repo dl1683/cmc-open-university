@@ -323,6 +323,7 @@ export const article = {
       paragraphs: [
         `Scaling is one of the real discoveries of modern machine learning. Bigger models, more data, and more compute have repeatedly improved loss, benchmark performance, and product capability. That success created a planning language: parameter count, token count, FLOPs, cluster size, training run length, and benchmark target. Those numbers are measurable, fundable, and easy to compare. A team can write a proposal around them and stakeholders can understand what is being bought.`,
         `Scaling as a local optimum names the failure mode where "make it bigger" becomes the locally rational next move even when it is not the globally best move. The problem is not that scaling is fake. The problem is that metrics, papers, funding, GPU commitments, hiring pipelines, evaluation rituals, and serving economics can make scaling the default diagnosis. A bottleneck in data quality, evaluation, architecture, latency, workflow, or product design may be real, but scale is the easiest lever to package.`,
+        {type:'callout', text:`Scaling is a powerful lever that becomes dangerous when the organization treats it as the diagnosis before measuring the bottleneck.`},
       ],
     },
     {

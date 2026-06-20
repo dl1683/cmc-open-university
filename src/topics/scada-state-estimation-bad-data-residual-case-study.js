@@ -222,6 +222,8 @@ export const article = {
       paragraphs: [
         `A power-control center needs a live picture of the electrical state of the grid, but the state is not directly visible. Operators care about bus voltage magnitudes, phase angles, line flows, injections, transformer taps, breaker status, and whether the current model is trustworthy enough for contingency analysis or restoration. What arrives in the control room is messier: SCADA scans every few seconds, PMUs stream synchronized phasors at much higher rates, topology processors report switch positions, and some measurements are stale, biased, missing, or delayed.`,
         `State estimation is the reconciliation layer between raw telemetry and operational decisions. It turns a mixed measurement set into the best estimate of the network state, then attaches quality evidence to that estimate. The quality evidence matters as much as the voltage vector. A dispatch tool, outage-restoration assistant, or alarm processor should know whether the estimate was observable, which measurements were rejected, which topology version was used, and which residual tests failed.`,
+        {type:'callout', text:`State estimation is useful only when the voltage estimate travels with the residuals, topology version, and observability evidence that justify trust.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/10/Functional_levels_of_a_Distributed_Control_System.svg', alt:'Layered diagram of distributed control system levels from field devices to production scheduling.', caption:'Functional levels of a Distributed Control System by Daniele Pugliesi, CC BY-SA 3.0, via Wikimedia Commons.'},
       ],
     },
     {

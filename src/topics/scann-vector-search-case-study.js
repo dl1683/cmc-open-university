@@ -312,6 +312,8 @@ export const article = {
       paragraphs: [
         `Embedding search turns meaning into geometry. A query and millions of documents, products, images, or users become vectors, and retrieval asks for the nearest vectors under dot product, cosine distance, or Euclidean distance. The problem is that exact search compares the query with every stored vector. At millions or billions of vectors, memory bandwidth and arithmetic dominate the request.`,
         `ScaNN, short for Scalable Nearest Neighbors, is Google's approximate nearest-neighbor system for this problem. It is best taught as a pipeline: prune the search space with partitions, score compressed candidates with asymmetric hashing, and optionally rescore a shortlist with more accurate distances before returning top-k results.`,
+        {type:'callout', text:`ScaNN wins by spending build-time structure so query-time search can prune, approximate, and rescore instead of scanning everything.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/54/Euclidean_Voronoi_diagram.svg', alt:'Colored Voronoi cells partitioning a plane around nearest seed points.', caption:'Euclidean Voronoi diagram by Balu Ertl, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {

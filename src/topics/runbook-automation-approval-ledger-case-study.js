@@ -224,6 +224,7 @@ export const article = {
       paragraphs: [
         'The animation traces the lifecycle of a production runbook action through a guarded state machine. In the "approval state" view, active nodes show the current phase of the action -- incident context feeding suggestion and preparation, the approval gate, idempotency key generation, execution, and ledger recording. Found nodes mark guards that have been satisfied. Compare nodes highlight alternative paths not yet taken.',
         'In the "rollback guard" view, active nodes trace the post-execution verification path. The canary check, SLO gate, and rollback node show the three possible outcomes: expand scope, hold, or roll back. The risk plot shows how blast radius scales with automation level under guarded versus unguarded policies.',
+        {type:'callout', text:'Safe incident automation is a ledger-backed state machine, not a direct bridge from alert to shell command.'},
         {
           type: 'note',
           content: 'Watch the matrix frames carefully. Each row in the approval ledger matrix answers three questions: what state is the action in, which guard must be satisfied to advance, and what evidence is recorded for audit. The rollback decision table maps metric conditions to deterministic continue/stop/rollback actions.',

@@ -258,6 +258,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Ownership state graph" traces the full lifecycle of a Rust value -- binding, moving, borrowing, lifetime tracking, drop, and checker verdict. "Borrow violation" shows the canonical conflict: active shared loans block a mutable borrow request until the shared regions end.',
+        {type:'callout', text:'A Rust trace must track ownership and active loans because the compiler verdict depends on state that never appears in a value table.'},
         {type: 'bullets', items: [
           'Active (highlighted): the current ownership event or checker decision -- a place being bound, a loan being created, or a conflict being evaluated.',
           'Found (green): a fact the checker has committed to -- a drop event scheduled, a verdict rendered, a region boundary established.',

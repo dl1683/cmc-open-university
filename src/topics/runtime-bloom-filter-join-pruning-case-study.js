@@ -196,6 +196,8 @@ export const article = {
         'Runtime Bloom filters exist because a query can discover a powerful pruning predicate only after execution begins. A dimension table may look large in the catalog, but after this query applies its filters, only a small set of join keys may remain.',
         'The probe side is often the expensive side. In a star-schema query, the fact table may contain billions of rows, wide columns, and many splits distributed across workers. If most fact rows cannot join, reading and probing them is wasted work.',
         'The runtime filter turns the build side into a compact membership test and ships that test toward the probe-side scan. Rows that are definitely absent from the build-side key set can be skipped before they reach the exact join.',
+        {type:'callout', text:'A runtime Bloom filter turns build-side knowledge into a safe scan-side proof of absence.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt:'Diagram of a Bloom filter mapping set elements into bit positions.', caption:'Bloom filter diagram by David Eppstein, public domain, via Wikimedia Commons.'},
       ],
     },
     {
