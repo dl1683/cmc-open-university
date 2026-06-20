@@ -226,6 +226,7 @@ export const article = {
       paragraphs: [
         'HTTP Vary exists because one URL can produce several valid representations. The same /guide may differ by language, compression, device bucket, or CORS origin. A URL-only cache can either serve the wrong bytes or avoid caching useful responses.',
         'The problem is cache identity. The cache must know which request dimensions changed the response without letting every accidental header become a unique key.',
+        {type:'callout', text:'Vary works when cache identity includes every representation-changing dimension and normalizes away noise that would explode cardinality.'},
       ],
     },
     {

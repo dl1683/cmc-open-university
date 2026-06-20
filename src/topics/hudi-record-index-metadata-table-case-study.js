@@ -206,6 +206,7 @@ export const article = {
         `Apache Hudi is built for mutable lakehouse tables: upserts, deletes, incremental pulls, and change-data-capture pipelines over files in object storage. That creates a lookup problem. When a new event arrives for customer_id 42, the writer must know whether that record already exists, and if it exists, which partition and file group currently contain it.`,
         `The obvious append-only lake pattern does not answer that question. Appending every event is easy, but then readers must deduplicate later and deletes become slow or ambiguous. Scanning the table to find the old record is also easy to understand, but it collapses at large scale. A 20-billion-row table cannot perform a broad lookup join for every micro-batch and still behave like a real-time upsert system.`,
         `The Hudi record index is a maintained key-location map stored in Hudi's metadata table. It maps record keys to locations so writers can route updates and deletes without rediscovering locations from data files each time. The index moves work from repeated table-wide lookup into maintained metadata.`,
+        {type:`callout`, text:`The record index moves upsert routing from repeated table scans into commit-aligned metadata that can be maintained with the table.`},
       ],
     },
     {

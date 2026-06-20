@@ -356,6 +356,7 @@ export const article = {
       paragraphs: [
         'The "qc chain" view traces a single round from client transaction through leader proposal, validator votes, quorum certificate formation, and the 3-chain commit rule. Active nodes are the current stage of the consensus pipeline. Found nodes are certified or committed state. Compare nodes mark the faulty validator whose silence does not prevent progress.',
         'The "leader change" view traces what happens when a leader stalls: timeout expiry, timeout certificate formation, leader rotation, and the voting safety rules that prevent forks. Active nodes are the liveness path. Removed nodes are rejected forks.',
+        {type:'callout', text:'A quorum certificate turns Byzantine agreement from a message storm into a portable proof that leaders can carry forward.'},
         {
           type: 'note',
           text: 'The safe inference at each frame: if a node is active and an edge leads into it, that stage has produced or received a cryptographic artifact. If a downstream node is not yet active, no honest validator has acted on that artifact yet. The QC node turning active means the threshold was met -- not that the block is committed.',

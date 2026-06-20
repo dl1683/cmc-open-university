@@ -377,6 +377,7 @@ export const article = {
         },
         'The congestion budget view adds the three gates every stream must pass before bytes leave: congestion window (cwnd), stream/connection flow-control credit, and QPACK header readiness. Active nodes show the gate being checked. Removed nodes show a blocked gate. Found nodes show streams that pass all gates and reach the client.',
         'In matrix frames, active cells highlight current policy or parameter values. Compare cells mark the idle or deferred case. At each frame, ask: which stream was chosen, why it was eligible, and what would happen if the gate order changed.',
+        {type:'callout', text:'HTTP/3 priority is a queueing policy over eligible bytes, not a way to bypass congestion, flow control, or header readiness.'},
       ],
     },
     {

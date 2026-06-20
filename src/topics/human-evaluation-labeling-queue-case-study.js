@@ -315,6 +315,7 @@ export const article = {
       paragraphs: [
         "A human-evaluation labeling queue is the system that turns scattered human judgment into evidence a model team can trust. A product team may have thousands of model outputs, support tickets, safety reports, and edge cases. The queue decides which cases deserve human attention, who should review them, which rubric applies, how disagreement is resolved, and how the resulting labels become a versioned evaluation set.",
         "The problem is not simply getting people to click buttons. Human attention is expensive, inconsistent, and easy to bias. If the process does not preserve case identity, rater identity, rubric version, response order, model version, and adjudication history, the labels cannot answer the hard questions: did the model improve, did the safety behavior regress, did the rubric drift, or did the rater pool change?",
+        {type:"callout", text:"A trustworthy label is a versioned process record, not a naked score detached from case, rater, rubric, and adjudication context."},
       ],
     },
     {

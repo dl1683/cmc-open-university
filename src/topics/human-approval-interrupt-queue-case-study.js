@@ -235,6 +235,7 @@ export const article = {
       paragraphs: [
         'An autonomous workflow eventually reaches actions where a wrong step is not just a bad answer. It can send money, delete data, change an account, run a shell command, email a customer, or expose private information. A human approval interrupt queue exists for that boundary: the system is allowed to plan the action, but it must pause before the side effect.',
         'The queue turns approval into a real control-plane state, not a message in a chat transcript. It records the proposed tool call, the exact arguments, the reason review is required, the serialized run state, the reviewer decision, and the command used to resume or reject the run.',
+        {type:'callout', text:'Approval becomes enforceable only when the pause, packet, decision, and resume command are durable state transitions.'},
       ],
     },
     {

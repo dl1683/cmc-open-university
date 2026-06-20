@@ -294,6 +294,7 @@ export const article = {
       paragraphs: [
         'Hybrid attention state budgets exist because exact attention is powerful and expensive in a very specific way. During decoding, every active request keeps keys and values for old tokens. Those tensors live in high-bandwidth GPU memory, and they grow with context length, user count, attention layers, KV heads, head dimension, and precision. A model can have enough arithmetic capacity to generate tokens and still run out of memory because the KV cache is too large.',
         'Long-context products make the pressure obvious. A coding agent, legal assistant, research workspace, or support-ticket summarizer may carry tens or hundreds of thousands of tokens. If every layer stores exact token memory, the serving system pays that cache tax for every user. A hybrid model asks which layers truly need exact global recall and which layers can use cheaper state, such as latent KV, grouped KV, linear attention, recurrent state, state-space models, or local convolution.',
+        {type:'callout', text:'Hybrid attention makes memory a layer-level budget, spending exact KV cache only where global token recall is worth the bytes.'},
       ],
     },
     {

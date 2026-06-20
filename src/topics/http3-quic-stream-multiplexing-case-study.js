@@ -258,6 +258,7 @@ export const article = {
       paragraphs: [
         `A modern page is not one request. It is a burst of HTML, CSS, JavaScript, images, fonts, API calls, analytics beacons, and later refreshes from the same origin. The browser wants those requests to share one secure connection, but it does not want one missing packet for a large image to freeze an unrelated API response.`,
         `HTTP/3 exists because HTTP/2 solved the wrong layer of the problem. HTTP/2 multiplexed many HTTP streams over one TCP connection, which removed most of the old HTTP/1.1 connection pileup. But TCP still exposes one ordered byte stream. If one TCP segment is lost, the operating system cannot deliver later bytes to HTTP/2, even when those later bytes belong to other streams. HTTP/3 moves multiplexing into QUIC so each request stream has its own ordered delivery state.`,
+        {type:`callout`, text:`HTTP/3 fixes multiplexing by giving each request stream independent ordered delivery while sharing one encrypted transport connection.`},
       ],
     },
     {

@@ -224,6 +224,8 @@ export const article = {
         'Distributed databases need timestamps that are useful for ordering, but physical clocks are imperfect. Machines drift, NTP corrects them gradually, and messages move through the network with delay. Pure physical time is attractive because users understand it, but it cannot safely express causality by itself.',
         'Hybrid logical clocks exist to combine physical time with a logical counter. They keep timestamps close to wall-clock time while preserving a causal rule: if one event is known to happen before another, the later event receives a greater HLC timestamp. CockroachDB uses this idea as part of its transaction and MVCC machinery.',
         'This is the practical middle ground between two unsatisfying extremes. A pure wall clock is readable but unsafe under skew. A pure logical clock is safe for causality but detached from time-based operations. HLC keeps both signals in one timestamp.',
+        {type:'callout', text:'Hybrid logical clocks pair wall time with a counter so timestamps stay readable while still respecting known causal order.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/0/08/Lamport-Clock-en.svg', alt:'Lamport clock diagram showing three process timelines, message arrows, and logical timestamp values.', caption:'Lamport clock causality diagram by Duesentrieb, updated by Dr. Greywolf, Wikimedia Commons, CC BY-SA/GFDL.'},
       ],
     },
     {

@@ -219,6 +219,7 @@ export const article = {
       paragraphs: [
         'HTTP headers repeat heavily. A browser or gRPC client may send the same `:method`, `:scheme`, `:authority`, cookies, content negotiation, authorization shape, user agent, and application metadata across many requests on one HTTP/2 connection.',
         'Sending that text again and again wastes bytes, but plain generic compression is awkward for a multiplexed protocol. The decoder needs to understand each header block independently enough to route streams correctly, while the connection still wants to exploit repetition over time. HPACK solves that by turning repeated header fields into shared table indexes.',
+        {type:'callout', text:'HPACK treats compression as synchronized table state, so small indexes are safe only when encoder and decoder replay the same updates.'},
       ],
     },
     {
