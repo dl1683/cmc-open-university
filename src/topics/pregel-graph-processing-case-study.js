@@ -220,6 +220,8 @@ export const article = {
       paragraphs: [
         'Pregel is Google\'s system for large-scale graph processing. The problem it solves is not merely that graphs can be large. The deeper problem is that many graph algorithms are iterative, stateful, and neighbor-driven. PageRank, shortest paths, connected components, label propagation, belief propagation, and many recommendation features repeatedly update vertex state based on messages from adjacent vertices.',
         'That shape is awkward in a record-oriented batch system. MapReduce can process large data, but a graph algorithm forced through repeated map and reduce stages has to keep materializing state, reshuffling edges, and rebuilding the next round. The algorithm is conceptually local to vertices, but the execution system treats it as a sequence of global record transformations. Pregel gives the algorithm a model that matches the graph: vertices hold state, send messages, and advance in coordinated rounds.',
+        {type:'callout', text:'Pregel makes the vertex local and the superstep global, so graph algorithms keep simple rules while the runtime owns distributed coordination.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/fb/PageRanks-Example.svg', alt:'Directed graph with PageRank percentages shown by node size.', caption:'PageRank graph illustration by 345Kai and Stannered, via Wikimedia Commons, public domain.'},
       ],
     },
     {

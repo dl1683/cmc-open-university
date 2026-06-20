@@ -233,6 +233,7 @@ export const article = {
         'The animation traces the diagnostic pipeline that must run before any observational treatment effect is reported. Active nodes mark the current stage of work. Found markers flag audit results that passed. Removed markers flag covariates or propensity bands that failed the balance or overlap check.',
         'In the balance-table view, follow the path from raw covariates through the propensity model into score-based adjustment, then into the balance audit that decides whether the comparison is fair. The important frame is not the fitted score; it is the standardized mean difference table after weighting.',
         'In the overlap-trim view, watch the propensity bands. Bands where one group has almost no representation are marked removed. That is not a statistical weakness -- it is a scope decision. The estimate after trimming answers a narrower question about a population where both treatment arms actually exist.',
+        {type:'callout', text:'Propensity diagnostics are a design gate: estimate the score, prove overlap and balance, then report only the population that remains comparable.'},
         {
           type: 'note',
           text: 'If a covariate still shows a large standardized mean difference after adjustment, the design is not ready. The animation highlights this with "watch" verdicts. Do not interpret the treatment effect until every important covariate is balanced.',

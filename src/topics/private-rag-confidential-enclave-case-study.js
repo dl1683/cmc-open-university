@@ -190,6 +190,7 @@ export const article = {
         "RAG turns private data into model context. That is useful, but it widens the leak surface: the query, embedding, vector index access pattern, top-k ids, retrieved chunks, citations, prompt, answer, cache key, and trace can all reveal sensitive facts.",
         "The reasonable first attempt is ordinary enterprise security: TLS, encryption at rest, a private network, tenant ids, IAM checks, and access-controlled vector storage. Those controls matter. They do not protect the moment where the retrieval worker decrypts data, embeds the query, ranks chunks, and writes telemetry.",
         "A confidential-enclave RAG design protects data in use. The retrieval path runs inside an attested boundary, receives scoped keys only after policy approval, and emits an answer trace that can be audited without dumping raw private payloads into ordinary logs.",
+        {type:"callout", text:"Private RAG only works when privacy follows every retrieval artifact: query, embedding, chunk, citation, cache key, and trace."},
       ],
     },
     {

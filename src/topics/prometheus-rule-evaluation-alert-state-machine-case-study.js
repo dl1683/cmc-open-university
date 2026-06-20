@@ -168,6 +168,7 @@ export const article = {
         'Metrics are raw observations. Operators need repeatable derived series and alerts that evaluate the same way at 3 a.m. as they do when someone is staring at a graph. Prometheus rules turn PromQL expressions into scheduled work.',
         'Recording rules materialize derived time series. Alerting rules turn expression results into alert instances with state: inactive, pending, firing, and resolved. Alertmanager then handles grouping, silencing, inhibition, routing, and notification.',
         'The key problem is continuity. A graph can show that a service is unhealthy now. An alerting system must know whether the same service was unhealthy on the last tick, how long the condition has remained true, and whether it has already notified someone.',
+        {type:'callout', text:'Prometheus alerting works by giving each returned label set its own state machine over scheduled rule ticks.'},
       ],
     },
     {

@@ -198,6 +198,7 @@ export const article = {
       paragraphs: [
         'Prometheus is built for operational metrics: counters, gauges, histograms, and summaries scraped repeatedly from running services. The database has to ingest many small timestamped samples, answer recent range queries quickly, and recover after crashes without turning monitoring into a large distributed database project.',
         'The Prometheus TSDB is deliberately local. It stores recent samples in a mutable head block, protects that state with a write-ahead log, writes immutable time blocks, indexes labels, and compacts older blocks. That local shape is why Prometheus is easy to run, and also why global long-term metrics systems usually add remote write and separate storage layers.',
+        {type:'callout', text:'Prometheus scales operational metrics by separating label-based series lookup from compressed time-ordered chunks.'},
       ],
     },
     {

@@ -216,6 +216,7 @@ export const article = {
       paragraphs: [
         "Autoregressive LLM serving looks like one request from the outside, but the runtime sees two different workloads. Prefill reads the full prompt, runs a large forward pass over many input tokens, and creates the KV cache for those tokens. Decode then uses that cache to generate one new token at a time. The first phase is a burst. The second phase is a long loop.",
         "Those phases put pressure on different resources and different user-facing metrics. Prefill dominates time to first token, often called TTFT. Decode dominates time per output token, often called TPOT. A chat product needs the first token to appear quickly and the stream to keep moving after that. Prefill/decode disaggregation exists because one mixed GPU pool can make those goals fight each other.",
+        {type:"callout", text:"The architectural split turns one LLM request into two schedulable phases joined by a precise KV-state handoff."},
       ],
     },
     {

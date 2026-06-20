@@ -199,6 +199,8 @@ export const article = {
       paragraphs: [
         'Services are judged by distributions, not averages. A checkout API can have a fine mean latency while the slowest 1 percent of requests break the user experience. Observability systems need p90, p95, p99, and tail shape without storing every request.',
         'Classic Prometheus histograms answer this with fixed buckets, but each bucket is a separate time series for every label set. More resolution means more series. Native histograms exist to keep the distribution as one richer histogram sample with bucket populations, count, sum, schema, zero-bucket information, and counter-reset context.',
+        {type:'callout', text:'Native histograms trade bucket-series explosion for richer distribution samples that every storage and query hop must understand.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/53/Cumulative_vs_normal_histogram.svg', alt:'Side-by-side ordinary and cumulative histograms for a normal sample.', caption:'Ordinary and cumulative histograms by Kierano, via Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {

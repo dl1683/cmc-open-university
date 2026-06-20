@@ -215,6 +215,7 @@ export const article = {
       paragraphs: [
         'Data lakes often fail at the catalog boundary rather than the file boundary. The object store may contain every Parquet file durably. Each Iceberg table may have a valid snapshot. The failure is that related tables do not become visible as one coherent state. A fact table moves forward, a dimension table remains behind, a dashboard joins them, and no one can answer which version of the data product was actually queried.',
         'Project Nessie exists to give lakehouse catalogs versioned, transactional, Git-like behavior. It adds branches, tags, commits, merges, and conflict checks around table metadata references. The goal is not to version every byte in the lake like a source repository. The goal is to version the catalog pointers that tell engines which table metadata and snapshots belong to a named state such as main, dev, or a release tag.',
+        {type:'callout', text:'Nessie turns catalog visibility into a commit graph, so multi-table lakehouse changes can be tested before production readers resolve them.'},
       ],
     },
     {

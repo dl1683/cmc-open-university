@@ -180,6 +180,8 @@ export const article = {
       paragraphs: [
         'Prometheus is excellent at local scraping and short-term querying, but many organizations need long-term retention, global querying, multi-tenant storage, or vendor ingestion. Remote write is the bridge from local scrape truth to a remote metrics backend.',
         'The local TSDB still exists. Remote write tails the WAL, queues samples by shard, batches them, retries failures, and posts compressed protobuf requests to configured endpoints. The data-structure lesson is a durable log feeding bounded network buffers.',
+        {type:'callout', text:'Remote write is a bounded export pipeline from a durable local WAL to an unreliable network sink, so lag is the signal that matters.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/38/Prometheus_software_logo.svg', alt:'Prometheus flame logo in an orange circle.', caption:'Prometheus software logo by Alexander Schwartz (ahus1), via Wikimedia Commons, Apache License 2.0.'},
       ],
     },
     {

@@ -375,6 +375,7 @@ export const article = {
       paragraphs: [
         `Prompt caching exists because LLM applications repeat large prefixes. A coding agent may send the same system rules, tool schemas, repository summaries, and file context across many turns. A support bot may send the same policy manual before each new customer question. Recomputing that stable prefix wastes latency and money.`,
         `A cache-key canonicalization ledger exists because reuse is only safe when the repeated prefix is exactly the same computation. It is not enough for two prompts to mean roughly the same thing. The model, tokenizer, tool contract, tenant boundary, media inputs, adapter, and prompt bytes all decide whether cached state can be reused.`,
+        {type:'callout', text:`Prompt caching is safe only when the cache key proves exact computation identity across layout, tokens, model, tenant, tools, media, and version clocks.`},
       ],
     },
     {
