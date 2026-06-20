@@ -193,6 +193,8 @@ export const article = {
         'Long-read alignment starts with an ugly search problem. A read may be thousands of bases long, the reference may be billions of bases long, and the read can contain substitutions, insertions, deletions, and sequencing errors.',
         'Full dynamic-programming alignment against every reference position is the wrong first operation. The aligner first needs a cheap way to ask: which reference regions are even worth aligning?',
         'A minimizer index answers that question with a sparse sketch. It stores selected k-mers from the reference, looks up the same kind of selected k-mers from the read, and uses the shared hits as anchors for later alignment.',
+        {type:'callout', text:'A minimizer index makes genome search tractable by preserving enough shared k-mer anchors to guide alignment while discarding most redundant seed lookups.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/57/Oxford_Nanopore_MinION_top_cropped.jpg', alt:'Hand holding an Oxford Nanopore MinION portable DNA sequencer.', caption:'Oxford Nanopore MinION top cropped.jpg by Cirosantilli2; CC BY-SA 4.0 via Wikimedia Commons.'},
       ],
     },
     {

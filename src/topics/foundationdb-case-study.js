@@ -217,6 +217,7 @@ export const article = {
       paragraphs: [
         'Distributed databases have to make a hard promise under hostile conditions: many clients can read and write concurrently, machines can fail, data must remain durable, and the final result should still look like a coherent transaction history. A single-node database can lean on one process, one buffer manager, and one write-ahead log. A large distributed service needs the same transactional idea spread across many machines, disks, network links, and key ranges.',
         'FoundationDB is a case study in reducing that problem to a small, strong core. It exposes an ordered key-value store with ACID transactions, then invites record stores, document models, SQL layers, metadata systems, and application-specific indexes to build above it. The educational point is not that key-value APIs are simple. It is that a small transactional substrate can support many data models if the concurrency, durability, versioning, and failure behavior are precise enough.',
+        {type:'callout', text:'The FoundationDB architectural lesson is that a small transactional key-value core can stay coherent by splitting commit coordination, conflict detection, durability, and storage into separately scalable roles.'},
       ],
     },
     {

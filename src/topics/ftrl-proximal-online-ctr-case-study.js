@@ -281,6 +281,7 @@ export const article = {
         'FTRL-Proximal exists for prediction problems that are huge, sparse, and always changing. Click-through-rate prediction is the classic example. An ad impression arrives with query terms, ad id, advertiser id, device, location, hour, publisher, user context, and crossed features. The model must produce a probability now. The click label may arrive later. Then the system has to learn without retraining from scratch.',
         'The feature space is enormous because categorical ids and feature crosses explode. A billion possible coordinates may exist, but one impression touches only a small set. The learner needs to update only those active coordinates, keep memory under control, adapt quickly to fresh evidence, and serve a sparse model fast enough for ranking. Ordinary dense training is the wrong shape.',
         'FTRL-Proximal, short for Follow-The-Regularized-Leader with a proximal update, gives a practical answer. It combines online logistic regression, per-coordinate adaptive learning rates, and L1-driven sparsity. The important data structures are a hashed sparse feature vector and two per-coordinate state arrays often called z and n. The actual weight can be computed lazily from that state only when a coordinate is touched.',
+        {type:'callout', text:'FTRL-Proximal succeeds because each sparse coordinate carries its own evidence, step size, and L1 gate instead of forcing the whole feature space through one dense update rule.'},
       ],
     },
     {

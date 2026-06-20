@@ -321,6 +321,7 @@ export const article = {
         'Many products need user-maintained order: kanban cards, issue backlogs, design layers, playlist entries, outline nodes, comments, tabs, and canvas objects. The order is not derived from timestamp or score. The user creates it by dragging, inserting, moving, and grouping items.',
         'The storage problem is easy when the list is tiny and single-user. Store an array, update the array, and render it. The problem becomes harder when the list lives in a database, many clients observe it, offline edits may sync later, and one drag should not rewrite hundreds or thousands of rows.',
         'Fractional indexing and LexoRank-style systems exist to make visible order a sortable-key problem. The durable representation is an order key on each item. A move generates a key between the destination neighbors, writes the moved item, and lets every reader sort by the key.',
+        {type:'callout', text:'Visible order becomes scalable when the durable state is a sortable key per item, not a mutable array position shared by every row.'},
       ],
     },
     {

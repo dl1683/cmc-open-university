@@ -192,6 +192,7 @@ export const article = {
         'Most lock operations are uncontended. Paying for a syscall, scheduler decision, and kernel lock queue on every successful acquire would make ordinary synchronization far too expensive.',
         'At the same time, pure spinning is not enough. If the owner is descheduled, blocked on I/O, or running a long critical section, waiters can burn whole CPU cores doing nothing useful. A real mutex needs a cheap user-space fast path and a way to sleep under contention.',
         'A futex is the narrow primitive that makes that split possible. User space owns the synchronization state. The kernel only provides an address-keyed place to park and wake threads when user-space atomics are no longer enough.',
+        {type:'callout', text:'A futex is the kernel parking lot for a user-space predicate, closing the check-then-sleep race without charging every uncontended lock a syscall.'},
       ],
     },
     {

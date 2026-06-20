@@ -210,6 +210,8 @@ export const article = {
           ],
         },
         'The candidate-filter view shows the index-then-predicate pipeline. The boundary-policy view shows the decisions that sit after geometry: holes, edge semantics, GPS noise, and audit. Switch between them to see that scale and semantics are separate problems with separate solutions.',
+        {type:'callout', text:'A production geofence is not one point-in-polygon test; it is a no-false-negative candidate filter, an exact geometry predicate, and an ordered state machine.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c9/RecursiveEvenPolygon.svg', alt:'Ray crossing a polygon with numbered intersections to illustrate the even-odd point-in-polygon test.', caption:'RecursiveEvenPolygon.svg by Melchoir; GFDL or CC BY-SA 3.0 via Wikimedia Commons.'},
       ],
     },
     {

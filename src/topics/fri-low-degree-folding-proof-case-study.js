@@ -175,6 +175,8 @@ export const article = {
       paragraphs: [
         'The animation traces FRI from commitment through folding to verification. Active nodes mark the current protocol step. Found markers indicate values the verifier has accepted. Compared nodes show the contracting domain that earlier layers produced.',
         'In the folding-rounds view, watch the evaluation table shrink by half each round. The matrix frames show the even/odd decomposition and the plot tracks domain size versus round number. In the query-proof view, the verifier samples positions after all commitments are fixed and checks both Merkle membership and fold-relation algebra at each sampled index.',
+        {type:'callout', text:'FRI turns a global low-degree claim into committed folding layers that random local checks can verify.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Diagram of a binary Merkle hash tree with leaf data blocks and parent hashes.', caption:'Hash Tree.svg by Azaghal, based on an original illustration by David Goethberg; CC0 via Wikimedia Commons.'},
         {
           type: 'note',
           text: 'The commit-then-challenge ordering visible in the animation is load-bearing, not cosmetic. If a commitment appears after its challenge in the transcript, the prover can cheat by tailoring that layer to the already-known randomness.',

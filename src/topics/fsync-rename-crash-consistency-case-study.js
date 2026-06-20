@@ -186,6 +186,7 @@ export const article = {
       paragraphs: [
         'Replacing a file is easy until power fails between two storage events. A process can return from write() while bytes are still only in the page cache. A filesystem can persist file contents before the directory entry that names them. A journal can protect metadata consistency while still leaving application-level state in the wrong generation.',
         'The desired contract for a safe replace is simple to state: after a crash, recovery should find either the old complete file or the new complete file. It should not find a truncated target, half of the new contents, a target name whose update vanished, or a temp file that the application treats as committed state.',
+        {type:'callout', text:'Crash consistency is an ordering problem: first make bytes durable, then make the name durable, and only then claim the replacement committed.'},
       ],
     },
     {

@@ -189,6 +189,7 @@ export const article = {
       paragraphs: [
         'Forms are small data systems. A checkout form may have local rules, cross-field rules, async checks, server-only business rules, dirty state, touched state, pending validation, and submit state.',
         'Validation exists to keep feedback fast while keeping submission honest. The user should learn about fixable local mistakes early, and the app should still treat the server as the final correctness boundary.',
+        {type:'callout', text:'A robust form treats validation as a graph of field dependencies, async facts, error paths, and submit-state transitions.'},
       ],
     },
     {
