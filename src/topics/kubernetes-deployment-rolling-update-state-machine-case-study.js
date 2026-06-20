@@ -180,6 +180,7 @@ export const article = {
       paragraphs: [
         'A stateless service needs to change versions without disappearing. Deleting all old Pods and then creating new ones is simple, but it creates downtime. Creating too many new Pods can overload the cluster, exhaust quota, or overwhelm downstream dependencies.',
         'A Kubernetes Deployment rolling update is the controller state machine that walks between those extremes. It replaces old ReplicaSet Pods with new ReplicaSet Pods while respecting availability, surge, readiness, and progress constraints. The topic looks simple because the YAML is short. The control problem is not short.',
+        {type:'callout', text:'Rolling update safety comes from bounded ReplicaSet counters plus honest readiness gates, not from the order Pods happen to start.'},
       ],
     },
     {

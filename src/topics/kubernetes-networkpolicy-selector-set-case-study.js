@@ -191,6 +191,8 @@ export const article = {
       paragraphs: [
         'Pod IPs are temporary, and workloads move. A firewall rule tied to one address does not survive rescheduling, autoscaling, or namespace churn. Kubernetes needs a way to express traffic policy in terms of labels, namespaces, IP blocks, and ports.',
         'NetworkPolicy is that selector-based allow-set. It selects protected Pods, isolates ingress or egress, adds allowed peers and ports, and relies on the CNI plugin to enforce the result.',
+        {type:'callout', text:'NetworkPolicy is selector algebra enforced by the CNI: isolate selected Pods first, then add only the peer and port sets that match.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/63/Pod-networking.png', alt:'Diagram of Kubernetes Pods connected through a Service and Pod IP addresses.', caption:'Kubernetes pod networking and service dependency diagram by Marvin The Paranoid, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

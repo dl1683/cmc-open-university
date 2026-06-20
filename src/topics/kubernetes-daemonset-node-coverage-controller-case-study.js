@@ -193,6 +193,8 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Coverage map" shows how the DaemonSet controller reconciles desired versus actual Pods across a node set, with eligibility checks, taint evaluation, and per-node Pod creation. "Rolling daemon" shows how a template update propagates node by node while preserving coverage.',
+        {type:'callout', text:'DaemonSet correctness is coverage, not replica count: every eligible node should converge to exactly one current daemon Pod.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/be/Kubernetes.png', alt:'Diagram of a Kubernetes control plane connected to two worker nodes with Pods.', caption:'High level Kubernetes architecture diagram by Khtan66, Wikimedia Commons, CC BY-SA 4.0.'},
         {
           type: 'bullets',
           items: [

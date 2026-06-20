@@ -332,6 +332,7 @@ export const article = {
       paragraphs: [
         "The animation traces data flow through a Kubernetes controller's informer pipeline. In the \"list watch cache\" view, active nodes show the component currently processing an event -- API server emitting, Reflector relaying, DeltaFIFO buffering, or indexer caching. Found nodes are components whose state is now settled for this cycle. In the \"workqueue retry\" view, active nodes trace a key's journey from Add through dirty/queue/processing, with compare markers on the retry-with-backoff path.",
         "Watch for three things at each frame: which component owns the data right now, what transformed between the previous component and this one (raw HTTP event becomes typed Delta becomes cache entry becomes reconcile key), and where the pipeline can stall or lose progress.",
+        {type:"callout", text:"Informers separate events from state: watch deltas wake the controller, cache reads supply truth, and queue keys schedule retryable work."},
         {
           type: 'note',
           content: 'The plot frames show API-server load scaling. The gap between the \"raw poll\" and \"shared\" curves is the entire reason informers exist -- that gap widens with every additional controller sharing the cache.',

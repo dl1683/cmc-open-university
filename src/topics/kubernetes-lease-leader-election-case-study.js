@@ -189,6 +189,7 @@ export const article = {
         'Kubernetes controllers need redundancy. A single controller-manager or custom operator replica is easy to reason about, but it creates a failure point. If the process dies or the node disappears, reconciliation stops until a replacement starts.',
         'Running several active replicas solves availability but creates a coordination problem. Some work should have one active actor: assigning cloud resources, running cleanup loops, writing status for shared objects, or driving migrations. If two replicas do that work at once, retries can become duplicate side effects.',
         'A Kubernetes Lease object gives replicas a small cluster-visible coordination record. One replica holds the lease, renews it while healthy, and performs leader-only work. Other replicas observe the same object and wait until the holder is stale or the object is free.',
+        {type:'callout', text:'A Lease makes leadership a versioned time record, so one replica can act while others wait for freshness to expire.'},
       ],
     },
     {

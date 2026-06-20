@@ -194,6 +194,7 @@ export const article = {
       paragraphs: [
         'Some cluster work has a finish line. A data import, migration, report, model evaluation, or image-processing batch should run until enough units succeed, then stop. A steady workload controller is the wrong shape because success is a count, not a desired replica level.',
         'A Job gives finite work a controller-owned ledger. It creates Pods, observes success and failure, retries inside policy, records terminal status, and stops when either the completion target or a failure condition wins.',
+        {type:'callout', text:'A Job is a completion ledger for finite work: it advances on successful units, retries bounded failures, and stops before duplicate output.'},
       ],
     },
     {

@@ -215,6 +215,7 @@ export const article = {
       paragraphs: [
         'A fixed replica count is a guess about future demand. If traffic doubles, too few Pods overload the service. If traffic falls, too many Pods waste CPU, memory, and rollout capacity. Humans can adjust replicas during planned events, but they cannot safely chase every load spike.',
         'HorizontalPodAutoscaler is Kubernetes control-loop machinery for this problem. It reads metrics, computes a desired replica count, filters that recommendation through guardrails, and writes the result through the target workload scale subresource.',
+        {type:'callout', text:'HPA turns metrics into replica recommendations, then uses history and policy to keep noisy samples from becoming noisy capacity changes.'},
       ],
     },
     {

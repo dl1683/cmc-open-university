@@ -204,6 +204,8 @@ export const article = {
       paragraphs: [
         'The Ingress view builds the route graph one reference at a time. Active (highlighted) nodes are the objects currently being resolved by the controller. Found nodes are the targets those references point to. The key moment is when the controller node activates and connects to the status node -- that is when desired state becomes observed state. Until that edge appears, the route exists only on paper.',
         'The Gateway view separates the graph into two ownership zones. Infrastructure nodes (GatewayClass, Gateway, listeners) light up first. Application nodes (Routes, Services) attach only after the listener allows them. The status node at the end records whether each attachment was accepted or rejected. A route that never reaches the status node is a route that never serves traffic.',
+        {type:'callout', text:'A route is live only after the controller validates the reference graph and records status, not when the YAML first exists.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/63/Pod-networking.png', alt:'Diagram of Kubernetes Pods connected through a Service and Pod IP addresses.', caption:'Kubernetes pod networking and service dependency diagram by Marvin The Paranoid, Wikimedia Commons, CC BY-SA 4.0.'},
         { type: 'note', text: 'Safe inference rule: if a node is active but the status node has not turned found, the route is not yet serving. The controller has not closed the reconciliation loop. Do not assume traffic flows just because the YAML was applied.' },
       ],
     },

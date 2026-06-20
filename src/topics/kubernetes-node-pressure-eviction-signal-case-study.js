@@ -195,6 +195,8 @@ export const article = {
       paragraphs: [
         'The signal-ladder view shows the kubelet as a local feedback controller. Nodes highlighted as active are currently being sampled or acted on. The left-to-right flow shows the order of responsibility: observe resource signals, compare with policy, try reclaim, then rank victims only if the signal still threatens the node. Edges between nodes represent causal dependencies, not data flow.',
         'The eviction-choice view shows victim selection as a constrained optimization. The compare highlight marks the Pod that survives; the active highlight marks the Pod being evicted. The separation between the eviction side (kubelet, rank, Pods) and the replacement side (ctrl, sched) is deliberate. Kubelet evicts locally; workload controllers and the scheduler handle replacement globally. Confusing those two loops is the most common debugging mistake in eviction incidents.',
+        {type:'callout', text:'Node pressure eviction is a local survival ladder: observe the breached resource, reclaim what is cheap, then evict the lowest value Pod that relieves it.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/be/Kubernetes.png', alt:'Diagram of a Kubernetes control plane connected to worker nodes with kubelet components and Pods.', caption:'High level Kubernetes architecture diagram by Khtan66, Wikimedia Commons, CC BY-SA 4.0.'},
         {
           type: 'note',
           text: 'Inference rule: if reclaim is highlighted as active and rank is highlighted as compare, the kubelet is still attempting node-level cleanup. Eviction has not started. If rank becomes active, reclaim failed and the kubelet is now choosing victims.',

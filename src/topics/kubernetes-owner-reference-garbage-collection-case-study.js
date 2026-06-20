@@ -191,6 +191,7 @@ export const article = {
       paragraphs: [
         'Kubernetes objects rarely live alone. A Deployment creates ReplicaSets. A ReplicaSet creates Pods. A custom resource can create Jobs, Secrets, ConfigMaps, and cloud-side resources through a controller.',
         'Deletion needs the same structure as creation. If the parent disappears and the cluster has no durable ownership record, children can leak forever or be deleted by guesswork. Owner references give Kubernetes a cleanup graph that survives controller restarts.',
+        {type:'callout', text:'Owner references encode cleanup authority as UID edges, while finalizers preserve deletion work that garbage collection cannot perform alone.'},
       ],
     },
     {
