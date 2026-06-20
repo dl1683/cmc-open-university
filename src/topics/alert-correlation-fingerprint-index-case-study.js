@@ -249,6 +249,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Alert correlation is a data-normalization problem before it is a prediction problem. Metrics say "service.name=checkout," logs say "app=checkout-api," traces identify a route, and Kubernetes events name a pod. If the index groups raw labels directly, it creates false splits, false joins, and pages the wrong team. Stable fingerprints start with stable canonical labels.'},
         'Production systems rarely fail with one clean signal. A checkout regression can trigger p99 latency burn, 5xx errors, pod restarts, database wait traces, repeated log templates, deploy warnings, and customer-support reports. If every symptom becomes its own page, responders spend the first minutes sorting noise instead of repairing user impact.',
         'An alert correlation fingerprint index exists to turn that flood into a smaller set of incident candidates without throwing away evidence. It canonicalizes labels, computes stable fingerprints, deduplicates repeats, groups related symptoms, attaches logs and traces, and routes the incident to the team most likely to own the failing service.',
         'The word index matters. This is not just a notification filter. It is a live data structure that remembers active fingerprints, freshness windows, grouping decisions, ownership, and evidence links. It should reduce pages while preserving the facts needed for diagnosis, audit, and post-incident learning.',

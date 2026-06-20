@@ -218,6 +218,7 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
+        {type:'callout', text:'The deep lesson of Arrow Flight: match the interface to the physical data shape. Row-shaped APIs are pleasant for small objects, but they burn CPU converting values into service-specific objects and make large transfers hard to parallelize. Flight keeps analytical data in batch-columnar form across the network boundary, then adds the missing service pieces: discovery, endpoint placement, Tickets, streaming, and backpressure.'},
         'Apache Arrow Flight is an RPC framework for Arrow-native data services. It combines metadata calls for discovery with streaming calls that move Arrow record batches through the Arrow IPC format.',
         'The naive approach is to expose analytical data through row-shaped REST or generic RPC payloads. That works for small responses, but it burns CPU converting values into service-specific objects and makes large transfers hard to parallelize. Flight keeps the catalog question, "what should I read?", separate from the data-plane question, "move these columnar batches now."',
       ],

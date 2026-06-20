@@ -223,6 +223,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'DataFusion is library-shaped query execution. The hard part is not parsing SELECT — it is making queries correct, fast, extensible, explainable, and resource-aware. DataFusion packages those query-engine pieces as a Rust library around Apache Arrow, giving products scanning, filtering, joins, aggregates, optimization, and execution without building a planner and executor from scratch.'},
         'Apache DataFusion exists because many products need query-engine behavior without wanting to build a full database from scratch. Observability tools, lakehouse systems, dataframe libraries, embedded analytics products, and domain-specific storage engines all need scanning, filtering, joins, aggregates, expressions, optimization, and execution.',
         'The hard part is not parsing SELECT. The hard part is making queries correct, fast, extensible, explainable, and resource-aware. Users quickly want projection pushdown, filter pushdown, statistics, custom functions, partitions, joins, aggregations, explain plans, and predictable execution.',
         'DataFusion packages those query-engine pieces as a Rust library built around Apache Arrow. Arrow gives a concrete columnar batch format, and DataFusion supplies the logical planning, optimization, physical execution, and extension contracts around it.',

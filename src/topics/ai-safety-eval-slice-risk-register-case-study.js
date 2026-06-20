@@ -205,6 +205,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'A blended safety score is not a release control. A 98% pass rate can still include every prompt injection case for an agent with payment access. The register exists to connect each risk to a deployment slice, a threshold, an owner, and a release decision — so governance becomes a control surface, not a slogan.'},
         'An AI safety eval slice risk register exists because model risk is not evenly distributed across a product. A model can look acceptable on broad helpfulness tests while failing on tool use, medical advice, hiring, minors, privacy-sensitive retrieval, prompt injection, multilingual abuse, or administrative actions. One blended score hides the exact places where deployment can hurt users or create operational risk. The register is the data structure that connects risk governance to runnable evaluation. Each row names a risk, the deployment slice where it matters, the eval cases that measure it, the human labels that anchor judgment, the automated judge or metric version, the threshold, the mitigation owner, the release decision, and the evidence packet that explains the decision later. It turns safety from a slogan into a control surface.',
       ],
     },

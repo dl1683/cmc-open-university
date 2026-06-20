@@ -378,6 +378,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'A vector-index setting is not a constant — it is a measured operating point. The question is not "what is a good ANN setting?" It is "which measured setting is good enough for this traffic, under this cost envelope, with this rollback plan?" The Pareto ledger keeps those tradeoffs visible instead of buried in a blog post copied six months ago.'},
         'Approximate nearest-neighbor search exists because exact vector search gets expensive fast. If a corpus has ten million embeddings and every query compares against every vector, the math is simple but the product is too slow. Vector indexes such as HNSW, IVF-PQ, ScaNN, and DiskANN reduce the search work by visiting only a useful part of the space.',
         'That shortcut creates an engineering problem. The index is no longer just correct or incorrect. It has an operating point: how much recall it gets, how much latency it spends, how much memory it uses, how long it takes to build, and which workload slices it harms. A recall-latency Pareto ledger is the record that keeps those tradeoffs visible.',
       ],

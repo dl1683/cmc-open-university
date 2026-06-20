@@ -225,6 +225,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'The wall is that update-friendly and scan-friendly layouts want opposite shapes. Streaming updates want cheap appends and quick commits. Analytical scans want large organized files, column statistics, and compact layouts. Paimon resolves this by accepting changes in a write-optimized form, publishing coherent snapshots, and compacting files later — fresh writes and clean reads are separated in time rather than forced into one immediate layout.'},
         'A lakehouse table has to look simple to users: a table has rows, columns, snapshots, and queries. The hard part is that real data rarely arrives as clean append-only batches. Operational databases emit CDC streams, users update records, delete events appear late, dimensions change, and materialized views need fresh deltas rather than yesterday morning files.',
         'Apache Paimon addresses this mixed world. It is a table format and storage design for batch and streaming workloads, with primary-key tables, snapshots, changelog reads, file metadata, compaction, and indexing. The educational point is not that Paimon is just another file layout. It is a contract for identity, ordering, visibility, pruning, and cleanup on top of cheaper object or distributed storage.',
       ],

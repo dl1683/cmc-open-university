@@ -225,6 +225,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'Calcite gives a system the front half of a database — SQL parsing, schema validation, relational algebra, planner rules, cost comparison, and adapter hooks — without requiring the system to build a full database from scratch. The central abstraction is RelNode: once a query is a typed relational tree instead of a string, planner rules can match algebraic shapes and replace them with equivalent, cheaper shapes.'},
         `Many systems need SQL without wanting to become a full database. A file lake, stream processor, search index, federated query layer, metrics backend, or internal service may all need parsing, validation, relational algebra, rule rewriting, cost comparison, and pushdown into source systems. Rebuilding that stack from scratch is a long way to go just to answer queries over data the project already owns.`,
         `Apache Calcite exists as reusable query-planning machinery. It gives a system the front half of a database: SQL parsing, schema validation, relational expression trees, planner rules, metadata, cost, and adapter hooks. The project using Calcite still decides what storage engines exist, what execution engine runs the final plan, and what source-specific operations are safe to push down.`,
       ],

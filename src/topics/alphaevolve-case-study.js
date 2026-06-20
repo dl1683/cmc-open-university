@@ -205,6 +205,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type:'callout', text:'The key lesson is not "LLMs write code." It is that unreliable proposal generation becomes useful when wrapped in a strict propose-execute-score-select loop. The model is allowed to be creative, redundant, or wrong. The evaluator is not. That asymmetry is what turns many cheap, noisy ideas into a smaller set of measured improvements.'},
         `AlphaEvolve exists because many valuable algorithms are hard to invent but easy to score once a candidate exists. A scheduler can be simulated. A circuit rewrite can be checked for functional equivalence. A matrix multiplication identity can be tested and sometimes proved. A kernel can be benchmarked. In these domains, the bottleneck is not judging every possible answer by hand. The bottleneck is searching a huge space of programs without getting stuck in the first plausible idea.`,
         `DeepMind describes AlphaEvolve as an evolutionary coding agent for scientific and algorithmic discovery. The system uses large language models to propose code, automatic evaluators to score that code, and an evolutionary program database to decide what gets reused. The key lesson is not "LLMs write code." The key lesson is that unreliable proposal generation can become useful when it is wrapped in a strict propose, execute, score, select loop.`,
       ],
