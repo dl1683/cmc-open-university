@@ -195,6 +195,7 @@ export const article = {
       paragraphs: [
         `A proving circuit is not only a list of arithmetic gates. It is also a wiring diagram. The same hidden value may appear in a multiplication gate, a range-check decomposition, a lookup input, a public-input binding row, and a later state-transition row. If those appearances are meant to be the same logical value, the proof system must enforce that fact.`,
         `Local gate constraints are not enough. A row can satisfy its arithmetic equation while using the wrong copy of a value. In a normal program, a variable name carries identity. In a PLONKish table, values live in cells: column A row 1, column B row 2, column C row 4, and so on. The proof system needs an efficient way to say that selected cells are the same wire even when they are far apart in the table.`,
+        {type:'callout', text:`PLONK makes global wiring cheap by turning copy constraints over table cells into one randomized grand product consistency check.`},
       ],
     },
     {

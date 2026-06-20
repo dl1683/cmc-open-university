@@ -319,6 +319,7 @@ export const article = {
       paragraphs: [
         'Collaborative text editing is hard even before formatting appears. A sequence CRDT can let Alice and Bob insert and delete characters offline, exchange operations later, and converge on the same character order. That solves the plain-text layer. Real editors need more. Users bold phrases, create links, attach comments, color spans, paste styled fragments, and expect those marks to survive concurrent editing.',
         'Peritext exists because rich text is not just plain text with prettier rendering. A document can converge as bytes while the user-visible formatting is wrong. If Alice bolds The fox and Bob bolds fox jumped, the merged document should usually preserve the union of their formatting intent. Treating that intent as punctuation or HTML inside the character stream gives the CRDT the wrong object to merge.',
+        {type:'callout', text:'Rich-text CRDTs converge by storing formatting as anchored semantic spans instead of smuggling intent through inline marker characters.'},
       ],
     },
     {

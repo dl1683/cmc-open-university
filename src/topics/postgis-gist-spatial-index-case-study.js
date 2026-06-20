@@ -215,6 +215,8 @@ export const article = {
         'PostGIS spatial indexing exists because exact geometry predicates are too expensive to run against every row in a large table. A city boundary, parcel polygon, transit line, or delivery zone can have many vertices. Testing exact intersection against millions of geometries is a poor first move.',
         'The index solves a cheaper first problem: which geometries might match? It stores bounding boxes so PostgreSQL can quickly find candidates whose rectangles overlap the query rectangle. Then exact spatial predicates remove false positives.',
         'This is a production case study in lossy prefiltering. The index is not the final truth. It is a way to avoid asking the expensive truth question for rows that clearly cannot match.',
+        {type:'callout', text:'A spatial index wins by rejecting impossible rows with cheap envelopes before exact geometry spends real CPU.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/6f/R-tree.svg', alt:'Diagram of an R-tree with red object rectangles grouped inside blue bounding boxes.', caption:'R-tree example showing grouped bounding rectangles for spatial search. Image by Skinkie and Radim Baca, public domain, via Wikimedia Commons.'},
       ],
     },
     {

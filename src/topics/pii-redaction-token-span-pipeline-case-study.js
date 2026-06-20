@@ -293,6 +293,7 @@ export const article = {
         'PII leaks because useful systems copy text everywhere. Logs, traces, tickets, analytics exports, search indexes, training corpora, support tools, and incident bundles all want the same raw events. Once direct identifiers spread into those surfaces, cleanup becomes slow, incomplete, and hard to prove.',
         'A token-span redaction pipeline creates one controlled transformation point before data leaves a trust boundary. It detects sensitive ranges, resolves conflicts, applies purpose-specific policy, and writes evidence that reviewers can inspect later. The data structure at the center is the span: start offset, end offset, type, confidence, recognizer, transform, and lineage.',
         'The goal is not to make text harmless by magic. The goal is to turn a messy release decision into a recorded series of small decisions: what was found, which finding won when detectors disagreed, what action policy required, what output was released, and what risk remains.',
+        {type:'callout', text:'A redaction pipeline becomes auditable when every released byte traces back to typed spans, deterministic conflict resolution, and purpose specific policy.'},
       ],
     },
     {

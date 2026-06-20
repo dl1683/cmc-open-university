@@ -188,6 +188,7 @@ export const article = {
       paragraphs: [
         'A modern page is rarely one document. It is a tree of documents: the top-level page, payment frames, ad slots, maps, chat widgets, video tools, analytics tags, and internal dashboards embedded inside each other. Some of those documents can try to use powerful browser features such as camera, microphone, geolocation, fullscreen, payment, sensors, or storage-related capabilities.',
         'User permission prompts are not enough to model that authority. A prompt can ask whether the user wants to share location, but it does not know whether the publisher intended an ad frame, a map frame, or a support-chat frame to be allowed to ask. Permissions Policy gives the page owner a browser-enforced way to say which documents may even attempt specific features.',
+        {type:'callout', text:'Permissions Policy turns browser features into a least privilege allowlist evaluated across the frame tree before powerful APIs run.'},
       ],
     },
     {

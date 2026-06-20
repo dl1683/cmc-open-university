@@ -246,6 +246,7 @@ export const article = {
         'Training rows are easy to build incorrectly. If a label row from 10:05 joins to a feature value computed at 10:50, the model has seen the future. Offline metrics improve, production behavior gets worse, and the team may never notice until launch.',
         'A point-in-time feature join index exists to prevent that time travel. For each prediction example, it finds the newest feature value for the same entity that was available at or before the prediction timestamp, then records proof fields so the join can be audited later.',
         'This is one of the places where data engineering and model evaluation become the same problem. A model can only be fairly evaluated if its training and validation rows contain information the serving system would actually have had at prediction time.',
+        {type:'callout', text:'Point-in-time joins make model evaluation honest by indexing feature history against the exact information boundary serving would have faced.'},
       ],
     },
     {

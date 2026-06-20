@@ -370,6 +370,8 @@ export const article = {
       paragraphs: [
         `Perceiver IO exists because many real inputs are not polite token sequences. Images contain grids, video contains frames, audio contains long time streams, point clouds contain unordered sets, and multimodal examples can mix several of those forms at once. A transformer can process any of these after an adapter turns them into vectors, but the raw number of positions can become much larger than the model can afford to mix at full depth.`,
         `There is also an output problem. Classification wants one label. Optical flow wants a dense grid. Audio generation wants many time samples. A control policy may want a small set of action slots. Perceiver IO treats input size, internal working memory, and output shape as separate design choices instead of forcing one token array to play every role.`,
+        {type:'callout', text:`Perceiver IO separates raw input size, bounded latent memory, and output query shape so the expensive depth runs over the controllable middle.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/Transformer%2C_full_architecture.png', alt:'Diagram of a transformer encoder decoder architecture with self attention and cross attention blocks.', caption:`Transformer architecture showing the attention interface that Perceiver IO reworks. Image by dvgodoy, CC BY 4.0, via Wikimedia Commons.`},
       ],
     },
     {

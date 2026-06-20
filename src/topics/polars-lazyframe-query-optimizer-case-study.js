@@ -226,6 +226,7 @@ export const article = {
       paragraphs: [
         'A dataframe library is easiest to understand when every line runs immediately. Load a file, filter rows, add a column, select fields, group, and print the result. That eager model is convenient, but it hides the same problem query engines have faced for decades: the written order of operations is often not the cheapest order of execution.',
         'Polars LazyFrame exists so Polars can see the whole computation before it pays for it. Lazy operations build a query plan. The optimizer rewrites that plan. Execution happens when the user calls collect or another materializing boundary. The data structure is not only a table; it is a plan that can still be changed.',
+        {type:'callout', text:'LazyFrame changes dataframe work from immediate mutation into an inspectable plan that can be rewritten before IO and memory are spent.'},
       ],
     },
     {

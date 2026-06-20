@@ -360,6 +360,7 @@ export const article = {
       paragraphs: [
         `Users experience main-thread stalls as a page that ignores them. A click lands but the handler waits. A keypress queues behind rendering or script. A spinner freezes during the work that was supposed to make the interface feel responsive. The Long Tasks API exists because these stalls are easy to feel and hard to assign from aggregate metrics alone.`,
         `A PerformanceObserver can subscribe to longtask entries and receive PerformanceLongTaskTiming records when an uninterrupted UI-thread task reaches the reporting threshold. The useful idea is not "find a bad function once." It is a measurement loop: collect field evidence, attach route and build context, route the work to an owner, change scheduling or architecture, and gate the release on user-visible metrics.`,
+        {type:'callout', text:`Long task instrumentation works when the browser entry becomes a small ownership packet, not another expensive task on the overloaded thread.`},
       ],
     },
     {
