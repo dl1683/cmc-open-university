@@ -732,7 +732,6 @@ html { scroll-behavior: smooth; }
 .study-section p {
   margin: 9px 0;
   line-height: 1.68;
-  max-width: 104ch;
 }
 .study-list {
   margin: 8px 0 0 18px;
@@ -741,7 +740,6 @@ html { scroll-behavior: smooth; }
 .study-list li {
   margin: 8px 0;
   line-height: 1.6;
-  max-width: 104ch;
 }
 
 .study-quote {
@@ -750,7 +748,6 @@ html { scroll-behavior: smooth; }
   border-left: 4px solid var(--accent, #4fc3f7);
   background: rgba(79, 195, 247, 0.06);
   border-radius: 0 6px 6px 0;
-  max-width: 104ch;
 }
 .study-quote p {
   margin: 0;
@@ -797,7 +794,6 @@ html { scroll-behavior: smooth; }
   overflow-x: auto;
   font-size: 0.88em;
   line-height: 1.5;
-  max-width: 104ch;
 }
 .study-code code {
   font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
@@ -813,7 +809,6 @@ html { scroll-behavior: smooth; }
   font-size: 0.85em;
   line-height: 1.4;
   overflow-x: auto;
-  max-width: 104ch;
   white-space: pre;
 }
 
@@ -823,7 +818,6 @@ html { scroll-behavior: smooth; }
   background: rgba(255, 183, 77, 0.08);
   border-left: 4px solid rgba(255, 183, 77, 0.6);
   border-radius: 0 6px 6px 0;
-  max-width: 104ch;
 }
 .study-note-label {
   display: block;
@@ -840,7 +834,6 @@ html { scroll-behavior: smooth; }
 
 .study-image {
   margin: 24px 0;
-  max-width: 104ch;
 }
 .study-image img {
   width: 100%;
@@ -863,7 +856,6 @@ html { scroll-behavior: smooth; }
   background: rgba(79, 195, 247, 0.06);
   border: 1px solid rgba(79, 195, 247, 0.2);
   border-radius: 8px;
-  max-width: 104ch;
 }
 .study-callout p {
   margin: 0;
