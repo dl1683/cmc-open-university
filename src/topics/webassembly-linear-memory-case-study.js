@@ -247,6 +247,8 @@ const legacyArticle = {
       paragraphs: [
         'WebAssembly needs to run low-level code without handing that code native pointers into the browser or host process. C, C++, Rust, and other compiled languages still need addresses, loads, stores, stacks, heaps, structs, and byte buffers. Linear memory is the compromise: one sandboxed byte array that Wasm can address directly.',
         'The official core specification describes linear memory as a mutable byte array, and MDN describes WebAssembly.Memory as the resizable buffer accessed by a WebAssembly instance: https://www.w3.org/TR/wasm-core-2/ and https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory. This topic is the bridge between arrays, allocators, typed arrays, browser runtimes, and sandboxing.',
+        {type:'callout', text:'Linear memory is the contract that lets low-level code use numeric offsets while the host sees only a sandboxed, resizable byte buffer.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1f/WebAssembly_Logo.svg', alt:'WebAssembly logo with white WA letters on a purple square.', caption:'WebAssembly logo, by Carlos Baraza Haro, CC0, via Wikimedia Commons.'},
       ],
     },
     {

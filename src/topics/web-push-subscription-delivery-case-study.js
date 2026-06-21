@@ -206,6 +206,7 @@ export const article = {
       paragraphs: [
         'A web app cannot keep an ordinary socket open after every tab is closed. Yet some events still need to reach the user or wake the app: a direct message, urgent alert, task assignment, or sync hint. Web Push gives the server an inbound wakeup path through the browser push service.',
         'The Push API lets an application server send a message to a web application through a browser push service, even when the web app is inactive. The real system is not one call to subscribe. It is a subscription registry: endpoint URL, encryption keys, application-server identity, service-worker scope, user preference, and endpoint health.',
+        {type:'callout', text:'Web Push is a durable subscription registry plus a bounded wakeup path, not a hidden socket or permanent user identity.'},
         'The W3C Push API says push enables sending a push message to a web application via a push service: https://www.w3.org/TR/push-api/. MDN Push API documents the service-worker additions and PushManager entry point: https://developer.mozilla.org/en-US/docs/Web/API/Push_API.',
       ],
     },

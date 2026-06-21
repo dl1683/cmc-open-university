@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         'A web app can run in several same-origin tabs, windows, iframes, and workers at once. Each context may try to sync the same document, compact the same IndexedDB store, refresh the same cache, or elect itself as the background worker.',
         'Without coordination, one browser origin becomes a small distributed system. Duplicate jobs waste battery and network. Concurrent migrations corrupt local state. The Web Locks API gives same-origin scripts a browser-managed queue for named resources.',
+        {type:'callout', text:'The browser lock manager turns cross-tab coordination into an origin-scoped scheduling problem with explicit resource names, modes, and release boundaries.'},
       ],
     },
     {

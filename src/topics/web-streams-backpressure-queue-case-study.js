@@ -223,6 +223,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type:"callout", text:"Backpressure makes a stream a feedback loop: data moves toward the sink while overload signals move back toward the source."},
       ],
     },
     {

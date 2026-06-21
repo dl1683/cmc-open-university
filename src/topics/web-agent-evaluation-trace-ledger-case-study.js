@@ -212,6 +212,7 @@ export const article = {
       paragraphs: [
         `Browser agents turn a vague instruction into browser observations, model decisions, clicks, typing, waits, file operations, and final checks. A single pass rate hides almost all of that work. The agent may fail because it misunderstood the task, clicked the wrong target, clicked before the page was ready, hit a changed website, used the wrong account state, timed out, or was judged by an evaluator that did not match the human intent.`,
         `A trace ledger exists to make each score inspectable. It binds the task, starting state, environment setup, action trajectory, screenshots, model calls, browser events, evaluator output, latency, cost, failure labels, and replay artifacts into one evidence package. The goal is not more logging for its own sake. The goal is to make a benchmark result useful for engineering decisions.`,
+        {type:'callout', text:`A browser-agent score only becomes engineering evidence when the task, run path, evaluator, latency, cost, and replay artifacts are bound into one inspectable ledger.`},
       ],
     },
     {

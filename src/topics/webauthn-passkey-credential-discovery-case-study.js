@@ -207,6 +207,8 @@ export const article = {
       paragraphs: [
         'Password login starts with a claim: the user types a username, then proves control of a secret. Passkeys can move part of that account selection into the browser and authenticator. If the device has a discoverable credential for the current relying party, the user can choose it and sign in without typing a password or sometimes even a username.',
         'Credential discovery exists to make that pleasant without making it leaky. The page should not receive a raw list of accounts stored on the device. The browser mediates the picker, the relying-party ID scopes which credentials can appear, and the server still verifies a fresh cryptographic assertion before creating a session.',
+        {type:'callout', text:'Credential discovery moves account selection into browser-authenticator mediation while keeping the final proof as a scoped signature verified by the server.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/ff/FIDO2_USB_token.png', alt:'Black FIDO2 USB security key with a gold touch button.', caption:'FIDO2 security key, by Yubinerd123, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
