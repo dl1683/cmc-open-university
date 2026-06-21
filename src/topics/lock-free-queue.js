@@ -160,6 +160,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Lock-Free Queue. The Michael-Scott queue: producers and consumers move head/tail with CAS, helping stalled operations finish..",
+        {type: 'callout', text: "A lock-free queue publishes progress through one winning CAS, then leaves enough structure for other threads to help cleanup."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -169,6 +170,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Concurrent queues are the handoff points inside schedulers, actor runtimes, work pools, networking stacks, telemetry pipelines, and producer-consumer systems. One set of threads produces work. Another set consumes it. The queue has to preserve FIFO order while many participants touch the same head and tail state.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list diagram with nodes pointing to the next node', caption: 'The Michael-Scott queue is a linked structure; FIFO correctness comes from the next chain, not from the tail shortcut. Source: Wikimedia Commons, Lasindi, public domain.'},
         'A normal mutex-protected queue is often the right answer. It is small, readable, and easy to test. The Michael-Scott lock-free queue exists for the harder case where a paused lock holder, a slow critical section, or heavy contention should not freeze the entire handoff path. It trades a simple ownership rule for atomic pointer updates and a proof that the shared structure can recover when any one thread stalls.',
       ],
     },
@@ -184,6 +186,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is to make one small pointer change the public truth of each operation. Enqueue publishes a node by changing the observed last node next pointer from null to the new node. Dequeue claims an item by changing head from the old dummy node to the first real node. Those compare-and-swap operations are the moments that make the abstract queue change.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel processor die showing compute regions', caption: 'CAS is a hardware-backed coordination primitive; the data-structure proof depends on which atomic write wins at the cache-coherence boundary. Source: Wikimedia Commons, KL and Intel, public domain.'},
         'The main invariant is reachability through next pointers. Starting at head and following next links gives the queue contents. Tail is allowed to lag behind the true last node because tail is a performance hint, not the source of truth. If a thread sees a stale tail, it can help advance it and then retry its own operation.',
         'The dummy node keeps the shape stable. Head points to a dummy, and the first real item is at head.next. After a successful dequeue, the returned node becomes the new dummy. That sounds odd at first, but it removes the need to special-case a queue with one item because dequeue is always a head-advance operation.',
       ],
@@ -231,6 +234,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         'The algorithm on paper is not the whole implementation. Removed nodes cannot be freed while another thread might still hold a pointer read earlier. In garbage-collected runtimes, the collector provides much of that safety. In C and C++, the queue needs a reclamation discipline such as hazard pointers, epochs, reference counting, or another scheme that delays reuse until readers are done.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram with transitions', caption: 'Thread pauses and state transitions are exactly why lock-free progress is valuable: a stalled participant should not own the whole queue. Source: Wikimedia Commons, CC BY-SA 3.0.'},
         'ABA is a related hazard. A pointer can hold value X, change to Y, and later hold X again after memory reuse. A CAS that checks only the pointer value might think nothing changed. Tagged pointers, version counters, hazard discipline, or allocation rules can prevent that mistake.',
         'Memory ordering is also part of correctness. A consumer must not see a node link before the node value is safely published. Producers and consumers need acquire and release rules, or equivalent runtime guarantees, so pointer visibility and value visibility match the logical operation order.',
       ],

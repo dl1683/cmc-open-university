@@ -223,6 +223,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for LLM Guardrail Policy Engine. A production guardrail stack for LLM apps: trust labels, output schemas, policy gates, tool permissions, escalation, and audit traces..",
+        {type: 'callout', text: "Guardrails work when the model proposes and a typed control plane authorizes."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -232,6 +233,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'An LLM application is rarely just a text box connected to a model. A useful assistant may read private documents, summarize email, query a vector index, call tools, draft messages, change tickets, update databases, or trigger payments. That means the system has two very different jobs. It needs the model to produce flexible language and plans, but it also needs a reliable boundary around data access and side effects.',
+        {type: 'image', src: 'https://developer.gs.com/blog/blog-posts/scaling-opa-through-oces/oces_1_v2.png', alt: 'Open Policy Agent policy decision point in a service request path', caption: 'Policy engines separate application proposals from authorization decisions, which is the same boundary an LLM tool system needs. Source: Goldman Sachs Developer.'},
         'The hard part is that the model sees mixtures of authority. A system prompt may say one thing, a user may ask another, a retrieved page may contain hidden instructions, and a tool schema may expose a privileged operation. The model can be helpful, but it is not a security kernel. A guardrail policy engine is the deterministic control plane that decides what context may enter the prompt, what output shape is acceptable, what actions are authorized, which decisions need review, and what evidence must be logged.',
       ],
     },
@@ -253,6 +255,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Treat model output as a proposal, not an authorization. The model may propose an answer, a citation, a tool call, or a plan. The control plane decides whether the proposal is allowed. That decision should be based on typed resources, user identity, tenant, data classification, tool effect, credential scope, risk class, and approval state. The model can describe intent; the policy engine binds that intent to concrete authority.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree model diagram', caption: 'A policy decision should be inspectable as a path through criteria: identity, resource, action, risk, and approval state. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         'The key data structures are ordinary but powerful. A trust map labels inputs as user instruction, system instruction, retrieved evidence, tool output, or untrusted external content. A permission table maps users and agents to resources and actions. A tool-effect taxonomy distinguishes reads, previews, drafts, sends, writes, deletes, purchases, and administrative changes. A policy decision record captures rule inputs and outcomes. An audit log preserves the event stream. Together these structures decide what the model may see, say, and do.',
       ],
     },
@@ -274,6 +277,7 @@ export const article = {
       heading: 'Worked example',
       paragraphs: [
         'Imagine an enterprise research assistant that can search internal documents, read email threads, draft responses, and create support tickets. A user asks it to summarize a vendor email and prepare a reply. The email contains hidden text asking the assistant to forward private attachments to an external address. The email body is useful evidence, but it is not trusted instruction.',
+        {type: 'image', src: 'https://docs.oracle.com/en/cloud/paas/integration-cloud/rest-api-fs/images/oauth-flow.png', alt: 'OAuth authorization flow showing client and authorization server', caption: 'Scoped authorization keeps delegated access narrower than the human account, which limits blast radius when a model proposes an action. Source: Oracle Cloud documentation.'},
         'The guardrail engine labels the email as untrusted retrieved content. Retrieval access control confirms that the user can read the email but does not automatically grant permission to send attachments. The model proposes a reply and perhaps a send-email tool call. The schema gate verifies the tool arguments. The semantic policy gate flags private attachment exfiltration. The permission table sees that the assistant has draft scope, not send-with-attachment scope. The result is a safe preview, a blocked send, or a human review request, plus an audit event that records the document id, proposed action, rule outcome, and final disposition.',
       ],
     },

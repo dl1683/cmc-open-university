@@ -250,7 +250,9 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'LLM systems do not only return exact values. They summarize, retrieve, call tools, write explanations, refuse unsafe requests, cite sources, ask clarifying questions, and sometimes take many steps before producing an answer. A normal unit test can check a parser or function. An LLM evaluation suite has to check behavior under uncertainty.',
+        {type: 'callout', text: 'An eval case is a replayable evidence packet: input, context, expected behavior, scorer, trace, and risk slice travel together.'},
         'The useful artifact is an eval case: a replayable task with the input, relevant context, expected behavior, scorer, metadata, trace, and risk slice. A good case is not just a prompt and a score. It is enough evidence to rerun the system and understand why it passed or failed.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'An eval harness is a directed evidence flow: traces become cases, cases enter runners, scorers produce release-gate evidence. Source: Wikimedia Commons, David W., public domain.'},
         'The evaluation system is the machinery around those cases: runners, model or prompt variants, retrieval snapshots, tool traces, scorers, judge prompts, score matrices, and release gates.',
       ],
     },
@@ -290,6 +292,7 @@ export const article = {
       heading: 'Judges and rubrics',
       paragraphs: [
         'LLM-as-a-judge is useful when output quality is open-ended. The judge receives the case, candidate answer, reference material, and rubric, then returns a score and rationale. That is appropriate for qualities like completeness, helpfulness, faithfulness, tone, and refusal quality.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree model diagram', caption: 'A useful rubric behaves like a decision structure: each criterion narrows why an answer passed, failed, or needs audit. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         'Rubric design matters. A vague judge prompt rewards style. A useful rubric names criteria: factual correctness, answer completeness, citation support, policy compliance, concision, tool-use correctness, and when to abstain.',
         'Judges need calibration. They can prefer verbosity, familiar wording, their own model family, or the answer shown first. Keep anchor cases, compare judge scores with human labels, randomize answer order for pairwise tests, and audit high-stakes slices.',
       ],
@@ -305,6 +308,7 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'Eval cost is shaped by case count, model calls per case, judge calls, retrieval replay, tool simulation, human labels, and repeated runs across variants. Cheap deterministic checks should run first. Expensive judge calls and human review should focus on changed or risky slices.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density curves', caption: 'Repeated eval runs should be read as sampled measurements, not single absolute truths; variance decides whether a score change is meaningful. Source: Wikimedia Commons, Inductiveload, public domain.'},
         'The eval system also needs versioning. Store case version, prompt version, retrieval index version, model version, scorer version, judge version, tool simulator version, and random seed when sampling is involved. Without those fields, a score cannot be reproduced or compared fairly.',
         'Benchmark variance still applies. Report slice counts, confidence intervals where appropriate, and cost per task when using evals to make product or vendor decisions.',
       ],

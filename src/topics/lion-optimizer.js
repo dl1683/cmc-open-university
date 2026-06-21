@@ -205,7 +205,9 @@ export const article = {
       heading: 'Why Lion Exists',
       paragraphs: [
         `Lion is an optimizer for neural-network training. The name comes from EvoLved Sign Momentum, because the rule was found by symbolic program search and then simplified into a small human-readable update. It keeps a momentum-like running average of gradients, forms a blend of that momentum and the current gradient, takes the sign of that blend, and moves each parameter by a learning-rate-scaled positive or negative step. Unlike AdamW, it does not keep a second-moment buffer that estimates gradient variance.`,
+        {type: 'callout', text: `Lion trades AdamW variance state for signed momentum, so memory falls but the learning-rate recipe becomes part of correctness.`},
         `That design matters because optimizer state is not a footnote in modern training. AdamW usually stores two extra tensors per parameter: first moment and second moment. On very large models, those buffers can be a major share of memory. Lion stores only one momentum-like tensor, so the optimizer can be lighter. The tradeoff is that Lion throws away most gradient magnitude information before applying the step. It is not a cheaper AdamW clone. It is a different optimizer geometry.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: `Optimizers change every weight in a layered network, so optimizer state scales with parameter count rather than with batch count. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.`},
       ],
     },
     {
@@ -219,6 +221,7 @@ export const article = {
       heading: 'Core Insight',
       paragraphs: [
         `Lion's core insight is that a neural-network update can be made decisive without trusting the raw gradient magnitude. After momentum has accumulated a direction, Lion uses only the sign of a blended direction. A coordinate with a small positive blended signal and a coordinate with a large positive blended signal both receive a positive step of the same base size. The learning rate controls that base size, and weight decay is usually applied in the decoupled AdamW style.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock optimization surface with a narrow curved valley', caption: `Optimizer behavior matters most on curved loss surfaces where direction, step scale, and momentum interact. Source: Wikimedia Commons, Oleg Alexandrov, public domain.`},
         `This is why Lion often needs a lower learning rate than AdamW. AdamW can shrink or enlarge effective coordinate steps through its adaptive denominator. Lion's sign operation makes every active coordinate step similar before global scaling. That can help when raw magnitudes are noisy or poorly calibrated. It can hurt when magnitude was carrying useful information about curvature, uncertainty, or coordinate scale. The optimizer is making an explicit bet: persistent direction is more useful than exact local magnitude.`,
       ],
     },
@@ -268,6 +271,7 @@ export const article = {
       heading: 'Pitfalls And Misconceptions',
       paragraphs: [
         `The first misconception is that Lion is simply AdamW with less memory. It is not. Removing the second moment changes how coordinates are scaled, how learning rate behaves, and how sensitive training is to sign errors. The second misconception is that sign updates are crude and therefore cannot work. That is also too simple. Momentum can make sign direction meaningful, and many deep networks do not require every local gradient magnitude to be trusted equally.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Standard deviation bands under a normal curve', caption: `Small optimizer gains need variance-aware evaluation; a mean improvement inside run-to-run spread has not earned a recipe change. Source: Wikimedia Commons, M. W. Toews, public domain.`},
         `The third trap is benchmark optimism. Optimizer papers often report small percentage gains, and small gains are fragile. Retune both optimizers. Use the same compute budget. Run enough seeds. Compare validation quality, wall-clock time, memory, stability, and final task performance. If Lion saves memory but needs many extra sweeps to reach the same quality, that tuning cost is real. If it wins only because AdamW was under-tuned, the result is not an optimizer discovery in your workload.`,
       ],
     },

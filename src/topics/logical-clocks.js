@@ -161,6 +161,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Clocks & Ordering: Lamport to TrueTime. Wall clocks lie across machines — order events by causality instead, or buy atomic truth and wait out its error bars..",
+        {type: 'callout', text: "Distributed clocks are ordering evidence, not time decoration; use the clock whose guarantee matches the merge rule."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -170,6 +171,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Distributed systems constantly need to answer ordering questions: which write wins, which log entry is newer, which replica has missed an update, whether two changes conflict, and whether a read is allowed to see a write. On one machine, a local clock and a local sequence number often feel enough. Across machines, they are not.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Internet topology map with many connected paths', caption: 'Distributed events cross variable network paths, so timestamp order can diverge from causal order whenever skew and latency overlap. Source: Wikimedia Commons, The Opte Project, CC BY 2.5.'},
         'Wall-clock timestamps are tempting because they are easy to print and sort, but they are not reliable evidence across machines. Small skew is enough to drop a real user correction under last-write-wins. The system may keep the value with the later timestamp even though the human action happened earlier.',
         'Logical clocks exist to replace "what time did this happen?" with "what could this event have known or caused?" That is the question databases, CRDTs, gossip protocols, consensus terms, anti-entropy sync, and distributed traces actually need. The clock is not for telling time. It is for carrying ordering evidence.',
       ],
@@ -186,6 +188,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is that causality is a partial order. An event can be known to happen before another event if it occurs earlier on the same process, sends a message that the other event receives, or is connected by a chain of those facts. Events with no causal path between them are concurrent.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Vector_Clock.svg/500px-Vector_Clock.svg.png', alt: 'Vector clock diagram showing causes, effects, and independent events', caption: 'Vector clocks make partial order visible: dominated vectors carry causal history, while non-dominated vectors expose concurrency. Source: Wikimedia Commons, CC BY-SA 3.0.'},
         'Concurrent does not mean simultaneous. It means the system has no causal evidence that one event should come before the other. That distinction matters because a merge policy, conflict detector, database timestamp, or trace analysis tool should not invent evidence it does not have.',
         'Different clocks preserve different amounts of this partial order. Lamport clocks preserve causal precedence in one direction. Vector clocks preserve enough metadata to detect concurrency. Hybrid logical clocks combine logical causality with approximate physical time. TrueTime keeps physical time but exposes uncertainty and waits before making timestamps globally meaningful.',
       ],
@@ -227,6 +230,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'Lamport-style counters appear in consensus terms, leader epochs, idempotency tokens, log sequence numbers, and any protocol that needs monotonic progress without trusting wall time.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Causal order is a directed graph property: arrows justify before and after, while missing paths mean the application must decide how to merge. Source: Wikimedia Commons, David W., public domain.'},
         'Vector clocks and version vectors appear in eventually consistent storage, conflict detection, anti-entropy, and CRDT sync. They are useful when concurrent edits should be surfaced or merged instead of silently overwritten.',
         'Hybrid logical clocks show up in distributed SQL systems that want timestamps close to real time without Spanner-grade clock hardware. TrueTime matters when the product needs globally consistent timestamp reads across shards and is willing to pay for clock infrastructure plus write latency.',
       ],

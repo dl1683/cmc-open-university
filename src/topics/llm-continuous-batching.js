@@ -233,6 +233,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for LLM Continuous Batching. Iteration-level scheduling for LLM serving: admit and remove requests every token step instead of freezing a whole batch..",
+        {type: 'callout', text: "Continuous batching treats the live batch as a token-step scheduling decision, not as a fixed request list."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -242,6 +243,7 @@ export const article = {
       heading: 'Why it exists',
       paragraphs: [
         `Autoregressive LLM serving has a shape ordinary request batching does not handle well. Every active user needs one model step for each generated token, but users arrive at different times, send prompts of different lengths, and stop after different output lengths. A chat reply might finish in 80 tokens while an agent trace keeps going for 1,500. If the server freezes a batch until every request finishes, the short request leaves an idle lane while other users wait outside.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Every decode iteration reuses the same model layers across many live sequences, which is why empty lanes waste expensive weight reads. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         `Continuous batching exists because decode work is repeated, synchronized, and weight-heavy. On each decode iteration, many sequences can share a read of the same model weights. An empty lane during that step is wasted GPU opportunity. The scheduler therefore treats the batch as a live set: completed sequences leave, waiting sequences enter, and the next token iteration runs with as many legal active requests as the memory and latency policy allow.`,
       ],
     },
@@ -263,6 +265,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `A continuous-batching scheduler loops over active requests. After each token step, it checks which sequences emitted an end token, hit a maximum length, violated a stop rule, or were cancelled by the client. Those sequences leave the live set and their KV cache blocks can be reclaimed. The scheduler then looks at the waiting queue, estimates whether each candidate fits available KV memory and policy constraints, and admits compatible requests before the next decode iteration.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a datacenter', caption: 'Continuous batching lives inside each serving replica, but fleet-level routing still decides which machine receives the next request. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
         `Selective batching handles the fact that a transformer request is not one uniform operation. Dense attention and MLP kernels want large compatible batches because they reuse model weights well. Sampling may differ by request because temperature, top-p, penalties, grammar constraints, or structured-output masks vary. Cache updates are also per-request metadata operations. A good serving engine batches the operations that benefit from batching and keeps the request-specific pieces separate enough to preserve correctness.`,
         `Prefill complicates the loop. Prompt processing is large dense work; decode is many small repeated steps. If a long prompt monopolizes the GPU, already-streaming users freeze. Systems use policies such as chunked prefill, decode reservation, length-aware queues, and separate prefill/decode workers to keep first-token work from destroying time per output token. Continuous batching is therefore a scheduler plus a memory manager plus a latency policy, not just a bigger batch size.`,
       ],
@@ -285,6 +288,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         `The gain is throughput under latency constraints, not free capacity. More live sequences consume more KV cache, more scheduler bookkeeping, more sampling work, and sometimes longer per-request waits. If the scheduler admits too aggressively, it can increase total tokens per second while making p99 worse. If it admits too conservatively, the GPU sits underfilled and cost per token rises.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'Cache hierarchy diagram from CPU registers through storage', caption: 'KV cache pressure is a memory hierarchy problem: fast scarce memory must hold the active state needed by the next token step. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         `Memory management is the hard systems partner. KV cache grows and shrinks dynamically as requests arrive, generate, and finish. PagedAttention attacks this by allocating cache in blocks, reducing fragmentation and enabling better sharing for common prefixes: https://arxiv.org/abs/2309.06180. Without a block allocator or equivalent memory plan, continuous admission can run into cache fragmentation, preemption churn, or outright memory deadlock.`,
       ],
     },

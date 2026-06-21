@@ -81,6 +81,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each bar is one server. The bar height is the number of active connections on that server right now. When a request arrives, the balancer picks a server -- the chosen bar highlights. Compare highlights show which servers were evaluated.',
+        {type: 'callout', text: 'A load balancer is useful only when its routing signal matches real work, not just request count.'},
         'The key experiment: run the same request durations under round-robin, then switch to least-connections. Round-robin ignores the bars and picks by position in a cycle. Least-connections reads the bars and picks the shortest one. The gap in peak load between the two runs is the cost of ignoring state.',
         'Watch for the moment a long request is still running on a server when round-robin sends it another long request. That pileup is the failure mode the animation surfaces.',
       ],
@@ -89,6 +90,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A service outgrows one machine long before it outgrows one address. Users keep calling the same endpoint while the system adds replicas, removes broken ones, drains old versions, and absorbs traffic spikes. A load balancer hides backend membership from clients and turns a pool of machines into one service.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a datacenter', caption: 'A service pool turns many machines into one endpoint, but the front door still has to choose a backend for each request. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
         'The routing decision looks trivial -- just pick a server -- but requests are not equal. A cache hit finishes in microseconds. A report query holds a database connection for seconds. A policy that distributes request counts evenly can still distribute work badly.',
       ],
     },
@@ -110,6 +112,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Five policies cover the practical space. Each adds one more piece of information to the routing decision.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation showing traffic moving across a network', caption: 'Requests arrive as network traffic, but balancing quality depends on backend state after packets reach the service edge. Source: Wikimedia Commons, Oddbodz, public domain.'},
         'Round-robin advances a counter modulo the server count. O(1), stateless, blind to load. It works when servers are identical and request durations are similar.',
         'Weighted round-robin gives each server a weight proportional to its capacity. A server with weight 3 gets three turns for every one turn a weight-1 server gets. Still stateless per-request, but requires knowing relative capacity up front.',
         'Least connections tracks the number of active connections on each server. A new request goes to the server with the fewest. The balancer increments the count on assignment and decrements it when the request finishes. This is the first policy that reacts to actual load.',
@@ -138,6 +141,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'NGINX uses round-robin as its default upstream policy and supports least_conn and ip_hash as alternatives. HAProxy adds queue-aware routing and server weights. AWS ALB uses round-robin at Layer 7 with slow-start for new targets. AWS NLB operates at Layer 4 with flow-hash-based routing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Internet topology map with many connected network paths', caption: 'Global balancing happens above local backend choice: users must reach a region, edge, or datacenter before a local server is selected. Source: Wikimedia Commons, The Opte Project, CC BY 2.5.'},
         'Kubernetes Services use iptables or IPVS to distribute traffic across pods. IPVS mode supports round-robin, least-connections, and weighted variants. Envoy (used in Istio and other service meshes) adds zone-aware routing, outlier detection, and retry budgets on top of the core selection policies.',
         'CDN edge networks use anycast (one IP, many servers, BGP picks the nearest) combined with consistent hashing to preserve cache hits. DNS-based global load balancing routes users to the nearest datacenter before the CDN edge takes over.',
       ],

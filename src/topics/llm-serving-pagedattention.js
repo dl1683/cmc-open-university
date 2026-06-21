@@ -214,6 +214,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for LLM Serving: PagedAttention. How vLLM turns KV cache into paged memory and pairs it with continuous batching for high-throughput inference..",
+        {type: 'callout', text: "PagedAttention makes KV cache a block-mapped memory system, so scheduling can follow live tokens instead of reserved slabs."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -223,6 +224,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Large language model serving is often limited less by raw arithmetic and more by the memory needed to keep many conversations alive. During decode, every active request stores a key and value tensor for each generated token, layer, and attention head. That KV cache is the reason the server does not need to recompute the whole prompt at every token, but it also grows one token at a time for every request in flight.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'Cache hierarchy diagram from CPU registers through storage', caption: 'PagedAttention is a serving-specific memory hierarchy move: scarce fast memory holds the live KV state needed by decode. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         'PagedAttention exists because this growth pattern is hostile to simple GPU memory allocation. Real users send short prompts, long prompts, early-stopping outputs, streaming chats, beam branches, and retries. A serving engine needs a way to pack that irregular state into HBM without wasting most of the space on tokens that might never be generated.',
       ],
     },
@@ -251,6 +253,7 @@ export const article = {
       heading: 'Continuous Batching',
       paragraphs: [
         'PagedAttention is strongest when paired with iteration-level scheduling. Static batching groups requests and waits for the batch to finish or drain. That wastes GPU lanes because outputs have different lengths. Continuous batching admits and removes requests at each decode step. When one sequence finishes, another can enter on the next token iteration.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a datacenter', caption: 'Serving replicas must keep many users alive at once; continuous batching and paged KV allocation are local control loops inside that fleet. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
         'The memory allocator and scheduler need each other. Continuous batching creates constant churn in the live set of sequences. PagedAttention makes that churn cheap enough to handle because joining a batch means allocating a few blocks, not carving a new contiguous slab. Leaving a batch means freeing block references, not compacting the world.',
       ],
     },
@@ -272,6 +275,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         'PagedAttention is not free. The attention kernel must handle indirect block lookup, the scheduler must maintain block ownership, and the runtime needs reference counts for shared prefixes or beam branches. Bugs in this layer are serious because a stale mapping can expose cache from another request or make the model attend to the wrong tokens.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die with many processing blocks', caption: 'The benefit is economic only if block lookup overhead is smaller than the HBM capacity recovered for more live sequences. Source: Wikimedia Commons, Nvidia, public domain.'},
         'There is also a tuning problem. Smaller blocks reduce slack but increase table size and lookup overhead. Larger blocks reduce metadata but waste more space in the last block. The best size depends on model shape, average sequence length, hardware, kernel design, and whether prefix sharing or offload is common.',
       ],
     },

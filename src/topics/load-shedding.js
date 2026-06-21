@@ -169,6 +169,8 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Load shedding exists because an overloaded system that accepts every request can serve nobody well. When demand exceeds capacity, the excess becomes queued work. If the queue grows past client deadlines, the server keeps spending CPU, memory, database connections, or GPU time on requests whose callers have already given up.',
+        {type: 'callout', text: 'Load shedding protects goodput by rejecting doomed work before it consumes the capacity needed by useful work.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation showing packets moving across a network', caption: 'Overload begins as an arrival-rate problem: more packets and requests enter than the service can finish before deadlines. Source: Wikimedia Commons, Oddbodz, public domain.'},
         'The useful metric is goodput: responses delivered before the caller gives up. A system can report high throughput while producing low goodput if most answers arrive too late. Load shedding protects goodput by rejecting some work quickly so accepted work still finishes inside its deadline.',
         'This is an uncomfortable but central reliability idea. A fast 503 with Retry-After can be better than a slow timeout. Saying no on purpose preserves the meaning of yes.',
         'That makes shedding a product decision as much as an infrastructure decision. The system has to know which work is expendable, which work is sacred, and which users should see degradation rather than silence.',
@@ -194,6 +196,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A simple shedder watches leading indicators: queue depth, in-flight requests, p99 latency, worker-pool saturation, connection-pool pressure, GPU queue length, or deadline miss probability. When the signal crosses a threshold, the admission path rejects or downgrades selected work.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram with transitions between states', caption: 'Admission control changes state before expensive work begins: accepted, queued, downgraded, rejected, or retried later. Source: Wikimedia Commons, CC BY-SA 3.0.'},
         'The rejection must happen early. Shedding after authentication, parsing, database fanout, and downstream RPCs wastes the resources it was supposed to protect. The front door, gateway, load balancer, queue consumer, or model-serving admission gate is usually the right place.',
         'Production shedding should be prioritized. Drop analytics beacons before recommendations, recommendations before search, search before checkout. Return a clear status, often 503 with Retry-After or a domain-specific busy response, and make sure clients retry with jitter rather than rebuilding the storm.',
       ],
@@ -226,6 +229,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Gateways, load balancers, API platforms, search systems, recommendation systems, payment processors, queue consumers, and LLM serving stacks all use some form of admission control. They reject or defer low-priority requests when queues, token budgets, connection pools, GPU slots, or downstream latency indicate that accepted work would miss its deadline.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a datacenter', caption: 'A fleet can look healthy while queues are already growing; shedding protects the useful work those machines can still finish. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
         'It is especially important in fanout systems. One accepted request may create many downstream calls. Shedding at the edge can prevent a single overload wave from multiplying through databases, caches, model servers, and third-party APIs.',
         'The pattern is also old outside software: busy signals, call-center callbacks, emergency-room triage, and rate-limited ticket queues all preserve useful service by refusing or deferring lower-priority work during overload.',
       ],
