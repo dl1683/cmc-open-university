@@ -428,3 +428,64 @@ Before a new or revised topic is done, check:
 
 If a page cannot pass this checklist, it may still be a working visualization,
 but it is not yet a finished educational topic.
+
+## Visual Enrichment Standard
+
+The style reference for article depth and visual density is **Lilian Weng's
+blog** (lilianweng.github.io). Her technical posts are the gold standard this
+site aims to match: deep, long-form articles with rich inline images, diagrams,
+and charts woven throughout every section.
+
+### What This Means in Practice
+
+Every major section of a topic article should include at least one visual
+element where it genuinely helps comprehension. Visual elements include:
+
+- **Images** from Wikimedia Commons (with source attribution in the caption).
+- **Diagrams** (ASCII art or structured text showing layouts, flows, or state).
+- **Tables** comparing approaches, costs, or properties.
+- **Code blocks** showing the mechanism in pseudocode or real code.
+
+Do not add visuals for decoration. Add them where a reader would otherwise have
+to build a mental picture from prose alone. The test: if a section describes a
+structure, a flow, a comparison, or a state transition, it should show one.
+
+### Image Guidelines
+
+- Use Wikimedia Commons images with full attribution.
+- Prefer diagrams and architecture visuals over logos (logos are fine as a
+  secondary visual, but the primary images should teach).
+- Every image block must include: `src` (full upload.wikimedia.org URL), `alt`
+  (descriptive alt text), and `caption` (with "Source: Wikimedia Commons"
+  attribution and license).
+- Images should appear inline in the section they support, not collected at
+  the end.
+
+### Depth Standard
+
+Articles should match Lilian Weng's depth: thorough first-principles coverage
+that a motivated reader can use as a standalone reference. This means:
+
+- Worked examples with concrete numbers, not just abstract descriptions.
+- Mathematical reasoning where it clarifies (not where it intimidates).
+- Tradeoff analysis that names specific costs, not vague "it depends."
+- Real system context: where is this deployed, what scale, what constraints.
+- Failure modes and limits: what breaks, when, and why.
+- Historical context where it helps: who built this, what problem triggered it.
+
+A finished article should be long enough that a reader could skip the animation
+entirely and still learn the topic deeply from the prose and visuals alone.
+
+### Callout Blocks
+
+Every article should have at least one callout block capturing the core
+architectural insight in a single sentence. Callouts use
+`{type: 'callout', text: '...'}` and render as a highlighted box. They anchor
+the reader's takeaway for the section.
+
+### Editorial Review Standard
+
+Every Codex editorial reviewer must read this document (WRITING_SYSTEM.md)
+before making recommendations. Reviews should evaluate articles against the
+Lilian Weng standard: sufficient depth, inline visuals in every major section,
+and prose that teaches mechanisms rather than summarizing them.
