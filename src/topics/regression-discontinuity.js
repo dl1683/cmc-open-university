@@ -249,6 +249,7 @@ export const article = {
         'Regression discontinuity exists for the common case where treatment is assigned by a rule instead of by a randomized trial. Scholarships start above a test score. Benefits begin at an age threshold. A policy applies when vote share crosses 50 percent. The assignment is deterministic, but the threshold can still create a local experiment.',
         'The key is locality. A student at 69 and a student at 70 are usually much more similar than students at 50 and 95. If nobody can precisely manipulate which side of the cutoff they land on, then the tiny difference around the line is close to luck. Bureaucratic determinism becomes randomization at the margin.',
         'Regression discontinuity is useful because it turns a visible rule into causal evidence. It does not claim treated and untreated groups are globally comparable. It claims the units just below and just above the cutoff are comparable enough that a jump in the outcome at the cutoff can be attributed to the treatment.',
+        {type: 'callout', text: 'RD works only at the edge: the cutoff must change treatment suddenly while every other cause stays smooth through the same point.'},
       ],
     },
     {
@@ -272,6 +273,7 @@ export const article = {
       paragraphs: [
         'The running variable is the assignment score. The cutoff is the threshold where treatment probability changes. In a sharp RD, treatment switches from no to yes at the cutoff. In a fuzzy RD, the cutoff only changes the probability of treatment, so the design becomes an instrumental-variables design at the threshold.',
         'The standard estimator fits separate local regressions on each side of the cutoff and evaluates both at the cutoff. The difference between those two fitted values is the estimated jump. Local linear regression is common because it removes the smooth slope in the running variable while keeping the estimate focused near the threshold.',
+        {type: 'image', src: 'https://www.ncbi.nlm.nih.gov/books/NBK566228/bin/ch8f12.jpg', alt: 'Regression discontinuity scatter plot with a cutoff and separate fitted lines', caption: 'The estimated treatment effect is the vertical jump at the cutoff, not the average difference between all treated and untreated units. Source: https://www.ncbi.nlm.nih.gov/books/NBK566228/figure/ch8.fig12/.'},
         'Bandwidth controls how much data around the cutoff is used. A wide bandwidth gives more observations and lower variance, but it can import curvature that a simple local line cannot model. A narrow bandwidth is more locally honest, but it has fewer observations and wider uncertainty. Credible RD work reports sensitivity across bandwidth choices rather than presenting one flattering window.',
         'Fuzzy RD adds one more step. If crossing the threshold raises treatment take-up from 30 percent to 80 percent, the raw outcome jump is diluted by people whose treatment status did not change. Divide the outcome jump by the treatment-probability jump to estimate the effect for compliers near the cutoff.',
       ],

@@ -217,6 +217,7 @@ export const article = {
       paragraphs: [
         'A distributed cache, shard map, or load balancer often needs every client to choose the same owner for a key without consulting a central table. The owner should change only when the winning node leaves or a stronger candidate joins.',
         'Rendezvous hashing, also called highest-random-weight hashing, solves that placement problem with scoring instead of a ring. It is especially useful when the full ranked list of owners matters for replication or failover.',
+        {type: 'callout', text: 'HRW assigns a key by ranking every candidate with a stable score, so failover and replication fall out of the same ordered list.'},
       ],
     },
     {
@@ -224,6 +225,7 @@ export const article = {
       paragraphs: [
         'The obvious approach is `hash(key) mod N`. It is simple and stateless, but when N changes most keys move. That is unacceptable for caches and storage systems because membership churn causes large migrations and cache misses.',
         'Consistent hashing rings improve churn by placing nodes on a token circle, but rings need token metadata, virtual nodes, and extra care around replica choice and capacity weighting.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/71/Consistent_Hashing_Sample_Illustration.png', alt: 'Consistent hashing ring with servers placed around a circle', caption: 'A ring is the common contrast: rendezvous hashing avoids token-circle metadata by scoring each candidate for the key directly. Source: https://commons.wikimedia.org/wiki/File:Consistent_Hashing_Sample_Illustration.png.'},
         'Rendezvous hashing attacks the problem from another angle: rank every candidate for the key. The top rank owns it. The next ranks are deterministic backups. There is no ring to walk and no per-key table to store.',
       ],
     },

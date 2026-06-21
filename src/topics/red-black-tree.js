@@ -144,6 +144,7 @@ export const article = {
         'Every node carries a color label -- BLACK or RED. The animation shows two insertion scenarios that trigger the two different repair strategies.',
         'In the recolor case, watch the parent-uncle pair. Both are red, so the fix avoids rotation entirely: parent and uncle turn black, the grandparent turns red, and the violation floats upward. Highlighted "swap" and "compare" nodes mark the red parent and red uncle. When the violation reaches the root, the root simply turns black and the repair ends.',
         'In the rotation case, the uncle is black (a null leaf counts as black). The "swap" highlight marks the red-red chain that triggers a left rotation. The middle value lifts into the grandparent position, the old grandparent drops to its left, and recoloring restores the invariants. Follow the left-to-right layout before and after: the sorted order never changes. Rotations reshape the tree without disturbing the BST contract.',
+        {type: 'callout', text: 'A red-black tree keeps a BST shallow by enforcing color rules that bound path imbalance, then repairs violations with local recolors and rotations.'},
       ],
     },
     {
@@ -183,6 +184,7 @@ export const article = {
       paragraphs: [
         'A red-black tree is not an arbitrary set of coloring rules. It is a binary encoding of a 2-3-4 tree, and the correspondence explains why the invariants work.',
         'A 2-3-4 tree is a balanced search tree where each node holds 1, 2, or 3 keys and has 2, 3, or 4 children. It stays perfectly balanced -- every leaf is at the same depth -- because insertions split overfull nodes upward rather than growing the tree downward.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5f/Red-black_trees_and_2%E2%80%933%E2%80%934_trees.svg', alt: 'Correspondence between 2-3-4 tree nodes and red-black tree encodings', caption: 'The 2-3-4 correspondence shows what red links mean: red children are keys glued into the same multi-key node as their black parent. Source: https://commons.wikimedia.org/wiki/File:Red-black_trees_and_2%E2%80%933%E2%80%934_trees.svg.'},
         'To convert a 2-3-4 node to red-black form: a 2-node becomes a single black node. A 3-node becomes a black node with one red child (the second key). A 4-node becomes a black node with two red children (the outer keys). In every case the black node corresponds to the middle key, and red children are "glued" to it -- they belong to the same 2-3-4 node.',
         'This is why invariant 4 forbids consecutive reds: two reds in a row would mean a 2-3-4 node with more than 3 keys, which is illegal. It is why invariant 5 requires equal black-height on all paths: black nodes are the 2-3-4 tree levels, and a 2-3-4 tree has equal depth on every path. The recolor case (red uncle) corresponds to splitting a 4-node and pushing the middle key up. The rotation cases correspond to redistributing keys in a 3-node.',
         'Once you see the 2-3-4 tree hiding inside, every red-black operation has a clear structural meaning.',
@@ -247,4 +249,3 @@ export const article = {
     },
   ],
 };
-

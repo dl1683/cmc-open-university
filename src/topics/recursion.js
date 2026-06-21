@@ -137,12 +137,14 @@ export const article = {
         `The animation builds a call tree. Each box is a stack frame: one invocation of the function with its own argument. An "active" frame is currently executing. A "waiting" frame has called a smaller version of itself and cannot finish until that child returns. A "returned" frame has its final value and has handed it back to its parent.`,
         `Watch the descent first. Each new call pushes a frame, and the tree grows downward until a base case stops the growth. Then watch the unwind: base cases return values upward, and each waiting parent uses those child results to compute its own answer and return in turn. The call stack at any moment is the path from the root down to the currently active frame -- every frame on that path is paused, holding local state, waiting for something below it to finish.`,
         `For factorial, the tree is a straight chain: each frame calls exactly one child. For Fibonacci, the tree branches: each non-base frame calls two children, and the same subproblem can appear in multiple branches. That repeated work is visible in the animation as duplicate subtrees.`,
+        {type: `callout`, text: `Recursion is stack-managed delegation: each frame owns one smaller promise and waits until the base case starts the return path.`},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         `Some problems contain smaller copies of themselves. A folder holds folders. A tree node owns child trees. A mathematical expression nests sub-expressions. When the structure of the data is self-referential, a function that handles one layer by delegating the rest to itself is the most direct translation of the problem into code.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/24/Tree_graph.svg`, alt: `Labeled tree graph with six vertices and five edges`, caption: `A tree makes recursion natural because each child subtree has the same shape as the parent problem. Source: https://commons.wikimedia.org/wiki/File:Tree_graph.svg.`},
         `Recursion as a programming tool dates to John McCarthy's 1960 paper "Recursive Functions of Symbolic Expressions and Their Computation by Machine," which introduced LISP. Before LISP, languages used GOTO and loops; McCarthy showed that recursive function calls could express tree-walking, list processing, and symbolic computation cleanly. The idea was borrowed from mathematical logic, where recursive definitions had been studied since the 1930s by Godel, Church, and Kleene.`,
       ],
     },

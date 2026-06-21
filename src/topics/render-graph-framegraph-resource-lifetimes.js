@@ -231,6 +231,7 @@ export const article = {
         'A modern rendered frame is not one draw loop. It may include depth, G-buffer, shadows, lighting, SSAO, bloom, temporal history, compute passes, UI, and presentation. Each pass reads and writes GPU resources, and the order is constrained by dataflow.',
         'The hard problem is not only drawing pixels. It is knowing which pass produces each resource, which pass consumes it, which state the resource must be in, when temporary memory can be reused, and which passes can be skipped because their outputs are unused.',
         'A render graph, or frame graph, makes that implicit dependency structure explicit. It turns a frame into a compiler problem over a DAG of passes and resources.',
+        {type: 'callout', text: 'A render graph makes the frame compiler-visible: passes declare resource reads and writes, and the graph derives order, barriers, lifetimes, and safe memory reuse.'},
       ],
     },
     {
@@ -245,6 +246,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A render graph models the frame as passes that read and write resources. Edges come from dataflow: a pass that reads a texture must run after the pass that writes it, and the resource must transition into the required state.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A frame graph is a directed dependency graph: producer passes must precede consumer passes before barriers and lifetimes can be planned. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The graph is both a data structure and a compiler pass. It derives ordering, barriers, pass culling, transient lifetimes, and aliasing opportunities from declarations.',
       ],
     },

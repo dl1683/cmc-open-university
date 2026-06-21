@@ -345,6 +345,7 @@ export const article = {
       paragraphs: [
         'Rerooting dynamic programming exists for tree problems where every node asks the same question: what would the answer be if I were the root? A naive solution reruns a DFS from every node. That is easy to understand and usually too slow.',
         'The technique turns an all-roots problem into two passes. The first pass computes information flowing up from children. The second pass sends the missing outside information back down. Every node ends with a view of the whole tree from its own position.',
+        {type: 'callout', text: 'Rerooting DP turns every edge into a two-way boundary: one pass learns each child side, and the second pass sends the parent side back.'},
       ],
     },
     {
@@ -358,6 +359,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'For each edge u-v, the tree splits into two components if the edge is removed. A rerooting algorithm computes the contribution from each side of that edge. Once a node knows contributions from all neighbor directions, it can combine them to answer the rooted-at-this-node question.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/24/Tree_graph.svg', alt: 'Labeled tree graph with six vertices and five edges', caption: 'Removing any edge in a tree splits it into two clean components, which is the boundary rerooting DP exploits. Source: https://commons.wikimedia.org/wiki/File:Tree_graph.svg.'},
         'This is why the method often uses prefix and suffix aggregates over children. To send a value from parent u to child v, u must combine every contribution except the one that came from v. Prefix/suffix scans make that exclusion O(1) per edge after one local pass.',
       ],
     },

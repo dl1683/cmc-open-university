@@ -234,6 +234,7 @@ export const article = {
         'Reciprocal Rank Fusion exists because modern search often has several useful retrievers whose scores cannot be compared directly. BM25 returns lexical scores shaped by term frequency and document length. Vector search returns distances or similarities from an embedding space. Graph retrieval may return relationship strength. Metadata or freshness rules may create yet another signal. Adding those raw numbers together is usually nonsense.',
         'The practical problem is candidate recall. A support assistant, RAG system, enterprise search box, or code search tool wants exact term matches, semantic paraphrases, graph-neighbor evidence, and recent documents to all have a chance to reach the reranker. RRF gives those systems a cheap, robust way to merge ranked lists before expensive reranking.',
         'The method is deliberately modest. It does not decide truth, authorization, freshness, or final relevance. It solves one narrow but important problem: take several ranked lists and create one candidate pool without brittle score normalization.',
+        {type: 'callout', text: 'RRF treats rank as the shared currency between retrievers, so lexical, vector, graph, and freshness signals can vote without score calibration.'},
       ],
     },
     {
@@ -248,6 +249,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is that rank position is a common currency. A document ranked first by a retriever is receiving a strong vote from that retriever, even if the raw score scale is incomparable to another retriever. RRF turns that position into a contribution of 1 / (k + rank), then sums contributions across lists.',
+        {type: 'image', src: 'https://qdrant.tech/articles_data/hybrid-search/fusion.png', alt: 'Dense and sparse search result lines normalized and fused into one mixed ranking', caption: 'Hybrid search exposes the reason RRF exists: dense and sparse retrievers produce different score spaces, so fusion needs a rank-level bridge. Source: https://qdrant.tech/articles/hybrid-search/.'},
         'The constant k controls how sharply top ranks dominate. With the common k = 60 baseline, rank 1 contributes 1/61, rank 2 contributes 1/62, and so on. The difference between adjacent ranks is smooth rather than explosive. That lets broad agreement across retrievers beat a lonely first-place result when the lonely result is invisible elsewhere.',
         'This makes RRF a candidate-pool algorithm. It is not a final judge. Its job is to preserve diverse plausible evidence so a downstream reranker, filter, or answer generator has something worth evaluating.',
       ],

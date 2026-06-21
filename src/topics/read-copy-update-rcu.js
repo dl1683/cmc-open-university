@@ -206,6 +206,7 @@ export const article = {
         'Read-mostly data structures punish ordinary locking. A reader-writer lock lets many readers share access, but readers still touch synchronization state, and writers still have to exclude them. On a hot lookup path, even that read-side coordination can be too expensive.',
         'The naive alternative is to update the object in place and hope readers see a consistent state. That fails because a reader can observe half of an update or follow a pointer that the writer frees too soon.',
         'RCU exists for workloads where lookups dominate and the cost of making readers wait is larger than the cost of making writers do extra work. Kernel routing tables, file descriptor tables, configuration maps, and shared indexes often have this shape: many readers need a stable view, while updates are comparatively rare.',
+        {type: 'callout', text: 'RCU moves synchronization cost away from readers: readers see a complete version, while writers copy, publish, and wait before reclaiming old memory.'},
       ],
     },
     {
@@ -220,6 +221,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The name is literal. Read: readers enter a read-side critical section and follow the current pointer. Copy: writers build a replacement away from readers. Update: writers publish the replacement with a pointer update.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by pointers', caption: 'Pointer-based structures make RCU concrete: a writer can publish a replacement link while old readers continue along the version they already loaded. Source: https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
         'The invariant is version stability. A reader may see the old version or the new version, but it must not see a half-patched structure. The old version remains reclaimable only after every pre-existing reader has passed through a quiescent state.',
         'The design is intentionally asymmetric. Readers do almost no coordination. Writers pay for copying, publication ordering, writer serialization, callback queues, and grace-period waiting. That bargain is good only when cheap reads are the dominant product requirement.',
       ],

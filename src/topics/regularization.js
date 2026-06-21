@@ -154,6 +154,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Regularization is a constraint added to training so a model cannot buy tiny training-loss improvements with huge, fragile weights. The demo starts from the same separable email data used by Logistic Regression. Without a penalty, Gradient Descent keeps increasing the weight norm long after the boundary classifies all ten points correctly, because cross-entropy still rewards turning 0.99 into 0.999. With lambda = 0.1, the norm plateaus near 1.38 instead of climbing past 3.68, and the most confident spam probability is a humbler 98.67% instead of 99.999%.`,
+        {type: `callout`, text: `Regularization prices fragile complexity, so a model must prove that extra weight, features, or training time improve future performance rather than only training loss.`},
       ],
     },
     {
@@ -181,6 +182,7 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `Regularization is not punishment for learning. It is a price system. Large weights, too many active features, too much co-adaptation, or too much training time all become expensive. The model can still use them, but only when they buy enough reduction in the data loss.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg`, alt: `Rosenbrock function surface with a curved valley`, caption: `Loss landscapes can contain narrow valleys; regularization changes which solutions are affordable rather than simply chasing the lowest training point. Source: https://commons.wikimedia.org/wiki/File:Rosenbrock_function.svg.`},
         `L2 says every additional unit of weight gets increasingly expensive. L1 says each feature must clear a fixed usefulness threshold or disappear. Dropout, augmentation, and early stopping use different mechanisms, but the same idea: constrain the easy path to memorization.`,
       ],
     },
@@ -275,4 +277,3 @@ export const article = {
     },
   ],
 };
-
