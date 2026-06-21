@@ -154,6 +154,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Grouped-Query Attention. How MQA and GQA share key/value heads across many query heads to reduce decode memory bandwidth and KV-cache capacity..",
+        {type: "callout", text: "GQA decouples query-head diversity from KV-cache size: many query heads can read a smaller shared set of key and value memories."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -163,6 +164,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Grouped-query attention is an attention layout for transformer decoders that keeps many query heads but shares a smaller number of key/value heads. In ordinary multi-head attention, each query head has its own key projection and value projection. During autoregressive generation, the model caches those keys and values for every previous token so it does not recompute them at every step. That cache is the KV Cache. It is essential for fast decoding, but it grows with context length, batch size, layers, and the number of stored key/value heads.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Transformer%2C_full_architecture.png/250px-Transformer%2C_full_architecture.png`, alt: `Transformer encoder-decoder architecture with attention blocks`, caption: `The full transformer diagram shows where attention repeats across layers; GQA changes the cached key/value head count inside those decoder attention blocks. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_full_architecture.png.`},
         `GQA changes the cache geometry. A model might keep 32 query heads but store only 8 key/value heads. Each key/value head serves a group of query heads. Multi-query attention is the extreme version, where all query heads share one key/value head. Full multi-head attention is the other extreme, where query heads and key/value heads have the same count. GQA is the middle point: much smaller cache than full multi-head attention, more key/value diversity than multi-query attention.`,
       ],
     },
@@ -184,6 +186,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `In implementation terms, attention still computes queries, keys, values, attention scores, a softmax, and a weighted sum of values. The change is the shape of the projections. The query projection produces many query heads. The key and value projections produce fewer heads. At attention time, each query head is assigned to a key/value group. The grouped key/value tensors may be repeated or broadcast logically so the attention kernel can pair every query head with its group\'s cached keys and values.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Multiheaded_attention%2C_block_diagram.png/250px-Multiheaded_attention%2C_block_diagram.png`, alt: `Multi-head attention block showing parallel attention heads and concatenation`, caption: `Multi-head attention begins with parallel heads. GQA keeps many query heads while reducing how many key/value heads are stored in the decode cache. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Multiheaded_attention,_block_diagram.png.`},
         `The grouping ratio is the main design variable. If there are 32 query heads and 8 key/value heads, each key/value head serves 4 query heads. If there are 32 query heads and 4 key/value heads, each serves 8. The smaller the key/value count, the smaller the cache and the stronger the sharing assumption. Some systems train the model with GQA from the beginning. Others convert an existing multi-head checkpoint by pooling or selecting key/value heads and then uptraining so the model adapts. That conversion is a model change, not a harmless file-format rewrite.`,
       ],
     },
@@ -226,6 +229,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         'KV cache bytes per layer equal 2 (K and V) times the number of KV heads times the head dimension times the element width times the sequence length. MHA with 32 heads at d_model = 4096 in fp16 stores 2 * 32 * 128 * 2 = 16,384 bytes per token per layer. GQA-8 stores 2 * 8 * 128 * 2 = 4,096 bytes, a 4x reduction. MQA stores 2 * 1 * 128 * 2 = 512 bytes, a 32x reduction.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Scaled dot-product attention block with query, key, value, mask, softmax, and output', caption: 'The attention block highlights why K and V are persistent decode state while the current token supplies a fresh Q. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_attention_block_diagram.png.'},
         'When sequence length doubles the cache doubles. When batch size doubles the cache doubles. GQA changes the constant factor, not the growth rate. The practical effect is that the same GPU can hold more concurrent sequences or longer contexts before evicting state. On bandwidth-bound decode, reading fewer KV bytes per step directly reduces time per output token. The reduction compounds with KV cache quantization: GQA-8 in int8 is 8x smaller than MHA in fp16.',
       ],
     },
@@ -268,4 +272,3 @@ export const article = {
     },
   ],
 };
-

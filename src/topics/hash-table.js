@@ -137,6 +137,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The flat row of boxes is the bucket array. Each slot holds at most one key. When a key is inserted, the hash function picks a home slot (highlighted as active). If that slot is occupied, the probe walks right one slot at a time -- the collision marker shows which occupied slot forced the step, and the active marker shows where the probe moved next.',
+        {type: 'callout', text: 'Open addressing is correct because insertion and lookup walk the same deterministic probe path until a key or an empty proof slot appears.'},
         'Watch for clusters: contiguous runs of filled slots. Every new key that hashes into a cluster must walk to the far end before finding an empty slot. The longer the cluster, the longer the probe. That feedback loop -- occupied slots attracting more collisions -- is primary clustering, and it is the central cost story of linear probing.',
         'A found marker means the key was placed or located. An empty slot during lookup proves the key absent: if it had been inserted, it would occupy that slot or an earlier one on the same probe path. When a resize frame fires, every key disappears and reappears because bucket indexes are key mod capacity, and doubling the capacity changes those indexes.',
         'After each insertion the load factor (entries / capacity) is displayed. Watch it climb toward 0.7. As the ratio rises, clusters merge, probes lengthen, and the table eventually doubles to break the clusters apart.',
@@ -146,6 +147,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Hash tables solve exact lookup: given a key, find its record without scanning every entry. A hash function converts any key to a bucket index, giving O(1) average insert, lookup, and delete. The question is what to do when two keys hash to the same bucket. That is the collision problem, and the two classic answers are chaining (linked lists per bucket) and open addressing (find another slot in the same array).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg', alt: 'Hash table with chaining showing keys mapped to buckets', caption: 'The classic table diagram shows the contract: hash a key into a bucket, then handle whatever collision pattern the bucket receives. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.'},
         'Linear probing is the simplest open-addressing scheme. On collision, try the next slot, then the next, wrapping around. Knuth analyzed it exhaustively in 1963, making it one of the first algorithms with a rigorous average-case analysis. Despite its simplicity, linear probing is the fastest hash table strategy at moderate load on modern hardware because it turns collisions into sequential memory scans -- exactly what CPU caches are built to accelerate.',
       ],
     },
@@ -160,6 +162,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'Chaining has poor cache locality. Each chain node is a separate heap allocation, potentially on a different cache line. Walking a 5-node chain can trigger 5 L1 cache misses, each costing 4-10 ns on a modern CPU -- or 100+ ns if the data falls out of L2. At alpha = 1, the average successful lookup touches two nodes on two cache lines. The theoretical O(1) hides a large constant dominated by pointer chasing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by pointers', caption: 'Separate chaining resolves collisions with linked nodes, but every pointer hop risks a cache miss compared with a flat probe through adjacent slots. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
         'The pointer overhead also wastes memory. Each node carries a next pointer (8 bytes on 64-bit systems) plus allocator metadata. For small keys, the overhead can exceed the data. A table with a million 4-byte integer keys spends more memory on pointers and allocator headers than on the keys themselves.',
         'Open addressing eliminates both costs. All entries live in one contiguous array. Probing walks adjacent memory, which the hardware prefetcher loads into cache automatically. No pointers, no per-node allocations, no cache-line lottery.',
       ],
@@ -194,6 +197,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'CPU caches love sequential memory access. Linear probing turns collision resolution into a short forward scan through adjacent slots, which the hardware prefetcher serves from L1 cache. At moderate load (alpha <= 0.6), a probe sequence of 2-3 slots fits in a single cache line. This makes linear probing the fastest hash table strategy on modern hardware for workloads that control load.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel i7 processor die photograph', caption: 'Linear probing wins in practice because nearby buckets ride the memory hierarchy better than scattered heap nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
         'Google SwissTable (absl::flat_hash_map) and Rust hashbrown both use a linear-probing variant with SIMD metadata: a parallel byte comparison filters 16 candidate slots in one instruction before checking full keys. These are the default hash maps in production C++ and Rust codebases.',
         'CPython dict uses open addressing with a perturbation-based probe sequence derived from linear probing. The perturbation mixes higher hash bits into the step, reducing clustering while keeping most of the cache-locality benefit.',
         'Embedded systems and game engines favor open addressing because it avoids per-node heap allocations. A fixed-size linear-probing table needs no allocator at all -- just a flat array sized at compile time.',

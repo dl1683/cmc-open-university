@@ -162,6 +162,8 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The array is drawn as a row of boxes. Think of it as two regions separated by a moving boundary: the heap prefix on the left and the sorted suffix on the right. The suffix grows one element at a time as each maximum is extracted.',
+        {type: 'callout', text: 'Heap sort spends one O(n) heap build so every later maximum removal is a logarithmic sift instead of a full scan.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Sorting_heapsort_anim.gif', alt: 'Animated heap sort moving maximum values into a sorted suffix', caption: 'The animation shows the two-region view directly: a live heap prefix and a sorted suffix that grows from the right. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Sorting_heapsort_anim.gif.'},
         'During Phase 1 (build-heap), highlighted boxes show the parent being compared to its children. A swap highlight means the parent was smaller and sank down. No element leaves the heap yet; the goal is only to establish the max-heap property.',
         'During Phase 2 (extract-max), the root and the last heap element swap (swap highlight), then the new root sifts down (active and compare highlights). Elements that reach the sorted suffix turn a different color and never move again. When every box is in the suffix, sorting is done.',
       ],
@@ -170,6 +172,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'J. W. J. Williams introduced heaps and heap sort in 1964 to solve a specific gap in comparison sorting. Merge sort guarantees O(n log n) worst-case time but needs O(n) extra space. Quicksort runs fast in practice with O(1) extra space but degrades to O(n^2) on adversarial inputs. No comparison sort before heap sort delivered both guarantees simultaneously.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/38/Max-Heap.svg', alt: 'Max heap drawn as a complete binary tree', caption: 'A max-heap stores the largest remaining value at the root while leaving the rest only partially ordered. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Max-Heap.svg.'},
         'Heap sort is the only comparison sort that is O(n log n) in the worst case and uses O(1) auxiliary space. That combination matters whenever memory is scarce and worst-case latency is a hard constraint.',
       ],
     },
@@ -177,6 +180,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Selection sort solves the same problem with the same space budget. Scan the unsorted region for the largest value, swap it to the end, repeat. It uses O(1) extra space and is simple to implement. For small arrays it works fine.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Binary_heap_bottomup_vs_topdown.svg/250px-Binary_heap_bottomup_vs_topdown.svg.png', alt: 'Binary heap diagram comparing bottom-up and top-down construction', caption: 'Bottom-up heap construction is the key improvement over repeated selection or repeated insertion: most nodes are near leaves and sink only a short distance. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_heap_bottomup_vs_topdown.svg.'},
       ],
     }
   ],

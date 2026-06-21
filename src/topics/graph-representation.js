@@ -344,6 +344,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Use the selector to switch between three views of the same 5-vertex, 7-edge undirected graph. Active highlights mark cells or entries under inspection. Found highlights mark query results. Compare highlights expose wasted work or space.',
+        {type: 'callout', text: 'A graph representation is a query contract: the same edges can be stored to favor neighbor scans, edge-existence checks, or streaming all edges.'},
         'In the matrix view, watch the neighbor query: it scans every cell in a row, including zeros. In the list view, the scan touches only actual neighbors and stops. In the edge list view, every query scans every edge. The cost difference is visible in the number of highlighted cells.',
         'The comparison table at the end of the edge list view summarizes all three representations side by side. One safe inference: if your algorithm iterates neighbors (BFS, DFS, Dijkstra), the adjacency list wins. If it checks individual edge existence (Floyd-Warshall, matrix exponentiation), the matrix wins.',
       ],
@@ -352,6 +353,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Graphs model anything with connections: social networks, road maps, web links, dependency chains, circuit boards. The abstract definition is simple -- vertices and edges. The engineering question is how to store those edges so algorithms can query them without wasting time or memory.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'The abstract graph is small; the representation choice decides whether an algorithm sees rows, neighbor lists, or edge records. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Graph algorithms ask two kinds of questions. "Is there an edge from u to v?" is a point query. "Give me all neighbors of u" is an iteration query. Different storage layouts optimize for different questions, and choosing wrong can turn an O(V + E) traversal into an O(V^2) one. The three standard representations -- edge list, adjacency list, adjacency matrix -- cover the useful tradeoff space.',
       ],
     },
@@ -373,6 +375,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Adjacency list: an array of V lists. Entry u holds the IDs of all vertices adjacent to u. In an undirected graph, edge (u, v) appears in both u\'s list and v\'s list, so total entries across all lists equal 2E. In a directed graph, edge u -> v appears only in u\'s outgoing list. Weights attach as (neighbor, weight) pairs. Space: O(V + E). Neighbor iteration: O(degree(u)) -- read u\'s list and stop. Edge existence check: O(degree(u)) -- scan u\'s list for v.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/28/6n-graph2.svg', alt: 'Six-node undirected graph used to illustrate adjacency matrix entries', caption: 'A labeled graph gives each vertex a stable coordinate, which is exactly what matrix rows and list headers name. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:6n-graph2.svg.'},
         'Adjacency matrix: a V x V 2D array. Cell [i][j] is 1 if edge (i, j) exists, 0 otherwise. For weighted graphs, the cell holds the weight and a sentinel (infinity or -1) marks absent edges. Undirected graphs produce a symmetric matrix. Space: O(V^2). Edge existence check: O(1) -- index directly. Neighbor iteration: O(V) -- scan the entire row, skipping zeros.',
         'Edge list: a flat sequence of (from, to) pairs, optionally with weights. Can be sorted by source, destination, or weight. Space: O(E). Everything else: O(E) per query.',
       ],
@@ -390,6 +393,7 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'Adjacency list: O(V + E) space, O(degree) neighbor scan, O(degree) edge check, O(1) edge add (append), O(degree) edge remove. Doubling V and E roughly doubles storage. A graph with 1,000 vertices and average degree 10 stores about 11,000 entries.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Symmetric_group_4%3B_Cayley_graph_1%2C5%2C21_%28adjacency_matrix%29.svg/250px-Symmetric_group_4%3B_Cayley_graph_1%2C5%2C21_%28adjacency_matrix%29.svg.png', alt: 'Colored adjacency matrix for a Cayley graph', caption: 'A matrix makes O(1) edge tests visible, but every absent edge still occupies a cell. Sparse graphs turn most cells into paid-for zeros. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Symmetric_group_4;_Cayley_graph_1,5,21_(adjacency_matrix).svg.'},
         'Adjacency matrix: O(V^2) space, O(V) neighbor scan, O(1) edge check, O(1) edge add/remove. Doubling V quadruples storage. 1,000 vertices: 1,000,000 cells. 10,000 vertices: 100,000,000 cells. 1,000,000 vertices: 10^12 cells -- roughly a terabyte just for a boolean grid. The same 1,000-vertex graph with degree 10 that needs 11,000 list entries wastes 989,000 matrix cells on zeros.',
         'Edge list: O(E) space, O(E) edge check, O(E) neighbor scan, O(1) append, O(E) removal. Compact and trivial to build, but every query pays the price of a full scan.',
       ],

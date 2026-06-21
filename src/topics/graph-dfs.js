@@ -159,6 +159,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each node displays two numbers separated by a slash: discovery time / finish time. A node with only a discovery time (like "3/–") is currently on the stack — DFS is still exploring its subtree. A node with both numbers (like "3/8") is finished — DFS has explored everything reachable from it and backtracked.',
+        {type: 'callout', text: 'DFS is a stack invariant: every active node is on the current path, and finishing a node proves its whole unexplored subtree is exhausted.'},
         'Node colors encode three states. Unvisited nodes have no timestamp — DFS has not reached them. Active nodes (highlighted) are on the stack, forming the current path from the source. Visited/finished nodes have both timestamps and are grayed — DFS is done with them.',
         'The stack contents shown at each step are the current path from source to frontier. When the stack grows, DFS is diving deeper. When it shrinks, DFS is backtracking because a dead end was reached. The finish timestamps always appear in reverse depth order: the deepest node on a path finishes first.',
       ],
@@ -167,6 +168,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Trémaux invented the idea around 1882 as a maze-solving method: walk forward, mark your path, and when you hit a dead end or a corridor already marked, turn around and backtrack to the last unmarked fork. Nearly a century later, Tarjan (1972) formalized this as depth-first search on general graphs, adding discovery and finish timestamps, edge classification, and showing that a single DFS pass could find strongly connected components in linear time. DFS became the backbone of graph algorithms — cycle detection, topological sort, SCC decomposition, articulation points, and bridges all reduce to properties of a single DFS traversal.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/7f/Depth-First-Search.gif', alt: 'Animated depth-first search trace through a small graph', caption: 'The animation shows DFS committing to one branch before backtracking, the same behavior the topic trace exposes with timestamps. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Depth-First-Search.gif.'},
         'The core need: many graph problems do not care about shortest paths. They care about structure — is there a cycle? What depends on what? Which nodes are mutually reachable? DFS answers all of these in one O(V + E) pass using only O(V) memory for the stack, no matter how wide the graph is.',
       ],
     },
@@ -188,6 +190,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Push the source onto a stack and stamp it with a discovery time. Peek at the top of the stack. If the current node has an unvisited neighbor, push that neighbor, stamp it discovered, and continue. If all neighbors are visited, pop the current node, stamp it finished, and backtrack. The stack is the engine: LIFO order means DFS always continues the deepest unfinished path before anything shallower.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1f/Depth-first-tree.svg', alt: 'Tree labeled by the order in which depth-first search expands nodes', caption: 'The numbered tree makes preorder visible: DFS follows a path until it cannot continue, then returns to the latest unfinished fork. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Depth-first-tree.svg.'},
         'Recursion does the same thing implicitly. A recursive call on a neighbor is a push; returning from that call is a pop. Trémaux’s 1882 maze version uses no call stack but follows the same logic: commit to one corridor, remember where to resume, never enter the same passage twice. The explicit-stack version avoids stack overflow on deep graphs and makes it easy to pause, resume, and inspect the traversal state.',
         'Edge classification falls directly out of the timestamps. When DFS examines an edge (u, v): if v is undiscovered, the edge is a tree edge and v becomes u’s child in the DFS forest. If v is discovered but not yet finished (still on the stack), the edge is a back edge pointing to an ancestor — this proves a cycle exists. If v is already finished with discover(v) > discover(u), the edge is a forward edge skipping down to a descendant already explored. If v is finished with discover(v) < discover(u), the edge is a cross edge linking separate branches. In undirected graphs, only tree edges and back edges can occur because every edge is traversed in both directions.',
       ],
@@ -196,6 +199,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'Every node is discovered exactly once and finished exactly once. The stack ensures a node is not finished until everything reachable from it through unvisited edges has been discovered and finished first. This produces the parenthesis property: for any two nodes u and v, either the interval [discover(u), finish(u)] fully contains [discover(v), finish(v)], or the two intervals are completely disjoint. There is never partial overlap.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/57/Tree_edges.svg', alt: 'DFS tree showing tree, back, forward, and cross edges', caption: 'Edge classes are a timestamp consequence, not an extra data structure. Back edges point to an active ancestor and prove a cycle. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Tree_edges.svg.'},
         'The parenthesis property makes DFS a structural X-ray. Containment means ancestor-descendant in the DFS tree. Disjointness means neither is an ancestor of the other. A back edge to a node still on the stack proves a cycle: the stack path from that ancestor to the current node, plus the back edge, forms a closed loop. No back edges means no cycles — exactly the condition for a directed acyclic graph. The white-path theorem completes the picture: v is a descendant of u in the DFS tree if and only if, at the moment u is discovered, there exists a path from u to v consisting entirely of undiscovered nodes.',
       ],
     },

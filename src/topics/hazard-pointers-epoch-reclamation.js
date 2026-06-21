@@ -209,6 +209,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Hazard Pointers & Epoch Reclamation. The missing half of lock-free linked structures: protect nodes while readers hold raw pointers, then retire and reclaim only when reuse is safe..",
+        {type: "callout", text: "Safe reclamation separates logical removal from physical reuse: a removed node is not free until old readers are proven gone."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -218,6 +219,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A lock-free stack, queue, or linked list can be logically correct and still be unsafe. A successful compare-and-swap may unlink a node from the structure, but that does not prove every other thread has stopped holding a raw pointer to that node.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by pointers', caption: 'Lock-free stacks, queues, and lists remove linked nodes before memory can always be reused. The pointer topology and the lifetime topology are different questions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
         'This is the missing half of manual-memory lock-free programming. The data structure must decide when a removed node can be freed or reused. If it frees too early, a paused reader can dereference reclaimed memory. If it never frees, the structure leaks under load.',
         'Garbage-collected runtimes hide most of this problem because the collector can find live references. C, C++, kernel code, Rust internals, and many high-performance runtimes need an explicit reclamation protocol.',
       ],
@@ -226,6 +228,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The obvious approach is to free a node immediately after the CAS that removes it. That keeps memory usage low and matches how single-threaded code often feels: once the list no longer points at the node, the node is dead.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel i7 processor die photograph', caption: 'Compare-and-swap is a hardware-level state transition, but it cannot reveal pointer history or paused readers by itself. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
         'The wall is that another thread may have loaded the pointer before the CAS. That pointer can live in a register or stack frame. The allocator cannot see it. If the node is freed and the address is reused, the paused thread can read new data through an old pointer.',
         'The other obvious approach is to never free removed nodes. That avoids use-after-free, but it turns every long-running data structure into a memory leak. Safe reclamation is the contract in between: remove now, retire the node, and reclaim only after the system has evidence that no active operation can still touch it.',
       ],
@@ -251,6 +254,7 @@ export const article = {
       heading: 'How it works (2)',
       paragraphs: [
         'A thread pins or enters the current epoch before operating on the structure. While pinned, it promises that it may hold pointers read during that epoch. When it finishes, it unpins or announces that it is no longer active.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram showing transitions among execution states', caption: 'Epoch reclamation is a state protocol: active participants delay freeing, inactive or advanced participants let old bags become reclaimable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Process_states.svg.'},
         'A remover does not free an unlinked node. It retires the node into a bag associated with the current epoch. The global epoch advances only when active participants have moved forward or become inactive.',
         'After enough epoch advancement, the oldest bags can be freed in bulk. The exact implementation varies, but the safety idea is stable: a node is reclaimed only after no active thread can still be inside the epoch where the node became retired.',
         'Epoch reclamation is fast on the common path because readers usually publish only an epoch, not each pointer. The tax is coarse protection. One stalled participant can prevent many unrelated retired nodes from being reclaimed.',

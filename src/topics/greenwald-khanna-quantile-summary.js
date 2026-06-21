@@ -218,6 +218,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Tuple bounds" walks a small GK summary and shows how each tuple certifies a rank interval in the unseen stream. "Compress summary" shows the merge rule that deletes tuples without breaking the rank guarantee.',
+        {type: 'callout', text: 'GK turns deletion into proof state: every retained value carries a rank interval large enough to remember what was discarded.'},
         'Active highlights mark the tuple or operation under inspection. Found highlights mark a query result whose rank interval covers the target. Removed highlights show tuples deleted by compression. Compare highlights show neighboring tuples whose rank intervals constrain the decision.',
         'Watch the rank column. Every tuple carries a range like 6..8 meaning the tuple\'s true rank in the full sorted stream falls somewhere in that window. Compression widens a neighbor\'s window; it never lets a window exceed the epsilon budget.',
       ],
@@ -226,6 +227,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A quantile is a question about rank. The median asks: which value sits at the halfway rank? p95 asks: which value sits at rank 0.95n? Latency dashboards, data quality reports, and streaming analytics need these answers because averages hide tails. A service whose average latency is 50 ms may have a p99 of 3 seconds, and the average will never reveal that.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ed/Box_Plot_Picture.png', alt: 'Box plot showing median, quartiles, whiskers, and outliers', caption: 'Box plots make quantiles concrete: the median and quartiles are rank positions, not arithmetic averages. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Box_Plot_Picture.png.'},
         'The hard part is that many systems see data as a stream. Events arrive one at a time, possibly forever. Storing every value and sorting later may be impossible -- the stream is too large, the memory too small, or the query too urgent. The system still needs to answer "what is p50?" and "did p99 move?" without retaining every observation.',
         {
           type: 'quote',
@@ -255,6 +257,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The summary is a sorted list of tuples, each with three fields: value v, gap g, and delta. Together, g and delta define a rank interval for the tuple.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg', alt: 'Cumulative distribution curves for normal distributions', caption: 'A CDF links value to rank fraction. GK stores enough rank evidence to answer CDF-style percentile questions without keeping the whole stream. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Normal_Distribution_CDF.svg.'},
         {
           type: 'diagram',
           label: 'GK tuple structure',
@@ -282,13 +285,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Time', 'Notes'],
-          rows: [
-            ['Insert', 'O(log(1/epsilon) + 1/epsilon)', 'Binary search + shift in sorted array'],
-            ['Compress', 'O(1/epsilon * log(epsilon*n))', 'Scan all tuples, periodic'],
-            ['Query', 'O(1/epsilon * log(epsilon*n))', 'Walk cumulative gaps'],
-            ['Space', 'O(1/epsilon * log(epsilon*n)) tuples', 'Independent of stream length n beyond log factor'],
+          type: 'bullets',
+          items: [
+            'Insert: O(log(1/epsilon) + 1/epsilon). Binary search plus shift in the sorted summary array.',
+            'Compress: O(1/epsilon * log(epsilon*n)). Scan tuples periodically and merge only when the rank budget stays valid.',
+            'Query: O(1/epsilon * log(epsilon*n)). Walk cumulative gaps until the requested rank is covered.',
+            'Space: O(1/epsilon * log(epsilon*n)) tuples. The bound depends only logarithmically on stream length.',
           ],
         },
         'The space bound is the headline result. For epsilon = 0.01 and n = 10 billion, the summary holds roughly a few thousand tuples -- not 10 billion. Cutting epsilon in half roughly doubles the summary size. The log factor means space grows very slowly with stream length.',
@@ -300,16 +302,16 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'GK wins when the product needs a deterministic, auditable rank-error contract. Compliance reporting, SLO verification, one-pass analytics jobs, and embedded telemetry processors benefit from being able to state exactly what the summary promises and prove it holds.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Fourboxplots.svg', alt: 'Four box plot variants comparing distribution summaries', caption: 'Different summaries expose different rank landmarks. GK is useful when those landmarks need a deterministic stream-size bound. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Fourboxplots.svg.'},
         'It is the conceptual baseline for all later quantile sketches. Understanding GK makes KLL, t-digest, and DDSketch legible -- each one modifies the error contract, the compression strategy, or the merge behavior, but the core idea of retaining values with rank certificates traces back here.',
         {
-          type: 'table',
-          headers: ['Sketch', 'Error type', 'Space', 'Merge', 'Best for'],
-          rows: [
-            ['GK (2001)', 'Deterministic rank', 'O(1/eps * log(eps*n))', 'Hard', 'Auditable single-stream quantiles'],
-            ['t-digest (2019)', 'Rank, tail-biased', 'O(1/eps) centroids', 'Easy', 'Latency percentiles (p95, p99)'],
-            ['DDSketch (2019)', 'Relative value', 'O(log(max/min)/alpha) bins', 'Easy', 'Values spanning orders of magnitude'],
-            ['KLL (2016)', 'Randomized rank', 'O(1/eps * sqrt(log(1/delta)))', 'Easy', 'Space-optimal streaming quantiles'],
-            ['Exact sort', 'None', 'O(n)', 'N/A', 'Small offline batches'],
+          type: 'bullets',
+          items: [
+            'GK (2001): deterministic rank error, O(1/eps * log(eps*n)) space, hard merge path, best for auditable single-stream quantiles.',
+            't-digest (2019): tail-biased rank behavior, O(1/eps) centroids, easy merge path, best for latency percentiles such as p95 and p99.',
+            'DDSketch (2019): relative value error, O(log(max/min)/alpha) bins, easy merge path, best for values spanning orders of magnitude.',
+            'KLL (2016): randomized rank error, O(1/eps * sqrt(log(1/delta))) space, easy merge path, best for space-efficient streaming quantiles.',
+            'Exact sort: no approximation error, O(n) space, no sketch merge contract, best for small offline batches.',
           ],
         },
         'GK is also the right pedagogical tool when the distinction between rank error and value error must be made explicit. A p95 value can jump dramatically at a distribution cliff. GK certifies rank closeness even when the returned value looks surprising. That is not a bug -- it is the contract working as designed.',

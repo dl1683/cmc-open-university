@@ -264,6 +264,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Scatter frames: each dot is one key. The horizontal axis is the raw key value; the vertical axis is the bucket the hash function assigns it to. Dots that stack vertically at the same y-coordinate share a bucket — those keys will collide. A good hash spreads dots evenly across the y-range.',
+        {type: 'callout', text: 'A hash function protects O(1) lookup only when it erases input patterns before the bucket index is chosen.'},
         'Histogram frames: each bar is one bucket. Height is the number of keys in that bucket. A flat histogram means uniform distribution — ideal. Tall spikes mean overloaded buckets and degraded lookup time.',
         'The invariant line below each frame reports the worst-bucket count, empty-bucket count, and ideal load, so you can compare distribution quality numerically rather than guessing from the chart.',
       ],
@@ -272,6 +273,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A hash table promises O(1) average lookup. That promise rests entirely on one assumption: the hash function distributes keys uniformly across buckets. If it does not, some buckets overflow into long chains or probe sequences, and the O(1) promise degrades toward O(n). The table structure is just an array — the hash function is the algorithm.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg', alt: 'Hash table with chaining showing several keys mapped into buckets', caption: 'The table can only stay fast if the hash function spreads keys across buckets instead of feeding long collision chains. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.'},
         'This is not an academic concern. In 2011, researchers demonstrated hash-flooding denial-of-service attacks against web frameworks (PHP, Java, Python, Ruby) by crafting inputs that collided under the frameworks\' default hash functions. Every request that should have been O(1) became O(n), taking down servers with modest traffic. The fix was switching to randomized hash functions (SipHash). The vulnerability was not in the table; it was in the hash function.',
       ],
     },
@@ -296,6 +298,7 @@ export const article = {
         'The multiplication method (Knuth, TAOCP Vol 3, Section 6.4): pick a constant A between 0 and 1, compute key * A, take the fractional part, and multiply by the table size. The formula is h(key) = floor(m * frac(key * A)). Knuth recommends A = (sqrt(5) - 1) / 2 = 0.6180339887, the golden ratio conjugate, because its continued-fraction expansion has the slowest possible convergence, which maximizes the spread of consecutive keys.',
         'Universal hashing (Carter and Wegman, 1979): instead of picking one hash function, pick a random function from a family at table creation time. A family H is universal if for any two distinct keys x and y, the probability that h(x) = h(y) is at most 1/m when h is chosen uniformly from H. A simple universal family for integer keys: h(k) = ((a*k + b) mod p) mod m, where p is a prime larger than the key space and a, b are random with a != 0. Because the adversary does not know which function was chosen, they cannot craft colliding inputs.',
         'Cryptographic hashes (SHA-256, BLAKE3) guarantee that finding collisions is computationally infeasible. But they are 10-100x slower than non-cryptographic hashes because they must resist intentional attack, not just accidental patterns. SipHash (Aumasson and Bernstein, 2012) splits the difference: it is keyed (randomized like universal hashing), fast enough for hash tables, and resistant to hash-flooding attacks. Python, Rust, and Ruby all use SipHash for their built-in dictionaries.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Cryptographic_Hash_Function.svg', alt: 'Several text inputs passing through a cryptographic hash function to produce different digests', caption: 'The avalanche idea is visible here: small input changes should produce very different digest bits before bucket reduction happens. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cryptographic_Hash_Function.svg.'},
         'Non-cryptographic hashes optimized for speed: FNV-1a (simple byte-mixing loop), MurmurHash3 (fast mixing with good avalanche), xxHash (SIMD-friendly, extremely fast on long inputs), wyhash (minimal code, excellent distribution). These all achieve near-uniform distribution on real-world data at throughputs of gigabytes per second.',
       ],
     },
@@ -311,6 +314,7 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'All hash functions discussed here run in O(1) per key (or O(L) for a string of length L — you must read every byte). The difference is the constant factor. Modulo hash: one integer division. Multiplication hash: one multiply, one floor. FNV-1a: one multiply and one xor per byte. MurmurHash3: a few multiplies and shifts per 4-byte block. SipHash: ~15 arithmetic operations per 8-byte block. SHA-256: ~64 rounds of mixing per 64-byte block.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel i7 processor die photograph', caption: 'Hash speed matters because every lookup pays the mixing cost before memory access. The right function balances arithmetic, cache behavior, and adversarial resistance. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
         'On modern hardware (2024 benchmarks): xxHash processes ~30 GB/s. MurmurHash3: ~8 GB/s. SipHash: ~2 GB/s. SHA-256: ~0.5 GB/s. For a hash table doing millions of lookups per second, the 15x difference between xxHash and SipHash is real — but SipHash is still fast enough that the bottleneck is usually memory access, not hash computation.',
         'Memory cost is zero beyond the hash value itself. The hash function is stateless (or stores a single seed). The table pays for buckets and collision resolution; the hash function does not add to that.',
       ],

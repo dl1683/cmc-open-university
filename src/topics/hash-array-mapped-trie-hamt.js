@@ -220,6 +220,7 @@ export const article = {
       heading: 'What It Is',
       paragraphs: [
         'A hash array mapped trie, usually shortened to HAMT, is an associative-map data structure built from hash bits. It behaves like a hash map at the API level, but internally it is a wide trie over chunks of each key hash.',
+        {type: 'callout', text: 'A HAMT makes immutable maps cheap by copying only the hash-prefix path that changed and sharing every untouched branch.'},
         'The structure is famous because it makes persistent maps practical. Updating a persistent HAMT returns a new root while sharing most of the old structure. The old map still works because the update copies only the nodes on the edited path.',
         'HAMTs sit between Hash Table and Trie. They hash arbitrary keys like a hash table, descend through prefix chunks like a trie, and use bitmaps to avoid allocating a mostly empty 32-child array at every internal node.',
       ],
@@ -228,6 +229,7 @@ export const article = {
       heading: 'The Baseline and the Wall',
       paragraphs: [
         'The obvious mutable baseline is a flat hash table. It hashes a key, indexes a bucket array, resolves collisions, and mutates a bucket in place. That is excellent when there is only one current table and no old version must remain valid.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg', alt: 'Hash table with chaining showing keys mapped to buckets', caption: 'A flat hash table is the mutable baseline: hash once, choose a bucket, and update in place. HAMT keeps the hash idea but turns hash chunks into a trie path. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.'},
         'The naive immutable baseline copies the whole table on every set or delete. That preserves old versions, but it turns a one-key change into O(n) bucket copying. A second baseline, a plain trie, avoids whole-table copies but wastes memory when the alphabet is large and most branches are empty.',
         'The wall is snapshot cost. Persistent maps need old roots to stay valid, but a full copy per update is too expensive for UI state, undo, speculative transforms, and functional programming workloads.',
       ],
@@ -236,6 +238,7 @@ export const article = {
       heading: 'Core Insight and Invariant',
       paragraphs: [
         'Use the hash as a path. At level 0, read one chunk of hash bits. At level 1, read the next chunk, and so on until a leaf or collision node is reached. With 5-bit chunks, each internal node has 32 logical slots.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie containing words with shared prefixes', caption: 'A trie shows the path-sharing idea directly. HAMT replaces character prefixes with hash-bit chunks and compresses sparse child arrays with bitmaps. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
         'The invariant is that a hash-prefix chunk sequence selects a unique logical path. If an update changes one key, only the nodes on that path can change. Every sibling branch is independent of that key and can be shared with the old version.',
         'The bitmap is a compression layer, not a different logical trie. A bit says whether a logical slot exists. Popcount of the bits before that slot gives the index in the compact child array. This preserves 32-way branching without paying for 32 pointers per sparse node.',
       ],
@@ -268,6 +271,7 @@ export const article = {
       heading: 'Cost and Tradeoffs',
       paragraphs: [
         'The depth is O(log_b n) with branching factor b, and b is commonly 32. That makes ordinary maps shallow: a million keys need only a few chunk levels before leaf or collision checks. The practical cost often feels close to constant.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in internal nodes', caption: 'Wide branching is the shared performance idea: a B-tree uses wide page nodes for storage locality, while a HAMT uses wide hash chunks for shallow immutable lookup. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg.'},
         'The constants matter. Each operation pays for hashing, bit extraction, bitmap checks, popcount, pointer chasing, allocation on persistent updates, and possible collision handling. A flat mutable hash table often wins on raw locality when versioning is not needed.',
         'Memory use is the central tradeoff. HAMTs avoid full copies and avoid empty 32-pointer nodes, but persistent versions retain old paths as long as old roots are reachable. Batch builders or transient mutation APIs can reduce allocation when many updates are staged before publishing a new immutable map.',
       ],
