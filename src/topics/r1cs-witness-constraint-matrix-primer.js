@@ -201,6 +201,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The witness-rows view shows a computation being flattened into field elements. Active cells are the witness values currently being assigned. Found cells mark the public output that the verifier will see. Compared cells show visibility labels -- which values are private, which are derived, and which are public.',
+        { type: 'callout', text: 'R1CS security lives in rows: every private wire can be hidden, but every relationship it relies on must be constrained.' },
         'The constraint-check view shows each R1CS row evaluating under a single shared witness assignment. Found cells confirm that the left-hand product equals the right-hand side. Removed cells flag a bad witness or a missing constraint -- the two failure modes you must learn to distinguish.',
         {
           type: 'diagram',
@@ -257,6 +258,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'R1CS solves the multiplication wall by isolating every multiplication into its own constraint row. Each row has the form (A_i . w) * (B_i . w) = (C_i . w), where w is the witness vector and A_i, B_i, C_i are sparse row vectors that select linear combinations of witness elements. Addition and scalar multiplication are free -- they fold into the linear combinations on either side of the multiplication.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A directed graph is a compact way to read circuit dependencies: each derived wire must be justified by rows that consume it. Source: Wikimedia Commons, Directed graph no background.svg, public domain: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg' },
         'The witness vector w holds every value the prover needs: a constant 1 wire at position 0, private inputs, public inputs, and all intermediate values. For y = x^3 + x + 5 with x = 3, the witness is w = [1, 3, 9, 27, 35]. The prover fills in every slot; the constraint rows check that the slots are mutually consistent.',
         {
           type: 'code',
@@ -304,15 +306,14 @@ export const article = {
       paragraphs: [
         'Constraint count is the primary cost metric. Each multiplication in the original computation requires one R1CS row. A SHA-256 hash takes roughly 25,000 constraints. An EdDSA signature verification takes roughly 7,000. A Merkle proof with depth 20 using Poseidon hashes takes roughly 12,000. Doubling the computation roughly doubles the constraint count.',
         {
-          type: 'table',
-          headers: ['Operation', 'Approximate R1CS constraints', 'Why'],
-          rows: [
-            ['Field multiplication', '1', 'One rank-1 row per multiplication'],
-            ['Field addition', '0', 'Folded into linear combinations for free'],
-            ['Range check (n bits)', 'n', 'One boolean constraint per bit'],
-            ['SHA-256 hash', '~25,000', 'Bitwise ops become field arithmetic'],
-            ['Poseidon hash', '~250', 'Designed for field-native efficiency'],
-            ['EdDSA verify', '~7,000', 'Scalar multiplication over an elliptic curve'],
+          type: 'bullets',
+          items: [
+            'Field multiplication: 1 constraint, because each unknown-times-unknown product needs one rank-1 row.',
+            'Field addition: 0 extra constraints when it can be folded into a linear combination.',
+            'Range check over n bits: about n constraints, one boolean constraint per bit plus reconstruction when needed.',
+            'SHA-256 hash: roughly 25,000 constraints because bitwise operations must be encoded as field arithmetic.',
+            'Poseidon hash: roughly 250 constraints because the permutation is designed for field-native arithmetic.',
+            'EdDSA verification: roughly 7,000 constraints, dominated by elliptic-curve scalar multiplication.',
           ],
         },
         'Groth16 proving time scales roughly linearly with constraint count, dominated by two multi-scalar exponentiations (MSMs) over the constraint matrices. Verification is constant-time: three pairings regardless of circuit size, which is why Groth16 is popular for on-chain verification where gas matters. The trusted setup is circuit-specific -- changing the circuit requires a new ceremony.',
@@ -335,13 +336,12 @@ export const article = {
       paragraphs: [
         'R1CS is verbose for operations that are not naturally arithmetic. Bitwise operations (AND, XOR, shift) require decomposing field elements into individual bits, constraining each bit to be boolean (b * (1 - b) = 0), performing the operation bit by bit, and reconstructing the result. SHA-256 costs ~25,000 constraints primarily because of this bit decomposition overhead. Newer arithmetizations with lookup tables (Plonkish, AIR) handle bitwise operations far more efficiently.',
         {
-          type: 'table',
-          headers: ['Constraint system', 'Gate shape', 'Custom gates', 'Lookups', 'Copy constraints', 'Primary proving systems'],
-          rows: [
-            ['R1CS', 'A*w . B*w = C*w (bilinear)', 'No', 'No', 'Implicit (shared witness)', 'Groth16, Marlin, Spartan'],
-            ['QAP', 'Polynomial form of R1CS', 'No', 'No', 'Via polynomial identity', 'Groth16 (internal)'],
-            ['Plonkish', 'q_L*a + q_R*b + q_M*a*b + q_O*c + q_C = 0', 'Yes (custom selectors)', 'Yes (Plookup)', 'Permutation argument', 'PLONK, Halo2, UltraPLONK'],
-            ['AIR', 'Transition polynomials over trace columns', 'Yes (any degree)', 'Yes (LogUp)', 'Boundary constraints', 'STARKs (Stone, Winterfell)'],
+          type: 'bullets',
+          items: [
+            'R1CS: bilinear gate A*w . B*w = C*w; no custom gates or lookups; Groth16, Marlin, and Spartan use it as a base shape.',
+            'QAP: polynomial form of R1CS; copy relationships ride through polynomial identities; Groth16 uses it internally.',
+            'Plonkish: selector equations support custom gates, lookup arguments, and permutation-based copy constraints.',
+            'AIR: transition polynomials over trace columns; STARK systems use it with boundary constraints and lookup variants.',
           ],
         },
         'The Groth16 trusted setup is circuit-specific. Every time the circuit changes -- even adding one constraint -- the setup must be repeated. The setup ceremony requires multi-party computation to ensure that no single participant knows the toxic waste. Universal setups (PLONK, Marlin) and transparent setups (STARKs) avoid this entirely.',
@@ -370,4 +370,3 @@ export const article = {
     },
   ],
 };
-

@@ -203,6 +203,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation traces two R-tree operations: range search (pruning subtrees by bounding-box overlap) and insertion with node splitting. Active items mark the current decision point. Found items are confirmed results. Removed items are subtrees the search safely skipped because their parent MBR did not overlap the query window.',
+        { type: 'callout', text: 'An R-tree is safe because parent boxes over-approximate children; it is fast only when those boxes stay compact.' },
         'In the search view, watch which branches the query descends into and which it prunes. The pruning is safe because the containment invariant guarantees that no child can extend beyond its parent box. In the insert view, watch how the algorithm picks the child with least MBR enlargement and how overflow triggers a split that propagates upward.',
         'At each frame, ask: what region of space was just eliminated, and what invariant makes that elimination safe?',
       ],
@@ -233,6 +234,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is conservative summarization. A parent box may be larger than the exact shapes below it, but it must contain them. That gives search a safe negative test: if the query does not overlap the parent MBR, none of the child objects can overlap the query. The index can discard the whole subtree without knowing the exact geometry inside.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/R-tree.svg/500px-R-tree.svg.png', alt: 'R-tree diagram with red object rectangles and blue parent bounding rectangles', caption: 'The blue parent rectangles show the conservative summaries that let a query prune whole groups. Source: Wikimedia Commons, R-tree.svg, CC BY-SA 3.0: https://commons.wikimedia.org/wiki/File:R-tree.svg' },
         'The positive test is weaker. If the query does overlap a parent MBR, some child might overlap, so the search has to descend. This is why R-tree quality depends on compact boxes and low overlap between siblings. The invariant gives correctness; good packing gives speed.',
       ],
     },

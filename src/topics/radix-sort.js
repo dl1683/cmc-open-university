@@ -107,6 +107,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation processes one digit position per pass, from least significant (ones) to most significant (hundreds). Each pass begins by extracting the digit at that position from every value. The extracted digits appear in the explanation text.',
+        { type: 'callout', text: 'Radix sort wins by changing the question: it sorts by bounded digit values instead of asking pairwise comparisons.' },
         'After the digit extraction, counting sort rearranges the array by those digits. Watch for two things: values move into digit-group order, and values that share a digit keep the same relative order they had before the pass. That preserved order is stability.',
         'After pass k, the array is sorted by its last k digits. By the final pass, all digit positions have been processed and the array is fully sorted. At each frame, ask: which digit position is active, what digit does each value have there, and where does counting sort place each value without ever comparing two values directly?',
       ],
@@ -116,6 +117,7 @@ export const article = {
       paragraphs: [
         'Every comparison-based sorting algorithm hits a provable floor: O(n log n) comparisons in the worst case. Merge sort and heap sort reach it. No comparison sort can beat it. The proof is information-theoretic: n elements have n! possible orderings, and each comparison is a binary question, so distinguishing all orderings requires at least log2(n!) binary answers. Stirling gives log2(n!) ~ n log2 n. For a million elements, that is about 20 million comparisons, period.',
         'Herman Hollerith built the first radix sort in hardware for the 1890 US census. Operators fed punched cards through a machine that read one column at a time and dropped each card into one of ten digit buckets. They gathered the buckets in order, then repeated for the next column, least significant first. The process sorted thousands of census records without anyone comparing two cards. Harold Seward formalized counting sort — the stable single-digit sort that makes radix sort correct — in his 1954 MIT master\'s thesis.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/SEACComputer_038.jpg/250px-SEACComputer_038.jpg', alt: 'Historical punched-card sorting machine with operator', caption: 'Card sorting made the radix idea physical: read one column, distribute into buckets, gather, and repeat. Source: Wikimedia Commons, SEACComputer 038.jpg, public domain: https://commons.wikimedia.org/wiki/File:SEACComputer_038.jpg' },
         'Radix sort escapes the O(n log n) floor because it never asks "is a < b?" It asks "what digit does a have at position k?" — a question with a small, fixed number of answers. That question is answered by arithmetic (division and modulo), not by comparison. The comparison-sort lower bound simply does not apply.',
       ],
     },

@@ -57,6 +57,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a horizontal row of boxes. The left end is the front; the right end is the rear. When a value is enqueued, a new box appears at the right. When a value is dequeued, the box at the left disappears.',
+        { type: 'callout', text: 'A queue is a contract about time: newer work may wait, but it cannot pass older work unless you choose a different structure.' },
         'A highlighted (active) box is the element just added or about to be removed. After dequeue, the removed box briefly flashes before it vanishes. The remaining boxes keep their left-to-right order, which is the arrival order.',
         'Think of two invisible pointers: front always marks the next item to leave, and rear always marks where the next arrival will land. Every enqueue moves rear one step right. Every dequeue moves front one step right. The items between front and rear are the live contents of the queue.',
       ],
@@ -65,6 +66,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Many systems need first come, first served ordering. Print jobs should print in the order they were submitted. Web server requests should be handled in arrival order so no connection starves. BFS needs to finish all nodes at distance d before expanding nodes at distance d+1. The common thread is fairness: old work must not be skipped by new work.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram showing enqueue at the rear and dequeue at the front', caption: 'The FIFO picture is the whole contract: enqueue at the rear, dequeue at the front. Source: Wikimedia Commons, Data Queue.svg, public domain: https://commons.wikimedia.org/wiki/File:Data_Queue.svg' },
         'A queue gives that rule a data structure. It has three operations: enqueue (add to the rear), dequeue (remove from the front), and peek (read the front without removing it). The contract is FIFO -- First In, First Out. Unlike a stack, which reverses arrival order, a queue preserves it.',
       ],
     },

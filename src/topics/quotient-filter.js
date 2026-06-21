@@ -222,6 +222,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Quotient Filter. A compact approximate-membership filter: split fingerprints into quotient slots and stored remainders, then scan runs..",
+        { type: 'callout', text: 'A quotient filter turns one hash fingerprint into a local run: absence is exact when the quotient run cannot contain the remainder.' },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -245,6 +246,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A quotient filter stores the evidence for a key as a compact remainder in a quotient-indexed table. Hash the key to a fingerprint. Split the fingerprint into a quotient and a remainder. The quotient selects a canonical slot; the table stores the remainder near that slot.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt: 'Bloom filter diagram showing several hash functions setting bits in an array', caption: 'Bloom filters scatter evidence across independent bit positions; quotient filters keep compact fingerprint evidence local. Source: Wikimedia Commons, Bloom filter.svg, public domain: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg' },
         'Collisions become runs. Metadata bits tell the decoder which quotients are occupied, which slots continue a run, and which entries have been shifted away from their canonical slot. The result is still approximate, but the filter now has local entries it can scan, shift, and delete.',
       ],
     },

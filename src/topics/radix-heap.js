@@ -211,6 +211,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The bucket layout view shows the radix heap from the inside: a small variable called last (the most recently extracted key) and a row of buckets numbered B0 through BW, where W is the word size. Active highlights mark the bucket being inspected or redistributed. Found highlights mark the item confirmed as the next minimum. Compare highlights mark buckets or entries used as contrast.',
+        { type: 'callout', text: 'A radix heap is legal only because extracted keys move forward; without monotonicity the bucket order lies.' },
         {
           type: 'note',
           text: 'B0 is special. It holds keys exactly equal to last and can be popped with no scanning. Every other bucket covers a power-of-two range relative to last.',
@@ -247,12 +248,11 @@ export const article = {
       paragraphs: [
         'The standard tool is a binary min-heap. It handles any comparable key, supports insert and extract-min in O(log n), and needs no assumptions about key ordering or type.',
         {
-          type: 'table',
-          headers: ['Queue type', 'Insert', 'Extract-min', 'Key model'],
-          rows: [
-            ['Binary heap', 'O(log n)', 'O(log n)', 'Any comparable'],
-            ['Unsorted array', 'O(1)', 'O(n)', 'Any comparable'],
-            ['Bucket queue (one per distance)', 'O(1)', 'O(C) scan', 'Integer 0..C'],
+          type: 'bullets',
+          items: [
+            'Binary heap: O(log n) insert, O(log n) extract-min, any comparable key.',
+            'Unsorted array: O(1) insert, O(n) extract-min, any comparable key.',
+            'Bucket queue: O(1) insert, O(C) empty-slot scan, integer keys in 0..C.',
           ],
         },
         'For Dijkstra on road graphs with millions of vertices, the binary heap works but spends most of its time on sift-up and sift-down operations that maintain a total order the algorithm never actually needs. Distances are popped in nondecreasing order by construction -- the heap is proving something already guaranteed.',
@@ -276,6 +276,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The heap maintains a variable last (initially 0) and an array of W+1 buckets. Bucket 0 holds keys equal to last. Bucket i (for i >= 1) holds keys whose XOR with last has its most significant set bit at position i-1.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/RadixHeap1.png', alt: 'Radix heap bucket ranges increasing by powers of two', caption: 'Radix heap buckets get wider by powers of two, so distant keys stay coarse until extraction advances last. Source: Wikimedia Commons, RadixHeap1.png, CC BY-SA 3.0: https://commons.wikimedia.org/wiki/File:RadixHeap1.png' },
         {
           type: 'code',
           language: 'javascript',
@@ -288,14 +289,13 @@ export const article = {
         'Insert: verify key >= last, compute the bucket index, append the item. No comparisons against other queued items. O(1).',
         'Extract-min: if B0 is nonempty, remove and return any item (all have key == last). If B0 is empty, find the lowest nonempty bucket Bk, scan Bk to find its minimum key m, set last = m, then redistribute every item in Bk into buckets computed relative to the new last. After redistribution, m sits in B0. Return it.',
         {
-          type: 'table',
-          headers: ['Step', 'last', 'Action', 'Result'],
-          rows: [
-            ['1', '8', 'Insert keys 8, 9, 10, 14', 'B0={8}, B1={9}, B2={10}, B3={14}'],
-            ['2', '8', 'Extract-min from B0', 'Return 8, B0 now empty'],
-            ['3', '8->9', 'B0 empty, open B1: min=9, set last=9', 'Redistribute B1, return 9'],
-            ['4', '9->10', 'B0 empty, open B2: min=10, set last=10', 'Redistribute {10,14} under last=10'],
-            ['5', '10', 'After redistribution', 'B0={10}, B2={14}. Return 10'],
+          type: 'bullets',
+          items: [
+            'Step 1, last = 8: insert keys 8, 9, 10, 14; buckets become B0={8}, B1={9}, B2={10}, B3={14}.',
+            'Step 2, last = 8: extract-min from B0; return 8, and B0 becomes empty.',
+            'Step 3, last moves 8 -> 9: B0 is empty, open B1, find min = 9, redistribute B1, and return 9.',
+            'Step 4, last moves 9 -> 10: open B2, find min = 10, and redistribute {10,14} under last = 10.',
+            'Step 5, last = 10: B0={10}, B2={14}; return 10 before the wider bucket is needed.',
           ],
         },
       ],
@@ -324,13 +324,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Worst case', 'Amortized', 'Note'],
-          rows: [
-            ['Insert', 'O(1)', 'O(1)', 'XOR + MSB + append'],
-            ['Extract-min (B0 nonempty)', 'O(1)', 'O(1)', 'Direct removal'],
-            ['Extract-min (redistribute)', 'O(bucket size)', 'O(log C) per item', 'C = max key difference'],
-            ['Space', 'O(n + W)', '--', 'W+1 buckets + n items'],
+          type: 'bullets',
+          items: [
+            'Insert: O(1) worst case and amortized, using XOR, most-significant-bit lookup, and append.',
+            'Extract-min when B0 is nonempty: O(1), because every item in B0 has key equal to last.',
+            'Extract-min with redistribution: O(bucket size) for that opening, amortized O(log C) moves per item where C is the maximum key difference.',
+            'Space: O(n + W), storing n items plus W+1 buckets for the word size.',
           ],
         },
         'The amortized bound comes from tracking how many times each item moves between buckets. Each redistribution lowers an item into a bucket with a smaller index. An item starts in bucket at most W and ends in bucket 0, so it can be redistributed at most W times total across its lifetime.',
@@ -370,14 +369,13 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Failure mode', 'Cause', 'Consequence'],
-          rows: [
-            ['Negative edge weight', 'Relaxation produces key < last', 'Item placed in wrong bucket; extract-min returns incorrect minimum'],
-            ['Floating-point keys', 'XOR on floats is meaningless', 'Bucket assignment produces garbage'],
-            ['Decrease-key needed', 'A* or potentials modify queued keys', 'Must insert duplicate and handle stale entries on extraction'],
-            ['Arbitrary key range', 'Keys wider than machine word', 'Bucket count grows; MSB computation no longer O(1)'],
-            ['Non-monotone workload', 'General priority queue usage', 'Invariant violated; heap produces wrong results silently'],
+          type: 'bullets',
+          items: [
+            'Negative edge weight: relaxation can produce key < last, so the item lands in the wrong bucket and extract-min can return the wrong value.',
+            'Floating-point keys: XOR on floats is meaningless for ordering, so bucket assignment is invalid.',
+            'Decrease-key workloads: A* or potentials can modify queued keys; use duplicate inserts and stale-entry skipping instead.',
+            'Arbitrary key range: keys wider than the machine word grow the bucket count and make most-significant-bit lookup less direct.',
+            'Non-monotone usage: the invariant is violated, and the heap can produce wrong results silently.',
           ],
         },
         'The most dangerous failure is silent: if a caller inserts a key below last (due to a bug, overflow, or negative edge), the heap does not crash. It places the item in a bucket based on the XOR, which may be a high bucket. The item is then returned late or never, producing wrong results without an error.',
@@ -404,15 +402,14 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'Dijkstra', 'Supplies the monotone-distance proof that makes radix heaps legal'],
-            ['Prerequisite', 'Binary Heap', 'The comparison baseline radix heaps improve upon'],
-            ['Alternative', 'Fibonacci Heap', 'O(1) amortized decrease-key for general keys; better theory, worse practice'],
-            ['Alternative', 'Pairing Heap', 'Simpler than Fibonacci, strong empirical performance, general keys'],
-            ['Extension', 'van Emde Boas Tree', 'Another integer-key structure; O(log log U) operations but O(U) space'],
-            ['Extension', 'Two-level radix heap', 'Reduces amortized cost further for very large key ranges'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Dijkstra, because it supplies the monotone-distance proof that makes radix heaps legal.',
+            'Prerequisite: Binary Heap, because it is the comparison baseline radix heaps improve upon.',
+            'Alternative: Fibonacci Heap, with O(1) amortized decrease-key for general keys; better theory, worse practice.',
+            'Alternative: Pairing Heap, simpler than Fibonacci with strong empirical performance for general keys.',
+            'Extension: van Emde Boas Tree, another integer-key structure with O(log log U) operations but O(U) space.',
+            'Extension: Two-level radix heap, which reduces amortized cost further for very large key ranges.',
           ],
         },
       ],

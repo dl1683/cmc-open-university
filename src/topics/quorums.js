@@ -193,6 +193,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Read/write quorums exist because replicated systems want a tunable middle ground between fast but stale reads and fully coordinated consensus. If data lives on N replicas, a write can wait for W acknowledgements and a read can ask R replicas. The choice of R and W decides how much latency, availability, and freshness each request buys.',
+        { type: 'callout', text: 'Quorum freshness is not magic replication; it is set intersection with a version rule attached.' },
         'Dynamo-style systems expose this as a per-operation dial. Some data can tolerate staleness, such as counters, presence, feeds, or cached views. Other data needs stronger read-your-write behavior. A single database may need both, depending on the request.',
         'The topic matters because quorum arithmetic is often oversold. It can guarantee overlap between read and write sets when R + W > N, but it does not by itself give a total order for concurrent writes, serializable transactions, or magic conflict resolution.',
       ],
@@ -209,6 +210,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is set intersection. If R + W > N, every read set of size R must overlap every write set of size W. The overlapping replica can carry the newest version into the read response, assuming version comparison and replica selection behave as expected.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Venn_A_intersect_B.svg/640px-Venn_A_intersect_B.svg.png', alt: 'Venn diagram showing the intersection of two sets', caption: 'The shaded overlap is the quorum proof: when read and write sets cannot be disjoint, one replica carries fresh version evidence. Source: Wikimedia Commons, Venn A intersect B.svg, public domain: https://commons.wikimedia.org/wiki/File:Venn_A_intersect_B.svg' },
         'This is not consensus. A quorum read can see the freshest visible version among the replicas it contacted, but it does not force all writers into one agreed sequence. Concurrent writes can both succeed and later appear as conflicting versions.',
         'The inequality is a budget, not a law of nature. It assumes reads and writes draw from the same home replica set. Sloppy quorums, hinted handoff, multi-datacenter locality, clock skew, and conflict resolution all add fine print.',
       ],

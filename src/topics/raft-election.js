@@ -119,6 +119,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Five servers sit on a pentagon. Each carries a role label (leader, follower, or candidate) and a term number. Highlighted (found) nodes are the current leader. Active nodes are candidates requesting votes. Lit edges show vote traffic or heartbeat paths.',
+        { type: 'callout', text: 'Raft election safety is majority overlap plus one durable vote per term.' },
         'Watch the term counter: it increments on every election attempt. When a node turns candidate, it votes for itself and lights edges to request votes from peers. When enough edges light up (a majority responds), the candidate turns leader. In the split-vote scenario, two candidates light up simultaneously but neither collects enough edges, so the term ends leaderless and a fresh term begins.',
         'The key inference: if a node is highlighted as leader for term T, no other node can be highlighted as leader for the same term T, because the majority that elected it overlaps with any other possible majority.',
       ],
@@ -128,6 +129,7 @@ export const article = {
       paragraphs: [
         'A replicated state machine runs the same commands in the same order on every server, so any server can answer reads and any surviving majority can continue after failures. The hard part is agreeing on that order. If two servers both accept writes independently, replicas diverge and clients see conflicting histories.',
         'Paxos (Lamport, 1998) solved this problem, but its specification is notoriously difficult to implement correctly. Entire engineering teams have shipped subtly broken Paxos implementations because the protocol separates proposers, acceptors, and learners in ways that are hard to map onto practical systems.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg/250px-Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg.png', alt: 'Raft consensus algorithm mascot', caption: 'The official Raft material emphasizes understandability; the protocol earns that by separating election, replication, and safety. Source: Wikimedia Commons, Raft Consensus Algorithm Mascot, CC BY-SA 4.0: https://commons.wikimedia.org/wiki/File:Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg' },
         'Raft (Ongaro and Ousterhout, 2014) was designed from the start to be understandable. It provides the same safety guarantees as Paxos but decomposes consensus into three clear subproblems -- leader election, log replication, and safety -- and makes leader-based operation the normal case. The paper\'s user study showed that students learned Raft faster and answered exam questions more accurately than those who learned Paxos.',
       ],
     },
@@ -213,4 +215,3 @@ export const article = {
     },
   ],
 };
-
