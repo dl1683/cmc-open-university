@@ -118,6 +118,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "A threshold is a priced operating point, not a model property; changing costs can move the best cutoff while the scores stay fixed."},
       ],
     },
     {
@@ -145,6 +146,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is simple: choose the action with the lower expected loss. A threshold is correct only relative to a loss function. If a false positive costs cFP and a false negative costs cFN, then every threshold t has a bill: cost(t) = cFP * FP(t) + cFN * FN(t). The best threshold is the one with the smallest bill on data that represents the deployment population.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/ROC_curves.svg', alt: 'ROC curve diagram with threshold movement and confusion matrix', caption: 'ROC space shows the threshold menu before a cost model chooses one operating point. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:ROC_curves.svg.'},
         'This turns a vague debate into a ledger. Tightening the threshold usually reduces false positives and increases false negatives. Loosening the threshold usually increases false positives and reduces false negatives. Whether the trade is good depends on the exchange rate between cFP and cFN. A team arguing about the right threshold is often arguing about the prices without writing them down.',
       ],
     },

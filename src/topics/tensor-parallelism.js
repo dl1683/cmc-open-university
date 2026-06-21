@@ -214,6 +214,7 @@ export const article = {
       paragraphs: [
         'Tensor parallelism exists because a single transformer layer can become the unit that no longer fits. Data parallelism gives each GPU a different mini-batch and a complete model replica, so it scales examples but does not shrink one huge matrix multiplication. Pipeline parallelism places different layers on different devices, so it scales depth but still leaves a single wide layer intact. Tensor parallelism attacks the layer itself: several ranks cooperate on the same tokens and make one logical operation out of several local operations.',
         'The pressure shows up in both memory and time. A large projection stores billions of weights, produces large activations, and may create intermediate tensors that cannot be cheaply replicated. During inference, a tensor-parallel group may be the only way to serve a model whose weights do not fit on one accelerator. During training, the same split can keep matmul work distributed while optimizer state and activation strategies handle other memory costs.',
+        {type: 'callout', text: 'Tensor parallelism is a layout contract: every shard boundary must name the collective that reconstructs the next legal tensor.'},
       ],
     },
     {
@@ -227,6 +228,7 @@ export const article = {
       heading: 'Core Insight',
       paragraphs: [
         'The core insight is that a dense layer can be algebraically decomposed if the repair operation matches the split. For a linear layer Y = XW, a column split partitions W by output columns. Every rank receives the same X, computes a different slice of Y, and the full output is the concatenation of those slices. A row split partitions W by input rows. Every rank sees a slice of X, computes a partial contribution to the same output coordinates, and the correct output is the sum of the partials.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Layer diagrams make the split point visible: tensor parallelism cuts inside a layer rather than moving whole layers. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0: https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         'That repair rule is the invariant. Output-feature splits create pieces that need concatenation or all-gather if the next layer wants the full tensor. Input-feature splits create partial sums that need all-reduce or reduce-scatter. Sequence parallelism moves the split to the token dimension, often to reduce activation memory around normalization and dropout. The technique is not just "split the tensor"; it is "split on a dimension whose algebra tells you how to restore the next layout."',
       ],
     },

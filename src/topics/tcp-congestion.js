@@ -106,6 +106,7 @@ export const article = {
         'The first frame shows the three-way handshake: SYN, SYN-ACK, ACK. This is connection setup, not speed control. It establishes byte-stream numbering before any data moves.',
         'The plot frames track cwnd (congestion window) on the y-axis against round-trip times on the x-axis. The steep early curve is slow start: exponential growth while the sender knows nothing about the path. The gentler slope after ssthresh is congestion avoidance: linear probing near a guessed ceiling. The vertical drop at the loss marker is multiplicative decrease.',
         'The sawtooth shape is not noise. It is the control loop made visible: probe upward, hit a limit, cut back, probe again. Each cycle discovers whether the path has changed since the last loss event.',
+        {type: 'callout', text: 'TCP congestion control is feedback control under blindness: the sender changes cwnd from ACK timing and loss, not from direct queue visibility.'},
       ],
     },
     {
@@ -142,6 +143,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A TCP connection begins with the three-way handshake: the client sends SYN with an initial sequence number, the server replies SYN-ACK with its own sequence number, and the client sends ACK. After this exchange, both sides have proven they can send and receive, and they share a starting point for byte-stream numbering.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/82/TCP_connection_establishment.svg', alt: 'TCP three way connection establishment sequence', caption: 'The handshake establishes sequence-number agreement before congestion control begins moving data. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TCP_connection_establishment.svg.'},
         'Slow start (Jacobson 1988): cwnd begins at one segment. For each ACK received, cwnd increases by one segment. Because each RTT\'s worth of ACKs roughly doubles the window, growth is exponential: 1, 2, 4, 8, 16, 32 segments over six round trips. The name is ironic; "slow" means slower than blasting the path blind, not slower than linear. Slow start ends when cwnd reaches the slow-start threshold (ssthresh) or when loss occurs.',
         'Congestion avoidance: once cwnd reaches ssthresh, TCP switches from exponential to linear growth. The window increases by roughly one segment per round trip (specifically, cwnd increases by MSS * MSS / cwnd for each ACK, which sums to about one MSS per RTT). This is the additive-increase phase, probing for spare capacity one packet at a time.',
         'Fast retransmit and fast recovery (added by TCP Reno, 1990): when the sender receives three duplicate ACKs, it infers loss without waiting for a timeout. It retransmits the missing segment immediately (fast retransmit), halves cwnd, sets ssthresh to the new cwnd, and continues transmitting at the reduced rate (fast recovery). This avoids the expensive timeout-and-restart path, which would reset cwnd to 1 and re-enter slow start.',
@@ -202,4 +204,3 @@ export const article = {
     },
   ],
 };
-

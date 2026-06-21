@@ -215,6 +215,7 @@ export const article = {
       paragraphs: [
         'Serializable databases must make concurrent transactions look as if they ran one at a time. In an MVCC system, reads and writes carry timestamps, so the problem becomes concrete: a write must not sneak into the past before a read that already happened, and a transaction pushed to a later timestamp must not commit using stale facts.',
         'The timestamp cache and read refresh solve those two parts of the problem. The timestamp cache remembers recent read constraints so conflicting writes are forced later. Read refresh rechecks a transaction reads when its commit timestamp moves forward, allowing safe commits without restarting every transaction that was merely delayed.',
+        {type: 'callout', text: 'Timestamp cache entries turn served reads into future write constraints, and refresh turns a pushed timestamp into a proof obligation instead of an automatic abort.'},
       ],
     },
     {
@@ -228,6 +229,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'A timestamp cache records read high-water marks for keys or spans. If a transaction read span S at timestamp 100, a later writer that wants to write S at timestamp 80 must be pushed above 100. The read happened first in real execution, so the write cannot be serialized before it.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Serialization constraints form a directed dependency graph: read-before-write edges must not be reversed by timestamp movement. Source: Wikimedia Commons, David W., public domain: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Read refresh handles the opposite pressure. If a transaction originally read at timestamp 50 but gets pushed to commit at timestamp 90, its earlier reads may no longer be valid. Instead of aborting immediately, the system checks whether any read key or span changed between 50 and 90. No change means the transaction can safely commit at the later timestamp.',
       ],
     },

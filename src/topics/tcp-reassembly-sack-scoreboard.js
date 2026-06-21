@@ -259,6 +259,7 @@ export const article = {
           ],
         },
         'In the matrix views, each row is a byte range and each column is a property (state, deliverability, ACK effect, or sender action). Watch the "missing" row: it is the hole that drives the entire recovery process.',
+        {type: 'callout', text: 'SACK turns receiver memory into sender knowledge: the receiver keeps intervals, then sends enough range evidence for the sender to repair holes without resending the whole suffix.'},
         {
           type: 'note',
           text: 'The animation uses 1000-byte segments for readability. Real TCP segments are typically 1460 bytes (Ethernet MSS) and sequence numbers are 32-bit byte offsets, not packet counts.',
@@ -273,6 +274,7 @@ export const article = {
           text: 'TCP must recover from data that is damaged, lost, duplicated, or delivered out of order by the internet communication system.',
           attribution: 'RFC 793, "Transmission Control Protocol" (1981), Section 1.5',
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f6/Tcp_state_diagram_fixed_new.svg', alt: 'Simplified TCP connection state diagram', caption: 'TCP is a state machine around a reliable byte stream; reassembly and SACK live inside the data-transfer phase. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Tcp_state_diagram_fixed_new.svg.'},
         'TCP promises applications an ordered, reliable byte stream. The application writes bytes on one end and reads identical bytes in the same order on the other. IP provides none of those guarantees. Packets can be lost, duplicated, delayed, or reordered. A receiver may get bytes 0-999, miss 1000-1999, and then receive 2000-3999. The application cannot read 2000-3999 until the gap is filled.',
         'Two problems hide inside that contract. The receiver must buffer out-of-order data and release only the contiguous prefix. The sender must learn which bytes arrived so it retransmits only what is missing. Cumulative ACKs handle the first problem partially: "I have everything before byte N." SACK blocks handle the second: "I also have these later ranges." Together, reassembly and SACK turn a lossy packet network into a reliable stream.',
         {
@@ -457,4 +459,3 @@ export const article = {
     },
   ],
 };
-

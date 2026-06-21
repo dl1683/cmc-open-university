@@ -225,6 +225,7 @@ export const article = {
         'Tail latency exists because users do not experience averages. They experience one concrete request path. A service can average 60 ms while one request in a hundred takes a full second. For the slow user, the average is irrelevant.',
         'The problem becomes larger when one user action depends on many requests. A page load can require browser work, network calls, cache lookups, database reads, service fan-out, and retries. If each component has a small slow tail, the user-facing path sees the maximum of many draws.',
         'Tail-latency thinking is the discipline of measuring the slow edge of the distribution and designing systems so rare slow paths do not dominate common user journeys.',
+        {type: 'callout', text: 'The tail is where architecture leaks into user experience: one slow branch can dominate the whole request even when the average stays calm.'},
       ],
     },
     {
@@ -240,6 +241,7 @@ export const article = {
       paragraphs: [
         'The core insight is max-of-many composition. If a user request waits for all dependencies, the slowest dependency sets the visible latency. The more dependencies there are, the more likely the user sees a tail event.',
         'For independent one-percent tail events, the chance of seeing at least one slow request across N calls is 1 - 0.99^N. With 20 calls, that is about 18 percent. With 100 calls, it is about 63 percent. Rare per request becomes routine per session.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Log-normal-pdfs.png', alt: 'Log-normal distributions with long right tails', caption: 'Skewed latency distributions make rare slow observations visible instead of smoothing them into the mean. Source: Wikimedia Commons, public domain: https://commons.wikimedia.org/wiki/File:Log-normal-pdfs.png.'},
         'Tail latency is therefore both a measurement problem and an architecture problem. Percentiles tell you where the pain is. Architecture decides whether one straggler blocks everything.',
       ],
     },

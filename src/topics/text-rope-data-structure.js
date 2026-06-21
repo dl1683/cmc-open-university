@@ -216,6 +216,7 @@ export const article = {
         `A rope represents text as a balanced tree of chunks. Edits rearrange tree nodes and small leaves instead of moving the whole string. The full text still exists conceptually: it is the left-to-right concatenation of the leaf chunks.`,
         `This topic is about text ropes, not RoPE, Rotary Positional Embeddings. They share a name but solve unrelated problems.`,
         `The structure exists for workloads where most operations preserve most of the text. A source editor may insert a character in the middle of a large file, a compiler may assemble generated output from many fragments, and a log viewer may keep appending while still serving slices from earlier regions. In each case, copying the whole string is wasted work because the edit touches only a small neighborhood.`,
+        {type: `callout`, text: `A rope makes text editing cheap by preserving untouched chunks and paying only for the path where position metadata changes.`},
       ],
     },
     {
@@ -231,6 +232,7 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `Leaves store small flat string chunks. Internal nodes represent concatenation. Each internal node stores enough length metadata, usually the length of the left subtree, to route an index search without scanning every character.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/8a/Vector_Rope_example.svg`, alt: `Example rope tree built from string chunks`, caption: `A rope is a binary tree over string leaves; weights route index lookup without flattening text. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Vector_Rope_example.svg.`},
         `The invariant is simple: an in-order traversal of the leaves equals the document. The metadata doesn't define a different string. It only caches lengths so operations can skip subtrees.`,
         `A useful rope also has balance and chunk-size rules. Without them, repeated appends can create a tall chain, and repeated tiny edits can create too many tiny leaves.`,
         `The metadata can be richer than character count. Editors often need byte offsets, UTF-16 code units, Unicode scalar counts, grapheme clusters, line counts, or newline positions. A production rope may store several measures per subtree so a cursor can move by visual character, a language server can report line and column, and a file writer can stream bytes. The idea is the same: cache enough subtree facts to skip over text that is not being inspected.`,
@@ -340,4 +342,3 @@ export const article = {
     },
 ],
 };
-

@@ -110,6 +110,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "Thompson sampling explores in proportion to remaining doubt: an arm gets traffic only while its posterior can still plausibly win."},
       ],
     },
     {
@@ -144,6 +145,7 @@ export const article = {
       heading: `Beta-Bernoulli Beliefs`,
       paragraphs: [
         `For yes/no rewards such as clicked or not clicked, converted or not converted, the Beta distribution is a convenient belief over an unknown probability. Beta(alpha, beta) can be read as successes plus failures. A success increments alpha. A failure increments beta.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/f/f3/Beta_distribution_pdf.svg`, alt: `Beta distribution probability density curves`, caption: `Beta curves show how different alpha and beta counts encode both center and uncertainty. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Beta_distribution_pdf.svg.`},
         `The demo starts both arms at Beta(1,1), a flat prior. That means the learner begins with no preference. As visitors arrive, each arm's curve shifts and narrows. A curve centered farther right means a higher likely conversion rate. A narrower curve means the system has more evidence and less uncertainty.`,
       ],
     },

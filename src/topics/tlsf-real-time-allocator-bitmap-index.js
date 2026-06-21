@@ -410,6 +410,7 @@ export const article = {
       paragraphs: [
         'Real-time systems care about the worst allocation, not the average allocation. An RTOS task, audio callback, robot control loop, or game frame can miss its deadline if malloc occasionally walks a long free list or performs delayed cleanup.',
         'TLSF, Two-Level Segregated Fit, exists to make the allocator lookup path bounded. It does not promise infinite memory or zero fragmentation. It promises that finding, splitting, freeing, and coalescing blocks can be done through fixed-size metadata rather than an unbounded heap walk.',
+        {type: 'callout', text: 'TLSF is a deadline promise about allocator metadata: lookup, split, free, and coalesce must touch bounded structures rather than wandering through heap history.'},
       ],
     },
     {
@@ -431,6 +432,7 @@ export const article = {
       paragraphs: [
         'Use two levels of bins and make the bins searchable with bitmaps. The first level chooses a coarse power-of-two size band. The second level subdivides that band into finer slots. Each slot has a free list, and bitmap words record which slots and bands are nonempty.',
         'The bitmap index is the real data structure. A request maps to a starting first-level and second-level bin. Find-first-set style operations jump to that bin or the next nonempty bin without walking arbitrary free blocks.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die photograph showing dense compute and memory structures', caption: 'Hardware deadlines make allocator latency visible: a bounded bitmap path protects worst-case control loops better than an average-fast heap walk. Source: Wikimedia Commons, KL and Intel, public domain: https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
       ],
     },
     {

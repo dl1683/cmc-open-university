@@ -234,6 +234,7 @@ export const article = {
         `TLA+ exists because some bugs live in the design before any implementation exists. Distributed systems, lock managers, retry loops, quorum protocols, and concurrent workflows can fail even when each individual step looks reasonable. The failure is a reachable sequence of legal actions: client A waits, client B retries, a message is delayed, a timeout fires, and a state that was supposed to be impossible appears.`,
         `Code review and tests are weak at this kind of bug because they sample executions. A reviewer follows the path that seems likely. A test runner schedules a few interleavings. The system may still contain a deadlock, split brain, stale read, lost update, or broken ownership invariant in a path nobody happened to exercise.`,
         `TLA+ moves the question earlier. Instead of asking whether one program run behaved, you write a model of the design as a state machine and ask which states are reachable. TLC, the model checker, explores a finite version of that state space and reports a concrete counterexample when a property fails. The official TLA+ materials frame this as a way to eliminate fundamental design errors in concurrent and distributed systems: https://docs.tlapl.us/.`,
+        {type: `callout`, text: `Model checking changes design review from sampled stories to reachable-state evidence: if a bad state exists in the bound, TLC can hand back the path.`},
       ],
     },
     {
@@ -269,6 +270,7 @@ export const article = {
       heading: 'What the visual proves',
       paragraphs: [
         `The state-graph view should be read as the model checker, not as the production system. The spec creates the initial nodes and transition rules. The frontier stores states still waiting to expand. The seen set prevents duplicate work. The invariant checker is the gate every reachable state must pass.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/3/3d/TLC_one-bit_clock_states.png`, alt: `Finite state graph for a one-bit TLA plus clock model`, caption: `Even a tiny TLA+ model becomes a reachable-state graph that TLC can exhaustively check inside the chosen bounds. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TLC_one-bit_clock_states.png.`},
         `The counterexample view shows the real payoff. A failure is not a vague warning. It is a replayable sequence of model states and actions: start here, take this legal action, then this one, and the property breaks. That trace is often more useful than a failing test because it names the design interleaving, not just the symptom observed in one implementation run.`,
       ],
     },
