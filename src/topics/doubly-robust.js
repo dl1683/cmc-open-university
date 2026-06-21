@@ -191,6 +191,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Doubly Robust Estimation. Predict with the model, correct the prediction with importance-weighted residuals: unbiased if the model OR the weights are right — stress-tested live both ways..",
+        {type: "callout", text: "Doubly robust estimation makes a model answer auditable by weighting only the residual errors the model left behind."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -206,6 +207,7 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `Read the formula as a model answer plus a weighted error audit. The direct-method term predicts what the new policy would get. The residual term asks where the model was wrong on logged samples, then reweights those errors into the new policy's action mix. In the stress tests, the model can be wrong or the weights can be noisy, but DR survives if one side is right enough. The naive baselines are direct method alone and IPS alone. The invariant is the double-safety condition: correct model makes residuals average to zero; correct propensities make the residual audit unbiased for the model's bias. If both model and support fail in the same region, the table's last row is the warning.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/College.png/250px-College.png`, alt: `Causal graph with observed variables and directed arrows`, caption: `A causal graph makes the logged-policy problem visible: treatment, covariates, and outcomes decide what the model and weights must adjust. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:College.png.`},
       ],
     },
     {

@@ -100,6 +100,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation traces a recursive resolver walking the DNS hierarchy for www.example.com. Five nodes represent the actors: your browser, the recursive resolver, a root server, a .com TLD server, and the authoritative nameserver for example.com. Edges show the query path the resolver follows.',
+        {type: 'callout', text: 'DNS scales by separating who may answer from who can cache, so global naming becomes delegated authority plus timed reuse.'},
         'Active (highlighted) nodes and edges show the current query hop. Visited markers mean a server has already answered and referred the resolver downward. Found markers mean the final IP address has been returned and cached.',
         'Toggle between cold and warm cache to see the difference. A cold run walks root, TLD, and authoritative servers in sequence. A warm run returns from the resolver cache in one hop. Watch how many round trips each path costs, and notice that the resolver does the walking so the browser does not have to.',
       ],
@@ -109,6 +110,7 @@ export const article = {
       paragraphs: [
         `DNS exists because humans want stable names and networks route to changing addresses. A browser can remember www.example.com, but TCP needs an IP address. A service owner may move servers, add a CDN, rotate mail providers, split traffic by region, or recover from an outage without asking every user to edit a local file. The name has to stay useful while the infrastructure behind it changes.`,
         `The first Internet naming system was closer to a shared hosts file. That worked when the network was small. It broke when organizations wanted to administer their own names, when the number of hosts grew, and when distributing a central file became a coordination and bandwidth problem. DNS replaced that file with a distributed hierarchy. Each part of the name space can be delegated to the organization responsible for it.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/b/b1/Domain_name_space.svg`, alt: `DNS domain name space tree with root, top-level domains, zones, and resource records`, caption: `The DNS namespace is a delegated tree, not a single table owned by one server. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Domain_name_space.svg.`},
         `The result is not a single global phonebook. It is a tree of authority plus many layers of caches. The tree answers who is allowed to speak for a name. The caches make the answer fast enough for ordinary web traffic.`,
       ],
     },
@@ -164,6 +166,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Every browser page, mobile API call, webhook, package install, container pull, and email delivery path depends on DNS. Web traffic commonly needs A or AAAA records. Email depends on MX records. Service discovery may use SRV, TXT, or internal naming conventions. Certificate automation may use DNS challenges to prove domain control.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg`, alt: `Global internet topology visualization with many connected network nodes`, caption: `DNS caching and delegation exist because name lookup has to serve a planet-scale network. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Internet_map_1024.jpg.`},
         `CDNs use DNS as an early steering layer. The authoritative answer can point a user toward a nearby edge, a healthy region, or a traffic-management endpoint. After DNS returns an address, other structures take over: a Load Balancer chooses a backend, Consistent Hashing may select a cache shard, and CDN Request Flow handles cache hits and origin misses.`,
         `Operational migrations are built around TTL. A team lowering TTL before a move is not performing superstition. It is shortening the maximum life of old cached answers. After enough time passes for previous TTLs to drain, the team can change the authoritative record and expect most resolvers to refresh soon.`,
       ],
@@ -219,4 +222,3 @@ export const article = {
     },
 ],
 };
-

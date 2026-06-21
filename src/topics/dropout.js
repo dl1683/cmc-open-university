@@ -94,6 +94,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The grid shows a hidden layer of 8 neurons. Each frame is one training batch. Grayed-out (removed) neurons have been zeroed by this batch\'s random mask: they produce no output and receive no gradient. The surviving neurons glow active, and their values are visibly larger than the originals because they have been scaled by 1/(1-p) to keep the layer\'s expected output unchanged.',
+        {type: 'callout', text: 'Dropout regularizes by training many thinned subnetworks that all have to share useful weights.'},
         'Track three things across frames. First, which neurons vanish: the mask is different every batch, so different neurons disappear each time. Second, survivor magnitudes: with p = 0.5, each survivor doubles, because it must carry the signal that two neurons would normally share. Third, the final frame: inference uses all neurons at their original scale, no mask, no scaling. That frame is the payoff -- the full ensemble answering at once.',
         'Set p = 0 to see what dropout removes: every batch uses the same 8 neurons, the same computation graph, the same opportunity for neurons to co-adapt. Compare with p = 0.5 and the difference is immediate.',
       ],
@@ -102,6 +103,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Neural networks overfit by co-adapting features. A hidden unit learns something useful only because another hidden unit is always there to compensate for its mistakes. The pair works on training data, but the dependency is fragile: perturb one member and the other\'s output becomes meaningless. Training loss falls, validation loss stalls or rises, and the gap is not just "too many parameters" -- it is a structural failure where neurons form private agreements instead of learning independently useful representations.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Overfitting.svg/330px-Overfitting.svg.png', alt: 'Overfitted model curve weaving tightly through noisy training points', caption: 'Dropout is one answer to this failure mode: the model should learn signal instead of fitting noise and fragile coincidences. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Overfitting.svg.'},
         'Srivastava, Hinton, Krizhevsky, Sutskever, and Salakhutdinov (2014) formalized this problem and proposed the fix. Hinton\'s original intuition (2012) came partly from biology: sexual reproduction forces genes to be individually useful because each offspring gets a random half of each parent\'s genome. Dropout applies the same pressure to neurons. The paper showed consistent improvements across vision, speech, text, and genetics tasks -- evidence that co-adaptation is a universal failure mode, not a dataset-specific quirk.',
       ],
     },
@@ -124,6 +126,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'During training, randomly zero out each neuron\'s output with probability p. The typical rate is 0.5 for hidden layers and 0.1-0.2 for input layers. Each batch draws a fresh binary mask, so each batch trains a different thinned sub-network. A layer with n neurons has 2^n possible sub-networks, all sharing one set of weights.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes and connections', caption: 'Dropout samples subnetworks from the same layered graph, then lets inference use the full graph again. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         'The survivors must be scaled so the layer\'s expected output stays the same. Inverted dropout multiplies each survivor by 1/(1-p). If p = 0.5, survivors double. The math: for any neuron with activation x, the expected output is (1-p) * x/(1-p) + p * 0 = x. Training sees noisy, partial networks. Inference sees the full network at its original scale with no correction needed.',
       ],
     },
@@ -189,4 +192,3 @@ export const article = {
     },
   ],
 };
-

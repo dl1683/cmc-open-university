@@ -108,6 +108,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Distributed Tracing. One trace ID, one tree of spans across six services — and the slow hop has nowhere to hide..",
+        {type: "callout", text: "Distributed tracing turns one request into a timed call tree, so latency attribution follows parent-child evidence instead of service-by-service guessing."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -117,6 +118,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Distributed tracing follows one user request through dozens of machines, dozens of services, and hundreds of function calls — and assembles them into a single tree. A trace ID (like abc123) is minted at the gateway and propagated downstream in request headers, especially the W3C traceparent standard. Each unit of work — a function call, a database query, an RPC — records a span: its name, start time, end time, and parentId (which service called me). All spans with the same trace ID reassemble at a tracing backend into the exact shape of the dependency tree. If a request takes 120ms from user to response, the tree shows which 55ms came from fraud-check, which 20ms from inventory, which 45ms from idle network waiting.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Microservices-based_architecture.png/800px-Microservices-based_architecture.png`, alt: `Microservices architecture diagram with independent services connected through requests`, caption: `A microservice graph explains why one user action can scatter evidence across many processes before tracing joins it back together. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Microservices-based_architecture.png.`},
         `Without tracing, each service logs its own events to its own server. A checkout that takes 120ms looks fast in the auth service (15ms), fine in inventory (20ms), reasonable in payments (70ms). The bug hides two layers deep. Tracing exposes it: fraud-check is the critical path. It is the Recursion call tree, but scattered across a dozen machines and reassembled by timestamp and parentId.`,
       ],
     },
@@ -138,6 +140,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core insight is context propagation. The system must carry trace identity across process boundaries so independently emitted spans can be joined later. W3C Trace Context standardizes headers such as traceparent and tracestate for this reason.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with parent-child arrows between nodes`, caption: `A trace is a directed parent-child graph with timestamps, span IDs, and process boundaries attached. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.`},
         `A span is useful because it has both timing and parentage. Timing alone is a stopwatch. Parentage turns many stopwatches into a dependency tree, separating self time, child time, parallel work, and detached async work.`,
       ],
     },

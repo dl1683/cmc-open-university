@@ -221,6 +221,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A dynamic AABB tree is a mutable binary bounding-volume hierarchy for axis-aligned bounding boxes. Leaves are proxies for game objects or shapes. Internal nodes store AABBs that contain both children. Queries descend through overlapping boxes and skip subtrees that cannot contribute a result.',
+        {type: 'callout', text: 'A dynamic AABB tree is a living broad-phase proof: a missed parent box proves every descendant can be skipped.'},
         'This topic builds on Bounding Volume Hierarchy, Sweep-and-Prune Broad Phase, Spatial Hash Grid Broad Phase, R-Tree Spatial Index, and Interval Tree. It occupies a practical middle ground: more adaptive than a uniform grid, more mutable than a static render BVH, and better for ray or shape queries than a pure endpoint sweep in many game workloads.',
       ],
     },
@@ -229,6 +230,7 @@ export const article = {
       paragraphs: [
         'The broad phase should answer a cheap question before the physics engine asks an expensive one: which objects could possibly overlap? A dynamic AABB tree keeps conservative boxes around moving objects so most impossible pairs can be rejected before exact geometry tests run.',
         'The structure works because every internal box is a promise about all descendants. If a query misses that box, it misses every object below it. If it hits the box, the tree descends and eventually returns candidate leaves. Correctness comes from containment; performance comes from keeping those containment boxes tight enough.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Example_of_bounding_volume_hierarchy.svg/500px-Example_of_bounding_volume_hierarchy.svg.png', alt: 'Bounding volume hierarchy showing objects grouped inside nested rectangles', caption: 'BVH nesting shows the same invariant dynamic AABB trees maintain while objects move. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Example_of_bounding_volume_hierarchy.svg.'},
       ],
     },
     {
@@ -249,6 +251,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'To insert a proxy, the tree chooses a sibling whose parent box grows cheaply, creates a new internal node, and updates ancestor bounds. To query, start with the root on a stack. If the query AABB or ray misses a node box, skip that node. If it hits an internal node, push its children. If it hits a leaf, report the object id as a broad-phase candidate.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/BVHtree_travelsal.png/250px-BVHtree_travelsal.png', alt: 'BVH tree and flattened traversal order diagram', caption: 'Traversal can be implemented as an explicit stack or flattened node order, but the logic is the same: test a bound before visiting children. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:BVHtree_travelsal.png.'},
         'The dynamic part is the update policy. Engines often store fat AABBs that are slightly larger than the current object bounds. Small movement stays inside the fat proxy and avoids reinsertion. If the true AABB escapes the fat box, the engine removes the leaf and reinserts it with a fresh margin. Rotations, balancing heuristics, or periodic rebuilds keep the tree from degenerating.',
       ],
     },
@@ -256,6 +259,7 @@ export const article = {
       heading: 'Worked example',
       paragraphs: [
         'Imagine four bodies A, B, C, and D. The left internal node contains the union of A and B, the right internal node contains the union of C and D, and the root contains both sides. A query box that overlaps the left internal node but misses most of the right side can skip D immediately. It may still test C if C lies inside an overlapping right-side bound.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/BVH_Splitting_Plane.png/250px-BVH_Splitting_Plane.png', alt: 'BVH splitting plane examples showing high and low overlap partitions', caption: 'Split quality matters because overlapping child boxes force the query to visit both sides. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:BVH_Splitting_Plane.png.'},
         'Now let body B move a small distance. If B still fits inside its fat proxy, the tree does nothing and accepts a little extra false-positive area. If B escapes, the proxy is removed and reinserted near the sibling that causes the smallest perimeter or surface-area growth. That heuristic is why this is a broad-phase engineering structure rather than a purely sorted container.',
       ],
     },

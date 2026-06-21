@@ -122,6 +122,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows the backing array — the fixed-size block of memory that the dynamic array owns. Slots with values are live data; slots shown as empty (null) are allocated capacity that has not been used yet. The label below tracks size (how many elements are stored) and capacity (how many slots are allocated).',
+        {type: 'callout', text: 'A dynamic array makes rare copies pay for many future O(1) appends by buying spare capacity geometrically.'},
         'When an append fits in the existing capacity, the new value appears in the next empty slot and the size increments by one. This is a single O(1) write.',
         'When the array is full (size equals capacity), a resize fires. The animation highlights all existing elements, allocates a new array with double the capacity, copies every element into it, and then writes the new value. Watch the capacity jump: 2 to 4, 4 to 8, 8 to 16. Each resize is expensive, but notice how the gaps between resizes keep growing — that is the source of the amortized cost.',
       ],
@@ -130,6 +131,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A plain array has a fixed size set at allocation time. If you know exactly how many elements you need, that is fine. But most real programs do not know in advance: a user types search results, a server collects log entries, a parser builds a token list. The program needs an array that grows on demand while still providing O(1) random access by index.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/1D_array_diagram.svg/250px-1D_array_diagram.svg.png', alt: 'One-dimensional array diagram with adjacent indexed cells', caption: 'A dynamic array keeps the same contiguous indexed layout, then swaps in a larger backing store when full. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:1D_array_diagram.svg.'},
         'Every mainstream language has one. Java calls it ArrayList. Python calls it list. C++ calls it std::vector. Go calls it a slice. JavaScript arrays are dynamic arrays internally. The idea is the same everywhere: own a fixed backing buffer, track how much of it is used, and replace it with a bigger one when it fills up.',
       ],
     },
@@ -177,6 +179,7 @@ export const article = {
       paragraphs: [
         'Append: O(1) amortized, O(n) worst case. The worst case is a single resize, but over any sequence of n appends starting from empty, total work is at most 3n. When n doubles, the total cost doubles — the per-append cost stays constant.',
         'Random access (read or write by index): O(1). The backing array is contiguous, so index arithmetic is a single pointer addition, the same as a plain array.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Row_and_column_major_order.svg/250px-Row_and_column_major_order.svg.png', alt: 'Row-major and column-major layouts showing contiguous memory order', caption: 'Contiguous layout is the practical reward: scans follow nearby memory instead of chasing nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.'},
         'Insert at index i: O(n - i). Elements after the insertion point must shift right. Inserting at the front is O(n). Inserting at the end is append, O(1) amortized.',
         'Delete at index i: O(n - i). Elements after the deletion point shift left. Deleting from the front is O(n). Deleting from the end is O(1).',
         'Space: at most 2x the number of stored elements. Right after a resize, size = capacity/2, so half the memory is unused. Right before a resize, size = capacity, so no memory is wasted. On average, about 75% of the allocated space holds real data.',

@@ -142,6 +142,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation plots two loss curves across 40 training epochs. The blue curve is training loss: it falls monotonically because the optimizer is paid to reduce it. The orange curve is validation loss: it falls, bottoms out, and climbs back up. The marker labeled "the turn" pins the epoch where validation was lowest. Everything after that marker is wasted compute that makes the model worse at its actual job.',
+        {type: 'callout', text: 'Early stopping regularizes by selecting the best held-out checkpoint, not the last checkpoint the optimizer happened to reach.'},
         'In the patience view, red markers flag noise blips -- epochs where validation jumped briefly before resuming its descent. The matrix walks the patience counter through these exact epochs, showing when the counter ticks, when it resets, and when it finally fires. "Found" highlights mark the checkpoint the system keeps. "Removed" highlights mark the stop event. Watch the counter forgive noise and still catch the real turn.',
         {
           type: 'diagram',
@@ -155,6 +156,7 @@ export const article = {
       paragraphs: [
         'Training loss is loyal to the training set, not to the problem. A flexible model can keep reducing its loss on seen examples indefinitely -- first by learning real patterns, then by memorizing noise, mislabeled points, and rare coincidences. The optimizer cannot tell the difference. It only knows the objective went down.',
         'The validation curve is the outside witness. It measures whether current weights transfer to data the optimizer never touched. When training loss falls while validation loss rises, extra epochs buy a better memory of the training set and a worse model for future data. Early stopping is the discipline of believing the validation curve before the last epoch.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Overfitting_svg.svg/330px-Overfitting_svg.svg.png', alt: 'Training error falling while validation error bottoms out and rises', caption: 'The validation minimum is the decision point: training can keep improving while generalization gets worse. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Overfitting_svg.svg.'},
         {
           type: 'quote',
           text: 'The question is not whether to stop early, but how to define the right moment. A network that trains too long will overfit; one that trains too briefly will underfit. The practical problem is that the optimum is unknown in advance and noisy to estimate.',
@@ -174,6 +176,7 @@ export const article = {
       paragraphs: [
         'The fixed-budget approach fails because the right stopping epoch changes across datasets, random seeds, augmentation strategies, and model sizes. A budget chosen before training starts is a guess made before the evidence arrives. Too short and the model underfits; too long and it memorizes.',
         'The tripwire approach fails because it cannot distinguish one noisy epoch from the onset of overfitting. In the animation, validation spikes at epoch 9 and again at epoch 15 -- both are noise, and the true minimum is still 16 epochs away. Any rule that reacts to a single uptick is a false-alarm machine.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/Pyplot_overfitting.png/330px-Pyplot_overfitting.png', alt: 'Noisy data fit by both a simple line and an overflexible curve', caption: 'Overflexible training can fit the seen points while damaging extrapolation, which is the failure early stopping is trying to catch. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Pyplot_overfitting.png.'},
         {
           type: 'table',
           headers: ['Stopping method', 'Mechanism', 'Failure mode'],
@@ -271,4 +274,3 @@ export const article = {
     },
   ],
 };
-

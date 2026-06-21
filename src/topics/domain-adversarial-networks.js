@@ -206,6 +206,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Domain-Adversarial Neural Networks solve a common deployment problem: the labels live in one distribution, but the model will be used in another. A classifier trained on product photos may be deployed on phone photos. A sentiment model trained on movie reviews may be used on support tickets. A medical model trained at one hospital may face a different scanner, protocol, or patient mix. The source task is known, but the target domain is only partly visible.',
+        {type: 'callout', text: 'DANN works by keeping label evidence while making domain evidence hard to recover from the learned representation.'},
         'The hard setting is unsupervised domain adaptation. Source examples have labels. Target examples exist, but target labels are unavailable or too expensive to collect at training time. The learner must use target inputs without using target answers. That constraint rules out ordinary supervised fine-tuning and makes evaluation fragile: source validation can look strong while target accuracy collapses.',
       ],
     },
@@ -221,6 +222,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is to train one representation against two judges. The label head asks whether the features still solve the source task. The domain head asks whether the same features reveal where an example came from. The feature extractor is rewarded for label usefulness and penalized for domain recognizability.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input, hidden, and output nodes', caption: 'DANN inserts a domain head beside the task head, so the shared hidden representation must satisfy two objectives. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         'This is adversarial pressure used as a training tool. The adversary is not trying to steal the model or fool it at inference time. It is a small classifier inside the training loop. If the domain classifier can easily separate source from target features, the representation still contains domain-specific information. If the label head remains accurate while the domain classifier becomes confused, the features are closer to what DANN wants: task-discriminative and domain-indiscriminate.',
       ],
     },
@@ -244,6 +246,7 @@ export const article = {
       heading: 'Why it can work',
       paragraphs: [
         'The correctness argument is a representation argument, not a guarantee that every dataset will adapt. If source and target share a labeling function, and if there exists a feature space where examples with the same label align across domains, then a good feature extractor should keep label evidence and discard domain evidence. The label loss preserves the first property. The reversed domain loss pressures the second.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Several normal distribution curves with different means and variances', caption: 'Distribution shift is the geometric target: adaptation tries to remove domain separation while preserving task structure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Normal_Distribution_PDF.svg.'},
         'The domain classifier gives the feature extractor a moving test. A weak domain classifier cannot expose much leakage, so the feature extractor receives little useful pressure. A strong domain classifier finds domain cues, and the reversed gradient points the extractor away from them. At equilibrium, the domain classifier should be close to guessing from the shared features, while the label head still predicts source labels well.',
         'This argument depends on the right kind of shift. Covariate shift is the friendly case: input style changes, but the task relation is stable. Conditional shift is harder: the relationship between input and label changes. Label shift changes class priors. In those cases, matching feature distributions can make the model more confident and less correct.',
       ],

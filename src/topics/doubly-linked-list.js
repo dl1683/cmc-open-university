@@ -119,6 +119,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each rectangle is a node holding a value. Rightward arrows are next pointers; leftward arrows are prev pointers. The head label marks the first node; the tail label marks the last. Active (highlighted) nodes are being inspected or modified. Visited nodes have already been checked during a search pass.',
+        {type: 'callout', text: 'The extra prev pointer buys O(1) removal at a known node by making both neighbors directly reachable.'},
         'Watch the build phase first. Each new node arrives at the tail. Two arrows appear: a forward arrow from the old tail to the new node, and a backward arrow from the new node to the old tail. Those two pointer writes are the entire cost of an append.',
         'During removal, the target node lights up along with its two neighbors. The neighbors\' arrows redirect to point at each other, bypassing the target. The target disappears. No other node moves. That two-pointer rewire is what makes deletion O(1) when you already hold a reference to the node.',
         'During reverse traversal, the animation follows prev pointers from tail to head. Every node is reachable from either end. A singly linked list could not do this without a full reversal or an auxiliary stack.',
@@ -129,6 +130,7 @@ export const article = {
       paragraphs: [
         'A singly linked list can only move forward. Removing a node requires its predecessor, and reaching that predecessor costs O(n) because no backward pointer exists. When you already hold a reference to the node you want to delete, that O(n) walk is pure waste.',
         'The doubly linked list adds a prev pointer to every node. Any node can now reach both neighbors in O(1). Deletion becomes two pointer writes instead of an O(n) search for the predecessor. Traversal works in both directions.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Doubly-linked-list.svg/960px-Doubly-linked-list.svg.png', alt: 'Doubly linked list nodes connected by previous and next arrows', caption: 'The diagram shows why deletion can be local: the removed node already names both neighbors. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Doubly-linked-list.svg.'},
         'This matters whenever a system needs fast removal at arbitrary positions. An LRU cache must move accessed entries to the front and evict entries from the back, all in O(1). A text editor must insert and delete at the cursor without shifting the rest of the document. Browser history must go forward and back. Each of these patterns breaks down if deletion requires a traversal.',
       ],
     },
@@ -193,6 +195,7 @@ export const article = {
         'Double the pointer overhead of a singly linked list. Each node pays 16 bytes for two pointers instead of 8. For bulk storage of small values (integers, characters), the overhead dominates the actual data. Arrays or singly linked lists are more memory-efficient.',
         'Search is still O(n). The prev pointer does not help find a value faster. If the workload is dominated by lookups, a hash table or balanced tree is the right choice. The doubly linked list only speeds up modification, not search.',
         'Cache-unfriendly. Nodes are scattered across the heap. Every pointer follow is a potential cache miss. For sequential scans, arrays outperform linked lists by an order of magnitude on modern hardware because of prefetching and spatial locality.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/1D_array_diagram.svg/250px-1D_array_diagram.svg.png', alt: 'One-dimensional array diagram with adjacent indexed cells', caption: 'The array contrast matters: contiguous indexed cells are faster to scan even though interior deletion is expensive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:1D_array_diagram.svg.'},
         'Arrays beat it for most use cases. If insertions and deletions happen mostly at the ends, a dynamic array or deque backed by a circular buffer is simpler and faster. The doubly linked list only wins when you need O(1) removal at arbitrary interior positions and you hold direct pointers to nodes.',
         'Concurrency is hard. A single removal touches three nodes: the target and its two neighbors. Lock-free doubly linked lists exist but are notoriously difficult to implement correctly. Most production code uses a mutex or avoids shared mutable lists.',
       ],

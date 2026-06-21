@@ -191,6 +191,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The two-ended view shows a circular buffer as a flat row of slots. Two pointers, front and back, mark which slots hold live data. Watch how push and pop operations move only these pointers -- the middle slots never shift. When pushFront decrements front past slot 0, it wraps to the physical end of the array; the logical sequence stays continuous.',
+        {type: 'callout', text: 'A deque wins by making both ends cheap while keeping the middle untouched.'},
         'Active highlights mark the slot and pointer involved in the current operation. Found highlights mark slots whose contents are confirmed unchanged. Removed highlights mark slots freed by a pop. The cap node shows the buffer capacity and signals when wrapping occurs.',
         'In the sliding-window view, the deque stores candidate values. The front holds the current maximum; the back is the editing surface where new arrivals evict weaker candidates. Watch how the monotone invariant -- every value decreases from front to back -- is preserved after each insertion.',
       ],
@@ -200,6 +201,7 @@ export const article = {
       paragraphs: [
         'A stack gives O(1) push and pop at one end. A queue gives O(1) enqueue at the back and dequeue at the front. Some algorithms need O(1) insertion and removal at both ends of the same sequence.',
         'Sliding-window maximum is the clearest motivating case. New values arrive at the back. Expired values leave from the front as the window advances. Dominated candidates also get removed from the back -- a queue cannot do that, and a stack cannot expire the front. The algorithm needs a structure that treats both ends as first-class editing points.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Circular_buffer.svg/250px-Circular_buffer.svg.png', alt: 'Circular buffer shown as a ring of fixed slots', caption: 'A circular view makes wraparound natural: front and back can move without shifting the stored sequence. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Circular_buffer.svg.'},
         'A deque (double-ended queue) provides exactly this contract: pushFront, pushBack, popFront, popBack, peekFront, and peekBack, all in O(1) amortized time.',
       ],
     },
@@ -230,6 +232,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A circular buffer deque maintains four values: buf (the underlying array), head (index of the first logical element), tail (index one past the last logical element), and capacity (the array length). The number of live elements is (tail - head + capacity) % capacity.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Circular_buffer_-_XX123XX_with_pointers.svg/250px-Circular_buffer_-_XX123XX_with_pointers.svg.png', alt: 'Linear circular buffer diagram with read and write pointers around live slots', caption: 'The pointer view shows the implementation contract: move indexes, not elements. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Circular_buffer_-_XX123XX_with_pointers.svg.'},
         'pushFront: decrement head modulo capacity, write the new value at buf[head]. pushBack: write the new value at buf[tail], increment tail modulo capacity. popFront: read buf[head], increment head. popBack: decrement tail, read buf[tail]. Each operation touches exactly one slot and one pointer.',
         'When the buffer is full (size equals capacity), allocate a new array of double the capacity. Copy elements starting from head, wrapping around the old array, into positions 0 through size-1 of the new array. Set head to 0 and tail to size. The logical order is preserved even though the physical layout changes completely.',
         'The alternative implementation is a doubly-linked list. Each node holds a value, a prev pointer, and a next pointer. pushFront and popFront operate on the head node; pushBack and popBack operate on the tail node. All four are O(1) with no resizing. The tradeoff: each node requires two extra pointers (16 bytes on 64-bit systems), and pointer chasing destroys cache locality. In practice, circular buffers dominate for general-purpose deques. Python collections.deque uses a hybrid: a doubly-linked list of fixed-size blocks, combining the cache friendliness of contiguous storage with flexible growth at both ends.',
