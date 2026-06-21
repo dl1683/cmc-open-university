@@ -215,6 +215,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'The basic Fenwick tree supports point updates and prefix sums. That is enough for many frequency tables and cumulative counters, but real workloads often update intervals: add 5 to every score from l through r, then ask for one score or a range total later.',
+        {type: 'callout', text: 'The range trick works because interval updates can be converted into two boundary events, then recovered by prefix sums.'},
         'A segment tree with lazy propagation can solve this, but it is larger and more general than necessary for additive updates and sum queries. Fenwick trees can handle this narrower problem with less code and a smaller memory footprint.',
         'The trick is to stop storing the array directly. Store boundary events or linear coefficients so ordinary Fenwick prefix queries recover the value you actually want.',
       ],
@@ -238,6 +239,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'For range-add point-query, treat the Fenwick tree as a difference array. To add x on [l, r], add +x at l and -x at r + 1. A point query at i asks for the prefix of the difference tree, so it sees exactly the intervals covering i.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/16-node_Fenwick_tree.svg/500px-16-node_Fenwick_tree.svg.png', alt: 'Fenwick tree interrogation diagram showing lowbit range ownership', caption: 'A 16-node Fenwick interrogation tree makes the lowbit ranges visible. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:16-node_Fenwick_tree.svg.'},
         'For range-add range-sum, use two Fenwick trees. B1 stores the active coefficient of i. B2 stores the correction term. The prefix total through i is sum(B1, i) * i - sum(B2, i).',
         'This formula works because the prefix of a range-added array is piecewise linear. B1 gives the slope of the piece currently active at i, and B2 shifts the line so it starts counting at the correct left boundary.',
       ],

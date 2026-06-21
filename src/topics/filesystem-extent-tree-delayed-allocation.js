@@ -202,6 +202,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A filesystem has to answer a simple question quickly: for this byte range in a file, which physical storage blocks contain the data? Old block-map designs answered with one pointer per block or with layers of indirect pointer blocks. That works, but it wastes metadata when a large file is mostly contiguous. A one gigabyte file with four kilobyte blocks has more than two hundred thousand blocks. If those blocks sit in a few long runs, storing every pointer separately repeats information the system already knows.',
+        {type: 'callout', text: 'Extents compress the common case: long logical file ranges that already live in long physical storage runs.'},
         'Extents exist to compress that repeated structure. An extent says that a logical run of file blocks maps to a physical run of disk blocks. The record stores a logical start, a physical start, a length, and state. Delayed allocation is the companion idea for writes. Instead of choosing physical blocks immediately for every buffered write, the filesystem can keep dirty data in memory and wait until writeback has enough context to pick larger contiguous runs.',
       ],
     },
@@ -216,6 +217,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is run-length compression for storage layout. Files are indexed by logical offsets, but storage devices allocate physical ranges. If logical blocks 0 through 1023 live at physical blocks 8000 through 9023, one extent can replace 1024 separate pointers. If the file later has a hole, an unwritten reservation, or a shared copy-on-write range, the same ordered range map can represent that state without inventing a separate structure for each case.',
+        {type: 'image', src: 'https://teaching.csse.uwa.edu.au/units/CITS2002/lectures/lecture15/images/f12.11.png', alt: 'Indexed file allocation diagram with multilevel block portions', caption: 'Indexed allocation shows the older pointer-heavy shape that extent trees try to compress for long runs. Source: CITS2002 Systems Programming, University of Western Australia, https://teaching.csse.uwa.edu.au/units/CITS2002/lectures/lecture15/singlepage.html.'},
         'Delayed allocation adds a timing insight. The first write is often the worst moment to choose placement because the filesystem sees only a tiny piece of the future file. During writeback it may see a much larger dirty range, current free-space state, neighboring allocations, and pressure from other files. Waiting does not make allocation free, but it often makes allocation better. The invariant is that the logical file state must remain correct even while physical placement is still pending.',
       ],
     },

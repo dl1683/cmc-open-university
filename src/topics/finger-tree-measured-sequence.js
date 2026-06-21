@@ -267,6 +267,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A finger tree is a persistent sequence data structure built from a small set of cases: Empty, Single, and Deep. A Deep node has a prefix digit, a recursive middle tree, and a suffix digit. The digits keep the two ends close, while the middle stores groups of two or three elements to preserve balance.',
+        {type: 'callout', text: 'The measure is the index: once every subtree carries a monoidal summary, split and search become guided descent.'},
         'The obvious persistent sequence choices each miss something. A linked list has a fast front but slow indexing and concatenation. A balanced tree has logarithmic access but can make deque operations feel heavier than they should. A flat array is cache-friendly but expensive to edit immutably. Finger trees exist to combine fast ends, persistence, split, concat, and searchable summaries in one general shape.',
         'The Hinze and Paterson version is a 2-3 finger tree with a second idea layered on top: every element has a measure, and measures combine through an associative operation. That makes the same tree shape support indexed sequences, priority queues, interval searches, ordered splits, and other structures.',
       ],
@@ -275,6 +276,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Pushing or popping at either end usually edits only a small digit of one to four items. When a digit overflows or underflows, a small Node2 or Node3 packet is moved into or out of the recursive middle. Because the middle stores nodes rather than raw elements, the tree stays balanced without global rebuilding.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Finger-tree_from_2-3_tree.jpg/330px-Finger-tree_from_2-3_tree.jpg', alt: 'Transformation from a 2-3 tree into a finger tree with exposed ends', caption: 'A finger tree pulls the ends of a balanced tree close to the top while keeping the middle recursive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Finger-tree_from_2-3_tree.jpg.'},
         'For indexed sequences, the measure is size. Internal nodes cache the total size below them. To split at index k, walk down the tree while accumulating sizes until the predicate "past k" becomes true, then rebuild the left and right sides around the split point. Other measures route other questions in the same way.',
         'Why it works: the 2-3 shape bounds height, and the measure is a monoid. Associativity means cached summaries can be regrouped when the tree is rebalanced without changing their meaning. The split predicate can descend using summaries because each summary faithfully represents the whole subtree below it.',
       ],

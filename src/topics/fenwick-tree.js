@@ -102,6 +102,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         `The animation shows a single flat array indexed from 1. Each slot tree[i] stores a partial sum covering lowbit(i) consecutive values ending at position i, where lowbit(i) = i & (-i) is the lowest set bit. The first frame displays your raw input values; the second frame displays the built Fenwick array, whose entries differ because each slot has absorbed a range of original values.`,
+        {type: `callout`, text: `A Fenwick tree is not a pointer tree; it is a responsibility map encoded by the lowest set bit of each index.`},
         `Active (highlighted) cells mark whichever index the current walk is reading or writing. During a prefix-sum query the walk moves left, stripping the lowest set bit at each step. During a point update the walk moves right, adding the lowest set bit. Visited cells are ranges already accumulated (query) or already patched (update). Found cells mark update targets whose stored values changed.`,
         `Watch for one invariant across every frame: the visited cells always cover disjoint, non-overlapping ranges that together tile the exact prefix or the exact set of owners. If two ranges ever overlapped, the answer would double-count. They never do, because the bit trick partitions the index space.`,
       ],
@@ -132,6 +133,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The trick is lowbit(i) = i & (-i), which isolates the lowest set bit of i. In two's complement, -i flips every bit and adds 1, so the AND keeps only the rightmost 1-bit. For index 6 (binary 110), lowbit = 2. For index 12 (binary 1100), lowbit = 4. For any odd index, lowbit = 1.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/16-node_Fenwick_tree.svg/500px-16-node_Fenwick_tree.svg.png`, alt: `Fenwick tree diagram with implicit parent links and covered ranges`, caption: `The interrogation tree shows how prefix walks jump between disjoint covered ranges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:16-node_Fenwick_tree.svg.`},
         `That single value assigns a responsibility range: tree[i] stores the sum of exactly lowbit(i) consecutive values ending at position i. Index 6 covers positions 5..6. Index 12 covers positions 9..12. Odd indices cover only themselves. The binary representation of each index encodes its range length with no extra storage.`,
         `Stripping the lowest bit (i -= lowbit(i)) moves left to the start of the next uncovered range: the query walk. Adding the lowest bit (i += lowbit(i)) moves right to the next larger summary that contains i: the update walk. The two walks are mirror images of the same bit operation.`,
       ],

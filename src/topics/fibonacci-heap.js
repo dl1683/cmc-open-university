@@ -197,6 +197,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a forest of heap-ordered trees linked by a horizontal root list. Each tree satisfies heap order: every parent key is less than or equal to its children. The found highlight marks the min pointer, the root holding the smallest key in the entire heap.',
+        {type: 'callout', text: 'Fibonacci heaps buy cheap decrease-key by delaying cleanup and charging that cleanup to stored potential.'},
         'Nodes labeled "marked" have already lost one child since becoming a non-root. If a marked node loses a second child, it gets cut to the root list and unmarked. This is the cascading cut, and it is the mechanism that keeps tree degrees small.',
         'In the "lazy root list" view, watch how insert just splices a new singleton into the root list (no restructuring), and how extract-min pays for all that deferred work by linking roots of equal degree until no two share a degree. In the "decrease-key cascade" view, watch a node get cut from its parent and appear in the root list, then check whether the parent was already marked and triggers a cascade.',
         'At each step, ask two questions: what deferred work was just created, and what deferred work was just paid off. That tension between laziness and cleanup is the entire design.',
@@ -206,6 +207,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Fredman and Tarjan built the Fibonacci heap in 1987 to fix one specific bottleneck. Dijkstra and Prim both spend most of their priority-queue time calling decrease-key, not extract-min. With a binary heap, decrease-key costs O(log n), and on a dense graph with E edges that means E log V work just on key decreases. Extract-min only happens V times.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Fibonacci_heap.png/330px-Fibonacci_heap.png', alt: 'Fibonacci heap forest with marked nodes and a minimum pointer', caption: 'A Fibonacci heap is a forest of heap-ordered trees with marks that record previous child loss. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Fibonacci_heap.png.'},
         'The question: can decrease-key be made O(1) without ruining extract-min? If so, Dijkstra drops from O((V + E) log V) to O(V log V + E). On dense graphs where E approaches V squared, that is the difference between O(V squared log V) and O(V squared). The log factor on the dominant term disappears.',
       ],
     },

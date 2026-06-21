@@ -203,6 +203,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A file descriptor is a small nonnegative integer that a process passes to system calls such as read, write, close, poll, dup, and epoll_ctl. The integer is not the file. It is an index into a per-process file-descriptor table. The table entry points to a kernel object called an open file description, which then points to the underlying file, socket, pipe, device, or other object.`,
+        {type: `callout`, text: `A descriptor is local to a process, but an open file description is shared kernel state with offset and status flags.`},
         `This split is the important idea. User space needs compact handles that are cheap to copy and easy to pass through APIs. The kernel needs richer state: the current file offset, file status flags, access mode, reference counts, and links into the virtual filesystem or socket layer. The descriptor table is the handle table that connects those two worlds.`,
       ],
     },
@@ -224,6 +225,7 @@ export const article = {
       heading: 'Mechanism: the layers',
       paragraphs: [
         `There are several layers that are easy to collapse. The descriptor table is per process. A descriptor entry contains a pointer to an open file description and descriptor-level flags such as close-on-exec. The open file description contains the current offset and file status flags such as nonblocking or append behavior. Below that are type-specific operations and objects: an inode and page cache for a regular file, socket queues for a socket, a pipe buffer for a pipe, or an epoll interest set for an epoll file descriptor.`,
+        {type: `image`, src: `https://teaching.csse.uwa.edu.au/units/CITS2002/lectures/lecture15/images/fdtable.png`, alt: `Unix process descriptor tables pointing to a system open file table and inode table`, caption: `The three table model shows descriptor slots, open file descriptions, and inode records as separate layers. Source: CITS2002 Systems Programming, University of Western Australia, https://teaching.csse.uwa.edu.au/units/CITS2002/lectures/lecture15/singlepage.html.`},
         `For regular files, path lookup produces dentries and inodes before or during open. After open succeeds, later reads do not re-walk the pathname. They follow the object references already held by the open file description. This is why a program can open a file, another process can rename or unlink the directory entry, and the original descriptor can still read the old object until the last reference is closed.`,
       ],
     },

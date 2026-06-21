@@ -178,6 +178,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation walks a radix-2 Cooley-Tukey FFT from input to frequency-domain output. Each array cell holds one complex number. Swap-colored cells mark the bit-reversal permutation that reorders input before the first butterfly stage. Active (highlighted) cells mark the pair being combined by a butterfly operation.',
+        {type: 'callout', text: 'The FFT wins by reusing symmetry: each butterfly pays once for information that the direct DFT recomputes many times.'},
         'Each butterfly takes two values separated by half-span positions, multiplies the bottom value by a twiddle factor (a complex root of unity rotating around the unit circle), then writes top + product into the upper position and top - product into the lower position. The formula is X[k] = E[k] + W^k * O[k] and X[k + N/2] = E[k] - W^k * O[k]. Watch the twiddle factor rotate as k increases within each stage: that rotation is what separates different frequency bins.',
         'The final matrix lists each frequency bin X[k] with its complex value and magnitude. X[0] is always the sum of all input values (the DC component). For real-valued inputs, X[k] and X[N-k] are complex conjugates, so the magnitude spectrum is symmetric around the midpoint.',
       ],
@@ -210,6 +211,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The DFT matrix is not arbitrary. Every entry is a power of a single complex root of unity W = e^(-2*pi*i/N). These powers have two symmetries that the FFT exploits. Periodicity: W^N = 1, so powers wrap around. Symmetry: W^(k + N/2) = -W^k, so the root of unity halfway around the circle is the negation. Half the matrix entries are negations of the other half.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/DIT-FFT-butterfly.svg/330px-DIT-FFT-butterfly.svg.png', alt: 'Decimation in time FFT butterfly diagram combining even and odd transforms', caption: 'A radix-2 FFT combines even and odd half-size transforms through repeated butterfly operations. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:DIT-FFT-butterfly.svg.'},
         'Split the input into even-indexed samples and odd-indexed samples. The N-point DFT splits into two N/2-point DFTs plus a combination step. The combination is the butterfly: X[k] = E[k] + W^k * O[k] and X[k + N/2] = E[k] - W^k * O[k], where E[k] is the even-indexed half-DFT and O[k] is the odd-indexed half-DFT. One twiddle multiplication (W^k * O[k]) produces both outputs because of the sign symmetry.',
         'Recurse until the sub-problems reach size 1, where the DFT of a single value is just that value. There are log2(N) levels of recursion. Each level performs N/2 butterflies (one multiplication each). Total: N/2 * log2(N) complex multiplications.',
       ],

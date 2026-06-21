@@ -82,6 +82,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Finite state machines exist for systems that should only occupy one legal situation at a time. A regex matcher is either before the first character, inside the repeating section, accepted, or rejected. A protocol is listening, handshaking, established, closing, or failed. A checkout flow is collecting shipping, collecting payment, confirming, complete, or canceled. The common structure is not the domain. It is the finite set of legal states and the finite set of events that move between them.',
+        {type: 'callout', text: 'An FSM replaces scattered flags with one legal state and one explicit transition rule per event.'},
         'This model is valuable because it makes control visible. Instead of scattering behavior across conditionals, booleans, callbacks, and implicit flags, an FSM names each state and names each legal transition. That gives readers a table they can audit: from this state, on this input, what happens next? If a transition is absent, the move is illegal. That single idea prevents a large class of bugs.',
         'FSMs are also the smallest useful model of computation. They remember exactly one thing: the current state. That limitation is severe, but it is also the source of their speed and clarity. If the job fits inside finite memory, an FSM is hard to beat.',
       ],
@@ -98,6 +99,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is that a deterministic finite machine has one next state for each pair of current state and input symbol. The transition table is the program. Running the program means repeatedly doing a table lookup: state plus character gives next state. There is no stack, no recursive call, no remembered history except whatever the current state already summarizes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/DFAexample.svg/250px-DFAexample.svg.png', alt: 'Deterministic finite automaton accepting binary strings with an even number of zeros', caption: 'A DFA diagram makes the one-state-at-a-time rule visible through labeled transitions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:DFAexample.svg.'},
         'That summary is the trick. In the regex ab*c, state S1 does not remember how many b characters have appeared. It only remembers that the input has already seen the required a and is still allowed to consume b characters before the final c. The exact count does not matter for the language, so the machine throws it away.',
         'The trap state matters because not every bad prefix deserves special handling. Once a string begins with b for this pattern, no future suffix can repair it. The trap state represents all irrecoverable histories in one place. That compression is why finite automata can be tiny even when they summarize many possible prefixes.',
       ],

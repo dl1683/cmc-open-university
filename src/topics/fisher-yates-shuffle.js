@@ -102,6 +102,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation walks the array from right to left. At each step, the active highlights show the two positions being considered for a swap — position i (the current slot being assigned) and position j (the randomly chosen partner).',
+        {type: 'callout', text: 'Fisher-Yates is fair because each step chooses exactly one slot from the still-unfixed prefix.'},
         'After a swap, both positions flash as swap markers. The locked suffix (green/sorted highlights) grows leftward by one element each round. Once an element enters the locked suffix, it never moves again.',
         'Watch the locked zone grow: after k rounds, the rightmost k positions hold their final values. The shrinking unshuffled prefix is where all remaining randomness lives.',
       ],
@@ -124,6 +125,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The naive swap-with-any-index loop makes n independent choices, each from n options, producing n^n possible execution paths. For n=3, that is 27 paths. But there are only n! = 6 permutations. Since 27 is not divisible by 6, some permutations must appear more often than others. The shuffle is biased.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Permutation_graph.svg/330px-Permutation_graph.svg.png', alt: 'Permutation graph and matching diagram for a five element permutation', caption: 'A permutation can be viewed as a complete reordering, which is the outcome space Fisher-Yates samples uniformly. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Permutation_graph.svg.'},
         'This is the wall: n^n does not divide evenly into n! for any n > 2. No matter how you map n^n equally likely execution paths onto n! outcomes, some outcomes get more paths than others. The bias is not a rounding error — for n=3 some permutations are 50% more likely than others.',
         'The sort-by-random-keys approach avoids bias but pays O(n log n). The challenge is getting uniformity in O(n).',
       ],

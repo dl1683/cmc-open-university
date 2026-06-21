@@ -227,6 +227,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "lookup path" view traces a single key through the FST. Active nodes are the current stage of the pipeline: key bytes enter, arcs are followed, output fragments accumulate, and the final state decides hit or miss. Found markers show values that are now determined. Compare markers show sibling keys whose paths share arcs with the current lookup.',
+        {type: 'callout', text: 'An FST map stores keys as paths and values as output accumulated along those paths.'},
         'The "build and minimize" view traces construction. Active nodes are the builder stages: sorted terms feed a trie frontier, frozen suffixes enter a register, equivalent states merge, and the minimal FST emerges. The output factoring frame shows how nearby values share a common prefix on early arcs and leave only small deltas on later arcs.',
         'In both views, a missing transition is proof of absence. If the automaton has no arc for the next input byte, the key is not in the dictionary. This is stronger than a hash miss, which only says the slot is empty.',
       ],
@@ -247,6 +248,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'A hash map gives O(1) exact lookup but destroys sorted order. You cannot iterate terms alphabetically, find "all terms starting with comp," or answer "what is the next term after this prefix." These are not niche features; a search engine uses them constantly for wildcard queries, fuzzy matching, and block-level seeking.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9c/Trie-vs-minimal-acyclic-fa.svg/250px-Trie-vs-minimal-acyclic-fa.svg.png', alt: 'Trie compared with a minimal acyclic finite automaton for a small word set', caption: 'The DAFSA side shows how suffix sharing shrinks a static dictionary beyond ordinary prefix sharing. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie-vs-minimal-acyclic-fa.svg.'},
         'A trie preserves sorted order and supports prefix operations naturally. Each shared prefix is stored once. But a trie only shares prefixes. If thousands of terms end in "-tion," "-ment," or "-ing," the trie builds a separate suffix subtree for each prefix that reaches that ending. Node pointers, transition arrays, and per-node bookkeeping add up. A naive trie over English Wikipedia terms can exceed the term bytes themselves in pointer overhead.',
         'A sorted array with binary search is compact and ordered, but lookup is O(log n) string comparisons, each touching memory at unpredictable locations. For millions of variable-length strings, cache behavior is poor and there is no way to share common substrings.',
       ],
