@@ -223,6 +223,7 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
+        { type: 'callout', text: 'Sweep-and-prune wins by proving non-overlap before geometry, then letting narrow phase spend time only on surviving pairs.' },
         'Sweep-and-prune, also called sort-and-sweep, is a broad-phase collision detection structure for axis-aligned bounding boxes. It projects every box onto one or more axes, sorts interval endpoints, sweeps through those endpoints with an active set, and emits candidate pairs when intervals overlap.',
         'This topic builds on Interval Tree, Insertion Sort, Spatial Hash Grid Broad Phase, Bounding Volume Hierarchy, and Big-O Growth. The data-structure move is to reduce broad-phase geometry to ordered interval events. If two AABBs are disjoint on x, y, or z, they cannot collide, so the engine can avoid expensive shape tests.',
       ],
@@ -230,6 +231,12 @@ export const article = {
     {
       heading: 'Why it exists',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/6f/R-tree.svg',
+          alt: 'R-tree diagram with object rectangles grouped by larger parent rectangles.',
+          caption: 'R-trees use bounding rectangles to reject whole groups of objects; sweep-and-prune uses interval order for the same filter-and-refine goal. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:R-tree.svg.',
+        },
         'The naive broad phase compares every pair of bounding boxes. Most pairs are separated on at least one axis, so exact overlap tests waste time proving obvious misses. The wall is that n^2 pairs appear before the narrow phase gets a chance to reject them.',
         'Sweep and prune sorts interval endpoints on one axis and keeps an active set of intervals currently overlapping that sweep position. If two boxes do not overlap on the sweep axis, they cannot collide. The method is correct because full AABB overlap requires overlap on every axis; the sweep axis gives a necessary filter before checking the remaining axes.',
       ],
@@ -273,6 +280,12 @@ export const article = {
     {
       heading: 'Why temporal coherence matters',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/0/0f/Insertion-sort-example-300px.gif',
+          alt: 'Animated insertion sort moving items into a nearly sorted sequence.',
+          caption: 'Insertion sort is the relevant sorting mental model because physics endpoint lists often need local repair, not a full reorder. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Insertion-sort-example-300px.gif.',
+        },
         'Sweep-and-prune became popular in simulations because frames resemble the previous frame. Endpoint arrays are usually almost sorted after small object movements. Insertion sort is poor on random data but excellent on nearly sorted data, so the update can be close to linear in calm scenes.',
         'The bad case is a chaotic scene where endpoints reorder heavily every frame, or a teleporting workload where temporal coherence disappears. Then the method falls back toward full sorting plus large candidate generation. Engines often combine it with sleeping objects, world partitioning, or axis selection to keep the common case stable.',
       ],

@@ -77,7 +77,7 @@ function* compress() {
 
   yield {
     state: plotState({
-      axes: { x: { label: 'layer (rank index)' }, y: { label: 'singular value σ — the layer\'s loudness' } },
+      axes: { x: { label: 'layer (rank index)' }, y: { label: 'singular value σ — layer loudness' } },
       series: [{ id: 'scree', label: 'σ spectrum', points: TRIPS.map((t, k) => ({ x: k + 1, y: t.s })) }],
       markers: [{ id: 'big', x: 1, y: TRIPS[0].s, label: `σ₁ = ${TRIPS[0].s.toFixed(1)}` }],
     }),
@@ -122,7 +122,7 @@ function* everywhere() {
       format: (v) => ['', 'rotates the output axes into place', 'pure stretch: σ₁, σ₂, … along hidden axes', 'rotates input onto the hidden axes'][v],
     }),
     highlight: { active: ['s:what'] },
-    explanation: 'The layer-stack story has an equivalent geometric one: M = UΣVᵀ says every linear transformation — EVERY one, however scrambled it looks — is secretly three simple moves: rotate (Vᵀ), stretch along perpendicular axes (Σ, the singular values), rotate again (U). Nothing a matrix does is more exotic than that. The σ values are the stretch factors — which is why the largest one governs Vanishing & Exploding Gradients (a layer\'s worst-case amplification IS its σ₁), and why a matrix with tiny σ values barely transmits signal at all.',
+    explanation: 'The layer-stack story has an equivalent geometric one: M = UΣVᵀ says every linear transformation — EVERY one, however scrambled it looks — is secretly three simple moves: rotate (Vᵀ), stretch along perpendicular axes (Σ, the singular values), rotate again (U). Nothing a matrix does is more exotic than that. The σ values are the stretch factors — which is why the largest one governs Vanishing & Exploding Gradients (the worst-case amplification of a layer IS its σ₁), and why a matrix with tiny σ values barely transmits signal at all.',
     invariant: 'M = UΣVᵀ: rotation, axis-aligned stretch, rotation — the anatomy of every linear map.',
   };
 
@@ -138,7 +138,7 @@ function* everywhere() {
       format: (v) => (v > 1000 ? v.toLocaleString('en-US') : `${v}%`),
     }),
     highlight: { removed: ['full:params'], found: ['lora:params'] },
-    explanation: 'The modern blockbuster application: LoRA Fine-Tuning. Adapting a pretrained LLM nominally means updating a 4096×4096 weight matrix — 16.8 million numbers per layer. LoRA\'s wager is pure SVD thinking: the CHANGE a fine-tune needs is low-rank (the model already knows language; the adaptation is a few new directions). So freeze W and learn ΔW = B·A where B is 4096×8 and A is 8×4096 — 65 thousand numbers, 0.4% of full — exactly a rank-8 layer stack. The wager keeps winning in practice, which tells you something deep: most of what changes when a model specializes fits in a handful of singular directions.',
+    explanation: 'The modern blockbuster application: LoRA Fine-Tuning. Adapting a pretrained LLM nominally means updating a 4096×4096 weight matrix — 16.8 million numbers per layer. The LoRA wager is pure SVD thinking: the CHANGE a fine-tune needs is low-rank (the model already knows language; the adaptation is a few new directions). So freeze W and learn ΔW = B·A where B is 4096×8 and A is 8×4096 — 65 thousand numbers, 0.4% of full — exactly a rank-8 layer stack. The wager keeps winning in practice, which tells you something deep: most of what changes when a model specializes fits in a handful of singular directions.',
   };
 
   yield {
@@ -154,7 +154,7 @@ function* everywhere() {
       format: (v) => (Number.isInteger(v) ? String(v) : `${v} ←predicted`),
     }),
     highlight: { found: ['alice:m4', 'bob:m4', 'eve:m4'] },
-    explanation: 'And the application that made matrix factorization famous: RECOMMENDERS. The users×movies ratings matrix is mostly EMPTY — you have rated almost nothing — yet low-rank structure fills it in: if ratings ≈ a few layers, each layer is interpretable as a TASTE (layer 1: sci-fi affinity; layer 2: romance), each user a mix of tastes, each movie a profile. Factor the known cells, multiply back, and the gaps get predictions — the heart of the Netflix Prize era and still the backbone idea behind collaborative filtering. The same factor-and-fill move powers Latent Semantic Analysis (documents×words) — Embeddings & Similarity\'s grandparent.',
+    explanation: 'And the application that made matrix factorization famous: RECOMMENDERS. The users×movies ratings matrix is mostly EMPTY — you have rated almost nothing — yet low-rank structure fills it in: if ratings ≈ a few layers, each layer is interpretable as a TASTE (layer 1: sci-fi affinity; layer 2: romance), each user a mix of tastes, each movie a profile. Factor the known cells, multiply back, and the gaps get predictions — the heart of the Netflix Prize era and still the backbone idea behind collaborative filtering. The same factor-and-fill move powers Latent Semantic Analysis (documents×words) — the grandparent of Embeddings & Similarity.',
   };
 
   yield {
@@ -171,7 +171,7 @@ function* everywhere() {
       format: (v) => ['', 'centered data (samples×features)', 'directions of variance', 'pixel grid', 'visual structure vs noise', 'the fine-tune update ΔW', 'new skills as few directions', 'users × items', 'tastes'][v],
     }),
     highlight: { compare: ['pcaRow:layers', 'loraRow:layers'] },
-    explanation: 'The wardrobe, assembled. Four fields, four vocabularies — components, compression, adapters, latent factors — one theorem underneath: sort the matrix\'s energy into orthogonal rank-1 layers and most real-world matrices turn out to be a few loud layers plus noise. That empirical fact (call it the low-rank hypothesis about the world) is why a 1936 theorem keeps headlining 2020s machine learning. When you meet your next matrix — of data, weights, ratings, pixels — the first question to ask it is the one this page asks: how many layers are you, really?',
+    explanation: 'The wardrobe, assembled. Four fields, four vocabularies — components, compression, adapters, latent factors — one theorem underneath: sort the energy in a matrix into orthogonal rank-1 layers and most real-world matrices turn out to be a few loud layers plus noise. That empirical fact (call it the low-rank hypothesis about the world) is why a 1936 theorem keeps headlining 2020s machine learning. When you meet your next matrix — of data, weights, ratings, pixels — the first question to ask it is the one this page asks: how many layers are you, really?',
   };
 }
 
@@ -187,6 +187,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        { type: 'callout', text: 'SVD turns one matrix into ordered rank-1 energy, so compression is a controlled choice about which directions to keep.' },
         'Matrices get large before they get mysterious. An image patch has pixel intensities. A recommender has users by items. A neural network has weight matrices. Storing every entry is easy, but it does not tell you which variation is structure and which variation is noise.',
         'SVD answers the compression question and the geometry question at the same time: how many independent directions does this matrix really use, and how much error do we pay if we keep only the largest ones?',
         'That makes SVD a bridge topic. It is linear algebra, but it explains PCA, recommender systems, latent semantic analysis, image compression, low-rank adaptation, denoising, conditioning, and the geometry of neural-network layers.',
@@ -202,6 +203,12 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c4/Reduced_Singular_Value_Decompositions.svg',
+          alt: 'Reduced singular value decomposition variants showing full, thin, compact, and truncated SVD.',
+          caption: 'Reduced SVD variants show the exact rows and columns removed when the rank budget shrinks. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Reduced_Singular_Value_Decompositions.svg.',
+        },
         'SVD writes a matrix as M = U Sigma V^T. One reading is geometric: rotate the input axes, stretch along perpendicular hidden axes, then rotate into output space. Another reading is additive: M is a sum of rank-1 layers sigma_i u_i v_i^T.',
         'The singular values sigma_i are sorted from largest to smallest. Large values are loud directions. Small values are quiet directions. Low-rank approximation keeps the first k layers and drops the rest.',
         'The decomposition works for any real matrix, not only square matrices. That is why it appears wherever data has rows and columns but no clean eigenvalue story. It finds orthogonal input directions, orthogonal output directions, and a nonnegative stretch for each paired direction.',
@@ -246,6 +253,12 @@ export const article = {
     {
       heading: 'Real-world uses',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/GaussianScatterPCA.svg',
+          alt: 'Scatter plot with principal component axes over a Gaussian cloud.',
+          caption: 'PCA makes the SVD direction story visible: one axis captures the loudest variance, and the next captures the strongest remaining orthogonal direction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:GaussianScatterPCA.svg.',
+        },
         'SVD wins when the matrix has repeated structure: images with smooth regions, centered data with dominant variance directions, user-item ratings with latent tastes, document-term matrices with topics, and neural-network updates that can be expressed in a few directions.',
         'It is not the right tool when interpretability requires nonnegative parts, when missing data is not handled by the chosen objective, when the matrix is too dynamic to refactor, or when the useful signal is spread evenly across many singular directions.',
       ],

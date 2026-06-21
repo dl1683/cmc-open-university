@@ -137,6 +137,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        { type: 'callout', text: 'Symbolic execution converts branch history into a formula, then asks a solver for the input that makes the path real.' },
         'Ordinary tests answer a narrow question: what happened for these inputs? That is useful, but many important bugs live behind conditions a tester did not guess. A parser may require a magic byte, a matching length field, and a checksum before it reaches the vulnerable code. Random inputs almost never satisfy that chain.',
         'Symbolic execution exists for the moments when guessing inputs is the wrong job. It runs the program with symbols in place of concrete bytes, records the conditions needed to reach each branch, and asks a solver to produce real inputs for the paths that matter.',
       ],
@@ -151,6 +152,12 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/3/30/Some_types_of_control_flow_graphs.svg',
+          alt: 'Several control-flow graph shapes including if-then-else and loop examples.',
+          caption: 'Control-flow graphs make path forking concrete: each branch edge becomes a constraint choice for symbolic execution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.',
+        },
         'Treat each input byte or variable as an unknown, not as a value chosen in advance. When execution reaches `if (x > 0)`, create two states. The true state carries the constraint `x > 0`; the false state carries `x <= 0`.',
         'After several branches, the path condition is a formula for reaching one exact path. A satisfiability solver can then answer the question that testing was only guessing at: is there any concrete input that satisfies all of these constraints? If yes, the solver returns a test. If no, the path was never real.',
       ],
@@ -165,6 +172,12 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Rust_MIR_CFG.svg',
+          alt: 'Rust MIR control-flow graph with blocks and branch edges.',
+          caption: 'A compiler IR control-flow graph is close to what a symbolic executor walks: basic blocks, branch edges, and state at each program point. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rust_MIR_CFG.svg.',
+        },
         'A symbolic executor is an interpreter with extra state. Each execution state stores the program counter, call stack, memory model, symbolic input objects, and the path condition collected so far. Assignments transform symbolic expressions. Branches fork states. Assertions and memory checks ask whether a bad condition is reachable.',
         'The solver is usually queried at pressure points: should this fork be explored, can this assertion fail, can this pointer alias that object, can this path produce a test case? If a later constraint contradicts an earlier one, the state is pruned. If a path reaches normal exit, the path condition can be solved into a regression test. If it reaches an error, the model becomes a reproducer.',
         'Most practical engines mix symbolic and concrete execution. Concolic execution runs the program on a concrete input while collecting symbolic constraints along the taken path, then negates one branch condition to generate the next input. This keeps execution grounded in real behavior while still using the solver to cross narrow gates.',

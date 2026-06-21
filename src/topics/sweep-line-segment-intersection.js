@@ -209,6 +209,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        { type: 'callout', text: 'The sweep-line invariant is local: only adjacent active segments can create the next crossing event.' },
         'The animation traces the Bentley-Ottmann sweep. Q is the event queue, ordered by x-coordinate. T is the status tree, storing segments in their current vertical order at the sweep line. Active highlights mark the event being processed. Found highlights mark confirmed intersection points. Compare highlights show neighbor pairs being tested for future crossings.',
         'In the event sweep view, watch how inserting a segment triggers neighbor checks above and below, while removing a segment triggers a check between its former neighbors. In the robust cases view, notice the batch processing: when multiple segments share a single event point, the algorithm handles them as one atomic update to avoid corrupting the status order.',
         {
@@ -220,6 +221,12 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Line-Line_Intersection.png',
+          alt: 'Two lines crossing at an intersection point with endpoint coordinates labeled.',
+          caption: 'One segment-pair intersection is cheap; the sweep-line problem is avoiding every irrelevant pair before this geometry test runs. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Line-Line_Intersection.png.',
+        },
         'Any program that works with line segments in a plane eventually needs to know which ones cross. Map overlays merge road networks with parcel boundaries. CAD validators check that manufactured edges do not collide. VLSI layout tools verify that circuit traces maintain clearance. Vector graphics editors resolve overlapping paths before filling regions. In every case, the input is a set of segments and the output is every pair that intersects, with exact coordinates.',
         'The key word is every. A single intersection test between two segments is cheap. The expense comes from the number of pairs. With n segments, there are n(n-1)/2 possible pairs, but most real drawings have far fewer actual crossings than possible pairs. A good algorithm should scale with the output, not with the square of the input.',
         'Bentley and Ottmann published their sweep-line algorithm in 1979. It remains the standard approach for exact segment intersection reporting in computational geometry because it converts an all-pairs global search into a sequence of local neighbor checks.',
@@ -249,6 +256,12 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Min-heap.png',
+          alt: 'Complete binary min heap with the smallest value at the root.',
+          caption: 'The event queue can be implemented as a min-heap: each pop advances the sweep to the next endpoint or crossing. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Min-heap.png.',
+        },
         'A conceptual vertical line sweeps left to right across the plane. Two data structures track the state. The event queue Q is a priority queue ordered by x-coordinate, initially loaded with every segment endpoint. The status tree T is a balanced BST storing the segments currently crossing the sweep line, ordered by their y-coordinate at the current sweep x.',
         {
           type: 'diagram',
@@ -276,11 +289,10 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Approach', 'Time', 'Space', 'Output-sensitive?'],
-          rows: [
-            ['Brute force (all pairs)', 'O(n^2)', 'O(n + k)', 'No'],
-            ['Bentley-Ottmann sweep', 'O((n + k) log n)', 'O(n + k)', 'Yes'],
+          type: 'bullets',
+          items: [
+            'Brute force tests all pairs in O(n^2) time, uses O(n + k) space, and is not output-sensitive.',
+            'Bentley-Ottmann sweep runs in O((n + k) log n) time, uses O(n + k) space, and is output-sensitive.',
           ],
         },
         'Each event -- endpoint or intersection -- costs O(log n) for the priority queue extraction and O(log n) for the balanced BST update. There are 2n endpoint events and at most k intersection events, giving O((n + k) log n) total time. Space is O(n) for the status tree and event queue at any instant, plus O(k) for the output.',
@@ -318,15 +330,14 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'Binary Heap', 'The event queue is a min-heap ordered by x-coordinate'],
-            ['Prerequisite', 'Red-Black Tree', 'The status structure needs a balanced BST with predecessor/successor queries'],
-            ['Prerequisite', 'Orientation predicate', 'Every intersection test and status comparison depends on the cross-product sign test'],
-            ['Extension', 'Convex Hull (Monotone Chain)', 'Another sweep-line algorithm; same event-queue pattern, different status structure'],
-            ['Extension', 'Delaunay Triangulation', 'The next major sweep-line application in computational geometry'],
-            ['Alternative', 'Interval Tree', 'Solves the one-dimensional overlap problem that the status tree generalizes to two dimensions'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Binary Heap, because the event queue is a min-heap ordered by x-coordinate.',
+            'Prerequisite: Red-Black Tree, because the status structure needs predecessor and successor queries.',
+            'Prerequisite: Orientation predicate, because intersection tests and status comparisons depend on cross-product signs.',
+            'Extension: Convex Hull (Monotone Chain), another sweep-line algorithm with the same event pattern and a different status structure.',
+            'Extension: Delaunay Triangulation, the next major sweep-line application in computational geometry.',
+            'Alternative: Interval Tree, which solves the one-dimensional overlap problem that the status tree generalizes to two dimensions.',
           ],
         },
       ],

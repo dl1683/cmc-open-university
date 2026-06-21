@@ -247,6 +247,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        { type: 'callout', text: 'A t-digest spends centroid budget by rank, keeping the tails sharp while allowing the middle to compress.' },
         'The "centroid compression" view shows raw latency samples arriving in batches, then being compressed into weighted centroids ordered by mean. Active highlights mark the centroids being built or merged right now. Found highlights mark the quantile estimates (p50, p95, p99) read from the compressed summary. The CDF plot shows where each centroid sits in cumulative rank space.',
         'The "merge quantiles" view shows four distributed shards, each building a local digest. The coordinator concatenates their centroids, sorts by mean, recompresses under the same scale rule, and reads global quantile estimates from the merged result. Watch how the billing shard contributes few centroids but its 900 ms tail still appears in the final answer because weights carry traffic volume.',
         'At each frame, ask: how many samples does this centroid represent, what rank region does it cover, and why is that cluster allowed to be that size? The scale function is the answer to the third question every time.',
@@ -255,6 +256,12 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg',
+          alt: 'Cumulative distribution function curves for normal distributions.',
+          caption: 'Quantile queries read the value at a target cumulative rank; t-digest stores enough ordered mass to approximate that CDF without raw samples. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Normal_Distribution_CDF.svg.',
+        },
         {
           type: 'quote',
           text: 'The key feature of the t-digest is that it provides high accuracy estimates of extreme quantiles such as the 99.9th percentile. This accuracy is achieved by maintaining higher resolution (smaller clusters) near q = 0 and q = 1.',
@@ -344,6 +351,12 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg',
+          alt: 'Normal distribution with standard deviation bands marked around the mean.',
+          caption: 'Tail bands are visually small but operationally important; t-digest protects these rank regions instead of treating every part of the distribution equally. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.',
+        },
         'The correctness argument is approximate but concrete. If each centroid near the tail has weight 1 or 2, then crossing one centroid shifts cumulative rank by at most 2/n. A p99 query interpolates through these fine-grained tail clusters rather than through a giant bucket spanning many ranks. The tail estimate is accurate because the representation forced tail clusters to be small.',
         'The scale function is the invariant that makes this possible. At every compression step, each centroid obeys its rank-dependent weight budget. Because the budget is tightest near q = 0 and q = 1, the tails always retain fine resolution regardless of how many samples arrive or how many merges occur. The middle is allowed to coarsen because a rank error near the median rarely matters for operational decisions.',
         'The merge argument depends on weighted order. A centroid is a compact claim: "this much mass lives near this mean." When centroids from different shards are sorted together, their weights reconstruct an approximate global rank walk. Recompression under the same scale function re-enforces the same tail-resolution guarantee. Information is lost in the middle, where the budget allows it, and preserved at the tails, where it matters.',
@@ -353,14 +366,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Sketch', 'Error guarantee', 'Space', 'Merge', 'Tail accuracy', 'Best for'],
-          rows: [
-            ['t-digest', 'Empirical, no formal bound', 'O(delta) centroids', 'O(delta log delta)', 'Excellent at extremes', 'p99/p99.9 latency monitoring'],
-            ['GK summary', 'Deterministic rank error eps', 'O((1/eps) log(eps*n))', 'O(n) reprocess', 'Uniform across all ranks', 'Formal rank-error contracts'],
-            ['DDSketch', 'Relative value error alpha', 'O(log(max/min)/alpha)', 'O(buckets)', 'Good for positive values', 'Relative error on latencies'],
-            ['KLL sketch', 'Probabilistic rank error eps', 'O((1/eps) sqrt(log(1/eps)))', 'O(sketch size)', 'Uniform across all ranks', 'Compact rank approximation'],
-            ['Exact sort', 'Zero error', 'O(n)', 'O(n log n)', 'Perfect', 'Small datasets, offline'],
+          type: 'bullets',
+          items: [
+            't-digest: empirical accuracy without a formal worst-case bound; O(delta) centroids; O(delta log delta) merge; excellent at p99 and p99.9 latency monitoring.',
+            'GK summary: deterministic rank error epsilon; O((1/eps) log(eps*n)) space; best when a formal rank-error contract matters.',
+            'DDSketch: relative value error alpha; O(log(max/min)/alpha) buckets; useful for positive measurements where relative error matters.',
+            'KLL sketch: probabilistic rank error epsilon; compact sketch size; useful when uniform rank accuracy is more important than tail emphasis.',
+            'Exact sort: zero error with O(n) space and O(n log n) sorting; right for small offline datasets.',
           ],
         },
         'Memory is controlled by the compression parameter delta and internal limits, not by stream length. A typical delta of 100 to 200 produces roughly 100 to 600 centroids depending on the distribution. Each centroid stores a mean (8 bytes) and a weight (4 to 8 bytes), so a digest fits in a few kilobytes. That is constant with respect to n, the number of samples seen.',

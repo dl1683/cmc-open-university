@@ -274,6 +274,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        { type: "callout", text: "An SVM is a boundary chosen by the closest points, not by the average point." },
         "The 'hard margin' view shows eight 2D points from two classes. A decision boundary appears as a solid line; two dashed lines mark the margin — the widest gap the SVM can place between the classes. Support vectors are highlighted: these are the points sitting exactly on the margin boundaries.",
         "The 'soft margin (C)' view adds two noisy points that break separability. Watch how the boundary shifts with different C values: high C (strict) bends the boundary to chase outliers; low C (relaxed) keeps a wide margin and accepts some misclassifications. Each violating point pays a penalty proportional to how far it crosses the margin.",
         "The 'kernel trick' view starts with 1D data that no single threshold can split. The feature map lifts each point x to (x, x²), and a line in the lifted space becomes a curve in the original. The final frame shows how the RBF kernel produces circular boundaries without computing explicit coordinates in infinite-dimensional space.",
@@ -282,6 +283,12 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Svm_separating_hyperplanes_%28SVG%29.svg',
+          alt: 'Three separating hyperplanes, where only one maximizes the margin between two classes.',
+          caption: 'The maximum-margin picture shows why the SVM prefers the separator with the widest street, not merely any separator that fits the training set. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Svm_separating_hyperplanes_(SVG).svg.',
+        },
         'Classification needs a decision boundary. Many boundaries correctly separate training data, but most of them barely clear some points and will fail on new data. A boundary that passes close to training examples is fragile — one shifted measurement flips the prediction.',
         'The SVM asks: among all boundaries that correctly classify the training set, which one has the most room to spare? Maximizing that room — the margin — produces a classifier that tolerates small perturbations in the data. Vapnik and Chervonenkis formalized this idea in 1963 as statistical learning theory. Cortes and Vapnik published the modern soft-margin SVM in 1995, adding the C parameter and kernel trick that made SVMs practical for real problems.',
         'The result is a classifier defined entirely by a few critical training points (the support vectors), equipped with formal generalization guarantees, and extensible to nonlinear boundaries through the kernel trick. For a decade before deep learning took over, SVMs were the dominant method for text classification, image recognition, and bioinformatics.',
@@ -314,6 +321,12 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/cc/Kernel_trick_idea.svg',
+          alt: 'Kernel trick example mapping circularly arranged points into a higher-dimensional space with a separating plane.',
+          caption: 'The kernel trick keeps the linear separator in feature space while the original input space sees a curved boundary. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Kernel_trick_idea.svg.',
+        },
         'Hard margin: set up a quadratic program — minimize ½‖w‖² subject to yᵢ(w·xᵢ + b) ≥ 1. The Lagrangian dual turns this into: maximize Σαᵢ − ½Σαᵢαⱼ yᵢyⱼxᵢ·xⱼ, subject to αᵢ ≥ 0 and Σαᵢyᵢ = 0. Points with αᵢ > 0 are the support vectors. The decision function is f(x) = sign(Σαᵢyᵢxᵢ·x + b).',
         'Soft margin: add slack variables ξᵢ ≥ 0 and change the objective to minimize ½‖w‖² + CΣξᵢ, subject to yᵢ(w·xᵢ + b) ≥ 1 − ξᵢ. A point with ξᵢ = 0 is correctly classified outside the margin. A point with 0 < ξᵢ < 1 is inside the margin but on the correct side. A point with ξᵢ ≥ 1 is misclassified. The C parameter trades margin width against total violation: large C demands accuracy, small C demands margin.',
         'Kernel trick: notice the dual form only uses dot products xᵢ·xⱼ. Replace every dot product with a kernel function K(xᵢ, xⱼ) = φ(xᵢ)·φ(xⱼ) that computes the inner product in a higher-dimensional space without ever computing φ. The polynomial kernel K(x, z) = (x·z + 1)^d maps to all monomials up to degree d. The RBF kernel K(x, z) = exp(−γ‖x−z‖²) maps to infinite dimensions. The SVM in lifted space draws a hyperplane; projected back, that hyperplane becomes a curve.',

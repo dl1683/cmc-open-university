@@ -219,6 +219,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        { type: 'callout', text: 'A fair tabular benchmark compares representation-model pairs, because raw axes are part of the inductive bias.' },
         'The axis-splits view shows a flow graph: raw columns feed into three transforms -- rotation, ratios, and noise -- which then enter a tree and a neural net. Both models produce scores, and scores feed a diagnostic node. Active (green) nodes and edges mark the path under discussion. Compare (blue) nodes show the contrasting model or transform.',
         'The threshold plot draws a step function (tree split) against a smooth curve (neural fit) on the same raw feature axis. The cut marker shows where the tree places its discontinuity. The rotated-basis plot shows the same signal after coordinate mixing: the step is gone, replaced by a jagged path the tree must approximate with multiple splits.',
         {
@@ -259,16 +260,21 @@ export const article = {
     {
       heading: 'The wall',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/87/Recursive_Splitting.png',
+          alt: 'Recursive binary splitting diagram showing feature-space partitions and a matching decision tree.',
+          caption: 'Recursive splitting makes the tree bias visible: each decision is axis-aligned, so the original column basis matters. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Recursive_Splitting.png.',
+        },
         'The same transform can help one model family and hurt another. Scaling helps gradient-based optimizers converge but is irrelevant to tree split selection. PCA rotation can reveal directions a linear model uses cleanly, but it hides a simple threshold that a tree would capture in one split. Adding many weak columns may barely affect a strong tree (it skips them at split time) but can consume neural capacity and increase overfitting.',
         {
-          type: 'table',
-          headers: ['Transform', 'Helps', 'Hurts', 'Mechanism'],
-          rows: [
-            ['StandardScaler', 'MLP, logistic', 'Nothing (but wastes tree time)', 'Equalizes gradient magnitudes across features'],
-            ['PCA rotation', 'Linear, some neural', 'Tree axis alignment', 'Mixes original thresholds across synthetic coordinates'],
-            ['Domain ratios', 'Tree, linear', 'Nothing (if leakage-safe)', 'Creates axis that matches a business rule directly'],
-            ['Noise columns', 'Nothing', 'MLP >> tree', 'Neural net receives every input; tree can skip at split time'],
-            ['Target encoding', 'Tree, neural', 'Validation integrity', 'Leaks label statistics unless computed inside each fold'],
+          type: 'bullets',
+          items: [
+            'StandardScaler helps MLP and logistic models by equalizing gradient magnitudes; it usually only wastes tree preprocessing time.',
+            'PCA rotation can help linear and some neural models, but it hurts tree axis alignment by mixing original thresholds across synthetic coordinates.',
+            'Domain ratios help trees and linear models when they create a leakage-safe axis that matches a business rule directly.',
+            'Noise columns help no model; they tend to hurt MLPs more because the neural net receives every input while a tree can skip bad split candidates.',
+            'Target encoding can help trees and neural models, but it leaks label statistics unless computed inside each fold.',
           ],
         },
         'A fair comparison must separate model ability from representation fit. Without that separation, the team may conclude deep learning lost when the real issue was a weak preprocessing pipeline, or that a neural model won when it received engineered features the tree baseline never saw.',
@@ -277,6 +283,12 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/GaussianScatterPCA.svg',
+          alt: 'Scatter plot with principal component axes over a Gaussian cloud.',
+          caption: 'PCA rotation can be useful, but this picture also shows why a rotated basis changes the features a tree can split on directly. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:GaussianScatterPCA.svg.',
+        },
         'Treat the feature basis as an experimental variable. Build a grid where each row is one (transform, model family) pair, all sharing the same data split, target, evaluation metric, and tuning budget.',
         {
           type: 'code',
@@ -318,14 +330,13 @@ export const article = {
       paragraphs: [
         'The diagnostic is a multiplicative grid. If you test T transforms and M model families with B tuning budget per cell, total cost is T x M x B training runs.',
         {
-          type: 'table',
-          headers: ['Grid dimension', 'Typical size', 'Cost driver'],
-          rows: [
-            ['Transforms (T)', '4-8', 'Feature engineering time + leakage audit per transform'],
-            ['Model families (M)', '2-4', 'Each family needs its own tuning search space'],
-            ['Tuning budget (B)', '50-200 trials', 'Dominates wall-clock time; use early stopping'],
-            ['Slice evaluation', '5-20 slices', 'Cheap after training; expensive to define well'],
-            ['Repeated splits', '3-5 seeds or folds', 'Multiplies everything; needed for confidence intervals'],
+          type: 'bullets',
+          items: [
+            'Transforms usually number 4-8, and each transform adds feature engineering time plus a leakage audit.',
+            'Model families usually number 2-4, and each family needs its own tuning search space.',
+            'Tuning budget often ranges from 50-200 trials, dominates wall-clock time, and needs early stopping.',
+            'Slice evaluation often covers 5-20 slices; it is cheap after training but expensive to define well.',
+            'Repeated splits often use 3-5 seeds or folds, multiplying the grid but giving confidence intervals.',
           ],
         },
         'A practical grid with 6 transforms, 3 models, and 100 trials is 1,800 training runs. With 5-fold cross-validation, that becomes 9,000. On a single GPU with XGBoost and a small MLP, this runs overnight for datasets under 1M rows. For larger tables, subsample the tuning phase and run full evaluation on the best configurations only.',
@@ -356,14 +367,13 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Failure mode', 'What goes wrong', 'Mitigation'],
-          rows: [
-            ['Leaky split', 'Random validation mixes future and past; every transform looks good', 'Use time-based or group-based splits for business data'],
-            ['Underpowered comparison', 'Small data or unstable labels make representation effects look like noise', 'Repeated splits with confidence intervals'],
-            ['Overgeneralization', 'Team reads one dataset result as a universal law about model families', 'Log the dataset version, split, and tuning budget -- the result is conditional'],
-            ['Leaky transforms', 'Target encoding or rolling features computed before the split leak future labels', 'Compute all derived features inside each training fold'],
-            ['Unequal tuning', 'Default GBDT vs. heavily tuned MLP (or vice versa) says nothing about families', 'Fix a comparable search budget per cell; document it'],
+          type: 'bullets',
+          items: [
+            'Leaky split: random validation mixes future and past, so every transform looks good; use time-based or group-based splits for business data.',
+            'Underpowered comparison: small data or unstable labels make representation effects look like noise; use repeated splits with confidence intervals.',
+            'Overgeneralization: one dataset result gets treated as a universal law; log dataset version, split policy, and tuning budget.',
+            'Leaky transforms: target encoding or rolling features computed before the split leak future labels; compute derived features inside each training fold.',
+            'Unequal tuning: default GBDT versus heavily tuned MLP says nothing about families; fix a comparable search budget per cell and document it.',
           ],
         },
         'The diagnostic also fails silently when feature availability differs between training and serving. A strong offline feature that arrives late in production is not a real online feature. The basis ledger should flag which features are online-safe, batch-only, or subject to privacy constraints.',
@@ -374,12 +384,11 @@ export const article = {
       heading: 'Sources and study next',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Source', 'Role', 'Key claim'],
-          rows: [
-            ['Grinsztajn, Oyallon, Varoquaux -- "Why do tree-based models still outperform deep learning on typical tabular data?" (NeurIPS 2022)', 'Primary research', 'Trees outperform neural nets on medium tabular data partly because of uninformative features and irregular target functions that favor axis-aligned splits'],
-            ['Gorishniy et al. -- "Revisiting Deep Learning Models for Tabular Data" (NeurIPS 2021)', 'Architecture survey', 'ResNet-like and Transformer-like tabular models can match GBDT when properly tuned, but tuning cost is higher and the gap depends on dataset properties'],
-            ['Shwartz-Ziv and Armon -- "Tabular Data: Deep Learning Is Not All You Need" (2022)', 'Benchmark discipline', 'XGBoost outperforms or matches deep models on most tabular benchmarks; ensembling a tree with a neural net sometimes helps'],
+          type: 'bullets',
+          items: [
+            'Grinsztajn, Oyallon, Varoquaux, "Why do tree-based models still outperform deep learning on typical tabular data?" (NeurIPS 2022): trees outperform neural nets on medium tabular data partly because uninformative features and irregular targets favor axis-aligned splits.',
+            'Gorishniy et al., "Revisiting Deep Learning Models for Tabular Data" (NeurIPS 2021): ResNet-like and Transformer-like tabular models can match GBDT when properly tuned, but tuning cost is higher and the gap depends on dataset properties.',
+            'Shwartz-Ziv and Armon, "Tabular Data: Deep Learning Is Not All You Need" (2022): XGBoost outperforms or matches deep models on most tabular benchmarks, and ensembling a tree with a neural net sometimes helps.',
           ],
         },
         {

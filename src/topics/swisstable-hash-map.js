@@ -195,6 +195,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        { type: "callout", text: "SwissTable spends one cheap metadata byte per slot to avoid touching expensive keys on most failed candidates." },
         "Read the animation as the execution trace for SwissTable Hash Map. A production hash-table design: split hashes into H1/H2, scan control-byte groups with SIMD-style masks, and keep values flat in memory..",
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
@@ -204,6 +205,12 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg',
+          alt: 'Hash table diagram with keys mapped into buckets and collision chains.',
+          caption: 'A conventional hash table explains the collision problem; SwissTable keeps open addressing but adds a metadata filter before key comparison. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.',
+        },
         'Hash maps are supposed to be O(1), but real machines do not execute Big-O. They load cache lines, chase pointers, branch, compare keys, and move memory during rehash. A table that does fewer random loads can beat a table with the same asymptotic bound.',
         'SwissTable is a production hash-table design built around that fact. It keeps entries flat, stores compact metadata next to the slots, and scans a group of control bytes before it touches full keys.',
       ],
@@ -233,6 +240,12 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg',
+          alt: 'Computer cache hierarchy diagram from CPU registers through memory.',
+          caption: 'SwissTable is a cache-locality story: compact metadata lets the CPU reject many slots before loading full key-value payloads. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.',
+        },
         'A lookup hashes the key into a wide hash value. H1 determines the first probe group. H2 is stored in the metadata for full slots. The table compares the desired H2 against a small group of control bytes, often with SIMD-style operations, and gets a mask of plausible slots.',
         'For each bit in the candidate mask, the table performs the real equality check. If none match and the group has no empty slot, probing continues. A deleted slot cannot stop probing, because a later insertion may have passed through it. An empty slot can stop a failed lookup, because the key could not have been inserted beyond that empty position in the same probe sequence.',
         'The flat variant stores values inside the slot array. The node variant keeps element addresses more stable by paying for allocation and indirection. That choice affects correctness of user code that stores pointers or references into the map.',
@@ -323,7 +336,7 @@ export const article = {
             'SwissTable keeps a maximum load factor of 87.5%. Why not 100%? What happens to probe chain length as the table fills past 80%, and how does the H2 metadata filter change the practical cost curve compared to plain linear probing at the same load?',
             'Deleted slots use a special control byte that means "skip me but keep probing." Why can a tombstone not simply be marked empty? Construct a three-key insertion sequence where clearing a deleted slot to empty would make a later lookup incorrectly report "not found."',
             'Linear probing creates clusters: runs of occupied slots that grow because new keys landing anywhere inside the run extend it by one. SwissTable does not eliminate clustering -- it still uses open addressing. How does the H2 prefilter reduce the cost of walking through a cluster, even though the cluster is the same length?',
-            'If you replaced SwissTable\'s H2 tags with a Bloom-filter-style bit array per group, what would you gain and what would you lose? Think about false-positive rates, memory per slot, and the ability to delete entries.',
+            'If you replaced the SwissTable H2 tags with a Bloom-filter-style bit array per group, what would you gain and what would you lose? Think about false-positive rates, memory per slot, and the ability to delete entries.',
           ],
         },
       ],

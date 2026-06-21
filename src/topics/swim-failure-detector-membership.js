@@ -187,14 +187,27 @@ export const article = {
     {
       heading: 'Why This Exists',
       paragraphs: [
+        { type: 'callout', text: 'SWIM scales by making membership an eventually spread record, not a synchronized heartbeat matrix.' },
         'Distributed systems need to know which peers are probably alive. Storage replicas need to route around failed nodes. Service discovery needs to remove dead instances. Actor runtimes and cluster managers need a shared enough view of who is in the group.',
         'That sounds simple until the cluster grows. Machines pause for garbage collection, links drop packets, queues fill, and partitions make healthy nodes unreachable from only part of the network. There is no perfect failure detector in an asynchronous distributed system, so membership protocols have to trade certainty, speed, cost, and false positives.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg',
+          alt: 'Rows of server racks in a data center.',
+          caption: 'Membership protocols matter because a service often spans many machines, and every machine needs a usable view of peer liveness. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg.',
+        },
         'SWIM exists for large, changing clusters where every node should do roughly constant work instead of sending heartbeats to every other node.',
       ],
     },
     {
       heading: 'The Obvious Approach and Its Wall',
       paragraphs: [
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif',
+          alt: 'Animated packet switching paths through a small network.',
+          caption: 'Packet paths can fail asymmetrically, which is why SWIM asks helper nodes before turning one missed ping into failure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Packet_Switching.gif.',
+        },
         'The obvious design is all-to-all heartbeats: every node periodically pings every other node. That gives direct evidence, but message load grows with cluster size. A hundred nodes is manageable. Thousands of nodes turn heartbeat traffic into background noise that competes with the real workload.',
         'A central monitor reduces the message count, but it creates a hot spot and a single authority for failure decisions. If the monitor is slow, isolated, or wrong, the cluster inherits that mistake.',
         'SWIM takes a different bargain. Each node probes only a small number of peers per period, uses indirect probes to reduce false positives, and spreads membership updates through gossip. The result is not instant global truth. It is scalable, probabilistic convergence.',
