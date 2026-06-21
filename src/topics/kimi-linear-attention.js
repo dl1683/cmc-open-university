@@ -207,6 +207,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. Switch between them using the View control.',
+        { type: 'callout', text: 'Kimi Linear is a memory-allocation design: cheap recurrent state handles most layers, while periodic global attention preserves long-range recall.' },
         {
           type: 'bullets',
           items: [
@@ -225,6 +226,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Transformer attention remembers everything by storing a key-value pair for every token in every layer. That exact memory is the source of both its quality and its cost problem.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png', alt: 'Transformer model architecture with encoder and decoder attention blocks', caption: 'The standard Transformer uses attention blocks throughout the stack; Kimi Linear changes the memory form in most layers. Source: https://commons.wikimedia.org/wiki/File:The-Transformer-model-architecture.png.' },
         'At 1M tokens across 80 layers with 128-dimensional heads, KV cache alone can exceed 40 GB. Every generated token must read that entire cache. Decode becomes memory-bandwidth-bound long before compute runs out.',
         {
           type: 'quote',

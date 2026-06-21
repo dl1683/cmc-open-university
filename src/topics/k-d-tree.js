@@ -200,6 +200,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The build view shows the tree growing one split at a time. Each node is a 2D point. Active nodes mark the split being applied right now; found nodes are the children placed by that split. Edge labels carry the split condition ("x < 7" means every point in the left subtree has x-coordinate below 7). Watch the split axis alternate: the root splits on x, its children split on y, their children split on x again.',
+        { type: 'callout', text: 'A k-d tree turns multidimensional search into recursive region exclusion: skip a subtree only after the split geometry proves it cannot improve the best answer.' },
         'The nearest-neighbor view traces a query through the finished tree. Active edges show the descent path. The found node is the current best candidate. Removed nodes are subtrees the algorithm proved it could skip -- their closest possible point is farther than the best distance so far. When a node stays active instead of being removed, the split-plane distance was too small to prune: both sides had to be searched.',
         'In the distance matrix, the column "prune other side?" is the key decision. It compares two numbers: the perpendicular distance from the query to the splitting plane, and the best Euclidean distance found so far. When the split distance exceeds the best, the entire opposing subtree is eliminated. When it does not, backtracking is required.',
       ],
@@ -208,6 +209,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Binary search finds a value in a sorted array by eliminating half the data per comparison. That works because one-dimensional data has a total order -- smaller is always left, larger is always right. Points in two or more dimensions have no such order. A map coordinate has x and y; a 3D mesh vertex has x, y, and z. Asking "which stored point is closest to this query?" requires comparing across all coordinates simultaneously, and no single sorted sequence answers that.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/bf/Kdtree_2d.svg', alt: 'Two-dimensional k-d tree partition of points', caption: 'Alternating x and y splits carve the plane into nested regions, which is the geometry behind subtree pruning. Source: https://commons.wikimedia.org/wiki/File:Kdtree_2d.svg.' },
         'Jon Bentley introduced the k-d tree in 1975 to extend binary search to k dimensions. The idea: cycle through axes at each tree level, splitting the point set by one coordinate at a time. The result is a binary tree that partitions space into rectangular regions. Range queries and nearest-neighbor queries can then prune entire regions rather than scanning every point.',
       ],
     },

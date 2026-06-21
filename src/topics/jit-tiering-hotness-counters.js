@@ -139,6 +139,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A JIT cannot afford to heavily optimize every function before it knows which code matters. Most code is cold, startup latency is visible, and optimized code needs speculative assumptions that may later break.',
+        { type: 'callout', text: 'JIT tiering is runtime budget control: measure first, compile harder only when hotness and feedback justify the cost.' },
         'Tiering exists to spend compiler effort where runtime evidence says it will pay off. Code starts in a cheap tier, usually an interpreter, then hot and stable code is promoted through faster tiers.',
         'The useful way to think about a JIT is as a runtime investment manager. Interpretation buys fast startup and flexibility. Baseline compilation buys cheap machine code. Optimizing tiers buy peak throughput by spending more compile time and making stronger assumptions. Hotness counters decide when the investment is likely to pay back.',
       ],
@@ -155,6 +156,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Hotness counters and feedback vectors turn execution into compiler input. The interpreter or baseline tier counts calls and loop iterations, records observed shapes, operand types, and call targets, then a policy layer decides when to compile a better version.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3f/V8_JavaScript_engine_logo_2.svg', alt: 'V8 JavaScript engine logo', caption: 'V8 is a concrete runtime where interpreter, baseline, mid-tier, and optimizing tiers make the promotion ladder visible. Source: https://commons.wikimedia.org/wiki/File:V8_JavaScript_engine_logo_2.svg.' },
         'Modern V8 has a ladder that includes Ignition, Sparkplug, Maglev, and TurboFan. The important data structures are counters, feedback vectors, compilation queues, dependency lists, deoptimization history, and code objects.',
         'A counter is simple, but the policy around it is not. A function called many times may still be unstable. A loop may be hot enough for on-stack replacement even if the surrounding function is not. A polymorphic property access may need generic code, while a monomorphic access can be compiled into a fast offset load. The tiering system reads all of that evidence.',
         'A concrete example is a JavaScript function that repeatedly adds numbers in a loop. Early executions run through the interpreter while the feedback vector records that both operands are small integers. After the loop becomes hot, a higher tier can generate machine code that assumes integer arithmetic. If a later call passes a string, the assumption breaks and the runtime deoptimizes to a safer tier. The optimized code was not wrong; it was conditional.',
@@ -164,6 +166,7 @@ export const article = {
       heading: 'Animation and readouts',
       paragraphs: [
         'Each tier is a different compile-time and code-quality budget, not a badge of correctness. Higher tiers may be faster because they make stronger assumptions, not because lower tiers were wrong.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Call_stack_layout.svg', alt: 'Call stack layout with frame pointer', caption: 'Deoptimization needs enough frame metadata to rebuild a lower-tier call stack when optimized assumptions fail. Source: https://commons.wikimedia.org/wiki/File:Call_stack_layout.svg.' },
         'When the animation shows deoptimization, it is the escape hatch that makes speculation safe. Optimized code can assume stable facts only because Deoptimization Stack Maps & Safepoints can reconstruct a lower-tier frame when an assumption breaks.',
         'The promotion-policy view is a scheduler readout. It schedules compile CPU, code memory, and speculation risk against expected future execution. The tier ladder is not linear progress toward truth. It is a set of tradeoffs chosen under limited evidence.',
         'The visual leaves out target-specific details such as exact thresholds, background compilation queues, inline-cache state machines, and garbage-collector metadata. Those details differ by runtime, but the limit is the same: a counter can say code ran often, not that future calls will keep the same shape.',

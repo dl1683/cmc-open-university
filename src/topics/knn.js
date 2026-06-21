@@ -125,6 +125,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Blue dots are class A training points; orange dots are class B. The query point appears with a ? label and gets highlighted as active.',
+        { type: 'callout', text: 'KNN is lazy supervised learning: the training set stays as the model, and prediction is local voting around the query.' },
         'During distance computation, each training point lights up as compare while its distance to the query is measured. After sorting, the k nearest neighbors are marked found.',
         'The final frame shows the query point colored by its predicted class. Watch how changing k changes which neighbors vote and potentially flips the outcome.',
       ],
@@ -163,6 +164,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Store all training points with their labels. When a query arrives: (1) compute the distance from the query to every training point, (2) sort or select the k smallest distances, (3) count labels among those k neighbors, (4) return the majority label. Ties can be broken by distance-weighting or by reducing k by one.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/e7/KnnClassification.svg', alt: 'K nearest neighbors classification diagram with two classes and a query point', caption: 'The query changes class as k changes because the vote boundary is determined by local neighbors, not a learned global equation. Source: https://commons.wikimedia.org/wiki/File:KnnClassification.svg.' },
         'The distance metric matters. Euclidean distance is the default, but it weights all features equally. If one feature ranges from 0 to 1000 and another from 0 to 1, the first feature dominates. Normalizing features (z-score or min-max) is almost always necessary. Manhattan distance, Minkowski distance, and cosine similarity are alternatives that suit different data shapes.',
         'The choice of k controls the bias-variance tradeoff. k=1 memorizes the training set — zero training error, but every query follows the single nearest point, which may be noise. Large k smooths the boundary but can merge distinct classes. Odd k avoids ties in two-class problems. Cross-validation on held-out data is the standard way to pick k.',
       ],
@@ -179,6 +181,7 @@ export const article = {
       paragraphs: [
         'Training: O(1) — just store the data. There is nothing to compute upfront, which is why KNN is called a lazy learner.',
         'Query: O(n * d) where n is the number of training points and d is the number of features. You can avoid the full sort with a partial-select algorithm (quickselect) to find the k-th smallest in O(n) average time, but you still scan every point.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/bf/Kdtree_2d.svg', alt: 'Two-dimensional k-d tree partition used for nearest neighbor search', caption: 'Low-dimensional neighbor search can use k-d tree region pruning, but the advantage fades as dimension rises. Source: https://commons.wikimedia.org/wiki/File:Kdtree_2d.svg.' },
         'Memory: O(n * d) — the entire training set lives in memory. A million points with 100 features at 8 bytes each is 800 MB. This is the opposite of a neural network, which compresses training data into a fixed-size weight matrix.',
         'When n doubles, query time doubles. When d doubles, each distance calculation doubles. KD-trees reduce average query time to O(d * log n) in low dimensions, but degrade to O(n) as d grows past about 20. Approximate methods like locality-sensitive hashing (LSH) trade exact answers for sublinear query time.',
       ],

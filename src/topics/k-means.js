@@ -98,6 +98,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Each frame shows 18 points on a two-feature scatter plot and k centroid markers (stars). Colors encode cluster membership: a point takes the color of the centroid it is currently assigned to. Unassigned points at the start are gray.",
+        { type: "callout", text: "K-means is alternating minimization: assignments are optimal for fixed centroids, and centroids are optimal for fixed assignments." },
         "The animation alternates two moves per round. In the ASSIGN frame, every point snaps to the color of its nearest centroid — watch border points that switch color; those are the ones whose assignment changed. In the RECENTER frame, each centroid jumps to the geometric mean of its cluster's members — the star slides to a new position.",
         "When no point changes color during an assign step, the loop has converged: assignments and centroids agree, and the algorithm stops. Try k=2 and k=4 on the same data to see the algorithm forced to merge or split the three natural blobs.",
       ],
@@ -106,6 +107,7 @@ export const article = {
       heading: `What K-Means is`,
       paragraphs: [
         `K-means is an unsupervised clustering algorithm: it groups n vectors into k clusters without any labels. The algorithm receives points in a feature space and summarizes them with k centroids. Each point belongs to the cluster of its nearest centroid. Each centroid is the mean of its assigned points. The loop repeats until assignments stop changing.`,
+        { type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/e/ea/K-means_convergence.gif`, alt: `Animated k-means convergence from poor initial centroids`, caption: `The GIF shows the assign and recenter loop converging even from a poor start, while the Voronoi cells shift as centroids move. Source: https://commons.wikimedia.org/wiki/File:K-means_convergence.gif.` },
         `The objective is the within-cluster sum of squared distances (WCSS, also called inertia). K-means wants each point close to its cluster center. That objective makes the algorithm simple, fast, and inspectable, but it also constrains the answer: k-means prefers compact, roughly spherical clusters under Euclidean distance. It always returns exactly k clusters, even when the data has fewer real groups or when the true groups are not round.`,
       ],
     },
@@ -241,4 +243,3 @@ export const article = {
       },
 ],
 };
-

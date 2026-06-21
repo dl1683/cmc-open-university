@@ -105,6 +105,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each row is a probability distribution over five classes: cat, dog, fox, car, tree. The teacher row shows a large model\'s softmax output for one cat image. The numbers add to 100%.',
+        { type: 'callout', text: 'Knowledge distillation compresses behavior, not just answers: the student learns from the teacher probability shape over all classes.' },
         'The target row shows what the student trains against. Toggle the control to switch between soft labels (the teacher\'s full distribution) and hard labels (one-hot: 100% cat, 0% everything else). The difference between those two rows is the entire point of distillation.',
         'Epoch rows track the student\'s distribution as training progresses. With soft labels, watch the student preserve the teacher\'s ranking among wrong classes: dog > fox > car > tree. With hard labels, the student collapses toward a single spike. The shape difference in the final comparison row is the dark knowledge the hard-label student never received.',
       ],
@@ -113,6 +114,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Large models are accurate but expensive to serve. A 7-billion-parameter teacher may need datacenter GPUs, cost dollars per thousand inferences, and add hundreds of milliseconds of latency. Mobile apps, browser tools, embedded devices, and high-throughput production endpoints cannot afford that.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered artificial neural network diagram with colored input hidden and output layers', caption: 'Distillation keeps the student architecture small while using the teacher output distribution as a richer supervision signal. Source: https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.' },
         'The goal is to get a model 2-10x smaller that preserves most of the teacher\'s accuracy. Hinton, Vinyals, and Dean (2015) proposed knowledge distillation: instead of training the small model on the original labeled dataset alone, train it to imitate the teacher\'s full output distribution. The teacher\'s probability assignments over all classes carry structure that the ground-truth label discards.',
       ],
     },
@@ -141,6 +143,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Train or select a teacher model. Run all training examples through the teacher and record the logits (pre-softmax values). For each example, compute two softmax outputs from those logits: one at T = 1 (the standard prediction) and one at a raised temperature T, typically 3 to 20.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png', alt: 'Transformer model architecture diagram with attention and feed-forward blocks', caption: 'Transformer teachers can expose dark knowledge through output logits, attention states, or hidden-state targets depending on the distillation recipe. Source: https://commons.wikimedia.org/wiki/File:The-Transformer-model-architecture.png.' },
         'The student trains with a combined loss. The first term is the standard cross-entropy between the student\'s T = 1 output and the hard label. The second term is the KL divergence between the student\'s softened output (at temperature T) and the teacher\'s softened output (at the same T). The total loss is: L = (1 - alpha) * CE_hard + alpha * T^2 * KL_soft. The T^2 factor compensates for the reduced gradient magnitude that comes from spreading probability mass.',
         'Typical hyperparameters: T between 3 and 20, alpha between 0.1 and 0.9. Higher T exposes more dark knowledge but makes the distribution flatter, so the student needs enough capacity to exploit the signal. Alpha controls how much the student listens to the teacher versus the ground truth.',
       ],

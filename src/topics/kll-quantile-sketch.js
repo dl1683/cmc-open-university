@@ -217,6 +217,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The compaction-levels view shows the full lifecycle of a single buffer. Values stream into level 0. When the buffer overflows, KLL sorts it, randomly picks odd or even positions, discards the rest, and promotes survivors to level 1 with doubled weight. Active nodes glow during the step they participate in; dimmed nodes show downstream levels waiting for overflow to cascade.',
+        { type: 'callout', text: 'KLL keeps rank information by randomly compacting sorted pairs, so every promoted item represents more stream mass without storing the raw stream.' },
         'The merge-rollup view shows the distributed story. Three hosts hold independent KLL sketches. The coordinator concatenates matching levels, recompacts any level that exceeds its capacity, and answers quantile queries from the merged weighted items. Watch the highlighted edges to see which shard contributes to each merge step.',
         'In both views, the matrix tables show the concrete values, weights, and keep/drop decisions at each compaction. Read the weight column to verify that every promotion doubles the weight. If a level-1 buffer overflows, the same compaction rule fires again, producing level-2 items at weight 4.',
       ],
@@ -225,6 +226,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A quantile asks: what value sits at a given rank in the sorted stream? The median is rank 0.50, p90 is rank 0.90, p99 is rank 0.99. These are operational numbers. A latency p99 drives an alert. A billing p95 sets a contract. A storage p50 guides capacity planning.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/de/Quantilsregression.svg', alt: 'Quantile curves over a scatter plot', caption: 'Quantile curves show that a rank target is a position in the distribution, not a guarantee about absolute value distance. Source: https://commons.wikimedia.org/wiki/File:Quantilsregression.svg.' },
         'Exact quantiles require keeping every value and sorting. A fleet that records billions of latencies per hour cannot ship raw samples to a central node and sort them for every dashboard refresh. The question is whether you can answer "what is p99?" using a summary that fits in a few kilobytes, merges across shards, and carries an explicit error bound.',
         'KLL (Karnin, Lang, Liberty, 2016) answers yes. It keeps a compact, weighted summary of the stream and guarantees that the returned value has a rank within epsilon of the requested rank, with failure probability at most delta. The space it needs is O(1/epsilon * log log(1/delta)) -- optimal for a comparison-based quantile sketch.',
       ],
@@ -276,6 +278,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'Each compaction replaces adjacent sorted pairs with one representative. If the sketch always kept the lower item, ranks would drift low. If it always kept the upper item, ranks would drift high. KLL chooses the parity randomly, so each pair contributes zero expected rank bias. The rank error from a single compaction is a bounded random variable.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg', alt: 'Cumulative distribution function curves for normal distributions', caption: 'A CDF makes the sketch contract visible: KLL controls rank position on the vertical axis, not numeric distance along the horizontal value axis. Source: https://commons.wikimedia.org/wiki/File:Normal_Distribution_CDF.svg.' },
         'Errors from successive compactions accumulate, but the level capacities are chosen to keep the total variance small. Higher levels have larger buffers, so they compact less frequently and contribute less cumulative error. The capacity schedule is tuned so the total rank error across all levels stays below epsilon with probability at least 1 - delta.',
         'The key result from the paper: this schedule achieves space O(1/epsilon * log log(1/delta)), which is optimal for any comparison-based streaming quantile algorithm. The double-log in the failure probability is the surprising part -- it means you can push delta very small (say 10^-6) with almost no extra space beyond what epsilon already demands.',
         'The guarantee is about rank, not about value distance. If the sorted distribution has a cliff -- say latencies jump from 50ms to 500ms between rank 0.98 and 0.99 -- two nearby ranks map to very different values. That is not a KLL bug. It is the contract: rank error, not value error.',

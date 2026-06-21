@@ -210,7 +210,9 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'JavaScript programs constantly ask the runtime one basic question: when code says `name`, which binding should that name mean? Lexical environments are the data structure behind that answer. They connect identifiers to storage cells and connect each scope to the scope outside it.',
+        { type: 'callout', text: 'A closure is a function plus a saved lexical environment reference, so name lookup follows the creation site even when execution happens later.' },
         'Closures matter because functions often outlive the call that created them. Event handlers, timers, promises, factories, modules, and React callbacks all depend on a function remembering the environment where it was created. This topic treats scope as a linked structure and closures as references into that structure, not as a vague language feature.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6a/JavaScript-logo.png', alt: 'Unofficial JavaScript logo', caption: 'JavaScript makes lexical closure behavior visible in everyday callbacks and modules. Source: https://commons.wikimedia.org/wiki/File:JavaScript-logo.png.' },
       ],
     },
     {
@@ -238,6 +240,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'When execution enters a script, module, function, or block, the runtime creates environment records for the declarations that belong there. A function environment can hold parameters, `var` declarations, and function declarations. A block environment can hold `let`, `const`, and class declarations. Each record also knows its outer environment.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Call_stack_layout.svg', alt: 'Call stack layout showing stack frames and frame pointer', caption: 'The call stack explains active execution frames; closures explain why some environment records outlive those frames. Source: https://commons.wikimedia.org/wiki/File:Call_stack_layout.svg.' },
         'When a function object is created, it receives an internal reference to the current lexical environment. The specification describes this through lexical environments and environment records: https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html. Engines can optimize the representation, but they must preserve the same observable lookup, TDZ, and closure behavior.',
         'Hoisting is binding creation, not always usable initialization. `var` creates a function-scoped binding initialized to `undefined`; function declarations are callable according to their declaration-instantiation rules; `let` and `const` create block-scoped bindings that cannot be read until initialized.',
       ],

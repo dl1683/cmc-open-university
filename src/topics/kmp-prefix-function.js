@@ -165,6 +165,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The prefix-table view builds the failure function for pattern ababac. Active cells mark the position being computed. Found cells show border lengths already finalized. The compare color traces the fallback chain when a character fails to extend the current border -- watch it cascade through shorter borders until one works or the chain bottoms out at zero.',
+        { type: 'callout', text: 'KMP never moves the text pointer backward because every fallback is a proof about pattern self-overlap, not a guess about the text.' },
         'The search-fallback view runs KMP on text ababababac. Active cells are the text window currently aligned with the pattern. Found cells mark characters confirmed as part of a match. On mismatch, the pattern pointer drops through the fallback chain while the text pointer stays fixed. That frozen text pointer is the visual proof that KMP never backtracks through the text.',
         'In both views, track two things: the text pointer only moves right, and every fallback of the pattern pointer was paid for by an earlier advance. Those two facts make the algorithm linear.',
       ],
@@ -194,6 +195,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The key concept is a border: a proper prefix of a string that is also a suffix. In ABABA, the string ABA is a border because ABABA starts with ABA and ends with ABA. The prefix function pi[i] stores the length of the longest border of pattern[0..i].',
+        { type: 'image', src: 'https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/Pic/kmp-shift.png', alt: 'KMP shift after mismatch using a prefix that is also a suffix', caption: 'The failure shift keeps the matched border and resumes without re-reading earlier text characters. Source: https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/.' },
         'When a mismatch occurs after matching j characters, the matched portion pattern[0..j-1] has a longest border of length pi[j-1]. That border is simultaneously the end of what was just matched and the beginning of the pattern. So the algorithm can jump the pattern pointer to position pi[j-1] -- keeping those already-matched border characters -- and continue comparing from there. The text pointer never moves backward. Every skipped alignment is provably impossible: it would require a border longer than the one pi already records.',
       ],
     },
@@ -201,6 +203,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'KMP runs two passes. First, build the prefix table from the pattern alone. Walk through the pattern with index i and a candidate border length j. If pattern[i] equals pattern[j], extend the border: pi[i] = j+1, advance both. If they differ and j > 0, fall back: j = pi[j-1] and retry with the next shorter border. If j = 0, record pi[i] = 0 and advance i. This builds the entire table in O(m) time.',
+        { type: 'image', src: 'https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/Pic/kmp-failure-function.png', alt: 'KMP failure function values for pattern abaaba', caption: 'The failure function stores the longest usable border at each pattern position, which turns mismatch recovery into an array lookup. Source: https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/.' },
         'Second, scan the text. Maintain a match length j (how many pattern characters are currently matched). If text[i] equals pattern[j], advance both pointers. If they differ and j > 0, set j = pi[j-1] -- the pattern pointer drops to the next viable border while the text pointer stays put. If j = 0, advance only the text pointer. When j reaches m, a full match is found.',
         'The critical detail: a fallback changes the pattern position, not the text position. The algorithm holds the current text character fixed and asks whether a shorter prefix of the pattern can still be extended by that character. This is why KMP works on streams, pipes, and network sockets where rewinding the input is expensive or impossible.',
       ],

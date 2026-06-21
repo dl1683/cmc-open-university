@@ -170,6 +170,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The table has one row per item (plus row 0 for "no items") and one column per integer capacity from 0 to W. Rows represent the set of items under consideration: row i means "items 1 through i are available." Columns represent remaining capacity. Cell dp[i][w] holds the maximum profit achievable using items 1..i with capacity w.',
+        { type: 'callout', text: '0/1 knapsack works because every item decision reduces to two already-solved subproblems: skip it, or take it and spend its capacity.' },
         'Active cells (highlighted) are the row being filled. Visited cells (dimmed) are the row above, which the current row consults. Each cell makes one binary decision about the current item: skip it (copy the value straight down from dp[i-1][w]) or take it (look up dp[i-1][w - weight_i], add the item\'s value, compare). The larger result wins.',
         'After every row is filled, the traceback walks from dp[n][W] upward. Where dp[i][w] differs from dp[i-1][w], item i was included and the path shifts left by that item\'s weight. Where they match, the item was skipped and the path moves straight up. The traced path identifies the optimal subset.',
       ],
@@ -186,6 +187,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Try every subset. With n items there are 2^n subsets. For each one, sum the weights, discard it if the sum exceeds W, and track the best total value seen. This is correct and easy to implement.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Knapsack_greedy.svg', alt: 'Greedy knapsack illustration with boxes and backpack capacity', caption: 'The greedy picture is useful because it also shows the trap: density sorting is correct for fractional knapsack, not for 0/1 knapsack. Source: https://commons.wikimedia.org/wiki/File:Knapsack_greedy.svg.' },
         'For 10 items that is 1,024 subsets -- manageable. For 20, about a million. For 30, a billion. For 50, over a quadrillion. The approach is honest but it grows exponentially.',
         'A tempting shortcut: sort by value-to-weight ratio, greedily take the highest-ratio items until the bag is full. This is optimal for fractional knapsack (where you can split items), but it fails for 0/1 knapsack. Greedy locks in early choices it cannot undo, and a different combination may pack the capacity better.',
       ],
