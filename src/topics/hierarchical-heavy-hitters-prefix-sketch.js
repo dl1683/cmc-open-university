@@ -215,6 +215,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Flat heavy hitters answer which individual keys are frequent. Operators often need a different answer: which prefix, customer, URL subtree, region, or organization unit explains the load?',
+        {type: 'callout', text: 'Hierarchical heavy hitters explain traffic at the smallest aggregate level that still has unexplained mass.'},
         'Hierarchical heavy hitters exist for streams whose keys live inside a tree. Instead of reporting only leaves, they report the level where the mass is still heavy after already-explained descendants are removed. That turns raw counters into an operational explanation.',
       ],
     },
@@ -230,6 +231,7 @@ export const article = {
       heading: 'Core insight and invariant',
       paragraphs: [
         'The core idea is residual mass. A node is independently heavy only if its total count minus the counts of already-reported heavy descendants still exceeds the threshold.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie diagram showing shared prefixes across words', caption: 'A prefix trie is the natural shape behind hierarchical heavy hitters. Source: Wikimedia Commons, Trie example.'},
         'The invariant is that reported nodes form an explanation of disjoint residual traffic. Descendant traffic should not make every ancestor look independently important. Ancestors are reported only when they contain heavy mass not already explained below.',
       ],
     },
@@ -245,6 +247,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'For each stream event, update the nodes on its path through the hierarchy. A packet from 10.4.7.9 contributes to 10.4.7.9, 10.4.7/24, 10.4/16, 10/8, and 0/0. A URL request might contribute to /, /products, /products/search, and the full path.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Animated packet switching diagram with packets moving through a network', caption: 'Prefix sketches are often applied to packet or event streams that are too large to store exactly. Source: Wikimedia Commons, Packet Switching.'},
         'The counters can be exact for small retained candidate sets, or approximate sketches when the stream is too large. Common designs keep a summary per level, recover candidate nodes, then verify or estimate their counts before reporting.',
         'Reporting is usually bottom-up. Decide whether descendants are heavy, subtract their explained mass from ancestors, and report an ancestor only if its residual count remains above the threshold.',
         'A production implementation often separates discovery from confirmation. Sketches find likely heavy prefixes fast, then an exact or sampled pass checks those candidates before paging an operator or changing network policy. That two-stage shape keeps the streaming path small while keeping severe actions tied to evidence.',
@@ -278,6 +281,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'It wins when action happens at aggregate boundaries: rate-limit a subnet, route traffic away from a region, page a service owner, split a customer bill, identify a hot URL subtree, or explain a monitoring spike.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Partial map of internet connectivity with many colored network links', caption: 'Internet-scale monitoring often needs aggregate explanations across nested address or routing prefixes. Source: Wikimedia Commons, Internet map.'},
         'It is especially useful during distributed attacks. Thousands of modest bot IPs can become a small number of residual prefixes, which is far more actionable than a flat list of leaves.',
         'It also improves communication. A flat list says "these keys are large." A hierarchical report says "this part of the tree explains the load after more specific causes are removed." That is closer to how operators assign ownership and choose a response.',
       ],

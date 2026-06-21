@@ -236,6 +236,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "reading curvature" view draws contour rings of quadratic loss surfaces. Round rings mean equal curvature in every direction; elongated ellipses mean one direction is steeper. The axis ratio of each ring is the square root of the condition number. Hyperbolas mean a saddle point -- the surface curves up in one direction and down in another.',
+        {type: 'callout', text: 'The Hessian turns local geometry into algebra: eigenvalue signs classify the point, and eigenvalue ratios set optimizer pain.'},
         'The "Newton vs gradient descent" view runs both optimizers on the same ravine. The gradient-descent path (active, zigzagging) shows the cost of ignoring curvature. The Newton path (found, one straight line) shows what happens when you invert the Hessian before stepping. Both paths are computed live from the same start point.',
         'Eigenvector arrows in the tilted-bowl frame point along the principal curvature axes. Their lengths are scaled by the corresponding eigenvalue. The matrix card maps Hessian entries to landscape shape: read across each row to connect algebra to geometry.',
         {
@@ -249,6 +250,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Gradient descent knows which way is downhill but not how the floor is shaped. On a round bowl that is enough -- any reasonable learning rate converges. On a narrow ravine, the gradient points mostly across the ravine rather than along it, so the optimizer zigzags. The condition number (ratio of steepest to gentlest curvature) controls how many zigzag steps you waste. At condition number 9, even the optimal fixed learning rate contracts error by only 0.8 per step.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Gradient_descent.svg/250px-Gradient_descent.svg.png', alt: 'Contour plot showing gradient descent steps toward a minimum', caption: 'Gradient descent uses slope, while Hessian-aware methods also read local curvature. Source: Wikimedia Commons, Gradient descent.'},
         {
           type: 'quote',
           text: 'The loss function is a surface in a very high-dimensional space. The geometry of that surface -- its curvature, its saddle points, its flat regions -- determines how easy or hard it is to train a neural network.',
@@ -270,6 +272,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The hard boundary is the condition number kappa = lambda_max / lambda_min. For gradient descent with fixed learning rate, the error contracts by at most (kappa - 1) / (kappa + 1) per step. At kappa = 9, that is 0.8 -- you need roughly 5*kappa steps to reduce error by a factor of e. At kappa = 1000 (common in deep networks), convergence crawls: each step reduces error by 0.998.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Saddle_point.svg/330px-Saddle_point.svg.png', alt: 'Three-dimensional surface with a saddle point', caption: 'Mixed curvature around a saddle explains why a small gradient can still hide an escape direction. Source: Wikimedia Commons, Saddle point.'},
         'The invariant that breaks: gradient descent assumes a single step size works for all directions. But the safe step size is bounded by 2/lambda_max (the steepest direction), while the efficient step size for the flat direction is 2/lambda_min. When lambda_max >> lambda_min, no single number satisfies both constraints. The steep axis demands tiny steps; the flat axis needs huge ones. This is not a tuning problem -- it is a geometric impossibility.',
         {
           type: 'note',
@@ -281,6 +284,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The Hessian H of a scalar loss f(w) is the symmetric matrix of second partial derivatives. Because mixed partials commute (Schwarz theorem), H = H^T, so it has real eigenvalues and orthogonal eigenvectors. The eigendecomposition H = V * Lambda * V^T rotates the landscape into coordinates where each axis has a single curvature number. In these rotated coordinates, the contour rings become axis-aligned ellipses with semi-axes proportional to 1/sqrt(lambda_i).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5d/Finite_element_sparse_matrix.png', alt: 'Sparse matrix pattern from a finite element computation', caption: 'Large Hessians are often handled through sparse or implicit matrix structure rather than dense storage. Source: Wikimedia Commons, finite element sparse matrix.'},
         "Newton's method uses the Hessian to solve the local quadratic model exactly. The Taylor expansion f(w + delta) ~ f(w) + grad^T * delta + 0.5 * delta^T * H * delta is minimized by delta = -H^{-1} * grad. On a true quadratic, this lands at the minimum in one step regardless of the condition number. The inverse Hessian rescales each eigendirection by 1/lambda_i, which un-stretches the ravine into a perfect circle and points the corrected step straight at the center.",
         {
           type: 'code',

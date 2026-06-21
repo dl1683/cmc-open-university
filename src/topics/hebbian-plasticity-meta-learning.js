@@ -228,7 +228,9 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Hebbian plasticity for meta-learning exists because a fixed policy can be brittle. A robot loses a leg, a game opponent changes strategy, a sensor drifts, or a task distribution shifts. Waiting for a full offline training run may be too slow or impossible. The deployed agent needs a way to adapt during its own lifetime.',
+        {type: 'callout', text: 'Hebbian meta-learning moves adaptation into the lifetime loop: the outer loop learns which local weight changes remain useful after the world shifts.'},
         'Classical Hebbian learning is often summarized as cells that fire together wire together. The modern meta-learning version is more careful. It asks whether a local synapse-update rule can be learned, evolved, or parameterized so that online adaptation is useful rather than random drift.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Transient_Dendritic_Spine_Growth_following_High-Frequency_Stimulation.jpg/330px-Transient_Dendritic_Spine_Growth_following_High-Frequency_Stimulation.jpg', alt: 'Microscopy sequence showing dendritic spine growth after stimulation', caption: 'Biological plasticity motivates local activity-driven connection changes. Source: Wikimedia Commons, transient dendritic spine growth after high-frequency stimulation.'},
         'This is an important design alternative to global gradient updates. Backpropagation is powerful when you have batches, labels or rewards, stable compute, and permission to change the whole model. Many embodied or interactive systems do not have that luxury. Plasticity moves part of adaptation into the running system.',
       ],
     },
@@ -252,6 +254,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A simple differentiable plasticity rule might update a synapse using terms such as pre * post, pre alone, post alone, and a constant drift term. Learned coefficients decide how much each term matters. A modulatory signal can gate the update so correlation only changes weights when reward, surprise, error, or context says the change is meaningful.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes and edges', caption: 'Plastic traces can be viewed as mutable state attached to neural connections. Source: Wikimedia Commons, Colored neural network.'},
         'In an agent, this means a network can act and change at the same time. Sensor activity flows into hidden units, hidden units produce actions, a feedback signal modulates plasticity, and selected synapses update. The update does not need to know the entire future. It uses the local evidence available at that moment.',
         'The outer loop evaluates full episodes or lifetimes. It may test the agent across mazes, bodies, opponents, or task switches, then adjust the plasticity rule so the agent adapts better next time. This is why the method belongs to meta-learning: the learned object is partly a way of learning.',
       ],
@@ -284,6 +287,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Plasticity-based meta-learning is useful for adaptive robotics, artificial life, reinforcement learning, continual learning, embodied agents, damaged-body recovery, and environments where the same agent must improve within an episode. It is especially compelling when a small number of online interactions can reveal a changed local relationship.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'State transition diagram for process states', caption: 'Lifetime adaptation is a stateful process: experience changes later behavior without rerunning the full outer training loop. Source: Wikimedia Commons, Process states.'},
         'It also connects directly to self-organizing systems. Neural Cellular Automata learn local update rules over cells. Hebbian plasticity learns local update rules over synapses. Quality Diversity searches for many useful behaviors rather than one winner. All three shift attention from a single static solution to an adaptive process.',
         'In research, it is valuable even when it is not the final production method. It forces a clean question: which parts of adaptation require global optimization, and which can be pushed into local rules that run continuously?',
       ],

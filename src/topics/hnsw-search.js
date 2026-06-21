@@ -142,6 +142,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'HNSW, short for Hierarchical Navigable Small World, is a graph index for approximate nearest-neighbor search. Given a query vector, it tries to find nearby stored vectors without comparing the query with every vector in the collection.',
+        {type: 'callout', text: 'HNSW wins by making vector search navigable: sparse upper layers find a neighborhood, dense lower layers spend work locally.'},
         'The brute-force baseline is exact and simple: compute the distance from the query to every stored vector, then sort or select the closest k. That is fine for thousands of vectors. It is too expensive for interactive search over millions of high-dimensional embeddings unless you can spend large amounts of hardware on exact scan.',
         'HNSW trades exactness for speed. It builds a multi-layer proximity graph, uses sparse upper layers for long moves, descends into denser layers for local search, and returns a high-recall candidate set that can be reranked if the application needs more precision.',
       ],
@@ -158,6 +159,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core idea is a layered proximity graph. The bottom layer contains every vector and many short-range neighbor links. Higher layers contain exponentially fewer vectors and longer-range links. Search starts from an entry point in the top layer, greedily moves toward the query, then drops down and repeats with finer links.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/86/Skip_list.svg', alt: 'Skip list diagram with multiple forward-pointer levels', caption: 'HNSW uses a layered search idea similar in spirit to skip lists. Source: Wikimedia Commons, Skip list.'},
         'This is why HNSW is often compared to a skip list. A skip list adds sparse express lanes over a sorted list. HNSW adds sparse express layers over a metric neighborhood graph. The analogy is useful, but not perfect: HNSW search is approximate and depends on vector geometry, graph quality, and candidate-set width.',
       ],
     },
@@ -174,6 +176,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Construction inserts vectors one at a time. Each new vector receives a random maximum layer, with high layers becoming rare. The index searches from the current entry point to find neighbors for the new vector, then links the vector into each layer up to its maximum. A neighbor-selection heuristic keeps links useful instead of simply connecting to the closest points that may all sit in one tiny cluster.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between labeled nodes', caption: 'At query time, HNSW follows graph edges toward vectors that are closer to the target. Source: Wikimedia Commons, Directed graph.'},
         'Querying starts from the entry point at the highest layer. Upper layers usually use greedy descent: move to a neighbor if it is closer to the query, stop when no neighbor improves the distance, then drop down. At the bottom layer, the algorithm keeps a dynamic candidate list and a result set. It expands candidates until the remaining frontier cannot improve the current top-k under the search budget.',
         'The key knobs have engine-specific names and defaults. In pgvector, m controls max connections per layer and defaults to 16, ef_construction controls the construction candidate list and defaults to 64, and hnsw.ef_search controls query candidate width and defaults to 40. In hnswlib, M and ef_construction are set at index initialization, while ef controls query-time accuracy versus speed.',
       ],
@@ -204,6 +207,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'HNSW wins for low-latency semantic search, recommendation candidate retrieval, duplicate detection, image similarity, code search, and RAG retrieval when memory is available and high recall matters. It is popular because it needs no training phase, handles incremental insertion better than many partitioned indexes, and exposes understandable knobs.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes and edges', caption: 'Embedding systems often feed HNSW with vectors produced by neural models. Source: Wikimedia Commons, Colored neural network.'},
         'It is a strong default when the corpus fits in memory or mostly in memory, vectors are reasonably well behaved, and the product can tolerate approximate recall followed by reranking. It pairs well with exact rerank over the returned candidates and with a recall-latency ledger that chooses efSearch by route.',
       ],
     },

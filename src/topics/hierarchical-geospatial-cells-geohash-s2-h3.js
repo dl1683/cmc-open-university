@@ -218,6 +218,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A latitude-longitude pair is precise, but it is a poor operational key. A ride-matching service cannot scan every driver in a city for each pickup. A places database cannot rely on raw floating-point comparisons for every nearby search. An analytics system cannot group billions of pings into stable neighborhoods if every point is its own unique coordinate.`,
+        {type: 'callout', text: 'A geospatial cell id is a locality hint, not a geometry verdict; it narrows candidates before exact distance or containment runs.'},
         `Hierarchical geospatial cells solve a practical indexing problem: turn continuous positions on Earth into discrete ids that preserve enough locality for coarse filtering, sharding, caching, and aggregation. The cell id is not the final geometry answer. It is a way to narrow the search space so the system can do exact distance, containment, routing, or ranking on a much smaller candidate set.`,
         `This topic sits between spatial data structures and distributed systems. R-trees and k-d trees organize geometry dynamically from the dataset. Geohash, S2, and H3 predefine global grids so ordinary keys, prefixes, integer ranges, neighbor rings, and shards can carry spatial meaning. The grid gives the database a handle before the expensive geometry begins.`,
       ],
@@ -233,6 +234,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `A cell index discretizes geography before the query. Given a point and a resolution, the library returns the id of the cell containing that point. Coarser resolutions cover larger areas. Finer resolutions cover smaller areas. The hierarchy lets a system move between city-scale, neighborhood-scale, block-scale, and doorstep-scale views without inventing a new key scheme each time.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Geohash-grid.png/330px-Geohash-grid.png', alt: 'Map grid showing geohash cells at multiple resolutions', caption: 'Geohash uses hierarchical grid refinement so longer cell identifiers describe smaller places. Source: Wikimedia Commons, Geohash grid.'},
         `The invariant is that cells are coarse filters. Same cell means "candidate", not "nearest". Different cell does not mean "far". A point just across a boundary may be closer than a point inside the query cell. Correct nearby search therefore includes neighbor cells or a covering set, then performs exact geometry on the returned candidates.`,
       ],
     },
@@ -240,6 +242,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `Geohash interleaves longitude and latitude bits and encodes the result as a base-32 string. Removing characters from the end gives a coarser prefix. That makes it friendly to B-trees, tries, string prefixes, and range scans. The tax is boundary behavior. Two nearby points can have very different prefixes if they sit on opposite sides of a split, so production proximity search must include adjacent geohashes and then filter exactly.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Geohash-OddEvenDigits.png/960px-Geohash-OddEvenDigits.png', alt: 'Geohash odd and even digit subdivision diagram', caption: 'Geohash alternates coordinate subdivisions as the identifier grows. Source: Wikimedia Commons, Geohash odd-even digits.'},
         `S2 models geography on the sphere. It projects the sphere onto six cube faces, then recursively subdivides each face into quadrilateral cells. Cell ids encode a hierarchy, and S2 coverings can approximate points, polylines, polygons, or larger regions as sets of cells. This makes S2 useful when the system needs robust spherical geometry, region coverings, and distributed spatial indexes rather than only point bucketing.`,
         `H3 is a hierarchical grid built around mostly hexagonal cells. Hexagons give a more uniform neighbor shape than squares for many aggregation and flow problems, and H3 supports ring-like neighbor operations that are natural for heat maps, marketplace zones, and approximate radius expansion. The hierarchy has subtleties: H3 provides exact logical containment in its index hierarchy, but geometric containment across parent and child cells is approximate, and pentagons introduce special cases.`,
       ],
@@ -285,6 +288,7 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         `Cells are the wrong final answer for exact geometry. Do not return same-cell results as nearest results. Do not use a cell boundary as a legal boundary unless the product explicitly accepts approximation. Do not assume H3, S2, and Geohash have identical hierarchy or neighbor behavior. A grid that is excellent for analytics can be awkward for exact cadastral polygons, high-precision surveying, or route planning.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Comparing-Geoash-Hilbert.png/960px-Comparing-Geoash-Hilbert.png', alt: 'Comparison diagram of geohash ordering and Hilbert curve locality', caption: 'Space-filling order choices affect how well nearby cells remain near in key order. Source: Wikimedia Commons, Comparing Geohash and Hilbert.'},
         `They are also not a replacement for R-trees. An R-tree indexes the bounding boxes of the actual objects and adapts to the dataset. A global cell grid imposes structure before seeing the data. That is valuable for sharding and aggregation, but it creates false positives, empty-cell fanout, boundary misses unless neighbors are included, and hot cells in dense regions.`,
       ],
     },

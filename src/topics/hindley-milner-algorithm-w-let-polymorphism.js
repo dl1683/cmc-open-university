@@ -140,7 +140,9 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A typed language has to answer a practical question: how much type information should programmers write by hand? Full annotations make the compiler simple but make ordinary functional code noisy. No static types make many mistakes appear only when the program runs.',
+        {type: 'callout', text: 'Algorithm W separates discovery from reuse: infer one principal type, generalize safe variables, then instantiate fresh copies at each use.'},
         'Hindley-Milner gives a strong middle ground for an ML-like core. It infers a principal type for expressions made from variables, lambdas, application, and let-binding. Principal means most general: every other valid type for the expression is a specialization of the one inferred.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Abstract_syntax_tree_for_Euclidean_algorithm.svg/500px-Abstract_syntax_tree_for_Euclidean_algorithm.svg.png', alt: 'Abstract syntax tree diagram for the Euclidean algorithm', caption: 'Algorithm W walks syntax-tree structure while accumulating type information. Source: Wikimedia Commons, Abstract syntax tree for Euclidean algorithm.'},
         'Algorithm W is the constructive version of that idea. It is not just a checker. It walks the expression, manufactures unknown type variables, gathers equations from how values are used, solves those equations with unification, and decides where polymorphism may safely enter the environment.',
       ],
     },
@@ -156,6 +158,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A let-bound value is stored as a type scheme, not as a raw type. The scheme forall a. a -> a says that a is quantified by the binding and may be replaced with a fresh type variable each time the name is used.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between labeled nodes', caption: 'Inference constraints form directional dependencies between expression nodes and type variables. Source: Wikimedia Commons, Directed graph.'},
         'That freshening step is instantiation. The reverse step is generalization. After inferring the type of a let-bound expression, Algorithm W quantifies the type variables that are free in the inferred type but not free in the surrounding environment.',
         'Everything else is unification. Application forces equations such as functionType = argumentType -> resultType. Unification solves those equations while preserving the weakest substitution that makes them true.',
       ],
@@ -180,6 +183,7 @@ export const article = {
       heading: 'Occurs check and failure modes',
       paragraphs: [
         'The occurs check prevents infinite types. If unification tries to solve a = a -> b, accepting the equation would require a type that contains itself. HM rejects that shape unless the language has explicit recursive types.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt: 'Directed acyclic graph with multiple dependency paths', caption: 'The occurs check protects the inferred type graph from cycles that would imply infinite types. Source: Wikimedia Commons, Directed acyclic graph.'},
         'A common implementation bug is over-generalization. Quantifying a variable that came from the surrounding environment lets a later lookup treat an externally fixed type as polymorphic. Another bug is under-instantiation, where two uses of a scheme share the same unknown and falsely constrain each other.',
         'Effects add a language-level failure mode. In ML-family languages, mutable references and similar effects interact badly with unrestricted polymorphism. The value restriction limits generalization so a polymorphic cell cannot be written at one type and read at another.',
       ],

@@ -217,6 +217,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The Space-Saving view shows the pipeline: an event arrives, the algorithm checks whether its key is already tracked, and either increments an existing counter or evicts the current minimum. Watch the minimum slot -- it is the weakest candidate the structure is willing to remember. When a new key replaces it, the inherited error field records how much of the new count may belong to evicted predecessors.',
+        {type: 'callout', text: 'Space-Saving treats memory as a competition: persistent keys rise above churn, while rare keys recycle the minimum slot.'},
         {
           type: 'diagram',
           text: '  event --> [hit?] --> [inc / evict min] --> [table: k slots] --> [top-k]\n                                                    ^\n                                                    |\n                                          minimum slot = eviction target',
@@ -233,6 +234,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A router sees millions of source-destination pairs per second. An observability pipeline ingests billions of log lines per day. A feature monitor watches every token category in a model input stream. In each case, the operator needs the same answer: which keys are dominating right now?',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Animated packet switching diagram with packets moving through a network', caption: 'Streaming telemetry is a natural setting for heavy hitter sketches. Source: Wikimedia Commons, Packet Switching.'},
         'That question is different from counting a known key. A database can count product X if you name X. A stream operator does not know which product, endpoint, customer, or error code deserves attention yet. It needs discovery under memory pressure -- find the identities large enough to justify exact storage or human investigation.',
         {
           type: 'quote',
@@ -275,6 +277,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Space-Saving maintains a fixed-size table of k slots. Each slot stores a key, a count, and an error bound. Three cases handle every arriving event:',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Min-heap.png', alt: 'Binary min heap diagram with the smallest value at the root', caption: 'A min-tracking structure can expose the counter slot that Space-Saving should recycle. Source: Wikimedia Commons, Min-heap.'},
         {
           type: 'code',
           language: 'javascript',
@@ -336,6 +339,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Space-Saving fits any system that asks "what is dominating right now?" and can tolerate approximate answers with bounded error.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Partial map of internet connectivity with many colored network links', caption: 'Heavy hitter summaries help operators find dominant flows inside enormous network streams. Source: Wikimedia Commons, Internet map.'},
         {
           type: 'table',
           headers: ['Domain', 'Heavy means', 'Action on candidates'],

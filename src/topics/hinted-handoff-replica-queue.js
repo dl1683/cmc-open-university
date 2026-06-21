@@ -225,6 +225,7 @@ export const article = {
       heading: 'The problem',
       paragraphs: [
         'A replicated database wants two properties that pull against each other. It wants writes to remain available during ordinary machine failures, and it wants replicas to converge after those failures end. With replication factor 3, a coordinator may contact replicas A, B, and C. If C is temporarily down but A and B accept the write, a quorum write can succeed for the client while C misses the mutation.',
+        {type: 'callout', text: 'Hinted handoff turns a known replica miss into bounded queue state, so availability now does not erase repair intent later.'},
         'That miss is not mysterious. The coordinator knows the target replica, the mutation, and the time of the write. The question is whether the system should preserve that knowledge. Hinted handoff says yes: turn the known miss into durable queue state, replay it when the target returns, and fall back to heavier repair if the outage lasts too long.',
       ],
     },
@@ -246,6 +247,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'A hint is repair debt represented as a durable record. It usually contains the intended target replica, the mutation or a pointer to it, timestamp or version metadata, replay state, and an expiry time. The hint does not make the original write successful. The configured consistency level decides success. The hint records a later obligation to bring the missed replica closer to the acknowledged state.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of server racks in a data center', caption: 'Hinted handoff is about keeping replicas convergent despite temporary node or rack failure. Source: Wikimedia Commons, Wikimedia Foundation servers.'},
         'This is a data-structure idea as much as a distributed-systems idea. The coordinator maintains a per-target appendable queue. Items move from queued to sending to acknowledged and deleted, or from queued to expired when the window closes. The queue is valuable because it preserves exact repair intent while the failure is still narrow and recent.',
       ],
     },
@@ -253,6 +255,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'A client sends a write to a coordinator. The coordinator chooses the replica set for the key and sends the mutation to those replicas. Suppose the consistency level is quorum and replicas A and B acknowledge, while intended replica C is unavailable. The coordinator can return success because the write met the client-visible acknowledgement rule, then append a durable hint for C.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Animated packet switching diagram with packets moving through a network', caption: 'Replay workers resend missed mutations much like delayed messages moving through a network. Source: Wikimedia Commons, Packet Switching.'},
         'The hint must survive coordinator restart, because a memory-only hint would disappear exactly when recovery matters. It also needs enough metadata for safe replay. In a last-write-wins store, timestamps matter. In a versioned or conflict-aware store, vector clocks, logical time, or storage-engine-specific metadata may matter. The replay path should behave like delivering the missed write late, not like inventing a new write with a new timestamp.',
         'When C becomes reachable, the coordinator drains the hint queue for C. Replay is normally throttled so that a recovering node is not buried under every missed mutation at once. Each item is deleted only after the target acknowledges it. If delivery fails, the item remains queued until another retry or until the configured hint window expires.',
       ],
@@ -297,6 +300,7 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Hinted handoff fails as a complete repair strategy for long outages. When hints expire, the system no longer has a complete precise queue of missed mutations. It must compare replica state by range, which is the job of anti-entropy repair. This is why a healthy system still schedules repair even when hinted handoff is enabled.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt: 'Hash tree diagram with hashes arranged from leaves to root', caption: 'When hints are missing or expired, anti-entropy structures such as Merkle trees can find divergent replica ranges. Source: Wikimedia Commons, Hash Tree.'},
         'It also fails when the miss is not observed on the write path. Disk corruption, lost data files, rare read paths, operator mistakes, and bugs can all create divergence without producing a neat hint. Hinted handoff can only replay what it recorded. It cannot prove that the rest of the replica is correct.',
       ],
     },

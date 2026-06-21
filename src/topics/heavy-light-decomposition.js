@@ -201,6 +201,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The build-chains view shows heavy-light classification on a sample tree. Highlighted edges are heavy -- they connect each node to its largest-subtree child. Dimmer edges are light. Following heavy edges produces chains; the base-array node shows that each chain has been assigned contiguous positions so an ordinary segment tree can serve range queries over tree data.',
+        {type: 'callout', text: 'Heavy-light decomposition turns a tree path into a few array ranges because every light edge at least halves the remaining subtree.'},
         'The path-query view shows how a query from node 8 to node 6 decomposes. The algorithm does not walk every edge. It repeatedly picks the deeper chain head, queries that chain interval in the base array, jumps to the parent of the chain head, and stops when both endpoints share a chain. The segment-tree node is not a competing structure -- it is the range engine that answers each interval HLD selects.',
         {
           type: 'diagram',
@@ -226,6 +227,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Path queries on trees are awkward. A path between two nodes can zigzag through ancestors and descendants, and the nodes along it do not sit in one contiguous array interval. Segment trees and Fenwick trees are fast at range queries, but they need contiguous intervals to work.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Binary tree diagram with a root and child nodes', caption: 'Heavy-light decomposition starts with rooted-tree structure before selecting preferred child edges. Source: Wikimedia Commons, Binary tree.'},
         'Heavy-light decomposition exists to bridge these two worlds. It lays a static tree into a flat array so that any path decomposes into O(log n) contiguous intervals. Each interval becomes a segment-tree query, turning an arbitrary tree-path aggregate into a small number of array-range operations.',
         'The technique was introduced by Sleator and Tarjan in 1983 as part of their work on self-adjusting data structures. It appears whenever the tree shape is fixed but values on nodes or edges change and path aggregates (max, min, sum, xor) must stay current.',
       ],
@@ -250,6 +252,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Root the tree and run one DFS to compute subtree sizes. At each node, mark the child with the largest subtree as the heavy child. All other children are light. Heavy edges form maximal chains; each node belongs to exactly one chain.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/16-node_Fenwick_tree.svg/500px-16-node_Fenwick_tree.svg.png', alt: 'Fenwick tree diagram showing indexed range-aggregation responsibility', caption: 'After decomposition, chain intervals can be served by an array range structure such as a Fenwick tree. Source: Wikimedia Commons, Fenwick tree.'},
         'Run a second DFS to assign each chain a contiguous range of positions in a base array. Record for each node its chain head (the topmost node in its chain) and its position in the base array. Build a segment tree or Fenwick tree over this array.',
         {
           type: 'code',
@@ -327,6 +330,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'HLD dominates on static trees with changing vertex or edge values and frequent path aggregates. A backbone network where link capacities change and operators need the bottleneck (minimum capacity) between two routers is a textbook fit: HLD maps the path to a few segment-tree min queries, and capacity updates touch one array position.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of server racks in a data center', caption: 'Tree paths appear in infrastructure hierarchies where capacity, ownership, or failure information must be aggregated quickly. Source: Wikimedia Commons, Wikimedia Foundation servers.'},
         'In competitive programming, HLD is a standard tool for ICPC and Codeforces problems involving path queries with updates. Problems like SPOJ QTREE (query the max edge weight on a path, then update an edge), POJ 2763 (path sum with point updates), and Codeforces 343D (subtree + path operations) are classic HLD exercises. The technique composes cleanly with lazy propagation for range updates on paths.',
         {
           type: 'table',

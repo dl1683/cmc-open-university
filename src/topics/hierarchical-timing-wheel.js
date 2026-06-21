@@ -209,6 +209,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Large systems manage huge numbers of timers: network request deadlines, retry delays, session expiry, delayed operations, idle connection cleanup, cache TTLs, and safety timeouts. Most of those timers do not need nanosecond precision. They need to fire close enough to a deadline and be cheap to start, cancel, and expire.',
+        {type: 'callout', text: 'A timing wheel spends precision only near expiration: most timeout work becomes bucket movement instead of global sorting.'},
         'A binary heap gives exact next-deadline ordering, but every insert costs O(log n), and cancellation needs handles or lazy deletion. That is often fine for small timer sets. It becomes expensive when a server creates and cancels millions of approximate timeouts per minute.',
         'A timing wheel trades exact global ordering for bucketed time. Timers go into slots of a circular array. Each tick advances a hand and scans the current bucket. A hierarchy adds coarser wheels so far-future timers do not force one enormous wheel or long round counters.',
       ],
@@ -217,6 +218,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The obvious structure is a binary heap keyed by deadline. It is precise, simple, and often correct. It becomes less attractive when the workload has huge timer counts, frequent cancellation, and tolerance for firing on a nearby tick boundary.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Binary_Heap_with_Array_Implementation.JPG/500px-Binary_Heap_with_Array_Implementation.JPG', alt: 'Binary heap diagram with the corresponding array representation', caption: 'A deadline heap is the baseline timer scheduler that timing wheels often replace at very high churn. Source: Wikimedia Commons, Binary heap with array implementation.'},
         'The opposite mistake is assuming a wheel is always better. If every timer needs strict ordering or high-resolution precision, the wheel tax shows up as rounding, bucket bursts, and more complicated expiry logic.',
         'Another naive approach is one OS timer per logical timeout. That gives the kernel too much bookkeeping and the application too little control over batching, cancellation, and callback pacing. Timing wheels are usually application-level data structures built to manage many logical timers behind a smaller scheduling mechanism.',
       ],
@@ -225,6 +227,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'For a wheel of size W, a timer due in d ticks maps to slot (now + d) mod W. If the deadline is farther than the inner wheel can represent, the timer either carries a rounds counter or waits in an outer wheel until it cascades inward.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/75/RingNetwork.svg', alt: 'Ring network diagram with nodes connected in a circle', caption: 'A timing wheel is also a circular structure: the active cursor repeatedly visits buckets. Source: Wikimedia Commons, Ring network.'},
         'The invariant is bucket eligibility: a timer is only examined when its slot becomes current or when a coarser bucket cascades down. Insertion can be O(1), cancellation can be O(1) with a handle, and tick work is proportional to the timers in the active bucket plus cascades. The price is resolution and possible burstiness.',
         'The deeper idea is that many timeout systems care about scale more than exact ordering. If a request timeout can fire anywhere in the next tick interval, then sorting it precisely among thousands of neighboring deadlines is wasted work. Bucketed time turns that tolerance into cheaper operations.',
       ],
@@ -265,6 +268,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Timing wheels fit numerous, approximate, cancelable timeouts: network I/O deadlines, retry timers, request purgatories, session expiry, cache TTLs, and systems where a timeout is a safety fallback rather than a precise alarm.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'State transition diagram for process states', caption: 'Timeouts and retries drive state transitions in systems that use high-volume timer schedulers. Source: Wikimedia Commons, Process states.'},
         'Kafka request purgatory is the systems example. A delayed request can complete early when its condition becomes true or complete later when the wheel reaches its timeout. Netty uses a hashed wheel for approximate I/O timeout scheduling for the same reason: cheap common-case timer management matters more than microsecond exactness.',
         'The design also appears in kernels, brokers, RPC runtimes, and game servers. Anywhere the system has many future events with bounded precision needs, a wheel is worth considering.',
       ],
