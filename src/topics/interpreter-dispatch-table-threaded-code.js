@@ -139,6 +139,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The dispatch-loop view shows the cycle that dominates every bytecode interpreter: fetch from IP, decode the opcode, execute the handler, update VM state, advance IP, repeat. Active (highlighted) edges are the path the interpreter takes on each tick. The edge from handler to done lights up only when the program terminates.',
+        {type: 'callout', text: 'Dispatch performance is paid per bytecode, so tiny handlers make the branch itself part of the workload.'},
         'The dispatch-cost matrix separates four per-bytecode costs: fetch, dispatch, execute, advance. Each cell names the work and the risk. This is how VM engineers decide what to optimize. If the dispatch row dominates, the interpreter needs better branching. If the execute row dominates, the handler itself is slow and dispatch optimization is irrelevant.',
         'The handler-table view shows the dispatch table as a first-class data structure. Each row maps an opcode to its effect and the VM state it touches. That same metadata drives disassembly, validation, profiling, and documentation in production VMs.',
         {type: 'note', text: 'The word "threaded" in this topic means handlers are threaded together by jumps -- each handler jumps directly to the next. It has nothing to do with OS threads or concurrency.'},
@@ -165,11 +166,11 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The wall appears when bytecodes are small. Consider a tight loop executing CONST, CONST, ADD, STORE, LOAD, JUMP_IF_FALSE, CALL. Some handlers do only 3-5 machine instructions of semantic work, but every one returns to the central loop, branches through the switch, and jumps back out. Dispatch overhead competes with the work the bytecodes exist to perform.',
-        {type: 'table', headers: ['Problem', 'Mechanism', 'Effect on dispatch'], rows: [
-          ['Branch misprediction', 'Real programs produce varied opcode streams; the CPU predictor cannot learn a stable pattern', 'Each misprediction costs 10-20 cycles -- often more than the handler body'],
-          ['Instruction-cache pressure', 'Handler code is spread across memory; the switch scatters control flow', 'Hot handlers evict each other from L1i cache on large opcode sets'],
-          ['Indirect-branch cost', 'Switch compiles to an indirect jump through a table; security mitigations (retpoline, IBT) add overhead', 'Spectre mitigations can double or triple the cost of each dispatch'],
-          ['Redundant loop overhead', 'Every handler returns to one central point, re-fetches the opcode, re-indexes the table', 'Four bytecodes = four round trips through the same loop preamble'],
+        {type: 'bullets', items: [
+          'Branch misprediction: varied opcode streams defeat stable CPU prediction, and each miss can cost more cycles than a tiny handler body.',
+          'Instruction-cache pressure: handler code spreads across memory, so hot handlers can evict each other from L1i on large opcode sets.',
+          'Indirect-branch cost: switch dispatch often lowers to an indirect jump, and retpoline or IBT mitigations can add overhead.',
+          'Redundant loop overhead: every handler returns to one central point, refetches the opcode, and reindexes the table.',
         ]},
         'The wall is not always dispatch. If handlers allocate, call runtime libraries, perform hash lookups, miss data caches, or block on I/O, dispatch optimization barely matters. The engineer must measure whether time goes to the loop itself, to a few hot handlers, or to runtime calls underneath.',
       ],
@@ -178,6 +179,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Three dispatch strategies exist, each answering the same question differently: given an opcode, which block of host-machine code runs next?',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'State transition diagram with process states and arrows', caption: 'A state-machine diagram matches the interpreter loop: each opcode moves the VM from one precise state to the next. Source: Wikimedia Commons, CC BY-SA 3.0.'},
         {type: 'diagram', text: 'Switch dispatch:\n  [bytecode] -> IP -> opcode -> switch { case 0: ...; case 1: ...; } -> loop top\n                                  ^                                        |\n                                  +----------------------------------------+\n\nTable dispatch:\n  [bytecode] -> IP -> opcode -> table[opcode]() -> loop top\n                                  ^                    |\n                                  +--------------------+\n\nThreaded code:\n  [bytecode] -> IP -> handler_A --jump--> handler_B --jump--> handler_C\n                      (no central loop; each handler dispatches the next)', label: 'Control-flow shape of three dispatch strategies'},
         'The instruction pointer identifies the next byte in the bytecode stream. The interpreter fetches the opcode, advances IP past it, reads any operands, and advances IP again. A branch handler overwrites IP instead of advancing sequentially.',
         'In a switch interpreter, the opcode selects a case. In a table interpreter, the opcode is an index into an array of handler pointers. In threaded code, the handler itself fetches the next opcode and jumps directly to the next handler, bypassing the central loop entirely.',
@@ -190,10 +192,10 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'Correctness rests on local composition. If IP starts at a valid instruction, the opcode maps to the correct handler, and the handler preserves its state contract, then one interpreter step produces the VM state that the bytecode semantics require. Repeating the step executes the program.',
-        {type: 'table', headers: ['VM model', 'Primary invariant', 'What breaks if violated'], rows: [
-          ['Stack VM', 'Stack shape: each handler consumes and produces the documented number of values', 'Next handler sees a value in the wrong role -- a silent corruption worse than a crash'],
-          ['Register VM', 'Operand addressing: decoded operands refer to valid registers or constants', 'Handler writes to a wrong destination; corruption propagates through the register window'],
-          ['Control flow', 'IP validity: most handlers leave IP at the next sequential instruction; only branches, calls, returns, and exceptions change it through explicit paths', 'Branch target lands mid-instruction; the decoder reads operand bytes as opcodes'],
+        {type: 'bullets', items: [
+          'Stack VM invariant: each handler consumes and produces the documented number of values. If it breaks, the next handler sees a value in the wrong role.',
+          'Register VM invariant: decoded operands refer to valid registers or constants. If it breaks, a handler writes the wrong destination and corruption propagates.',
+          'Control-flow invariant: most handlers leave IP at the next sequential instruction, while branches, calls, returns, and exceptions change it through explicit paths. If it breaks, a branch can land mid-instruction.',
         ]},
         'Quickened and inline-cache handlers preserve correctness by keeping the language contract stable. A generic property load may become a specialized load after observing an object shape. The specialized handler must produce the same result as the generic one or fall back when its assumption breaks.',
         {type: 'code', text: '// Quickening example: LOAD_ATTR -> LOAD_ATTR_SLOT\n// Generic path:\ncase OP_LOAD_ATTR:\n  obj = peek(0);\n  name = constants[READ_ARG()];\n  result = generic_getattr(obj, name);  // hash lookup\n  // Record shape feedback, maybe quicken:\n  if (can_quicken(obj, name)) rewrite_bytecode(ip, OP_LOAD_ATTR_SLOT, slot);\n  push(result); break;\n\n// Quickened path (runs next time):\ncase OP_LOAD_ATTR_SLOT:\n  obj = peek(0);\n  if (obj->shape == cached_shape)\n    push(obj->slots[READ_ARG()]);  // direct slot read, no hash\n  else\n    goto slow_load_attr;  // shape changed, fall back\n  break;', language: 'c'},
@@ -203,11 +205,11 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'Runtime cost is proportional to executed bytecodes times per-bytecode dispatch cost plus handler work. Dispatch adds a constant per bytecode: fetch opcode, find handler, branch or jump, read operands. Doubling executed bytecodes doubles dispatch work.',
-        {type: 'table', headers: ['Dispatch strategy', 'Per-opcode overhead', 'Memory cost', 'Portability'], rows: [
-          ['Switch', '1 indirect branch + loop return', 'Compact: 1-byte opcodes', 'Standard C/C++ everywhere'],
-          ['Table (function pointers)', '1 indexed load + 1 indirect call', 'Compact opcodes + pointer-sized table', 'Standard C/C++ everywhere'],
-          ['Direct threaded', '1 indexed load + 1 indirect jump (no loop return)', 'Pointer-sized entries replace byte opcodes in the stream', 'Requires computed goto (GCC/Clang extension) or assembly'],
-          ['Indirect threaded', '1 indexed load from table + 1 indirect jump', 'Compact opcodes + pointer-sized table', 'Requires computed goto or assembly'],
+        {type: 'bullets', items: [
+          'Switch dispatch: one indirect branch plus a loop return; compact one-byte opcodes; standard C and C++ portability.',
+          'Function-pointer table: one indexed load plus one indirect call; compact opcodes plus a pointer-sized table; standard C and C++ portability.',
+          'Direct threaded dispatch: one indexed load plus one indirect jump with no loop return; pointer-sized entries replace byte opcodes; requires computed goto or assembly.',
+          'Indirect threaded dispatch: one table load plus one indirect jump; compact opcodes plus a pointer-sized table; requires computed goto or assembly.',
         ]},
         'Bytecode granularity is the main design tradeoff. Tiny bytecodes are easy to generate and compose but multiply dispatch count. Rich bytecodes reduce dispatch but need more decoding, more specialized handlers, and more complex tooling. Production VMs use a mix: simple core bytecodes, quickened variants, and superinstructions for common pairs.',
         {type: 'bullets', items: [
@@ -220,10 +222,10 @@ export const article = {
     {
       heading: 'Where it wins',
       paragraphs: [
-        {type: 'table', headers: ['Strategy', 'Best fit', 'Why'], rows: [
-          ['Switch loop', 'Teaching VMs, small languages, runtimes where interpreted code is not the bottleneck', 'Maximizes clarity, portability, debuggability; contract is visible in the source'],
-          ['Explicit handler table', 'VMs that need metadata per opcode: printers, validators, profilers, quickening infrastructure', 'One central registry for opcode name, operand width, stack effect, handler pointer, and flags'],
-          ['Threaded code', 'Low-level interpreters where handlers are tiny, bytecode is hot, and measurement shows the central switch is a real cost', 'Eliminates loop-return overhead; can improve branch prediction by spreading dispatch sites'],
+        {type: 'bullets', items: [
+          'Switch loop: best for teaching VMs, small languages, and runtimes where interpreted code is not the bottleneck; maximizes clarity, portability, and debugging.',
+          'Explicit handler table: best for VMs that need metadata per opcode; centralizes opcode name, operand width, stack effect, handler pointer, and flags.',
+          'Threaded code: best for low-level interpreters with tiny hot handlers where measurement shows the central switch is a real cost; reduces loop-return overhead.',
         ]},
         'All dispatch strategies win when paired with good bytecode design. Reducing unnecessary instructions, using operands that match the VM state model, combining common sequences into superinstructions, and keeping hot handlers small often matter more than the dispatch mechanism.',
         {type: 'note', text: 'CPython 3.12+ uses a combination: a computed-goto threaded interpreter with adaptive specialization (quickening). V8 Ignition uses a handler table with generated handler stubs. Lua 5.4 uses a switch loop. All three are successful production VMs. The dispatch strategy is one variable among many.'},
@@ -239,12 +241,12 @@ export const article = {
           'Security mitigations (retpoline, IBT, CET) can make indirect branches so expensive that threaded code loses its advantage over a well-optimized switch.',
         ]},
         'The common correctness failures are specific and dangerous:',
-        {type: 'table', headers: ['Bug', 'Symptom', 'Defense'], rows: [
-          ['Wrong operand width', 'Handler reads 2 bytes for a 1-byte operand; IP skips into the middle of the next instruction', 'Bytecode verifier checks operand sizes before execution'],
-          ['Stack height mismatch', 'Handler pops 1 value instead of 2; next handler sees stale data in the wrong role', 'Stack-map validation; debug-mode stack-depth tracking'],
-          ['Stale quickened handler', 'Object shape changed but the specialized handler still assumes the old layout', 'Shape guards with fallback to the generic path; invalidation on shape transition'],
-          ['Branch into mid-instruction', 'Jump target lands on an operand byte, decoded as a different opcode', 'Verifier rejects jumps to non-instruction-start offsets'],
-          ['Call handler forgets to save IP', 'Return resumes at the wrong address; silent corruption or crash', 'Assertion that saved-IP points to a valid instruction boundary'],
+        {type: 'bullets', items: [
+          'Wrong operand width: a handler reads two bytes for a one-byte operand, so IP skips into the middle of the next instruction. Defense: verify operand sizes before execution.',
+          'Stack height mismatch: a handler pops one value instead of two, so the next handler sees stale data in the wrong role. Defense: stack-map validation and debug-mode depth tracking.',
+          'Stale quickened handler: object shape changed but the specialized handler still assumes the old layout. Defense: shape guards, generic fallback, and invalidation on shape transition.',
+          'Branch into mid-instruction: a jump target lands on an operand byte and decodes it as another opcode. Defense: reject jumps to non-instruction-start offsets.',
+          'Call handler forgets to save IP: return resumes at the wrong address. Defense: assert that saved IP points to a valid instruction boundary.',
         ]},
         'Good VMs defend with bytecode verification, debug assertions, disassembly, execution tracing, fuzzing, and slow reference paths. Dispatch is performance-sensitive, but it is also the interpreter control plane. Speed is only useful after handler contracts are boringly correct.',
       ],
@@ -252,12 +254,12 @@ export const article = {
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {type: 'table', headers: ['Source', 'What it covers'], rows: [
-          ['Crafting Interpreters, ch. 15 "A Virtual Machine" -- https://craftinginterpreters.com/a-virtual-machine.html', 'Complete switch-dispatch interpreter in C with stack, constants, and control flow'],
-          ['V8 Ignition design -- https://v8.dev/blog/ignition-interpreter', 'Production handler-table interpreter with register allocation, feedback vectors, and JIT integration'],
-          ['V8 Ignition docs -- https://v8.dev/docs/ignition', 'Bytecode format, handler generation, and interaction with TurboFan'],
-          ['Anton Ertl, "The Structure and Performance of Efficient Interpreters" (JFP 2003)', 'Empirical comparison of switch, direct-threaded, and indirect-threaded dispatch on real hardware'],
-          ['WebAssembly Core Spec, Execution -- https://www.w3.org/TR/wasm-core-2/', 'Formal bytecode semantics and validation rules for a stack machine'],
+        {type: 'bullets', items: [
+          'Crafting Interpreters, chapter 15, A Virtual Machine, https://craftinginterpreters.com/a-virtual-machine.html: complete switch-dispatch interpreter in C with stack, constants, and control flow.',
+          'V8 Ignition design, https://v8.dev/blog/ignition-interpreter: production handler-table interpreter with register allocation, feedback vectors, and JIT integration.',
+          'V8 Ignition docs, https://v8.dev/docs/ignition: bytecode format, handler generation, and interaction with TurboFan.',
+          'Anton Ertl, The Structure and Performance of Efficient Interpreters, JFP 2003: empirical comparison of switch, direct-threaded, and indirect-threaded dispatch on real hardware.',
+          'WebAssembly Core Spec, Execution, https://www.w3.org/TR/wasm-core-2/: formal bytecode semantics and validation rules for a stack machine.',
         ]},
         {type: 'bullets', items: [
           'Prerequisite: Bytecode Stack Virtual Machine (stack effects and operand contracts).',

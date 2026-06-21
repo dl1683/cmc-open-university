@@ -212,6 +212,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'LLM serving can waste time without changing the model at all. Small kernels may repeatedly write intermediate tensors to HBM. The CPU may launch the same decode graph thousands of times. The GPU can be ready while the runtime is still feeding it work.',
+        {type: 'callout', text: 'Serving speed often comes from deleting coordination and memory traffic, not from changing the model.'},
         'Kernel fusion and CUDA graphs exist to remove those costs. Fusion reduces memory traffic by combining adjacent operations. CUDA graphs reduce launch overhead by capturing a stable dependency graph and replaying it. Both are execution-path optimizations: they do not change the model objective, but they can change latency, throughput, and cost.',
       ],
     },
@@ -226,6 +227,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'Fusion is about locality. If matmul, bias, activation, normalization, or softmax-adjacent work can keep intermediates in registers or SRAM, the runtime avoids extra high-bandwidth-memory reads and writes. FlashAttention is the canonical transformer example: exact attention, but tiled to avoid large HBM intermediates.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die with many compute blocks and memory interfaces', caption: 'Kernel fusion is about keeping values near compute instead of paying repeated off-chip memory trips. Source: Wikimedia Commons, Nvidia, public domain.'},
         'CUDA graphs are about launch overhead and dependency reuse. Instead of asking the CPU to launch each kernel every decode step, the runtime captures a graph of GPU operations and replays it for hot shapes.',
       ],
     },

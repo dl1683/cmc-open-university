@@ -167,6 +167,7 @@ export const article = {
       heading: 'What problem io_uring solves',
       paragraphs: [
         'A busy server spends much of its life waiting on the kernel. It accepts sockets, reads files, writes responses, arms timeouts, cancels work, and cleans up after clients that disappear. The CPU may be free, but each operation still crosses the user-kernel boundary. If every request blocks a thread, memory and scheduler overhead grow with the number of outstanding operations. If the server uses readiness APIs, it avoids most blocked threads, but it still has to ask the kernel which descriptors are ready, issue the operation, and handle partial progress.',
+        {type: 'callout', text: 'io_uring turns coordination into head and tail ownership: user space publishes requests, kernel publishes completions.'},
         'io_uring exists to make high-concurrency I/O look like two shared queues. User space writes requests into a submission side. The kernel writes results into a completion side. The application can publish many operations, ring the kernel once, and later drain many completions. The data-structure lesson is simple: when both sides already agree on a bounded ring buffer layout, the hot path can become head/tail movement plus batched work instead of one syscall per small step.',
       ],
     },
@@ -181,6 +182,7 @@ export const article = {
       heading: 'The core data structure',
       paragraphs: [
         'An io_uring instance has a submission queue, a completion queue, and a separate array of submission queue entries. The application fills an SQE with an operation code, file descriptor or registered file slot, buffer address or registered buffer slot, length, offset, flags, and a user_data value. It then publishes the SQE index into the submission ring and advances the submission tail. The kernel consumes those indexes, reads the SQEs, executes the operations, and writes CQEs into the completion ring.',
+        {type: 'image', src: 'https://developers.redhat.com/sites/default/files/uring_0.png', alt: 'io_uring submission and completion queues shared between application and kernel', caption: 'The two shared rings show the ownership contract: app writes SQ tail, kernel writes CQ tail. Source: Red Hat Developer, Donald Hunter.'},
         'The completion queue entry is the receipt. It carries the original user_data field, a result value, and flags. The result is often a byte count or a negative errno. user_data is the stable join key because completions do not have to arrive in submission order. A server might submit accept, read, timeout, and send operations in one batch. The CQE tells the server exactly which request state to resume.',
       ],
     },

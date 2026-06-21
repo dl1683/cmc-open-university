@@ -136,6 +136,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows two transactions running concurrently against the same database. Each row is a moment in time. The three columns show what Transaction A does, what Transaction B does, and what the committed truth in the database actually is.',
+        {type: 'callout', text: 'Isolation levels are promises about which concurrent histories the database will refuse to expose.'},
         'Warning markers flag the dangerous moment: a transaction acting on data it should not trust. Compare markers highlight the two reads or checks that disagree. The gap between what a transaction sees and what is actually committed is the anomaly.',
         'Switch between "the classic anomalies" view (dirty read, non-repeatable read, phantom read) and "the isolation ladder & MVCC" view (the four SQL levels, write skew, version mechanics, and engine defaults). Each frame is one clock tick in a concurrent schedule.',
       ],
@@ -167,6 +168,7 @@ export const article = {
       paragraphs: [
         'ACID properties divide the problem. Atomicity uses a write-ahead log (WAL): every change is written to a durable log before modifying data pages, so a crash can replay committed changes or discard uncommitted ones. Consistency is enforced by constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK) evaluated at commit time. Durability uses the same WAL plus fsync: the log record hits stable storage before the transaction reports success. Isolation is the complex one and uses concurrency control.',
         'The SQL standard defines four isolation levels by the anomalies they permit. READ UNCOMMITTED allows dirty reads: a transaction can see another transaction\'s uncommitted writes, which may be rolled back. READ COMMITTED blocks dirty reads but allows non-repeatable reads: the same row queried twice in one transaction can return different committed values. REPEATABLE READ blocks non-repeatable reads but may allow phantom reads: a range query can return new rows inserted by a concurrent committed transaction. SERIALIZABLE blocks all three anomalies and adds protection against write skew.',
+        {type: 'image', src: 'https://cwiki.apache.org/confluence/download/attachments/170266055/Screen%20Shot%202021-04-13%20at%206.40.18%20PM.png?api=v2&modificationDate=1618364438000&version=1', alt: 'Isolation level ladder from read uncommitted through serializable', caption: 'The isolation ladder places snapshot isolation between read committed and serializable, matching the tradeoff the article explains. Source: Apache Hudi RFC 22.'},
         'Two major implementation strategies exist. Two-Phase Locking (2PL) acquires locks as it accesses data and releases them only after commit. Strict 2PL holds write locks until commit, preventing dirty reads. Predicate locks or gap locks (as in MySQL InnoDB) protect against phantoms by locking index ranges, not just existing rows. The cost is blocking: readers wait for writers and writers wait for each other.',
         'Multi-Version Concurrency Control (MVCC) takes a different approach. Each update creates a new version of the row. Readers see a snapshot defined by their transaction\'s start time and ignore newer versions. Writers still conflict with each other on the same row, but readers never block writers and writers never block readers. PostgreSQL, Oracle, MySQL InnoDB, and CockroachDB all use MVCC. The cost is version storage and cleanup: old versions linger until no active snapshot can see them (PostgreSQL VACUUM, InnoDB purge thread).',
         'Serializable Snapshot Isolation (SSI), introduced by Cahill, Roeth, and Fekete in 2008 and implemented in PostgreSQL 9.1, extends MVCC to detect serialization anomalies. SSI tracks read and write dependencies between concurrent transactions and aborts any transaction that would create a dangerous cycle (two consecutive rw-antidependency edges). It provides true serializability without the blocking of 2PL, at the cost of occasional aborts that the application must retry.',
@@ -223,4 +225,3 @@ export const article = {
     },
   ],
 };
-

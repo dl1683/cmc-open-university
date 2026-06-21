@@ -190,6 +190,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation builds a synthetic world where every equation is visible. Ability (unobserved by the analyst) drives both schooling and wages. The true causal effect of one extra year of schooling is exactly 3, written into the data generator. Active cells mark the current estimator being computed. Removed cells flag biased results. Found cells mark the recovered causal effect.',
+        {type: 'callout', text: 'IV works only when the instrument creates treatment variation that is independent of the hidden common cause.'},
         'The first view shows the confounding trap: naive OLS returns roughly 5.92 instead of 3, because ability inflates the slope. The second view walks through famous instruments, the weak-instrument amplification, and the LATE interpretation. At each frame, check: which comparison is being made, what assumption licenses it, and what would break if that assumption failed.',
         {
           type: 'diagram',
@@ -225,6 +226,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The wall is the unmeasured confounder. Standard causal inference says: identify every path from treatment to outcome that runs through a common cause, then block those paths by conditioning. This requires the common cause to be observable. When the confounder is unobserved, no amount of statistical adjustment can block the backdoor path. The bias is structural, not statistical.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A directed graph is the right mental model for IV: the instrument must push treatment while avoiding every private path to outcome. Source: Wikimedia Commons, David W., public domain.'},
         'Concretely: ability enters the schooling equation (smarter kids study more) and the wage equation (smarter people earn more independently of schooling). Any regression of wage on schooling picks up both the direct effect of schooling and the spurious correlation through ability. The bias does not shrink with more data. It does not disappear with nonlinear models. It is baked into the joint distribution of the observed variables. You need a fundamentally different identification strategy -- one that does not require observing or adjusting for the confounder at all.',
       ],
     },
@@ -258,13 +260,12 @@ export const article = {
         'Computationally, 2SLS is two OLS regressions: O(nk^2) for the first stage and O(np^2) for the second, where k is the number of instruments and p is the number of second-stage regressors. This is trivial for any dataset that fits in memory. The real cost is not computational but epistemic.',
         'Finding a valid instrument requires domain expertise, institutional knowledge, and creative observation. The exclusion argument must be defended qualitatively. Standard errors are larger than OLS because IV uses only the instrument-driven variation in treatment, discarding the rest. Weak instruments (small first-stage F-statistic) inflate variance and bias. The folk rule is F > 10 for a single endogenous regressor (Stock & Yogo 2005), but modern practice uses effective F-statistics and weak-instrument-robust confidence intervals.',
         {
-          type: 'table',
-          headers: ['Method', 'Handles unmeasured confounders?', 'Key assumption', 'What it estimates', 'Main weakness'],
-          rows: [
-            ['OLS', 'No -- biased when confounders are omitted', 'No omitted variables (all confounders measured)', 'Conditional mean association (not causal if confounded)', 'Cannot separate causal from spurious correlation'],
-            ['IV / 2SLS', 'Yes -- the core use case', 'Exclusion restriction + relevance + independence', 'LATE (Local Average Treatment Effect for compliers)', 'Weak instruments amplify bias; exclusion is untestable'],
-            ['Control function', 'Yes -- models the confounder\'s residual', 'Correct first-stage specification + joint normality or known error distribution', 'ATE under distributional assumptions', 'Sensitive to functional-form misspecification'],
-            ['Regression discontinuity', 'Yes -- near the cutoff', 'Continuity of potential outcomes at the threshold', 'LATE at the cutoff', 'Identifies effect only at one point; requires sharp threshold'],
+          type: 'bullets',
+          items: [
+            'OLS: biased when confounders are omitted; assumes all confounders are measured; estimates association rather than causation under confounding.',
+            'IV and 2SLS: handles unmeasured confounders when relevance, independence, and exclusion hold; estimates LATE for compliers; weak instruments amplify bias.',
+            'Control function: models the residual confounder signal; can identify ATE under distributional assumptions; sensitive to functional-form error.',
+            'Regression discontinuity: uses continuity at a threshold; estimates a local effect near the cutoff; sharp threshold design limits external reach.',
           ],
         },
       ],
@@ -317,18 +318,16 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Direction', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'Causal Graphs, Confounding & Simpson\'s Paradox', 'The backdoor criterion explains why adjustment works when confounders are measured -- and why IV is needed when they are not'],
-            ['Prerequisite', 'A/B Testing & p-values', 'Randomized experiments sever confounding by design; IV recovers a similar comparison from observational data'],
-            ['Extension', 'Regression Discontinuity', 'Another natural-experiment design that exploits a threshold instead of an instrument'],
-            ['Extension', 'Difference-in-Differences', 'Panel-data identification using time variation; often combined with IV'],
-            ['Extension', 'Doubly Robust Estimation', 'When confounders ARE measured, doubly robust methods combine regression and weighting for added protection'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Causal Graphs, Confounding and Simpson Paradox explains why adjustment works when confounders are measured and why IV is needed when they are not.',
+            'Prerequisite: A/B Testing and p-values shows how randomized experiments sever confounding by design; IV recovers a related comparison from observational data.',
+            'Extension: Regression Discontinuity exploits a threshold instead of an instrument.',
+            'Extension: Difference-in-Differences uses panel-time variation and is often combined with IV.',
+            'Extension: Doubly Robust Estimation combines regression and weighting when confounders are measured.',
           ],
         },
       ],
     },
   ],
 };
-

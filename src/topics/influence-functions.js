@@ -187,6 +187,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The first view shows a scatter plot of ten training emails with two features (exclamation marks, ALL-CAPS words) and a logistic-regression decision boundary. The test email is marked with its current spam probability. Active markers are examples whose deletion is being measured. Visited markers are examples already evaluated. Found markers highlight the most influential examples.',
+        {type: 'callout', text: 'Influence is a counterfactual data question: remove one training point and measure how the trained model would move.'},
         'The ledger view shows each training example as a row, with one column: the change in the test email\'s spam probability when that example is removed and the model is retrained from scratch. Negative values mean the example was supporting the spam verdict; removing it lowers the score. Positive values mean the example was pushing against it.',
         'The second trace injects a mislabeled point and measures each example\'s effect on clean validation loss instead of a single test prediction. The example whose removal most improves held-out loss is the strongest candidate for a label error.',
       ],
@@ -222,6 +223,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The core idea from Cook (1977), extended by Koh and Liang (2017), is to ask: if I infinitesimally upweight one training example z, how does the optimal parameter vector theta-hat change? The answer is a classic result from robust statistics. Upweighting z by a small epsilon shifts the optimum by approximately -H_inv * grad_L(z, theta-hat), where H is the Hessian of the total training loss at the optimum and grad_L(z, theta-hat) is the gradient of the loss on example z.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock loss surface with a curved valley', caption: 'A curved loss surface makes the Hessian idea concrete: influence estimates how a small training-weight change moves the optimum through local curvature. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'},
         {
           type: 'code',
           language: 'python',
@@ -242,13 +244,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Method', 'Cost per example', 'Total for n examples', 'Accuracy'],
-          rows: [
-            ['Leave-one-out retraining', 'Full retrain (hours/days)', 'n retrains', 'Exact (gold standard)'],
-            ['Influence functions (Koh & Liang)', 'One H^{-1}*v product', 'O(n*p) after one-time Hessian work', 'Tight for convex; approximate for deep nets'],
-            ['TracIn (Pruthi et al. 2020)', 'Gradient dot-product per checkpoint', 'O(n * checkpoints * p)', 'Cheap, noisy, checkpoint-dependent'],
-            ['Data Shapley (Ghorbani & Zou 2019)', 'Monte Carlo over subset permutations', 'O(n * 2^n) exact; Monte Carlo in practice', 'Game-theoretic value; expensive even approximated'],
+          type: 'bullets',
+          items: [
+            'Leave-one-out retraining: full retrain per example, n retrains total, exact gold standard.',
+            'Influence functions from Koh and Liang: one H^{-1}*v product per example after one-time Hessian work, tight for convex models and approximate for deep nets.',
+            'TracIn from Pruthi et al.: gradient dot-product per checkpoint, cheaper than Hessian methods but noisier and checkpoint-dependent.',
+            'Data Shapley from Ghorbani and Zou: Monte Carlo over subset permutations in practice, game-theoretic but expensive even when approximated.',
           ],
         },
         'The Hessian-inverse-vector product is the bottleneck for influence functions. With LiSSA, each product costs O(t * p) where t is the number of Neumann iterations and p is the parameter count. Once you have H^{-1} * grad_z for a training point, computing influence on any test point is a single dot product. This means the expensive work is per-training-point, and you can amortize it across many test queries.',
@@ -290,19 +291,17 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Logistic Regression -- the model geometry used in this visualization'],
-            ['Prerequisite', 'Cross-Validation & Honest Evaluation -- the held-out discipline that validates influence claims'],
-            ['Extension', 'Data Shapley Valuation -- game-theoretic alternative to pointwise influence'],
-            ['Extension', 'Poisoning Attack Threat Model -- adversarial setting where influence is a defense'],
-            ['Contrast', 'Saliency Maps & Feature Attribution -- feature-side explanations vs. data-side explanations'],
-            ['Contrast', 'LIME: Explaining Black Boxes Locally -- local function approximation vs. training-data attribution'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Logistic Regression gives the model geometry used in this visualization.',
+            'Prerequisite: Cross-Validation and Honest Evaluation gives the held-out discipline that validates influence claims.',
+            'Extension: Data Shapley Valuation gives a game-theoretic alternative to pointwise influence.',
+            'Extension: Poisoning Attack Threat Model gives the adversarial setting where influence becomes a defense.',
+            'Contrast: Saliency Maps and Feature Attribution explain input features rather than training data.',
+            'Contrast: LIME explains black boxes through local function approximation rather than training-data attribution.',
           ],
         },
       ],
     },
   ],
 };
-

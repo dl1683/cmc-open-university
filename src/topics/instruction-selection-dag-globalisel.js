@@ -139,6 +139,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A compiler middle end wants a stable language for optimization. It should be able to reason about add, load, branch, call, vector operation, and memory ordering without knowing every addressing mode and immediate encoding of every processor. That is why IR is target-independent: it preserves program meaning while hiding machine details.`,
+        {type: `callout`, text: `Instruction selection is the contract that preserves IR meaning while spending target-specific machine affordances.`},
         `Machine code has the opposite requirement. It must use the exact operations that the target instruction set provides. One CPU may fold address arithmetic into a load. Another may need separate shift, add, and load instructions. One target may have condition flags. Another may use compare results in registers. One vector width may be legal in hardware while another must be split.`,
         `Instruction selection exists at this boundary. It lowers portable IR into target-shaped Machine IR: opcodes, operands, register classes, addressing modes, memory forms, condition codes, call sequences, and pseudo-instructions that later backend passes can allocate, schedule, and emit.`,
       ],
@@ -155,6 +156,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `Instruction selection is not a single lookup table. It is a staged conversion from target-independent meaning to target-legal machine operations. First, the backend legalizes operations and types that the target cannot represent. Then it combines equivalent shapes into forms the target can use well. Then it matches those legal shapes to concrete instructions.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed acyclic graph with nodes connected by arrows`, caption: `A DAG visual is a useful base model for instruction selection because legal combines depend on data edges, not text order. Source: Wikimedia Commons, David W., public domain.`},
         `For example, the expression y = a + b * 4 has several legal implementations. An x86-like target may fold b * 4 into a scaled index addressing mode or select an lea instruction. A simpler RISC target may emit shift-left by two followed by add. A target with a special multiply-add may use that when profitable. The source meaning is the same; the target affordances differ.`,
         `The insight is that the backend should keep the middle-end IR clean while letting each target describe its own legality and patterns. Target independence and target exploitation are not opposites. Instruction selection is the layer that lets them coexist.`,
       ],

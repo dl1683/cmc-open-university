@@ -234,6 +234,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The build-postings view shows the inversion: raw documents on the left become sorted postings lists on the right. Active (highlighted) cells mark the terms or doc ids currently being processed. Found markers indicate completed postings entries whose sorted order is now locked in.',
+        {type: 'callout', text: 'An inverted index wins by proving absence cheaply: only documents in the postings lists become candidates.'},
         'The segment frames show the production lifecycle: buffer, flush, search, merge. Active nodes are the write path; compare-highlighted nodes are the merge path.',
         'In the query-execution view, active postings lists are the ones participating in the current Boolean intersection. The two-pointer table steps through the merge. Found markers in the action column are emitted matches. If a document is absent from a postings list, it never appears as a candidate -- that is the whole point.',
       ],
@@ -257,6 +258,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Map each normalized term to a postings list. A posting says that the term appears in a document, usually with extra data such as term frequency, positions, fields, payloads, or block-level score metadata.',
+        {type: 'image', src: 'https://iq.opengenus.org/content/images/2022/02/IMG_20210321_095052.JPG', alt: 'Inverted index diagram with term dictionary, document frequency, and posting lists', caption: 'The posting-list diagram makes the reversal visible: terms point to sorted document ids, not the other way around. Source: OpenGenus IQ, Shubham Sood.'},
         'The key invariant is that each postings list is sorted by document id. Sorted postings make Boolean intersection a merge problem, make skipping possible, and let query engines move monotonically through candidate documents.',
         'Positions add another invariant: within a document, occurrences are ordered. That is what lets phrase and proximity queries test word order after the document-level candidates have been found.',
       ],

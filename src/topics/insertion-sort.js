@@ -67,6 +67,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The array has an invisible wall between sorted and unsorted territory. Everything to the left of the wall is sorted relative to each other. Everything to the right has not been touched yet.',
+        {type: 'callout', text: 'The sorted prefix is the invariant: every step preserves it while absorbing exactly one new value.'},
         'The active highlight marks the value being inserted. The compare highlights show it being tested against sorted-prefix values from right to left. Each comparison that finds a larger value triggers a shift: that larger value copies one slot right, opening a gap. When the walk stops, the found highlight marks where the active value lands.',
         'Watch the sorted prefix (marked in green) grow by one element each round. If the active value is already in place, no shifting happens and the prefix just extends. On nearly-sorted input most rounds look like that. On reversed input every round shifts the entire prefix.',
       ],
@@ -75,6 +76,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Pick up a hand of playing cards. Each new card goes into the right spot among the cards you already hold. You do not re-sort the whole hand; you slide a few cards over and drop the new one in. Insertion sort turns that gesture into an array algorithm.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/0f/Insertion-sort-example-300px.gif', alt: 'Animated insertion sort moving each value into a sorted prefix', caption: 'The animation shows the sorted prefix growing while the active value shifts left into its slot. Source: Wikimedia Commons, insertion sort animation.'},
         'The idea is ancient, but Donald Shell formalized its importance in 1959 when he built Shellsort on top of it: run insertion sort with large gaps first, shrink the gaps, and finish with a standard insertion pass on a nearly-sorted array. That design works because insertion sort is fast when disorder is local.',
         'Among the quadratic sorts, insertion sort is the best choice for nearly-sorted data. Bubble sort always makes full passes. Selection sort always scans the entire unsorted region. Insertion sort does work proportional to how far values actually need to move, so it can finish in near-linear time when the input is almost ordered.',
       ],

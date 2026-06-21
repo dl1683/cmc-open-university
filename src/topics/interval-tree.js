@@ -179,6 +179,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each node is one interval drawn as a labeled bar with a start and end value. The tree arranges these intervals into a BST ordered by the low endpoint. Every node carries a "max" annotation: the largest high endpoint anywhere in its subtree. During a query, active (highlighted) nodes are being examined. Found nodes overlap the query range. Removed or dimmed nodes belong to subtrees that were pruned -- their max endpoint proved no interval inside could possibly reach the query.',
+        {type: 'callout', text: 'The max endpoint is a pruning certificate: it proves an entire subtree ends before the query begins.'},
         'Switch between the two views to see both halves of the design. The overlap-query view traces a search through the tree, showing where the max annotation lets the algorithm skip entire branches. The maintain-max-endpoint view shows the cost side: how insertions propagate max updates back toward the root, and why rotations must recompute max before queries stay correct.',
       ],
     },
@@ -207,6 +208,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Augment a balanced BST with one extra field per node: the maximum high endpoint in that node\'s entire subtree. This single number is a pruning certificate. If a subtree\'s max is less than the query\'s low value, every interval in that subtree ends before the query begins, so none can overlap. The entire branch is safe to skip.',
+        {type: 'image', src: 'https://liujunming.top/images/2018/9/7.png', alt: 'Example interval tree nodes with low endpoint and subtree max endpoint labels', caption: 'The diagram labels the two fields that matter: each interval low endpoint orders the BST, and subtree max decides pruning. Source: liujunming.top, Interval Tree.'},
         'The invariant is local: node.max = max(node.high, left.max, right.max). It depends only on the node and its two children, so rotations can repair it in O(1) per affected node.',
       ],
     },
