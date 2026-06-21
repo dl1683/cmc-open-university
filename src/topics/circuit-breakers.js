@@ -158,6 +158,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. The first shows the breaker state machine: CLOSED, OPEN, and HALF-OPEN as graph nodes, with edges for each transition. Active (highlighted) marks the current state. Found marks a successful recovery path. Removed marks a sick dependency or a tripped transition.',
+        {type: 'callout', text: 'A circuit breaker protects the caller by turning collective failure evidence into a fast state transition before the dependency consumes the whole resource pool.'},
         'The second view shows an incident timeline as a matrix. Each row is a moment in the incident. The "event" column shows what happened; the "pool" column shows how many threads are blocked. Removed cells are the worst damage. Found cells are the recovery point. Compare cells mark peak resource capture.',
         'Watch the pool column across the timeline. The key inference: once the breaker trips (removed), the pool drains (compare drops), and the system recovers (found). If pool utilization stayed high after the trip, the breaker would not be working.',
       ],
@@ -189,6 +190,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Stop treating each request independently. Instead, track recent outcomes in a rolling window and make a collective decision: if enough recent calls failed, stop sending any traffic to that dependency.',
+        {type: 'image', src: 'https://martinfowler.com/bliki/images/circuitBreaker/state.png', alt: 'Circuit breaker closed open and half-open state diagram', caption: 'The three states make the protection rule concrete: normal calls flow, failures open the circuit, and half-open probes test recovery. Source: Martin Fowler, https://martinfowler.com/bliki/CircuitBreaker.html.'},
         'The breaker is a three-state machine. CLOSED means calls flow normally and the breaker counts outcomes. When failures cross a threshold, the breaker trips to OPEN. OPEN means every call to that dependency fails immediately -- no socket opened, no thread blocked, response in microseconds instead of 30 seconds. After a cooldown period, the breaker moves to HALF-OPEN and allows a small number of probe requests through. If the probe succeeds, the breaker closes and traffic resumes. If the probe fails, the breaker opens again.',
         'The key invariant is resource preservation. An OPEN breaker converts a 30-second hang into a sub-millisecond failure, so the caller\'s thread pool stays available for other work.',
       ],
@@ -197,6 +199,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The breaker wraps a single dependency operation. Each call passes through the wrapper, which checks the current state before deciding whether to forward or reject.',
+        {type: 'image', src: 'https://martinfowler.com/bliki/images/circuitBreaker/sketch.png', alt: 'Circuit breaker wrapper sitting between caller and supplier', caption: 'The wrapper is the architectural boundary: every protected call passes through policy before it can reach the dependency. Source: Martin Fowler, https://martinfowler.com/bliki/CircuitBreaker.html.'},
         'In CLOSED state, the wrapper sends the call, records the outcome (success, failure, timeout, slow response), and updates a rolling failure window. The trip rule evaluates the window: for example, "at least 10 requests in the last 10 seconds, and more than 50% failed." Requiring a minimum volume prevents a single failed request from tripping the breaker on low-traffic paths.',
         'In OPEN state, the wrapper returns immediately without contacting the dependency. The caller gets a fallback value, a cached response, a degraded feature, or a fast error -- whatever the team configured for that operation. A cooldown timer starts when the breaker opens, typically 15-60 seconds.',
         'When the cooldown expires, the breaker enters HALF-OPEN and allows a small number of probe requests through (often just one). The probe hits the real dependency. If it succeeds, the breaker closes and resets its failure counters. If it fails, the breaker reopens and the cooldown restarts. Good implementations keep probe concurrency low to avoid flooding a recovering dependency.',

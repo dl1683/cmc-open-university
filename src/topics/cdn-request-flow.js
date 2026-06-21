@@ -106,6 +106,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for CDN Request Flow. Follow one HTTP request through DNS, an edge cache, a load balancer, and the origin..",
+        {type: "callout", text: "A CDN turns one global origin into many nearby cache decisions, so the common path ends at the edge."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -115,6 +116,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `A CDN puts cached copies of content at edge locations near users. The visualization follows a user in Mumbai requesting cat.jpg while the origin servers live in Virginia. A direct origin trip is slow because physics matters. The CDN tries the nearby Mumbai edge first. If the edge has the file, the origin is not involved. If the edge is cold, it fetches the file once, stores it, and the next local user gets the fast path.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/26/NCDN_-_CDN.svg`, alt: `Diagram comparing a single origin server with a content delivery network of edge caches`, caption: `A CDN replaces one long origin path with many nearby edge caches that can answer repeat requests. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:NCDN_-_CDN.svg.`},
         `This page composes several systems topics into one everyday request: How DNS Works chooses an edge, TCP: Handshake & Congestion Control carries bytes across each path, HPACK Dynamic Table HTTP/2 Case Study explains how repeated request headers shrink on an HTTP/2 connection, HTTP/3 over QUIC explains the modern stream mapping, QPACK Dynamic Table HTTP/3 explains the newer header-compression state, and the edge cache decides whether the request stops nearby or continues to origin.`,
       ],
     },
@@ -137,6 +139,7 @@ export const article = {
       paragraphs: [
         `Step 1 is DNS steering. GeoDNS can return the Mumbai edge to one user and Frankfurt to another. Inside an edge cluster, Consistent Hashing can choose which cache machine owns a URL. The cache behaves like an LRU Cache for hot objects. A hit in the demo is served in about 20 ms, and the Virginia origin never sees the request.`,
         `On a miss, the edge becomes a client. It crosses the long path to a Load Balancer, which selects an origin. A Rate Limiter (Token Bucket) protects the origin from stampedes when many edges miss at once. The origin responds with Cache-Control: max-age=86400, so the edge may keep the file for 24 hours. The first Mumbai user pays roughly 110 ms; later local users pay the hit latency.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/67/Reverse_proxy_h2g2bob.svg`, alt: `Reverse proxy diagram showing client requests passing through an intermediary to a server`, caption: `On a miss, the edge acts like a reverse proxy: it forwards to origin, stores the response, and then answers future local requests. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Reverse_proxy_h2g2bob.svg.`},
       ],
     },
     {
@@ -157,6 +160,7 @@ export const article = {
       heading: `Cost and behavior`,
       paragraphs: [
         `The data-structure cost of a hit is tiny; the infrastructure cost is enormous: edge sites, storage, network contracts, monitoring, and purge systems. Hit ratio is the business metric. Static assets can reach very high hit rates; personalized or uncacheable responses may miss constantly. Tail Latency & p99 Thinking matters because users feel the misses and slow purges, not the average hit.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg`, alt: `Server racks in a datacenter with dense cabling and infrastructure`, caption: `CDN performance is bought with physical edge capacity, storage, networking, monitoring, and purge control planes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg.`},
         `Invalidation is the hard part. When cat.jpg changes, every edge may hold the old copy until max-age expires or a purge propagates. Cache Invalidation & Versioning gives the safer pattern: version immutable files, use shorter TTLs for changeable data, and reserve emergency purges for mistakes.`,
         `A mature CDN setup measures more than hit rate. It tracks origin offload, edge p50 and p99 latency, cache-fill latency, purge propagation time, shield hit rate, response-size distribution, error rates by region, and cache-key cardinality. A site can have a high global hit rate while one region or one content class is broken.`,
       ],

@@ -234,6 +234,7 @@ export const article = {
       heading: 'Why This Topic Exists',
       paragraphs: [
         'Complex-valued neural networks exist because some data is naturally measured in amplitude and phase. Radar returns, MRI signals, wireless I/Q samples, Fourier spectra, optics, sonar, and many wave-based systems produce complex numbers before a model ever sees them. In those domains the imaginary part is not decoration. It records a phase relationship that can carry distance, frequency, orientation, interference, timing, or material information.',
+        {type: 'callout', text: 'Complex-valued layers make phase-preserving rotation and scaling cheap when the data already lives in the complex plane.'},
         'A standard real-valued network can ingest complex data by splitting real and imaginary parts into two channels, or by discarding phase and keeping magnitude. Both choices can work, but both can make the model learn geometry that the input representation already had. Complex-valued networks try to keep that geometry native. A complex weight rotates and scales a feature. A complex activation can decide what to do with magnitude and phase. The topic is about using the right algebra for phase-sensitive structure, not about making a model more exotic.',
       ],
     },
@@ -248,6 +249,7 @@ export const article = {
       heading: 'The Core Insight',
       paragraphs: [
         'The core insight is that representation decides which patterns are easy. A complex number z = a + bi can also be described by magnitude and phase. Multiplication by another complex number rotates and scales z in the complex plane. That is exactly the kind of operation needed for phase shifts, frequency responses, and wave interactions. A complex layer does not merely double a real layer. It imposes a structured relationship between two coordinates.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/50/A_plus_bi.svg', alt: 'Complex number shown as a vector in the complex plane', caption: 'The complex plane makes the inductive bias visible: a feature carries both rectangular coordinates and geometric phase. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:A_plus_bi.svg.'},
         'This is an inductive bias. It says that phase-preserving transformations should be easy for the network to learn. A real-valued network can still approximate the same mapping, but it may need extra filters or more training data because it does not receive rotation as a built-in operation. Complex-valued networks are therefore most interesting when they reduce sample complexity, parameter count, or brittleness in domains where phase really matters.',
       ],
     },
@@ -255,6 +257,7 @@ export const article = {
       heading: 'How The Layer Works',
       paragraphs: [
         'A true complex linear layer couples real and imaginary paths. If w = wr + wi*i and x = xr + xi*i, then wx has real part wr * xr - wi * xi and imaginary part wr * xi + wi * xr. The cross terms are the point. The real output depends on both input parts, and the imaginary output also depends on both input parts. That structure is what lets the layer learn rotations and phase interactions directly.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/71/Euler%27s_formula.svg', alt: 'Euler formula diagram on the unit circle in the complex plane', caption: 'Euler formula shows why phase is geometry: changing angle moves a point around the unit circle while preserving magnitude. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Euler%27s_formula.svg.'},
         'Complex convolution applies the same multiplication pattern across local windows. Complex recurrent layers can carry oscillatory state. Complex normalization has to handle covariance between real and imaginary parts, not just scale each channel independently. Activations require design choices. A split activation applies a real nonlinearity separately to each part. A magnitude-based activation changes amplitude while preserving or controlling phase. Methods such as modReLU are useful because ordinary ReLU is not naturally defined on the complex plane.',
       ],
     },

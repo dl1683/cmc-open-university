@@ -180,6 +180,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Cellular automata ask how much global structure can emerge from local rules. Each cell stores a small state, sees a local neighborhood, and applies the same transition rule as every other cell. There is no central controller telling the whole grid what shape to make.',
+        {type: 'callout', text: 'A cellular automaton shows how global behavior can be an emergent trace of identical local state transitions.'},
         'That makes them a clean model for self-organization. A few lines of local logic can produce still lifes, oscillators, gliders, waves, chaotic fields, and growth-like behavior. The point is not that every real system is a cellular automaton. The point is that local interaction can be enough to create surprising global dynamics.',
         'They are also useful because they remove excuses. There is no hidden neural network, no scheduler, no global planner, and no complex data structure behind the curtain. If a pattern moves, repairs, repeats, or becomes chaotic, it happened through local state transitions. That makes cellular automata one of the cleanest teaching tools for emergence, distributed control, and simulation.',
       ],
@@ -196,6 +197,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is the synchronous snapshot. The next grid must be computed from the previous grid, not from partially updated cells. If you update in place from left to right, later cells see a different world than earlier cells, and you have built a different automaton.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Sample_run_of_Rule_110_elementary_cellular_automaton%2C_starting_from_single_cell.png', alt: 'Rule 110 cellular automaton space-time diagram starting from a single cell', caption: 'Rule 110 shows how one local rule can create rich space-time structure from a tiny initial state. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Sample_run_of_Rule_110_elementary_cellular_automaton,_starting_from_single_cell.png.'},
         'Four choices define the system: the state alphabet, the neighborhood, the boundary condition, and the transition rule. In Life, the state alphabet is live/dead, the neighborhood is the eight surrounding cells, and the rule is survival with two or three neighbors and birth with exactly three. Change any part and the world can behave differently.',
         'The boundary condition deserves special attention. A finite grid can treat edges as dead space, wrap around like a torus, or grow dynamically. Those choices change whether patterns die at the edge, re-enter from the other side, or keep expanding. Many bad demonstrations quietly hide the boundary rule, then overinterpret behavior that only exists because the edge was chosen a certain way.',
       ],
@@ -205,6 +207,7 @@ export const article = {
       paragraphs: [
         'For each update, count a cell\'s live neighbors. A live cell survives if it has two or three live neighbors; otherwise it dies from isolation or overcrowding. A dead cell becomes live if it has exactly three live neighbors. Every cell applies that rule to the old grid, and the collection of new states becomes the next grid.',
         'The glider in the visual is a compact example. The live cells at one step create neighbor counts that produce a shifted pattern at later steps. No cell has identity across the motion. The pattern, not the individual cell, is the object that persists.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/96/Animated_glider_emblem.gif', alt: 'Animated Conway Game of Life glider moving through successive grid states', caption: 'The glider is the smallest moving Life pattern: motion appears even though every cell only applies the local update rule. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Animated_glider_emblem.gif.'},
       ],
     },
     {

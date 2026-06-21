@@ -186,6 +186,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Centroid decomposition exists for static trees where many operations ask global distance-style questions. The original tree keeps the real edges. The centroid tree is a second index built by repeatedly removing balanced cut vertices.',
+        {type: 'callout', text: 'A centroid tree turns one static tree into logarithmically many balanced distance checkpoints that every update and query can reuse.'},
         'The problem is reuse. A breadth-first search or depth-first search from the query node can always find the nearest marked node, count paths, or explore far branches. But if updates and queries repeat thousands of times, scanning the original tree every time throws away too much previous work.',
       ],
     },
@@ -193,6 +194,7 @@ export const article = {
       heading: 'Obvious approach and wall',
       paragraphs: [
         'The obvious approach for nearest marked node is to search outward from the query node until a marked node is found. That is easy to reason about, but one query can touch the whole tree. Caching one answer per node also breaks after updates because a newly marked node in another branch can become the nearest answer.',
+        {type: 'image', src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Tree_graph.svg', alt: 'Small labeled undirected tree graph', caption: 'A tree has one simple path between any two nodes, which makes distance summaries meaningful once cuts are balanced. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Tree_graph.svg.'},
         'Heavy-Light Decomposition helps when the query is about paths. Binary Lifting helps with ancestors and LCA. The wall is that nearest marked node is not confined to one path. The answer may cross a high-level cut between branches, so the data structure needs reusable summaries at several tree scales.',
       ],
     },
@@ -200,6 +202,7 @@ export const article = {
       heading: 'Core insight and invariant',
       paragraphs: [
         'The core insight is to cut the tree by size, not by depth. A centroid is a node whose removal leaves every component with at most half the current nodes. Repeating that cut creates a centroid tree of height O(log n).',
+        {type: 'image', src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Binary_tree.svg', alt: 'Rooted binary tree diagram', caption: 'A rooted tree view helps separate original parent-child structure from the extra centroid-parent index built during decomposition. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree.svg.'},
         'The invariant is the halving bound: after removing a centroid, every recursive subproblem has size at most half of the current component. Because of that invariant, each original node has only O(log n) centroid ancestors, but those ancestors represent cuts from the whole tree down to local components.',
         'For nearest-marked-node queries, `update(x)` walks centroid ancestors of `x` and improves `best[c]` with `dist(x, c)`. `query(v)` walks centroid ancestors of `v` and minimizes `best[c] + dist(v, c)`. The original tree supplies the distance; the centroid tree supplies the small candidate set.',
       ],

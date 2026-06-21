@@ -221,6 +221,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. In "memo groups," each G node is an equivalence class -- a set of expressions that produce the same rows. Edges between groups are references inside the search space, not data-flow edges in a running query. In "rules and enforcers," watch transformation rules add logical alternatives and implementation rules add physical operators into those groups.',
+        {type: 'callout', text: 'The memo is the optimizer data structure that makes every equivalent expression compete once per required property.'},
         {
           type: 'table',
           headers: ['Marker', 'Meaning in this animation'],
@@ -237,6 +238,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'SQL describes what rows to return, not how to fetch them. A three-table join query has multiple legal join orders, each combinable with different physical algorithms (hash join, merge join, nested loop), different scan methods (sequential, index, bitmap), and different delivered properties (sorted, partitioned, unordered). The optimizer must explore that space and pick the cheapest plan.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt: 'Directed acyclic graph arranged in topological order with arrows flowing from earlier to later nodes', caption: 'Logical query alternatives form a DAG-shaped search space before physical costing chooses one execution plan. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Topological_Ordering.svg.'},
         {
           type: 'diagram',
           label: 'Search space explosion for a 3-table join',
@@ -279,6 +281,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Cascades organizes the search into four mechanisms: memo groups, transformation rules, implementation rules, and goal-directed optimization.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt: 'Directed acyclic graph with arrows showing dependencies between nodes', caption: 'A memo group graph shares subexpressions across alternatives so parents can reuse optimized child goals. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_acyclic_graph.svg.'},
         {
           type: 'diagram',
           label: 'Cascades memo structure for (O join C) join R',
@@ -350,6 +353,7 @@ export const article = {
             'Optimizer explainability. The memo is an inspectable search space: which rules fired, which groups formed, which goals were requested, which enforcers were inserted, and why one plan beat another.',
           ],
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/52/OLAP_Cube.svg', alt: 'OLAP cube with product, city, and time dimensions', caption: 'Analytical query engines optimize across dimensions, joins, and aggregation paths; Cascades keeps those physical choices comparable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:OLAP_Cube.svg.'},
         {
           type: 'diagram',
           label: 'Adding a new operator without changing the search',

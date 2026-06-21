@@ -304,6 +304,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Points are positioned by their coordinates. The vertical dividing line shows where the algorithm splits the point set. Edges between points represent distance comparisons being made. The strip region highlights points near the dividing line that need cross-boundary checking.",
+        {type: "callout", text: "Closest pair becomes fast when spatial order proves that almost every pair is too far away to matter."},
         "Active markers show the current decision: which half is being solved, which strip points are being compared. Found markers show the best pair discovered so far. Compare markers show candidates being measured against the current best.",
         "Watch the recursion shrink the problem, then watch the strip merge widen the search just enough to catch cross-boundary pairs without checking all of them.",
       ],
@@ -333,6 +334,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         "Sort the points by x-coordinate, split at the median, and solve each half recursively. The hard part is combining: the closest pair might cross the dividing line. But the strip of points near the boundary is thin, and a packing argument proves each point in the strip needs at most 7 comparisons.",
+        {type: "image", src: "https://www.cs.toronto.edu/~kianoosh/courses/csc209/resources/images/closest_points.png", alt: "Divide-and-conquer closest pair diagram with vertical split and strip", caption: "The divide-and-conquer picture shows the whole trick: solve halves first, then inspect only the narrow strip around the split. Source: University of Toronto CSC209 handout, https://www.cs.toronto.edu/~kianoosh/courses/csc209/resources/handouts/a2.html."},
         "The packing argument is the insight that makes the algorithm work. A d-by-2d rectangle straddling the dividing line can hold at most 8 points, because on each side every pair of points is at least d apart (otherwise the recursive result would have been smaller than d). That constant bound makes the merge step O(n) instead of O(n^2).",
       ],
     },
@@ -367,6 +369,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         "Collision detection in physics engines and games: find which objects are close enough to interact. The closest pair subroutine feeds broad-phase collision systems.",
+        {type: "image", src: "https://commons.wikimedia.org/wiki/Special:FilePath/Voronoi_diagram.svg", alt: "Voronoi diagram partitioning the plane around points", caption: "Voronoi cells encode nearest-site regions, the geometric structure behind many closest-neighbor problems. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Voronoi_diagram.svg."},
         "Molecular dynamics: atoms within a cutoff distance exert forces on each other. Finding close pairs is the bottleneck in force computation for large simulations.",
         "Geographic nearest-neighbor: given a set of facilities (hospitals, fire stations, cell towers), find the two closest. This feeds clustering, coverage analysis, and facility placement.",
         "Clustering preprocessing: algorithms like hierarchical clustering and DBSCAN need nearest-neighbor distances. Closest pair is the first step in single-linkage clustering.",

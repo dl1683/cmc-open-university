@@ -159,6 +159,7 @@ export const article = {
         'The row of cells is the DP table dp[0..amount]. Column i holds the fewest coins needed to make amount i. A cell showing ∞ means that amount is unsolved. A cell showing a number is the current best answer for that amount.',
         'The bright cell is the amount being solved right now. The dimmer cells behind it are the subproblems the algorithm consults — one lookup per coin denomination. For each coin c that fits, the algorithm reads dp[i − c], adds one, and keeps the smallest result.',
         'After the table is full, the traceback lights the path from dp[amount] back to dp[0], subtracting one coin at each step. That path is the actual solution: which coins, in what combination, achieve the minimum.',
+        {type: 'callout', text: 'Coin change is the smallest DP problem where a locally best coin can block the globally best path.'},
       ],
     },
     {
@@ -189,6 +190,7 @@ export const article = {
       paragraphs: [
         'Every optimal solution ends with some coin c. Remove that coin and you are left with amount i − c, which must itself be solved optimally (if it were not, substituting a better sub-solution would improve the whole). So dp[i] = min over all valid coins c of (dp[i − c] + 1).',
         'The recursion overlaps massively: dp[6] might query dp[3] via coin 3 and dp[2] via coin 4, while dp[5] also queries dp[2] via coin 3. A table that solves each amount once, left to right, eliminates every redundant computation. That is the entire idea of bottom-up DP.',
+        {type: 'image', src: 'https://avikdas.com/assets/images/2019-04-15-visual-introduction-to-dynamic-programming/change-making-dag-01-desired-solution.png', alt: 'Change making dynamic programming grid with desired solution cell', caption: 'The change-making DAG lays out subproblems by denomination and remaining target, making the recurrence visible as graph dependencies. Source: Avik Das, https://avikdas.com/2019/04/15/a-graphical-introduction-to-dynamic-programming.html.'},
       ],
     },
     {
@@ -197,6 +199,7 @@ export const article = {
         'Allocate an array dp of length amount + 1. Set dp[0] = 0 (zero coins make zero). Fill every other slot with ∞ (unsolved sentinel).',
         'For i = 1 to amount: scan every coin c. If c ≤ i and dp[i − c] + 1 < dp[i], set dp[i] = dp[i − c] + 1 and record c as the coin used at amount i. After all coins are checked, dp[i] is final.',
         'To reconstruct the solution, start at amount and repeatedly subtract the recorded coin until you reach 0. The sequence of subtracted coins is the optimal combination.',
+        {type: 'image', src: 'https://avikdas.com/assets/images/2019-04-15-visual-introduction-to-dynamic-programming/change-making-dag.png', alt: 'Full change-making subproblem DAG with arrows between grid cells', caption: 'The full subproblem graph shows why memoization and bottom-up fill avoid repeated recursive work. Source: Avik Das, https://avikdas.com/2019/04/15/a-graphical-introduction-to-dynamic-programming.html.'},
       ],
     },
     {

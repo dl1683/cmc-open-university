@@ -211,6 +211,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A claim graph is a data structure for research synthesis. Nodes represent questions, atomic claims, sources, contradictions, report sections, and final conclusions. Edges say what kind of relationship exists: a source supports a claim, a source merely mentions a topic, a newer source supersedes an older one, a claim contradicts another claim, or a report section depends on a claim. The source ledger is the durable table behind the graph: source pointer, exact support span, date, authority label, extraction note, and intended use.',
+        {type: 'callout', text: 'A claim graph makes evidence a first-class dependency, so fluent prose cannot outrun exact support.'},
         'The structure exists because prose can sound cited while being weakly supported. A footnote may point to a real document but not to the exact sentence being written. A benchmark may support one workload but not another. A vendor blog may be useful for product facts but weak for independent performance claims. The claim graph keeps those distinctions available until the final answer is written.',
       ],
     },
@@ -225,6 +226,7 @@ export const article = {
       heading: 'Core insight and data model',
       paragraphs: [
         'A useful claim record is small and strict. It should store the claim text, source pointer, exact support span or data row, source date, access date, authority label, scope note, contradiction status, confidence or review state, and target report section. The source pointer can be a URL, PDF page, file path, database row, command output artifact, or repository commit. The span is what prevents citation bluffing: the final sentence should be traceable to the exact evidence, not just to the general document.',
+        {type: 'image', src: 'https://www.w3.org/TR/prov-overview/prov-family.png', alt: 'W3C PROV family diagram with data model serializations and constraints', caption: 'The PROV family shows why provenance is a data model, not just a citation style: entities, constraints, serializations, and access rules stay separate. Source: W3C PROV-Overview, https://www.w3.org/TR/prov-overview/.'},
         'The graph adds relationships that a flat bibliography cannot express. A source can support, contradict, define, date, scope, weaken, or supersede a claim. A claim can depend on another claim. A report section can consume a set of claims. A contradiction node can explain whether the conflict is a version change, method difference, population mismatch, metric mismatch, or incentive bias. This lets the synthesis explain disagreement instead of smoothing it into false balance.',
       ],
     },
@@ -239,6 +241,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The practical workflow is search, read, extract, rank, ledger, audit, outline, write. Search and retrieval are only candidate generation. Reading turns passages, tables, and artifacts into atomic claims. Ranking labels source authority before drafting: official docs, primary papers, benchmark repositories, filings, standards, vendor blogs, news stories, and social posts should not enter the synthesis with the same weight. Audit then asks whether every important claim has exact support, whether a newer source exists, and whether contradictions have been classified.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes and arrows', caption: 'Directed edges are the useful mental model: support, contradiction, supersession, and section-dependency relationships all have direction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Writing should be downstream of the surviving graph. A section outline can be generated from claims whose support is strong enough for publication. Unsupported claims are removed or sent back to research. Stale claims are refreshed. Contradictions become explicit explanation. In an agent system, this ledger is the boundary between retrieval and answer generation: embeddings can find nearby text, but the claim ledger decides what evidence the answer is allowed to rely on.',
       ],
     },

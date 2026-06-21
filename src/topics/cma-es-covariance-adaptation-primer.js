@@ -223,6 +223,7 @@ export const article = {
       heading: 'Why CMA-ES exists',
       paragraphs: [
         'CMA-ES exists for continuous black-box optimization. The objective gives you a score for a candidate vector, but it does not give a useful derivative, symbolic structure, or cheap local model. That is common in simulator tuning, controller design, robot policy search, engineering calibration, and noisy benchmark optimization.',
+        {type: 'callout', text: 'CMA-ES treats the sampling distribution as the data structure, so successful directions reshape future search.'},
         'The important assumption is not that the landscape is random. The assumption is that good regions have shape. A valley may be long, narrow, rotated, or scaled differently across variables. CMA-ES, short for covariance matrix adaptation evolution strategy, learns that shape while it searches.',
       ],
     },
@@ -230,6 +231,7 @@ export const article = {
       heading: 'The naive approach',
       paragraphs: [
         'The obvious approach is random search around the current best point. Pick a mutation radius, sample a round cloud, evaluate the candidates, keep the best, and repeat. This can work on small friendly problems, but it wastes evaluations when the useful direction is not aligned with the coordinate axes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density curves', caption: 'CMA-ES starts from Gaussian sampling intuition, then replaces the fixed scalar spread with a learned covariance shape. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Normal_Distribution_PDF.svg.'},
         'A fixed round cloud has no memory of direction. If the optimum lies down a diagonal valley, most samples fall into the valley walls instead of along the valley. Shrinking the radius avoids bad jumps but also slows progress. Increasing it explores faster but throws more samples away.',
       ],
     },
@@ -237,6 +239,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'CMA-ES does not treat mutation as a fixed noise source. It treats the search distribution as the main data structure. The state contains a mean vector, a covariance matrix, a global step size, evolution paths, and weights for the best ranked candidates.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d8/Concept_of_directional_optimization_in_CMA-ES_algorithm.png', alt: 'CMA-ES generations showing an adapting elliptical sampling distribution', caption: 'The orange ellipse makes covariance adaptation visible: selected samples stretch and rotate the next search distribution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Concept_of_directional_optimization_in_CMA-ES_algorithm.png.'},
         'The mean says where the next population is centered. The covariance matrix says which directions should be sampled more or less often. The step size says how large the overall cloud should be. Together they form a moving coordinate system learned from successful samples.',
       ],
     },

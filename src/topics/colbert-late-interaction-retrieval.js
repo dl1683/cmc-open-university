@@ -197,6 +197,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'ColBERT is a retrieval architecture that keeps more structure than a normal dense vector retriever without paying the full cost of a cross-encoder over every document. It encodes each passage into a matrix of contextual token embeddings. A query is encoded into its own token-embedding matrix. At scoring time, each query token looks for its best matching token inside the passage, and the passage score is the sum of those best matches. That scoring rule is usually called MaxSim.',
+        {type: 'callout', text: 'Late interaction keeps document computation reusable while letting each query token demand its own strongest evidence.'},
         'The important phrase is late interaction. Documents can be encoded offline and stored in an index before the user asks a question. Queries can be encoded independently at request time. The expensive query-document interaction is delayed until scoring, where token vectors meet through similarity operations rather than full Transformer attention. ColBERT therefore sits between two familiar extremes: a pooled bi-encoder that is fast but coarse, and a cross-encoder reranker that is precise but too expensive to run against the whole corpus.',
       ],
     },
@@ -211,6 +212,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is that relevance often depends on local token evidence, not only global passage similarity. A good answer passage for a policy question may need to match "annual", "renewal", "invoice", "cancel", and "refund" in different parts of the passage. A pooled vector asks whether the passage as a whole is near the query. ColBERT asks whether every important query token can find strong support somewhere in the passage, then aggregates those local wins.',
+        {type: 'image', src: 'https://github.com/stanford-futuredata/ColBERT/raw/main/docs/images/ColBERT-Framework-MaxSim-W370px.png', alt: 'ColBERT late interaction MaxSim architecture diagram', caption: 'The MaxSim diagram shows query token vectors matching against precomputed document token vectors before scores are summed. Source: Stanford Future Data ColBERT repository, https://github.com/stanford-futuredata/ColBERT.'},
         'MaxSim is simple but powerful. For each query token vector, compute similarity against the document token vectors and keep the maximum. Sum the maxima over the query tokens. This allows a passage to get credit for matching separate pieces of the question even if those pieces are not adjacent. It also preserves the asymmetry of search: the query is short and active; the document is longer and stored. The scoring rule favors passages that cover the query concepts instead of passages that merely share a general topic.',
       ],
     },
@@ -218,6 +220,7 @@ export const article = {
       heading: 'Mechanism and data structures',
       paragraphs: [
         'The main data structure is a passage-token matrix. A chunk with 160 retained tokens and 128-dimensional token vectors stores 160 vectors, not one. The index therefore contains many more vectors than a pooled retriever. It also needs passage identifiers, token offsets or masks, compressed vector codes, and a way to aggregate token matches back to passage scores. Query execution builds a small query-token matrix, performs vector lookups or approximate matches, accumulates MaxSim evidence, and returns top-k passages.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph showing nodes connected by arrows', caption: 'A retrieval pipeline is a directed dataflow: encoded query tokens, indexed document tokens, MaxSim matches, and final top-k aggregation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Real ColBERT systems add compression and pruning because raw token matrices are large. ColBERTv2 uses residual compression to reduce the footprint of token embeddings while trying to preserve late-interaction quality. PLAID-style serving engines use centroid interaction, upper bounds, and pruning to avoid exact MaxSim on weak candidates. Conceptually, the engine keeps two layers: a cheap approximate layer that proves many passages are not worth scoring, and a precise late-interaction layer that reranks the survivors.',
       ],
     },

@@ -151,6 +151,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. The stale-or-stampede dilemma shows a three-node graph: users, cache/CDN, and origin. Edges light up to show request flow. Active edges mark the current path a request takes. Compare markers highlight the disagreement between the cache copy and the origin copy -- this is the staleness gap. The matrix frame plots TTL values against worst-case staleness and origin hit rate so you can see the tradeoff as numbers, not just intuition.',
+        {type: 'callout', text: 'Every cache is a speedup built from a copy, so correctness depends on naming, freshness, and a controlled path back to the source.'},
         'The escape-routes view shows three invalidation strategies in sequence: purge (origin pushes a drop command), immutable versioned names (new content gets a new URL), and revalidation (cache asks origin whether its ETag is still current). Found markers show the path that resolves correctly. The final matrix maps data types to strategies, showing that production systems run several invalidation policies at once.',
         'At each frame, ask: what changed, what is now stale, and what mechanism would fix it.',
       ],
@@ -159,6 +160,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Phil Karlton said there are only two hard things in computer science: cache invalidation and naming things. The quip survives because it is precise. A cache trades consistency for speed -- it serves a copy instead of asking the source. Invalidation is the mechanism that keeps that trade honest.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'Memory hierarchy diagram showing cache levels between CPU and storage', caption: 'A cache hierarchy makes the copy problem concrete: fast layers hold derived state from slower authority layers. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.'},
         'Without invalidation rules, a CDN can serve yesterday\'s price, a browser can run a broken script long after a fix shipped, and an API gateway can return permissions that were revoked an hour ago. The copy is fast, but the moment the source changes, the copy becomes a lie with no expiration date.',
         'The hard part is that freshness, latency, and origin load fight each other. A long-lived copy is cheap and fast but can be wrong for a long time. A short-lived copy is fresher but hammers the origin. A write-triggered purge can be nearly instant but turns consistency into a distributed messaging problem. Every invalidation strategy picks a position on this triangle.',
       ],
@@ -174,6 +176,7 @@ export const article = {
       paragraphs: [
         'TTL is a guess. Too short and cache misses spike -- you are barely caching, and the origin bears almost the full load. Too long and users see stale data for minutes or hours. And TTL cannot handle the case where the source changed right now: a 300-second TTL means the system can legally serve a wrong answer for up to five minutes after a write, no matter how critical the data.',
         'Worse, TTL creates a synchronized expiration problem. When a popular key expires, every concurrent request misses at the same instant and sends duplicate fetches to the origin. This is the thundering herd: the cache that was protecting the origin suddenly becomes the source of a traffic spike against it.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/67/Reverse_proxy_h2g2bob.svg', alt: 'Reverse proxy diagram showing a client request passing through an intermediary before reaching a server', caption: 'Reverse proxies and cache layers sit between users and origins; invalidation has to reach every intermediary that can answer. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Reverse_proxy_h2g2bob.svg.'},
       ],
     },
     {
@@ -183,6 +186,7 @@ export const article = {
         'TTL/expiration is the simplest: each cache entry carries a timer. On a hit, the cache checks whether the timer has expired. If not, it returns the copy. If yes, it fetches from the origin, stores the new value, and resets the timer. The worst-case staleness equals the TTL. Stampede control -- request coalescing (single-flight), serve-stale-while-revalidate, and TTL jitter -- keeps expiration events from overwhelming the origin.',
         'Event-driven invalidation moves authority to the write path. When the source changes, the writer notifies caches to drop or refresh the affected key. Three common patterns: cache-aside (the application checks the cache, misses go to the database, the application populates the cache on read); write-through (every write goes to both cache and database together, so the cache is always current); write-behind (writes go to the cache first, then flush to the database asynchronously, trading durability risk for lower write latency).',
         'Version/tag-based invalidation attaches an identity token to each cached copy. HTTP uses ETag and If-None-Match: the cache sends its token to the origin, and the origin responds 304 Not Modified (no body transfer) if the token is still current, or sends the new body with a new tag if it changed. Database caches use generation counters. Content-hashed filenames (app.8f3ab2.js) are the extreme case: the name is the version, so the old object never becomes stale -- new content simply gets a new name.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/26/NCDN_-_CDN.svg', alt: 'Diagram comparing a single origin server with a content delivery network of edge caches', caption: 'A CDN turns invalidation into a distributed edge problem: one changed object may have many cached copies. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:NCDN_-_CDN.svg.'},
       ],
     },
     {
@@ -241,4 +245,3 @@ export const article = {
     },
   ],
 };
-

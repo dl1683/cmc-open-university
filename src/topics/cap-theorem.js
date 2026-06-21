@@ -107,6 +107,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows two database replicas, N1 and N2, each in a separate datacenter, connected by a replication link. Clients C1 and C2 each talk to their nearest node. Active edges show data flowing along that path. Found nodes hold confirmed state. When the replication edge disappears, the network has partitioned.',
+        {type: 'callout', text: 'During a partition, the isolated replica cannot know whether silence means no write or a missing message, so it must either refuse or risk stale data.'},
         'The toggle at the top switches between CP and AP behavior during the partition. Under CP, a read from the isolated side is refused (compare highlight, no data returned). Under AP, the isolated node answers immediately with its local value (found highlight, possibly stale). Watch what happens to the value at N2 after N1 accepts a write during the partition, and compare the two runs.',
       ],
     },
@@ -115,6 +116,7 @@ export const article = {
       paragraphs: [
         'Eric Brewer conjectured in 2000 that a distributed system can provide at most two of three properties: Consistency, Availability, and Partition tolerance. Gilbert and Lynch proved it formally in 2002. The result sounds like a menu, but it is really an impossibility theorem about replicated state under network failure.',
         'The problem it addresses is fundamental to any system that copies data across machines. A replicated service wants fast local reads, fast local writes, and one global truth. When communication between replicas works, all three look free. The theorem says what happens when communication stops.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/36/Internet_Connectivity_Distribution_%26_Core.svg', alt: 'Diagram of tiered internet connectivity between core and access networks', caption: 'Distributed services run on independently operated networks; CAP becomes visible when one connectivity path stops carrying replica messages. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Internet_Connectivity_Distribution_%26_Core.svg.'},
       ],
     },
     {
@@ -131,6 +133,7 @@ export const article = {
         'The replication link breaks. A backhoe, a misconfigured router, a fiber cut, a cloud-region isolation. N1 accepts a write, but N2 never hears about it. N2 cannot distinguish "no new writes exist" from "a write happened and I missed it." Those two worlds produce identical local observations.',
         'This is not a bug in the replication protocol. It is an information-theoretic limit. No caching, retry logic, or transaction coordinator can manufacture the missing message. The partition physically prevents the information from crossing.',
         'Every request to N2 now forces a binary choice: answer with local state that may be stale, or refuse until the partition heals and freshness can be verified. There is no third option.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Animated packet switching network diagram', caption: 'Packet switching visualizes the messages that a partition delays or drops before replicas can compare state. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Packet_Switching.gif.'},
       ],
     },
     {
@@ -141,6 +144,7 @@ export const article = {
         'Partition tolerance means the system has defined behavior even when messages between replicas are lost or delayed indefinitely. In real networks, partitions happen. Links fail, packets vanish, routers misroute, regions isolate.',
         'During a partition, a CP system refuses operations it cannot guarantee are fresh. In practice, this means requiring a quorum: a write commits only after a majority of replicas acknowledge it, and a read contacts enough replicas to overlap with any committed write. If the partition leaves a side without a quorum, that side stops serving. etcd, ZooKeeper, and HBase work this way.',
         'During a partition, an AP system serves from local state and treats divergence as a repair problem. It may accept conflicting writes on both sides and reconcile later using last-write-wins timestamps, version vectors, or CRDTs. Cassandra, DynamoDB (default mode), and CouchDB work this way.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Internet topology map with many connected nodes and links', caption: 'Real deployments sit on a graph of paths, regions, and failure domains; the CAP choice happens when that graph separates. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Internet_map_1024.jpg.'},
       ],
     },
     {

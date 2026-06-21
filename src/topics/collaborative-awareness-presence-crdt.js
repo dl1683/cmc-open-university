@@ -198,6 +198,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Collaborative awareness exists because users need to understand where other people are without turning every sign of life into permanent document history. In a shared editor, the text is only part of the experience. Users also care who is online, where their cursors are, what ranges they selected, which panel has focus, and whether somebody appears to be typing. That state makes the room feel live.',
+        {type: 'callout', text: 'Awareness works because live human signals are mergeable freshness records, not durable edits.'},
         'Presence is different from content. Document text, rich-text marks, shapes, comments, and spreadsheet cells need durable conflict resolution. Cursor motion, typing flags, names, colors, and active panels need freshness, expiry, and privacy. They should be safe to drop, throttle, replace, and forget. A presence CRDT or awareness protocol gives the app a small mergeable state layer beside the durable document CRDT.',
       ],
     },
@@ -212,6 +213,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is to model awareness as a per-client last-writer-wins record with expiry. The shared state is a map from client id to a small JSON object and a monotonically increasing clock. Each client owns only its own entry. When the local user moves a cursor, changes selection, or updates profile color, the client increments its own clock and broadcasts the replacement state. Peers keep the newest clock for that client and ignore older duplicates.',
+        {type: 'image', src: 'https://docs.yjs.dev/~gitbook/image?dpr=3&quality=100&sign=549bcf20&sv=2&url=https%3A%2F%2F3672631625-files.gitbook.io%2F~%2Ffiles%2Fv0%2Fb%2Fgitbook-legacy-files%2Fo%2Fassets%252F-MAkuXEU862fGj2p9idv%252F-MLmo5nKNvSBLCGhJOHd%252F-MLmyFupwLK0HAlEAz7U%252FAwareness%2520cursors-small.png%3Falt%3Dmedia%26token%3Db290ecd9-6bed-4b07-9f19-d28bd54542b1&width=768', alt: 'Collaborative editor with colored remote cursors', caption: 'Remote cursors make the retention boundary visible: peers see current attention, not permanent edit history. Source: Yjs Docs, https://docs.yjs.dev/getting-started/adding-awareness.'},
         'This is CRDT-like in the narrow sense that peers can merge updates without coordination and eventually agree on the newest visible state for each client, assuming messages continue to arrive. It is not the same as the durable document CRDT. It does not need to preserve every operation. It needs to preserve freshness. A null state or heartbeat timeout removes the entry. Losing one cursor update should make animation less smooth, not corrupt the document.',
       ],
     },
@@ -219,6 +221,7 @@ export const article = {
       heading: 'How the system works',
       paragraphs: [
         'A client maintains local awareness state such as user name, color, avatar, cursor anchor, selection range, focused panel, and typing flag. When that state changes, the client increments its awareness clock and updates its local map entry. The provider encodes the changed client ids and broadcasts them to peers. A peer receives the update, compares the incoming clock with the stored clock for that client, and applies the state only if it is newer.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Awareness propagation is a small directed dataflow: local state changes, provider broadcasts, peers merge by clock, and the UI renders freshness. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Cursors and selections should use stable anchors when possible. In CRDT-backed text editors, that often means relative positions tied to document structure rather than raw offsets. The sender publishes the anchor as awareness state. The receiver resolves that anchor against its own current document only when rendering. If the anchor no longer resolves cleanly because the referenced content was deleted or the peer is far behind, the UI can hide, fade, or approximate the cursor without changing document truth.',
       ],
     },

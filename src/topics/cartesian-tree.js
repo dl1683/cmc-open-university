@@ -164,6 +164,7 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         `A Cartesian tree exists because some array problems have a hidden tree inside them. The array gives one order: positions from left to right. The values give another order: smaller values should dominate larger values when the question is about minima. A Cartesian tree combines those orders into one structure. Its in-order traversal returns the original array positions, while its heap property makes smaller values ancestors of larger values.`,
+        {type: `callout`, text: `A Cartesian tree fuses array order and heap order so range minima become ancestor questions.`},
         `That combination is useful for range minimum queries. Given an array and a query range [i, j], the answer is the index of the smallest value in that interval. A Cartesian tree turns that flat question into a tree question: the minimum in [i, j] is the lowest common ancestor of the nodes for i and j. This is not only a trick for one data structure. It is a bridge between arrays, trees, RMQ preprocessing, suffix-array LCP queries, and divide-and-conquer decompositions.`,
         `The structure is also a teaching object. It shows how two invariants can define a unique shape. Preserve array order in traversal, enforce heap order by value, and the hierarchy of minima becomes visible.`,
       ],
@@ -180,6 +181,7 @@ export const article = {
       heading: 'Core Invariant',
       paragraphs: [
         `A min Cartesian tree has two invariants. First, in-order traversal visits nodes in original array index order. If the array is [5, 2, 6, 1, 3, 4], the nodes must appear as index 0, index 1, index 2, index 3, index 4, index 5 when read left-root-right. Second, every parent has value less than or equal to its children. The root is therefore the minimum of the full array.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg`, alt: `Binary tree diagram with parent and child nodes`, caption: `The in-order traversal of a binary tree gives Cartesian trees their array-order half of the invariant. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree.svg.`},
         `With distinct values, those two invariants define exactly one tree. The global minimum must be the root because heap order puts the smallest value above every other node. In-order traversal then forces every element left of that minimum into the left subtree and every element right of it into the right subtree. The same argument applies recursively. Equal values require a tie policy, such as always treating the leftmost minimum or rightmost minimum as smaller, otherwise the shape is not unique.`,
         `This dual-order view is the main idea. The array order is never discarded; it becomes the tree's in-order order. The priority order is never stored in a separate heap array; it becomes the ancestor relation.`,
       ],
@@ -197,6 +199,7 @@ export const article = {
       paragraphs: [
         `The recursive mechanism is easy to state. Choose the minimum element as root. Build the left subtree from the prefix before that element. Build the right subtree from the suffix after that element. That gives a correct tree, but repeated minimum searches are too expensive.`,
         `The linear mechanism uses a monotonic stack. Scan the array from left to right. Maintain the right spine of the partial Cartesian tree: the path reached by repeatedly following right children from the current root. Values on this spine are increasing for a min Cartesian tree. When a new value arrives, pop larger spine nodes until the top is smaller than the new value. The last popped node becomes the new node's left child, and the new node becomes the right child of the remaining stack top if one exists. Then push the new node.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/69/Min-heap.png`, alt: `Complete binary min heap with the smallest value at the root`, caption: `The heap side of a Cartesian tree is a parent-value order constraint, even though the shape is forced by the array order rather than heap array layout. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Min-heap.png.`},
         `Each element is pushed once and popped at most once, so the construction is O(n). The stack is not an auxiliary guess; it is a compact representation of exactly the part of the tree that a future value can still dominate. Nodes away from the right spine already have a smaller ancestor to their right boundary and will never be rearranged by later array positions.`,
       ],
     },
