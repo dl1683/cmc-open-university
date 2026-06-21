@@ -220,6 +220,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. The peeling-build view shows the construction algorithm: keys are hyperedges connecting three table slots, and the builder peels degree-one slots until every key lands on a stack. The reverse-assignment frame then fills the table so every key\'s XOR equation holds. Active highlights mark the key or slot being processed. Found highlights mark slots whose values are now fixed.',
+        {type: 'callout', text: 'An xor filter moves work from query time into construction: solve the equations once, then answer with three reads.'},
         'The membership-query view shows the lookup path: three positions, three table reads, one XOR chain, one fingerprint comparison. The error-semantics table shows the contract -- true positives, true negatives, and the false-positive case where an absent key collides by fingerprint chance.',
         'In both views, the compare color marks elements that are being contrasted against the active path -- the cyclic-core failure case in the build view, the streaming-set mismatch in the placement view. Watch for the transition from peeling (removing keys) to assignment (filling values in reverse order). That reversal is the core of the algorithm.',
       ],
@@ -229,6 +230,12 @@ export const article = {
       paragraphs: [
         'Storage engines, CDN manifests, and package indexes share a pattern: build a file once, then answer millions of membership queries against it. Before touching disk, network, or decompression, the system asks a cheap question: could this key be in that file? If the answer is definitely no, it skips the expensive work entirely.',
         'Bloom filters handle this, but they carry features a static file never uses -- incremental insertion and the bit-array overhead that comes with it. An SSTable is sealed after flush. A versioned manifest is sealed after publish. The insert path is dead weight.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c4/Bloom_filter_speed.svg',
+          alt: 'Bloom filter diagram showing a fast membership gate before slower lookup',
+          caption: 'A Bloom filter is the baseline approximate-membership gate; xor filters keep the same maybe-or-definitely-not contract for sealed sets. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bloom_filter_speed.svg.',
+        },
         'Graf and Lemire (2020) proposed xor filters to exploit that immutability. The idea: spend more effort during a one-time construction so each later query costs only three table reads and a fingerprint comparison, using less memory per key than a Bloom filter at the same false-positive rate.',
       ],
     },
@@ -265,6 +272,12 @@ export const article = {
           ].join('\n'),
         },
         'Construction models the problem as a 3-uniform hypergraph. Each table slot is a vertex. Each key is a hyperedge connecting three vertices (its three hash positions). The builder peels this hypergraph: repeatedly find a slot touched by exactly one remaining key, push that key onto a stack, and remove all three of its incidences. If every key peels, the graph was acyclic and construction succeeds.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg',
+          alt: 'Directed graph with nodes connected by arrows',
+          caption: 'The construction is a graph problem: peel edges away until no unresolved core remains, then assign values in reverse. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.',
+        },
         'After peeling, the builder processes the stack in reverse. For each key, two of its three slots already have assigned values (set by keys processed later in the reverse order). The builder sets the remaining slot to fingerprint(key) XOR table[slotA] XOR table[slotB]. This makes the XOR equation true for that key without disturbing any equation already satisfied.',
         'If peeling gets stuck -- a cyclic core remains with no degree-one slot -- the hash seed failed. The builder retries with a new seed or a slightly larger table. Random 3-uniform hypergraphs on c*n vertices (where c is about 1.23) are acyclic with high probability, so retries are rare.',
       ],
@@ -298,14 +311,13 @@ export const article = {
         'Space is approximately 1.23 * n * f bits, where n is the number of keys and f is the fingerprint width. For 8-bit fingerprints (1% false-positive rate), that is about 9.84 bits per key -- comparable to Bloom but with faster queries. For the Xor+ variant (described below), space drops to about 1.08 * n * f bits.',
         'Construction is O(n) expected time. Each peeling pass scans the degree array once. The number of retries on a failed seed is geometrically distributed with a small failure probability when the table has sufficient slack. In practice, construction completes in 1-2 attempts.',
         {
-          type: 'table',
-          headers: ['Filter', 'Bits/key (1% FPR)', 'Lookup', 'Build time', 'False positive rate'],
-          rows: [
-            ['Bloom filter', '~9.6', 'k bit probes (scattered)', 'O(n), incremental', '(1 - e^(-kn/m))^k'],
-            ['Cuckoo filter', '~8.5', '2 reads + fingerprint cmp', 'O(n) amortized, can fail', '2b / 2^f'],
-            ['Xor filter', '~9.8 (8-bit)', '3 reads + XOR chain', 'O(n) expected, static rebuild', '1 / 2^f'],
-            ['Xor+ filter', '~8.6 (8-bit)', '3-4 reads + XOR chain', 'O(n) expected, static rebuild', '1 / 2^f'],
-            ['Ribbon filter', '~7.7', 'row solve', 'O(n), static rebuild', 'configurable'],
+          type: 'bullets',
+          items: [
+            'Bloom filter at 1% false-positive rate: about 9.6 bits per key, k scattered bit probes, O(n) incremental construction, and false-positive rate (1 - e^(-kn/m))^k.',
+            'Cuckoo filter: about 8.5 bits per key at similar rates, two bucket reads plus fingerprint comparison, supports updates but insertions can fail.',
+            'Xor filter: about 9.8 bits per key with 8-bit fingerprints, three reads plus an XOR chain, O(n) expected static construction, and false-positive rate 1 / 2^f.',
+            'Xor+ filter: about 8.6 bits per key with 8-bit fingerprints, three or four reads plus XOR, static rebuild semantics, and the same fingerprint-driven false-positive rate.',
+            'Ribbon filter: roughly 7.7 bits per key in common configurations, tighter space through a row-solve construction, and static rebuild semantics.',
           ],
         },
       ],
@@ -355,4 +367,3 @@ export const article = {
     },
   ],
 };
-

@@ -197,6 +197,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The stage ladder view shows a matrix where each column is a data-parallel rank and each row is a memory category. Active cells highlight the redundancy ZeRO removes at each stage. Found cells mark sharded state that now lives on only one rank. Read each stage transition as one more row moving from replicated to partitioned.",
+        {type: "callout", text: "ZeRO saves memory by changing where training state rests, not by changing the data-parallel math."},
         "The step choreography view shows the communication graph: ranks on the left, memory categories in the center, collectives on the right. Active edges show which collective is running. Watch parameters get all-gathered before computation, gradients get reduce-scattered to owners after backward, and optimizer updates happen on local shards. The key question at each frame: does this rank hold a full copy or just its shard?",
       ],
     },
@@ -204,6 +205,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `ZeRO exists because ordinary data parallel training wastes memory in the exact place large models run out first. In classic data parallelism, every GPU rank stores a full copy of parameters, gradients, and optimizer state. The ranks cooperate to train one logical model, but physically they all carry the same expensive state. Adding more data-parallel GPUs improves sample throughput, yet each GPU still needs enough memory for the full model state.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg',
+          alt: 'Layered neural network diagram with colored nodes and connections',
+          caption: 'The model graph is logically replicated under data parallelism; ZeRO changes the placement of training state around that graph. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.',
+        },
         `For Adam-style training, the visible model weights are only part of the bill. A system may store bf16 or fp16 parameters for forward and backward, fp32 master parameters for stable updates, first-moment estimates, second-moment estimates, gradients, communication buckets, temporary buffers, and activations. Optimizer state alone can be several times the parameter size. ZeRO, the Zero Redundancy Optimizer, keeps the data-parallel programming model while partitioning redundant state across ranks so each GPU owns only a shard at rest.`,
       ],
     },
@@ -266,6 +273,12 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The wall is per-GPU memory, not compute. A 7-billion-parameter model in mixed-precision Adam training stores fp16 parameters (14 GB), fp32 master weights (28 GB), first moments (28 GB), second moments (28 GB), and gradients (14 GB). That is roughly 112 GB of training state per rank in naive data parallelism, even though 8 ranks together have 8x the total memory. Every rank carries the same 112 GB. Adding GPUs speeds up data throughput but does not reduce the per-rank memory floor.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png',
+          alt: 'Nvidia GV100 GPU die showing many compute units on one chip',
+          caption: 'Large-model training runs out of accelerator memory before it runs out of arithmetic desire; ZeRO attacks the replicated state that occupies that scarce device memory. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Nvidia_GV100_GPU.png.',
+        },
         'Model parallelism (splitting layers across GPUs) avoids this duplication, but it forces pipeline bubbles, careful layer assignment, and custom communication patterns. Pipeline parallelism (Huang et al., 2019, GPipe) fills bubbles with micro-batches, but still requires the programmer to partition the model graph. Tensor parallelism splits individual operations across GPUs, but demands high-bandwidth interconnects because partial results must be combined inside every layer. ZeRO hits a different point: it keeps the simple data-parallel programming model while attacking the storage redundancy that makes per-rank memory the bottleneck.',
       ],
     },
@@ -281,6 +294,12 @@ export const article = {
       heading: 'Ring all-reduce and communication cost',
       paragraphs: [
         'All-reduce is the primitive that makes data parallelism work: N ranks each hold a local gradient vector of size p, and after all-reduce every rank holds the element-wise sum. A naive implementation sends every vector to one root, sums them, and broadcasts the result. That puts 2p bytes through the root and serializes all communication.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg',
+          alt: 'Directed graph with nodes connected by arrows',
+          caption: 'Collectives are graph traffic: the training algorithm is correct only when gradient and parameter shards reach the ranks that need them at the right phase. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.',
+        },
         'Ring all-reduce (Patarasuk and Yuan, 2009) eliminates the bottleneck. Arrange N ranks in a logical ring. In the reduce-scatter phase, each rank sends one chunk of size p/N to its neighbor in N-1 steps; after each step the receiving rank adds the incoming chunk to its local chunk. After N-1 steps, each rank holds the fully reduced version of one chunk. In the all-gather phase, each rank sends its fully reduced chunk around the ring in another N-1 steps so every rank ends up with the complete sum.',
         'The total data each rank sends is 2 * p * (N-1)/N bytes. As N grows, this approaches 2p per rank regardless of how many GPUs participate. The communication volume is bandwidth-optimal: no algorithm can do better for a flat all-reduce. Latency scales as O(N) because messages pass through N-1 hops, but for large p the bandwidth term dominates. ZeRO stage 2 replaces the all-reduce with a reduce-scatter (half the ring), saving memory because each rank keeps only its owned shard of the reduced gradient.',
       ],
@@ -339,4 +358,3 @@ export const article = {
     },
   ],
 };
-

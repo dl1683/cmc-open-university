@@ -253,6 +253,13 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A zipper is a way to represent a recursive data structure together with a current focus. Instead of storing parent pointers inside every node, the zipper stores the focused subtree plus a stack of breadcrumbs. Each breadcrumb records the parent shape and the siblings that were not followed. Together, focus and breadcrumbs contain enough information to rebuild the whole structure.',
+        {type: 'callout', text: 'A zipper is a tree turned inside out around one focus: the current subtree plus the context needed to rebuild the root.'},
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg',
+          alt: 'Binary tree diagram with a root and child nodes',
+          caption: 'A zipper keeps ordinary tree structure, but moves the path to the current node out into breadcrumbs. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree.svg.',
+        },
         'The obvious way to edit a tree at a cursor is to keep parent pointers or to start again from the root after each move. Parent pointers complicate immutable data and sharing; root searches repeat path work. A zipper exists because the path to the focus is exactly the information needed for the next local move and for rebuilding the tree after an edit.',
         'Gerard Huet introduced the zipper as a functional programming pearl for navigating and updating trees. The idea generalizes to lists, trees, syntax trees, filesystems, editor outlines, and other recursive structures. It is especially useful when data is immutable but the program still needs cursor-like movement and local edits.',
       ],
@@ -283,6 +290,12 @@ export const article = {
       heading: 'Complete case study',
       paragraphs: [
         'A structured code editor stores a program as an AST. The user selects an expression such as x * 2 inside a larger function. The zipper focus is that expression; breadcrumbs remember the enclosing multiply, addition, call, block, and file nodes. A refactor changes 2 to 3 or replaces x * 2 with scale(x). The editor zips up to create a new AST root while sharing every untouched subtree.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Rust_MIR_CFG.svg/250px-Rust_MIR_CFG.svg.png',
+          alt: 'Rust compiler control-flow graph with basic blocks and edges',
+          caption: 'Compiler intermediate representations are structured graphs and trees; a focused editor or rewrite pass needs local context plus a way back to the whole program. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rust_MIR_CFG.svg.',
+        },
         'Undo can keep the old root or old zipper state. A proof assistant or theorem editor uses the same pattern for focused subterms. A filesystem browser can treat the current directory as focus and parent directories as breadcrumbs. A window manager can store focused windows in zipper-like layouts. The common shape is one current location plus enough context to move and rebuild.',
       ],
     },

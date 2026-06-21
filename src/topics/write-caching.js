@@ -150,6 +150,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. The first shows the same write flowing through three different policies: write-through, write-back, and write-around. Active edges are the write path the policy uses. Found nodes have received durable data. Removed nodes are knowingly stale. The second view replays a crash on a write-back timeline and then shows the WAL rescue.',
+        {type: 'callout', text: 'Write caching is an acknowledgement policy: the moment the system says done defines what a crash is allowed to lose.'},
         'Watch the ack point in each frame. That is the real variable. Everything else -- latency, durability, consistency -- follows from when the system says "done." If the ack fires before the disk confirms, you are inside a dirty window. If the ack waits for disk, you paid full latency. If the ack skips the cache, you traded read warmth for cache protection.',
         'The matrix frames price each policy side by side. Read the latency column against the crash-safety column: the speed difference between write-through and write-back is not cleverness. It is borrowed risk.',
       ],
@@ -158,6 +159,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Read caching asks whether a copy is fresh. Write caching asks something harder: when is the system allowed to tell the caller "done"? RAM absorbs a write in roughly 100 nanoseconds. A disk commit costs 5 milliseconds, a cross-region replica 50 milliseconds or more. Somewhere between the fast layer and the durable layer, the system must issue an acknowledgement, and that ack is a durability promise.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg',
+          alt: 'Computer memory hierarchy from fast CPU cache to slower storage',
+          caption: 'Write policy exists because every cache layer is faster and less durable than the authority below it. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.',
+        },
         'The promise matters because upstream systems act on it. A user sees "order placed." A message queue deletes the consumed message. A distributed transaction marks its branch committed. If a crash erases data the ack said was safe, the system has lied to every downstream consumer. Write-caching policy is not a performance knob. It is a contract about what survives failure.',
         {
           type: 'diagram',
@@ -197,6 +204,12 @@ export const article = {
       paragraphs: [
         'Write-through: the app sends a write; the cache stores the value and forwards it to the backing store; the ack waits until the backing store confirms. Read-after-write is trivially consistent because both copies agree at the ack boundary. Recovery is trivial because every acknowledged write already reached durable storage. The cost is that every write pays the slowest hop in the path.',
         'Write-back: the app sends a write; the cache stores the value, marks it dirty, and acks immediately. A background flusher periodically scans the dirty set and writes entries to the backing store in batches, ordered by age, memory pressure, or checkpoint policy. Repeated writes to the same dirty key collapse into one backing-store write. The backing store is temporarily stale by design -- for dirty entries, the cache IS the truth.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg',
+          alt: 'State transition diagram with arrows between process states',
+          caption: 'A write-back entry has lifecycle state too: clean, dirty, flushing, durable, or lost after a crash. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Process_states.svg.',
+        },
         'Write-around: the app sends a write directly to the backing store, bypassing the cache. The cache only learns about the value if a later read fetches it. This protects the cache from bulk imports that would evict the genuinely hot working set to make room for data nobody will read soon.',
         'Write-back plus WAL: before acking, append one line to a sequential log -- "set count=43." Then mark the cache dirty and ack. The flusher ships dirty pages lazily. On crash, replay the log over the last checkpoint: every acknowledged write resurrects. Latency is roughly 0.5ms (a sequential append is the one thing disks do nearly as fast as RAM), durability is total. This is the literal architecture of PostgreSQL, InnoDB, and the LSM-tree memtable+log pairing.',
         {
@@ -252,13 +265,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Policy', 'Write latency', 'Crash durability', 'Read-after-write', 'Best for'],
-          rows: [
-            ['Write-through', '~5ms (disk RTT)', 'Full -- ack = on disk', 'Consistent (both copies agree)', 'Config, metadata, low-rate writes'],
-            ['Write-back', '~0.1ms (RAM)', 'NONE without WAL -- dirty window', 'Consistent in cache, stale on disk', 'Hot keys, counters, high-throughput writes'],
-            ['Write-back + WAL', '~0.5ms (log append)', 'Full -- ack = in log', 'Consistent in cache, recoverable', 'Databases, filesystems, queues'],
-            ['Write-around', '~5ms (disk RTT)', 'Full -- ack = on disk', 'Cold -- first read misses cache', 'Bulk loads, write-once-read-maybe data'],
+          type: 'bullets',
+          items: [
+            'Write-through: roughly disk-round-trip latency per write; full crash durability because the ack means the backing store already has the value; best for low-rate metadata and simple recovery.',
+            'Write-back without WAL: roughly RAM latency per write; no crash durability during the dirty window; best only when losing acknowledged writes is acceptable or another safety net exists.',
+            'Write-back plus WAL: roughly sequential-log latency before ack; full durability because recovery can replay the log; best for databases, filesystems, queues, and LSM-tree memtables.',
+            'Write-around: roughly backing-store latency per write; full durability if the store is forced stable; best for bulk loads and write-once data that would pollute the cache.',
           ],
         },
         'Write-through costs throughput because it cannot batch or coalesce. Its reward is no dirty metadata, no flush scheduling, and a one-line recovery story.',
@@ -311,4 +323,3 @@ export const article = {
     },
   ],
 };
-
