@@ -220,6 +220,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Tree problems often ask for rich metadata at every subtree: distinct colors, frequency maps, sets of labels, pending query ids, or component summaries. The naive answer rebuilds a container for every node and repeats work across overlapping subtrees.',
+        {type: 'callout', text: 'Small-to-large merging is a doubling argument disguised as an implementation detail.'},
         'Small-to-large merging exists to stop that repeated copying. It keeps the largest child container and folds smaller containers into it, so individual elements are not moved over and over without bound.',
       ],
     },
@@ -248,6 +249,7 @@ export const article = {
       heading: 'Data structures',
       paragraphs: [
         'The containers can be sets, hash maps, ordered maps, heaps, vectors, or custom frequency tables. The destination pointer matters: reuse the largest child container instead of allocating a fresh one and copying everything.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Dsu_disjoint_sets_final.svg/500px-Dsu_disjoint_sets_final.svg.png', alt: 'Disjoint-set forest after several union operations', caption: 'Union by size is the closest named relative: attach the smaller structure to the larger so future work stays shallow. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_final.svg.'},
         'For tree queries, the DFS frame typically stores the kept container, temporary child containers, the current node payload, and the answer for the current subtree. If containers are mutable, ownership and reference discipline matter.',
       ],
     },
@@ -308,6 +310,7 @@ export const article = {
       paragraphs: [
         'Given a tree where every node has a color, compute for every node how many distinct colors appear in its subtree. The naive solution walks the whole subtree for every node. Small-to-large does one postorder DFS and reuses the largest child set at every parent.',
         'Virtual Tree LCA Compression is the adjacent tool when the query gives a small marked subset and asks for DP only on the induced subtree. Rerooting DP is the adjacent tool when every possible root needs an answer. Small-to-large keeps rich metadata while walking the whole rooted tree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Subtree aggregation is easiest to reason about when ownership flows along directed parent-child edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'A complete implementation also has to decide what happens after recording an answer. Some variants keep containers for ancestors; others clear temporary data to save memory. That choice depends on whether later queries need the exact subtree container or only the stored answer.',
       ],
     },

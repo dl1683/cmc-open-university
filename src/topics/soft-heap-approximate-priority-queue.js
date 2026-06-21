@@ -267,6 +267,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A soft heap is an approximate priority queue introduced by Bernard Chazelle. It supports the usual heap operations, but it changes the contract: a bounded fraction of items may have their stored keys artificially raised. These items are called corrupted.',
+        {type: 'callout', text: 'A soft heap buys speed by weakening priority order only where a later algorithm can verify the candidates.'},
         'Corruption is one-sided. A key may be increased, never decreased. That means an item can be delayed behind larger soft keys, but it cannot jump ahead by pretending to be smaller than it really is. The heap parameter epsilon controls the maximum number of corrupted items relative to the number of inserted items.',
       ],
     },
@@ -281,6 +282,7 @@ export const article = {
       heading: 'How it works conceptually',
       paragraphs: [
         'The deep implementation uses heap-ordered tree structures and grouped item lists, but the conceptual move is simple: reduce the amount of ordering information the heap maintains. Chazelle describes this as moving items in groups. When several items share a representative soft key, some true keys must be raised so the heap order remains legal.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Max-Heap-new.svg/250px-Max-Heap-new.svg.png', alt: 'Binary max heap represented as a tree', caption: 'An exact heap preserves parent-child priority order. A soft heap deliberately stores less exact order information. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Max-Heap-new.svg.'},
         'This information reduction breaks through ordinary comparison-priority-queue barriers. The classic bounds give constant amortized time for most heap operations, with insert costing O(log 1/epsilon). Later simplified variants move the log factor among operations, but the core tradeoff remains the same: speed in exchange for bounded key corruption.',
       ],
     },
@@ -288,6 +290,7 @@ export const article = {
       heading: 'Complete case study',
       paragraphs: [
         'The signature case study is minimum spanning tree algorithms. Kruskal MST and Prim MST rely on priority choices, but MST correctness also has structural certificates: edges are accepted only if they connect different components or satisfy cut-style conditions. A soft heap can propose approximate-minimum edges, while Union-Find or related graph checks decide whether the edge is actually usable.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Minimum_spanning_tree.svg/330px-Minimum_spanning_tree.svg.png', alt: 'Weighted planar graph with a minimum spanning tree highlighted', caption: 'MST algorithms are a natural home for soft heaps because graph structure can verify candidate edges after approximate extraction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Minimum_spanning_tree.svg.'},
         'This is the essential design lesson. Approximation inside a data structure is safe only when the surrounding algorithm has a way to verify or repair the output. A scheduler that must always run the true highest-priority job is a poor fit. An algorithm that can discard bad candidates after a cheap certificate is a much better fit.',
       ],
     },

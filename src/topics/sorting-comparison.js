@@ -120,6 +120,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation plots six sorting algorithms on the same axes. The horizontal axis is input size n. The vertical axis is average comparisons (or operations for counting sort). Each frame adds one algorithm so you can watch the gaps open before they all appear together.',
+        {type: 'callout', text: 'Sorting choice is not one leaderboard; it is a contract between input shape, stability, memory, and the comparison lower bound.'},
         'The active curve (highlighted) is the one just added. Previously drawn curves dim. The invariant line shows concrete numbers at the current max n so you can compare ratios, not just shapes.',
         'Two frames deserve special attention: the all-together view where n² and n log n visually separate, and the zoomed small-n view where insertion sort wins despite its worse asymptotic class.',
       ],
@@ -153,6 +154,7 @@ export const article = {
         'Bubble sort: scan left to right, swap adjacent inversions, repeat until clean. Average comparisons: n(n−1)/2 ≈ n²/2. Each pass guarantees the next-largest element reaches its final position.',
         'Insertion sort: maintain a sorted prefix. For each new element, slide it left through the prefix until it finds its place. Average comparisons: n(n−1)/4 ≈ n²/4. The factor-of-two improvement over bubble sort comes from early termination: each insertion stops as soon as it finds a smaller element.',
         'Merge sort: divide the array in half, recurse, merge the sorted halves. The merge step does at most n comparisons; the recursion has depth ⌈log₂ n⌉. Total: n⌈log₂ n⌉ comparisons, always.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Merge_sort_algorithm_diagram.svg/500px-Merge_sort_algorithm_diagram.svg.png', alt: 'Merge sort diagram showing recursive splits and merges', caption: 'Merge sort spends predictable work at every level: split structure above, merge work below. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Merge_sort_algorithm_diagram.svg.'},
         'Quicksort: pick a pivot, partition into elements less than and greater than the pivot, recurse on both sides. Average-case analysis by Hoare (1962): the expected number of comparisons is 2n ln n ≈ 1.39n log₂ n. The 1.39 factor is the price of random pivot selection; the payoff is excellent cache locality and no auxiliary space.',
         'Heap sort: build a max-heap in O(n), then repeatedly extract the maximum and sift down. Each extraction does at most 2⌈log₂ n⌉ comparisons (two per level: find the larger child, compare with the sifted element). Total: about 2n log₂ n.',
         'Counting sort: allocate an array of size k (the range of values), count occurrences, compute prefix sums, and place each element in its final position. Work: n to count, k to prefix-sum, n to place. Total: Θ(n + k). When k = O(n), this is linear.',
@@ -162,6 +164,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'The comparison-sort lower bound rests on a decision-tree argument. Model any comparison sort as a binary tree where each internal node is a comparison and each leaf is a permutation. The tree must have at least n! leaves (one per possible input ordering). A binary tree with L leaves has height at least log₂ L. Therefore worst-case comparisons ≥ log₂(n!) ≈ n log₂ n − n.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branches and leaves', caption: 'The lower bound treats comparison sorting as a decision tree: each comparison can only choose one branch. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Decision_tree_model.png.'},
         'Merge sort matches this bound to within a small additive term. Its comparison count is deterministic: the merge of two sorted runs of total length m uses at most m − 1 comparisons. Summing over all levels of the recursion gives n⌈log₂ n⌉ − 2^{⌈log₂ n⌉} + 1, which is n log₂ n − n + O(1) for powers of two.',
         'Counting sort bypasses the bound because it never compares elements. It reads each element once to count it, then reads each count once to place it. The decision tree has only one path: no branches, no information gain needed from comparisons. The price is that it requires integer keys in a known range.',
       ],

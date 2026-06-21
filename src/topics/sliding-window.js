@@ -76,6 +76,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The highlighted range is the current window [left..right]. The active (bright) cell is the element the right pointer just absorbed. A removed cell is one the left pointer just expelled. Found marks the longest legal window discovered so far.',
+        {type: 'callout', text: 'The sliding-window proof is pointer accounting: each element enters once and leaves at most once.'},
         'The animation shows the expand-contract variant: grow the right boundary, then shrink the left boundary until the sum invariant holds. The same structural discipline — two pointers that only move forward — powers every sliding window algorithm, including the monotonic-deque maximum described below.',
         'Watch the left pointer: it never retreats. That forward-only movement is both the reason the algorithm is O(n) and the visual proof that no element is processed more than twice.',
       ],
@@ -113,6 +114,7 @@ export const article = {
       paragraphs: [
         'Initialize an empty deque. For each index i from 0 to n-1: (1) Remove indices from the front of the deque while they are outside the window, i.e., less than i-k+1. (2) Remove indices from the back of the deque while the value at those indices is less than or equal to values[i] — those candidates are now obsolete. (3) Push i onto the back. (4) If i >= k-1 (the first full window is ready), the front of the deque is the index of the current window maximum; record values[deque.front].',
         'Each element enters the deque exactly once (pushed in step 3) and leaves at most once (popped in step 1 or step 2). Across all n iterations, the total number of push and pop operations is at most 2n. The per-element cost is amortized O(1), and the entire pass is O(n).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Circular_buffer.svg/250px-Circular_buffer.svg.png', alt: 'Circular buffer ring divided into slots', caption: 'A fixed-size rolling window is often implemented as a ring: logical time moves forward while storage wraps. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Circular_buffer.svg.'},
       ],
     },
     {
@@ -134,6 +136,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'Sliding window maximum (LeetCode 239) is the canonical problem, but the pattern appears whenever a rolling extreme must be tracked efficiently. Network monitoring systems compute peak throughput over the last N sampling intervals. Stock trading platforms track rolling highs and lows for candlestick charts and stop-loss triggers.',
+        {type: 'image', src: 'https://sookocheff.com/post/networking/how-does-tcp-work/assets/congestion-control.png', alt: 'TCP congestion window sawtooth with additive increase and multiplicative decrease', caption: 'TCP makes the window idea operational: the active range of unacknowledged bytes expands and contracts under feedback. Source: https://sookocheff.com/post/networking/how-does-tcp-work/.'},
         'The same deque trick powers sliding window minimum (just flip the comparison), which appears in distance transform algorithms in image processing and in computing the minimum cost over rolling time horizons in dynamic programming optimizations.',
         'Broader sliding window patterns — not just max — appear in TCP congestion control (a window of unacknowledged bytes that expands and contracts), moving averages in signal processing, rate limiters that count events in a time window, and streaming aggregation in data pipelines.',
       ],

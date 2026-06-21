@@ -227,6 +227,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Slab Allocator & Size Classes. A small-object allocation pattern: round requests to size classes, keep free objects inside slabs/spans, and cache hot freelists per thread or CPU..",
+        {type: "callout", text: "A slab allocator wins by turning the hot path from heap search into class lookup plus free-list pop."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -236,6 +237,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         "Modern systems allocate huge numbers of small objects: request structs, map entries, timers, socket buffers, AST nodes, queue items, and short-lived strings. Treating every 24-byte, 72-byte, or 128-byte request as a custom heap search wastes time and creates fragmentation.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg", alt: "CPU cache hierarchy from small fast cache to larger slower memory", caption: "Allocator fast paths are designed around this hierarchy: hot free lists should stay close to the CPU. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg."},
         "A slab allocator solves the small-object case by admitting that many requests are almost the same size. It rounds requests into size classes, carves larger memory spans into equal slots, and reuses those slots through fast free lists. The source of memory may still be a buddy allocator or page heap, but the hot path is specialized for small, repeatable shapes.",
       ],
     },
@@ -307,6 +309,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         "Slab allocation wins for frequent small allocations with repeatable sizes and lifetimes: kernel objects, network buffers, request structs, compiler nodes, runtime objects, cache entries, and server-side data structures. It is especially valuable when the same sizes are allocated and freed repeatedly.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg", alt: "Intel processor die with visible compute and cache regions", caption: "Small-object allocation is a hardware problem as much as an API problem: pointer chasing, cache locality, and contention decide the real cost. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg."},
         "Linux SLAB and SLUB organize kernel objects into caches and slabs above page allocation. TCMalloc uses front-end caches, central free lists or transfer caches, and a page heap. jemalloc uses size classes, thread caches, arenas, bins, and extents. The names differ, but the hierarchy is stable: local free lists, central pools, and larger backing memory.",
       ],
     },

@@ -162,6 +162,7 @@ export const article = {
       heading: 'The context budget problem',
       paragraphs: [
         'Sliding-window attention exists because full attention gives a beautiful interface and an ugly cost curve. In a causal Transformer, each token can attend to every previous token. That direct access is powerful, but the number of token pairs grows with the square of sequence length during training, and the KV cache grows with every token during inference. A model that accepts a long prompt still has to decide which evidence remains cheap to access.',
+        {type: 'callout', text: 'Sliding-window attention is not a longer memory; it is a policy that makes recent exact memory cheap and distant exact memory scarce.'},
         'A sliding window is a context policy. It says: keep exact, direct attention for recent tokens, and stop paying full direct-attention cost for older tokens. That sounds like a compromise because it is one. The point is not to pretend old information is irrelevant. The point is to make memory and compute budgets explicit so long-context systems can run at all.',
       ],
     },
@@ -177,6 +178,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'In full causal attention, token i may attend to every token from 0 through i. In sliding-window attention, token i attends only to a bounded recent range, such as the previous w tokens. The attention mask changes from a full lower triangle into a diagonal band. The compute shape changes from roughly n squared token pairs to roughly n times w token pairs, where w is the window size.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Scaled dot-product attention block with query key value mask softmax and output', caption: 'The sliding-window policy changes the mask inside this attention block, not the idea of query-key scoring itself. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_attention_block_diagram.png.'},
         'During inference, the same idea becomes a rolling cache policy. The system keeps key and value rows for recent tokens and evicts or deprioritizes older rows. Some designs add anchor tokens, attention sinks, recurrent summaries, compressed memory, or retrieval so old information can still influence the model indirectly. A pure local window is the simplest case: old tokens outside the window are not directly visible to new tokens.',
         'The mechanism is easy to draw but hard to deploy well. The right window size depends on the task. Chat often depends heavily on recent turns. Code editing often depends on the current function, nearby imports, and active errors. Legal analysis may depend on definitions hundreds of pages earlier. A sliding window is therefore not just a model architecture choice; it is a product and evaluation choice.',
       ],
@@ -185,10 +187,10 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'Sliding-window attention works when useful context is local or can be made local. Natural language has many short-range dependencies. Code often has strong local structure. Conversation usually weights recent turns heavily. If the model can solve most next-token decisions from a nearby band, full all-pairs attention spends a large amount of compute on weak or redundant dependencies.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Multiheaded_attention%2C_block_diagram.png/250px-Multiheaded_attention%2C_block_diagram.png', alt: 'Multi-head attention block with parallel attention heads and concatenation', caption: 'Multiple heads can learn different local or anchor routes, but each head still pays for the keys its policy exposes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Multiheaded_attention,_block_diagram.png.'},
         'It also works because local attention improves serving economics. Accelerator memory is one of the hardest constraints in LLM inference. A bounded cache lets systems serve longer streams, more concurrent sessions, or lower latency than they could with unbounded exact history. This matters in real products: a context policy is part of capacity planning.',
         'The strongest long-context systems rarely rely on a blind local window alone. They combine local detail with other paths: retrieval for exact old evidence, summaries for durable state, sink tokens for stable attention behavior, global tokens for special positions, or hierarchical processing for documents. Sliding windows are often the cheap recent-memory layer in a larger memory system.',
       ],
     }
   ],
 };
-

@@ -121,6 +121,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Three horizontal lanes sit on screen. Level 0 (bottom) holds all eight values in sorted order. Level 1 holds a promoted subset. Level 2 holds an even sparser subset. Each lane starts at a head sentinel marked -∞.',
+        {type: 'callout', text: 'A skip list is fast because each downward move keeps the same predecessor while revealing a denser lane.'},
         'Forward pointers connect consecutive nodes on the same lane. Vertical pointers link copies of the same value across levels. The highlighted node is the current search position. Visited nodes mark the path already taken. Found marks the target.',
         'The search always moves in two directions: right along a lane while the next value does not overshoot, and down one level when the next value is too large or the lane ends. The path never moves left. Each rightward hop on a high lane skips every unpromoted node below it. Each drop refines position on a denser lane.',
       ],
@@ -129,6 +130,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Balanced binary search trees (AVL, red-black) deliver O(log n) search, insert, and delete. The cost is implementation complexity. AVL trees have four rotation cases. Red-black trees track node colors and enforce uncle-grandparent constraints. Deletion in either structure is notoriously error-prone. Making either thread-safe is harder still, because a single rotation can touch a grandparent, parent, and child simultaneously.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by next pointers', caption: 'A skip list starts from this simple pointer chain, then adds sparse upper lanes so search can skip long stretches. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
         'William Pugh introduced the skip list in 1990 as a probabilistic alternative. The goal: O(log n) expected time for search, insert, and delete, with no rotations, no color rules, and no global restructuring. The mechanism: stack express lanes of decreasing density on top of a sorted linked list, and let coin flips decide which values appear on which lanes.',
       ],
     },
@@ -157,6 +159,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Search: start at the head sentinel on the highest level. Compare the next node on the current lane to the target. If the next value is at most the target, move right. If it overshoots or the lane ends, drop down one level. Repeat until the target is found or level 0 is exhausted.',
+        {type: 'image', src: 'https://media.geeksforgeeks.org/wp-content/uploads/Skip-List-3-4.jpg', alt: 'Skip list insertion trace with update array and multi-level forward pointers', caption: 'Insertion records one predecessor per lane, then redirects only local forward pointers. Source: GeeksforGeeks, https://www.geeksforgeeks.org/dsa/skip-list-set-2-insertion/.'},
         'Insert: run the search but record the predecessor at every level (the last node visited before each drop). Splice the new value into level 0 after its predecessor. Flip coins for height. For each promoted level, splice the value into that lane using the recorded predecessor. The predecessor array is critical: without it, you would re-search from the top for every promoted level.',
         'Delete: find the value at each level and unlink it. Update the predecessor pointers at every lane where the value appears. If the top lane becomes empty, reduce the maximum level.',
       ],
@@ -216,5 +219,4 @@ export const article = {
     },
   ],
 };
-
 
