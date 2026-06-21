@@ -213,6 +213,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The rank-walk view traces a single rank query from root to leaf. Active (highlighted) nodes are the ones the query is currently visiting. The bitvector at each node shows how symbols are routed: 0 sends a symbol left, 1 sends it right. Watch how the prefix length shrinks at each level -- rank on the bitvector remaps the boundary into the child sequence.',
+        {type: 'callout', text: 'A wavelet tree stores routing bits, not duplicate subsequences; rank turns each parent prefix into the exact child prefix needed by the query.'},
         'The range-quantile view carries an interval instead of a single prefix. At each node, the interval splits by counting how many positions route left versus right. The decision to descend left or right depends on whether the target rank fits inside the left count.',
         'Found markers show the final answer once the walk reaches a leaf. Compare markers show sibling paths that the query skipped. At every frame, ask: what information did the bitvector just provide, and why does stable partitioning make that information correct?',
       ],
@@ -221,6 +222,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Many queries over sequences care about symbols, not just positions. How many times does character c appear before index i? Where is the kth occurrence of c? What is the median value in positions 40 through 90? A plain array answers access(i) in constant time, but rank, select, and range-quantile queries force a scan.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows connecting nodes', caption: 'A wavelet tree is a navigation graph over symbols: each edge represents one recorded routing decision through a bitvector. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         {
           type: 'quote',
           text: 'The wavelet tree is one of the most versatile succinct data structures, supporting a wealth of operations in compact space.',
@@ -317,6 +319,7 @@ export const article = {
       paragraphs: [
         'Updates are expensive. Inserting or deleting a symbol can change routing bits across every level of the tree. Dynamic wavelet trees exist but add significant complexity and constant factors. If the sequence changes frequently, a balanced BST or a segmented structure is usually simpler.',
         'For tiny alphabets (sigma = 2 or 4), a wavelet tree is overkill. Two or four plain bitvectors with rank/select support answer rank queries directly in O(1) time. The tree overhead adds nothing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'Cache hierarchy from CPU to memory', caption: 'Pointer-heavy rank walks can lose to simpler layouts because each level may miss in cache. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.'},
         'Cache behavior can be poor in pointer-based implementations because a single rank query touches log sigma different bitvectors stored in different memory locations. The wavelet matrix layout addresses this by packing bitvectors level by level, but even then, random-access queries over large sequences cause cache misses.',
         'The name itself is a failure of communication. A wavelet tree has nothing to do with signal-processing wavelets. The name comes from a loose analogy to multiresolution decomposition, but it confuses newcomers who expect frequency-domain operations. Judge the structure by what it does: recursive alphabet partitioning with bitvector navigation.',
       ],
@@ -338,4 +341,3 @@ export const article = {
     },
   ],
 };
-

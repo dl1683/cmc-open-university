@@ -168,6 +168,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The owner-bottom view shows a single worker deque with asymmetric ends. Active highlights mark the current operation: owner push, owner pop, or thief steal. Found highlights mark tasks sitting in the deque between top and bottom. Compare highlights mark the idle thief and the atomic CAS node that guards the steal path.',
+        {type: 'callout', text: 'Work stealing makes imbalance lazy: local work stays cheap, and only idle workers pay the synchronization cost to steal older exposed tasks.'},
         'Watch the two indices. Bottom moves when the owner pushes or pops. Top moves when a thief successfully steals. The gap between top and bottom is the number of stealable tasks. When the gap reaches one, the owner and thief race for the last item -- that is where the synchronization cost concentrates.',
         'The fork-join view shows how recursive divide-and-conquer exposes work. The owner continues locally with one subproblem and publishes the other at the bottom. Older tasks drift toward the top and become steal targets. The tradeoff matrix at the end contrasts work stealing against a central queue, static affinity, and blocking-task schedulers.',
       ],
@@ -176,6 +177,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A parallel runtime must keep every core busy without making every core fight over a single shared structure. Fork-join programs make this hard: one worker can split a problem into dozens of children while another worker sits idle with nothing to do. The scheduler must balance load, but the common case -- a worker consuming its own children -- should cost almost nothing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel processor die showing compute regions', caption: 'Work stealing exists because many cores need enough ready work without turning scheduling into one shared bottleneck. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
         {
           type: 'quote',
           text: 'The space used by the Cilk scheduler is at most S1 * P, where S1 is the stack space used by a one-processor execution and P is the number of processors. Work stealing achieves space efficiency because each processor executes a depth-first computation, using stack space proportional to the serial execution.',
@@ -329,6 +331,7 @@ export const article = {
       paragraphs: [
         'Work stealing dominates for fork-join and divide-and-conquer workloads: parallel mergesort, recursive matrix multiply, ray tracing, game-engine job graphs, tree search, and irregular data-parallel pipelines. It is strongest when tasks are large enough to amortize the steal cost but small enough that the runtime can rebalance frequently.',
         'It wins on locality. The owner continues depth-first with its newest child, keeping parent data, stack context, and nearby memory hot. Thieves take older tasks -- typically coarser subtrees -- which gives them independent work and reduces stealing frequency. This depth-first-owner, breadth-first-thief duality is the key insight that separates work stealing from work sharing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'CPU cache hierarchy diagram', caption: 'The local-owner path matters because hot stack frames and task data tend to stay near the worker that produced them. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.'},
         {
           type: 'bullets',
           items: [

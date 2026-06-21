@@ -386,6 +386,8 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Many tree problems have a large stable tree and a small query set. A filesystem audit may mark a few files, a service incident may mark a few failing services, and a contest problem may mark k special vertices inside a tree with hundreds of thousands of nodes. The answer usually depends on the connections among the marked vertices, not on every unrelated branch.',
+        {type: 'callout', text: 'A virtual tree keeps exactly the ancestors needed to preserve relationships among marked nodes, then lets the query run on the compressed shape.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'The compression problem starts as reachability and ancestry in a directed rooted graph. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'A virtual tree, also called an auxiliary tree, is the standard compression for that situation. It replaces the original tree for one query with the marked vertices plus the lowest common ancestors needed to keep their ancestry relationships correct. The downstream dynamic program then runs on O(k) vertices instead of n.',
       ],
     },
@@ -456,6 +458,7 @@ export const article = {
       heading: 'Complete case study',
       paragraphs: [
         'Suppose a company has a rooted ownership tree with thousands of teams and services. An incident marks five affected leaf services. The virtual tree adds the common team ancestors and the root organization, then runs a postorder DP over the compressed tree to count affected descendants by owner.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of server racks in a datacenter', caption: 'Incident trees often summarize real production infrastructure; the virtual tree keeps the affected branches without walking every service. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg.'},
         'The same virtual edges can also carry escalation distance, blast-radius weights, or policy metadata. A dashboard can show that auth owns two alerts, shop owns two alerts, and a cache service is isolated under a different branch, all without traversing unaffected parts of the organization tree for this incident.',
       ],
     },

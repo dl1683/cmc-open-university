@@ -103,6 +103,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The animation shows two bank accounts and an append-only log. Active (highlighted) items are log records being written right now. Found (green) items are durable state that survived recovery. Removed (red) marks a record belonging to an uncommitted transaction that recovery will discard.",
+        {type: "callout", text: "WAL makes the log the durable timeline, so recovery can reconstruct committed state even when data pages are stale or half-applied."},
         "Watch the ordering: log records appear before any balance changes. The commit marker is the boundary. A transaction with a commit marker in the log is real; one without it never happened. When the crash fires, recovery reads the log top to bottom, redoes committed work, and erases incomplete work.",
         "At each frame, check: has the log been flushed before the data page changed? That single ordering rule is the entire correctness argument.",
       ],
@@ -111,6 +112,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         "A useful database update often requires several writes. A bank transfer subtracts from one account and adds to another. If the machine loses power between those two writes, money vanishes and the books no longer balance. The on-disk state reflects a transaction that was never meant to exist half-finished.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg", alt: "Rows of server racks in a datacenter", caption: "Durability is a physical promise made on real storage systems, not an abstract database slogan. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg."},
         "The write-ahead log exists to guarantee that committed transactions survive crashes and uncommitted ones leave no trace. Before modifying any data page, the database appends a record of intent to a sequential, append-only log file. If the system crashes, recovery replays the log and reconstructs exactly the committed state. The rule is four words: log first, apply second.",
       ],
     },
@@ -139,6 +141,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         "Each log record carries a log sequence number (LSN), a transaction ID, the affected page, redo information (new value), and optionally undo information (old value). LSNs increase monotonically. Every data page stores the LSN of the most recent log record applied to it, so recovery can tell whether a logged change already reached the page.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg", alt: "Small B-tree diagram with grouped keys", caption: "WAL protects page-organized structures such as B-trees by logging changes before the page image is allowed to become durable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg."},
         "During normal operation the database appends log records as it modifies pages in the buffer pool. At commit, it forces the log up through the commit record to stable storage (fsync), then tells the client success. A background writer flushes dirty pages later at its own pace. A checkpoint periodically records the current LSN and flushes enough dirty pages so that recovery need not replay from the beginning of time.",
         "Recovery follows the ARIES protocol (Mohan et al., 1992), the standard used by DB2, InnoDB, PostgreSQL, and SQL Server. It has three phases. Analysis: scan the log from the last checkpoint to find which transactions were active and which pages were dirty at crash time. Redo: replay every logged change from the checkpoint forward, skipping any change whose LSN shows the page already contains it. Undo: walk backward through the log and reverse every change made by transactions that never committed. After undo, the database is in exactly the last committed state.",
       ],

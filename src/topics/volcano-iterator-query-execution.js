@@ -260,6 +260,8 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A SQL query is compiled into a physical plan: scans read tables, filters reject rows, joins combine relations, sorts impose order, aggregates summarize groups, and limits stop early. The executor needs a way to run that tree without writing a custom program for every possible combination of operators.',
+        {type: 'callout', text: 'Volcano turns a whole query plan into nested streams, so every operator can be composed through the same open, next, close contract.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of server racks in a datacenter', caption: 'Database execution is a physical systems problem: storage, memory, CPU, and request latency all meet inside the executor. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg.'},
         'The Volcano iterator model gives every physical operator the same small interface: open, next, and close. A parent asks a child for one more tuple. That request recursively travels down the plan tree until a leaf can produce a row, and the row returns upward through the same operators. PostgreSQL still documents its executor in this demand-pull style.',
       ],
     },
@@ -281,6 +283,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Execution starts at the root. The client asks the top node for a row. A Limit node may ask its child until it has returned enough rows. A Join node may ask both children. A scan reads from storage. A filter evaluates a predicate before passing a tuple upward. Each operator stores only the state it needs to resume on the next call.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes and arrows', caption: 'A physical query plan is a directed operator graph; Volcano defines how demand and tuples move along those edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Blocking operators are still legal, but they change latency and memory behavior. PostgreSQL gives the classic example: a Sort node repeatedly calls its child until the input is exhausted, performs the sort, and only then returns its first output row. Hash aggregate and hash join build phases have the same shape: the iterator interface stays uniform while the internal state becomes large. This is why the same tree notation can represent a streaming plan or a plan with a full materialization point in the middle.',
       ],
     },
@@ -303,6 +306,7 @@ export const article = {
       paragraphs: [
         'Volcano is memory-conscious for streaming plans. A scan-filter-limit query can stop early and hold little state. Doubling the table does not matter if an index and LIMIT let the executor find enough qualifying rows quickly. The model also handles pipelining naturally because rows move only when requested. Its best case is therefore not tied to table size alone; it is tied to where selective access and early termination appear in the plan.',
         'The tax is per-tuple overhead. Every row can cross many next calls, branches, function pointers, virtual dispatch sites, expression interpreters, and tuple materialization boundaries. For analytical scans over millions of values, that overhead can dominate simple arithmetic. Blocking nodes add a second cost: memory pressure, spilling, and slow first-row latency when a Sort or HashAggregate must consume the whole child input.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel processor die with compute and cache regions', caption: 'The tuple-at-a-time tax is paid on real silicon: branches, calls, cache misses, and materialization boundaries can dominate simple predicates. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
         'This is why execution plans should be read as latency shapes, not only cost totals. Ask which operators can produce the first row immediately, which ones must consume a child first, which ones can spill, and which ones break a pipeline boundary.',
       ],
     },

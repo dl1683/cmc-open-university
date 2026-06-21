@@ -219,6 +219,7 @@ export const article = {
       heading: "Why this exists",
       paragraphs: [
         "A normal LRU cache admits every miss. If the key is requested and the cache has room, it enters. If the cache is full, the miss enters after evicting the least recent resident. That rule is simple, but it treats a one-time visitor as if it has earned the same space as a value used many times.",
+        {type: "callout", text: "W-TinyLFU makes cache space an earned resource: recency gets a trial window, but frequency decides whether a newcomer can evict a resident."},
         "Window TinyLFU exists because real workloads mix reuse with noise. A service may have a stable hot set, short bursts from user sessions, and long scans from reports or crawlers. The cache should learn from the request, serve the miss, and still ask a separate question before giving the fetched object durable resident space.",
       ],
     },
@@ -240,6 +241,7 @@ export const article = {
       heading: "How the policy works",
       paragraphs: [
         "A practical W-TinyLFU cache has a small recency window and a larger main region. All requests update the frequency sketch. On a miss, the object is placed in the window so it gets an immediate chance to absorb bursts and demonstrate reuse without first passing a strict frequency test.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg", alt: "Memory hierarchy showing multiple cache levels", caption: "A cache hierarchy makes the scarce-space problem concrete: fast layers must decide which copied values deserve residency. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg."},
         "When the window overflows, a candidate leaves the window and challenges a victim from the main cache. The policy compares their sketch estimates. If the candidate looks more frequent, it is admitted and the victim is evicted. If the candidate looks less frequent, the candidate is rejected and the resident stays.",
       ],
     },
@@ -261,6 +263,7 @@ export const article = {
       heading: "What the visual is proving",
       paragraphs: [
         "The visual is proving that a cache miss and cache admission are different events. The request still gets served, the sketch still learns from the access, and the window still absorbs the newcomer. Only when space pressure forces a choice does the policy ask whether the candidate deserves long-lived space.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg", alt: "Directed graph with nodes connected by arrows", caption: "The admission path is a directed policy graph: request, sketch update, window trial, victim comparison, admit or reject. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg."},
         "The scan-resistance path proves the value of rejection. In pure LRU, a long scan rewrites the cache simply because the scan is recent. In W-TinyLFU, scanned keys may pass through the window, but their low estimates make them lose against residents that have accumulated reuse evidence.",
       ],
     },

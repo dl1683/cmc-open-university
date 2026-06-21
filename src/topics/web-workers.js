@@ -149,6 +149,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The animation shows two execution contexts side by side: the main thread (which owns the DOM) and the worker thread (which owns private compute). Active (highlighted) items show where CPU time is being spent right now. Found (green) markers show states that are safe: the render slot is smooth, or a transfer completed without copying. Removed (red) markers show states that are broken: the render slot is frozen, or a clone cost is dangerously large.",
+        {type: "callout", text: "A worker is useful only when isolation saves more interaction budget than the message boundary costs."},
         "In the offloading view, watch the render slot. When the parse runs on the main thread, render is red (frozen). When the parse moves to the worker, render turns green (smooth). That single color change is the proof: isolating compute onto a separate event loop protects the frame budget. In the postMessage tax view, the matrix rows show data sizes and their clone costs. Red cells mark costs large enough to defeat the purpose of offloading. The decision table at the end encodes the rule: workers win when computation dwarfs postage.",
       ],
     },
@@ -156,6 +157,7 @@ export const article = {
       heading: `Why Web Workers exist`,
       paragraphs: [
         `The browser main thread owns the user experience. It runs JavaScript tasks, handles input events, updates the DOM, calculates style and layout, and gives the rendering engine chances to paint. At 60 frames per second, a frame budget is about 16.7 ms. A single 800 ms CSV parse is not merely a slow function. It is almost a full second during which clicks wait, animations freeze, timers slip, and dozens of paint opportunities are missed.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/61/HTML5_logo_and_wordmark.svg`, alt: `HTML5 logo and wordmark`, caption: `Web Workers arrived with the HTML5 application era, when browser pages became long-running software instead of mostly static documents. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:HTML5_logo_and_wordmark.svg.`},
         `Web Workers exist because some JavaScript work is real CPU work. Parsing, compression, syntax analysis, image processing, geometry, search indexing, cryptography, WebAssembly, and in-browser model inference can all take longer than a frame. The browser needs a way to run that work without letting it monopolize the thread that owns the DOM. A worker is that escape hatch: another JavaScript execution context with its own event loop and no direct access to the page.`,
       ],
     },
@@ -212,6 +214,7 @@ export const article = {
       heading: `Worker families`,
       paragraphs: [
         `Dedicated workers are owned by one page or script and are the usual choice for offloading computation. Shared workers can be reached by multiple browsing contexts from the same origin, which makes them useful for shared coordination but less common. Service workers are different: they sit between pages and the network, receive lifecycle events, and power offline-first behavior, caching, push, and background sync. Worklets are smaller specialized execution contexts for audio, animation, layout, or paint hooks.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/1/1f/WebAssembly_Logo.svg`, alt: `WebAssembly logo`, caption: `WebAssembly often runs beside workers because heavy compute and portable modules benefit from leaving the main thread. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:WebAssembly_Logo.svg.`},
         `OffscreenCanvas is an important worker-adjacent feature. It can transfer canvas rendering work away from the main thread, which matters for design tools, maps, games, and data visualization. OPFS synchronous access handles are another worker-only pattern: the browser permits synchronous file-like operations there because the blocking happens off the main thread. These APIs share the same lesson: isolate expensive work, then make the boundary explicit.`,
       ],
     },

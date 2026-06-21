@@ -143,6 +143,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "A re-render, node by node" walks a full reconciliation pass over a todo app tree: old tree on the left, new tree built by render, diff decisions shown node by node, and the final patch list at the end. "The list that needed keys" isolates list reconciliation and shows why positional matching breaks when rows move.',
+        {type: 'callout', text: 'Virtual DOM is a boundary: render describes the desired tree, reconciliation proves which old nodes can survive, and commit touches the browser only where that proof changed.'},
         {type: 'bullets', items: [
           'Active (highlighted) node: the pair currently being compared by the diff.',
           'Visited (dimmed) node: already compared, reused in place -- no DOM mutation needed.',
@@ -159,6 +160,7 @@ export const article = {
         'Browser DOM operations are expensive. Creating an element triggers memory allocation, style computation, and potential layout. Removing one can trigger garbage collection and reflow. Changing text content is cheap by comparison, but even that requires the browser to repaint.',
         'A web application with dozens of interactive components may re-render hundreds of times per second during scrolling, typing, or drag operations. If each re-render rebuilt the DOM from scratch, the browser would spend more time constructing and destroying nodes than running application logic.',
         {type: 'quote', text: 'We built React to solve one problem: building large applications with data that changes over time.', attribution: 'Facebook Engineering, "Why Did We Build React?" (2013)'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a7/React-icon.svg', alt: 'React atom logo', caption: 'React made virtual DOM reconciliation a mainstream UI architecture, but the deeper lesson is the separation between description, diff, and commit. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:React-icon.svg.'},
         'The virtual DOM is a response to that tension. Instead of mutating the real DOM directly, the application builds a lightweight JavaScript object tree that mirrors the intended UI. A reconciliation algorithm compares the new tree to the previous one and computes the minimal set of real DOM mutations. The developer writes declarative render functions; the framework handles the imperative patching.',
       ],
     },
@@ -185,6 +187,7 @@ export const article = {
       paragraphs: [
         'Reconciliation has three phases: render, diff, and commit.',
         {type: 'diagram', text: '  State change\n      |\n      v\n  [ render() ]         -- pure function: state -> virtual tree\n      |\n      v\n  [ diff(old, new) ]   -- compare two virtual trees node by node\n      |\n      v\n  [ patch list ]       -- minimal set of real DOM operations\n      |\n      v\n  [ commit ]           -- execute patches against the browser DOM', label: 'The three-phase reconciliation pipeline'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A UI tree is a directed parent-child graph; reconciliation walks that graph under strict reuse rules. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Render produces a complete virtual tree from current state. This is a plain JavaScript object tree -- no DOM allocation, no style computation, no layout. Creating a virtual node costs roughly the same as creating any small object.',
         'Diff walks old and new trees in parallel, comparing nodes pairwise. The core heuristic has two rules:',
         {type: 'bullets', items: [
@@ -289,4 +292,3 @@ export const article = {
     },
   ],
 };
-

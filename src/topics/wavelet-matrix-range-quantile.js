@@ -217,6 +217,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "bit levels" view builds the wavelet matrix for the sequence 3 1 4 1 5 0 2 6. Each frame shows one bit level: the bitvector recording which values have a 1-bit at that position, then the stable partition that moves all 0-bit values before all 1-bit values. Active highlights mark the bitvector being written. Found highlights mark the zero counts that anchor every future query.',
+        {type: 'callout', text: 'A wavelet matrix turns range order into rank arithmetic: each bit level chooses one answer bit while keeping the query interval contiguous.'},
         'The "range quantile" view answers "3rd smallest in [1,7)." Each frame picks one answer bit by counting zeros inside the current interval. Active highlights are the decision at each level. Found highlights are the accumulated answer bits. Watch the interval [l, r) shrink through the levels -- the structure never extracts or sorts the window.',
         'At every frame, ask: what information does the bitvector carry, and why does stable partitioning keep the interval contiguous at the next level?',
       ],
@@ -225,6 +226,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Databases, monitoring systems, and text indexes routinely face a two-dimensional query: given an array of values, find the kth smallest inside a positional range [l, r). Latency percentiles over a time window, price quantiles over a product catalog slice, and suffix-array range counts in full-text search all reduce to this pattern.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Range-query indexes can be read as directed navigation structures: each edge preserves enough order information to avoid sorting the query window. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The query is hard because position and value order are independent axes. A prefix sum handles one axis. A sorted copy handles the other. Neither handles both at once. The wavelet matrix is a static index that encodes both axes into a compact, cache-friendly layout so that rank, quantile, predecessor, and range-frequency queries all run in O(log sigma) time, where sigma is the alphabet size.',
         {
           type: 'quote',
@@ -291,6 +293,7 @@ export const article = {
             ['Update support', 'Static', 'Static', 'Static'],
           ],
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'CPU cache hierarchy diagram', caption: 'The matrix layout matters because rank walks pay for memory movement; contiguous bitvectors make cache behavior part of the data-structure design. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.'},
         'Each query touches log(sigma) bitvectors, but in the wavelet matrix every bitvector is a single contiguous array. On a machine with 64-byte cache lines and 4-byte rank blocks, a rank query on one level typically hits 1-2 cache lines instead of chasing a pointer to an unpredictable address. For a 20-bit alphabet, this can mean 20-40 cache-line fetches instead of 20+ cache misses -- a 3-5x practical speedup on large arrays.',
         'Space is dominated by the bitvectors: n bits per level times log(sigma) levels, plus O(n / block_size) words for rank support. With coordinate compression to sigma = number of distinct values, the bit width shrinks. For 100,000 distinct values in a million-element array, 17 bits suffice, so the matrix is 17 million bits (~2 MB) plus rank overhead.',
         'Construction is O(n log sigma): one pass per level to write the bitvector and stably partition. The stable partition is a single-pass counting sort by one bit, which is a radix step. Building rank support for each bitvector adds O(n) per level.',
