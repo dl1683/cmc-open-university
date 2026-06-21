@@ -331,6 +331,7 @@ export const article = {
         'The animation traces how a Vision Transformer processes an image. Image patches appear as tokens entering a sequence. Position embeddings are added to encode spatial location. Attention maps show which patches attend to which others across transformer layers. The CLS token aggregates a whole-image representation for classification.',
         'Active markers highlight the current processing step: patch extraction, embedding projection, position encoding, or attention computation. Found markers show outputs that are now determined. Compare markers contrast baseline ViT behavior against register-token augmented models.',
         'Watch how attention gives every patch global context from the first layer. In a CNN, a patch at the corner cannot see the opposite corner until many layers of convolution expand the receptive field. In a ViT, that same patch attends to every other patch immediately.',
+        {type:'callout', text:'Register tokens give a Vision Transformer explicit workspace so image patches can remain spatial evidence instead of becoming accidental scratch slots.'},
       ],
     },
     {

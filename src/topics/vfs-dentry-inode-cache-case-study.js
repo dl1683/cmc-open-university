@@ -187,6 +187,8 @@ export const article = {
         'Every open, stat, import, shell PATH search, and dynamic-library lookup starts with the same problem: turn a human-facing pathname into kernel objects. The string /usr/bin/node is not the file. It is a sequence of names interpreted one component at a time under a mount namespace, permission context, and filesystem implementation.',
         'Doing that from scratch would be ruinous. Programs repeatedly walk the same prefixes: /usr, /lib, /etc, node_modules, Python package paths, container overlay layers, and shared-library directories. The VFS dentry and inode caches exist because namespace answers are hot. If the kernel recently learned what a parent directory plus child name means, it should not ask the disk or remote filesystem again unless something changed.',
         'The important design point is that Linux does not have one filesystem. ext4, XFS, tmpfs, overlayfs, NFS, procfs, and many others all expose files through the Virtual Filesystem layer. The VFS gives pathname lookup a common contract while still letting each filesystem answer misses in its own way.',
+        {type:'callout', text:'The VFS cache works because it memoizes scoped namespace edges, not whole path strings that can change meaning across mounts and renames.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/f8/File_table_and_inode_table.svg', alt:'Diagram showing Unix file descriptors pointing to file table entries, which point to inode table entries.', caption:'File descriptor, file table, and inode table relationships in Unix. Image: Qwertyus, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {

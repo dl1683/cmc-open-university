@@ -306,6 +306,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'Verifier-guided inference is a production control plane around generation. The model proposes candidate answers or reasoning traces. Verifiers score those candidates. A policy turns scores into actions: accept, branch, repair, terminate, fall back, or escalate. That makes inference scaling a routing problem instead of a blind request for more samples.',
+        {type:'callout', text:'Verifier-guided inference turns test-time compute into an audited routing policy, not an uncontrolled request for more samples.'},
         'The local Inference Scaling notes in the provided corpus name verifiers as a Tier 3 lever for agentic and legal systems: reward or scoring models can prune, stop, or redirect generations after lower-level serving wins have already been captured. This topic separates that operational pattern from the narrower process-reward-model primer.',
       ],
     },

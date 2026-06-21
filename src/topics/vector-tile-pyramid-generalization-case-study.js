@@ -202,6 +202,7 @@ export const article = {
       paragraphs: [
         'A map can contain far more geometry than a phone or browser should download for one view. The user needs a few visible streets, labels, and polygons, not the whole source database.',
         'A vector tile pyramid stores encoded map features by zoom, x, y, layer, and version. The server sends only the tiles needed for the viewport, and the client styles those features locally.',
+        {type:'callout', text:'A vector tile pyramid turns spatial queries into versioned cache keys, with each zoom level carrying only the detail that can be rendered usefully.'},
       ],
     },
     {

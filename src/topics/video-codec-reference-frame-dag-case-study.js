@@ -221,6 +221,8 @@ export const article = {
       paragraphs: [
         `A modern video codec does not treat a movie as a folder of unrelated pictures. It treats many frames as predictions from other decoded frames plus a residual that fixes the prediction error. The reference-frame graph records those dependencies. A node is a frame or picture. An edge means the target frame cannot be reconstructed until the referenced frame has already been decoded and kept available.`,
         `This graph is usually discussed through a group of pictures, or GOP. I-like frames are intra frames that can be decoded without earlier pictures. P-like frames predict from past references. B-like frames may use references before and after their display time, which means decode order and display order can differ. The GOP is therefore both a compression plan and a scheduling constraint.`,
+        {type:'callout', text:`A GOP is a dependency graph: better compression comes from keeping decoded reference frames alive until every dependent frame can be reconstructed.`},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/64/I_P_and_B_frames.svg', alt:'Diagram of I, P, and B video frames with arrows showing reference dependencies.', caption:'I, P, and B frames in a compressed video sequence. Image: Petteri Aimonen, Wikimedia Commons, public domain.'},
       ],
     },
     {

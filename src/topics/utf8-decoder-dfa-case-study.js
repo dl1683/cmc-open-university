@@ -228,6 +228,7 @@ export const article = {
         'Programs move text as bytes. Users expect those bytes to become characters. Protocols, databases, logs, signatures, search indexes, and parsers need all layers to agree on the same answer: which byte strings are valid text and which Unicode scalar values they mean.',
         'UTF-8 exists because it can encode all Unicode scalar values while preserving ASCII as single bytes. That makes old ASCII-oriented formats practical: commas, quotes, slashes, braces, brackets, tabs, and line breaks keep their byte values. A parser can still find syntax bytes without understanding every human language.',
         'The decoder DFA is the small state machine that keeps this promise honest. It accepts valid byte sequences, emits scalar values, and rejects malformed input early. Without that shared boundary, one layer can treat a byte string as harmless while another layer later turns it into a different character stream.',
+        {type:'callout', text:'A UTF-8 decoder turns byte validity into a shared boundary, so higher parsers receive one stable character stream instead of ambiguous byte spellings.'},
       ],
     },
     {

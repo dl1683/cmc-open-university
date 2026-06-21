@@ -140,6 +140,7 @@ export const article = {
       paragraphs: [
         'JavaScript engines need fast startup, low memory use, correct dynamic semantics, and high peak speed. Those goals pull against each other. A large web app contains startup glue, event handlers, library code, hot loops, and functions that run once.',
         'Ignition exists because V8 needs a cheap correct execution tier before it knows which code deserves heavier compiler work. It runs bytecode for cold and warming code, then records runtime feedback that later tiers can use when optimization is worth the cost.',
+        {type:'callout', text:'Ignition makes bytecode both the first execution tier and the measurement surface that tells V8 when specialization is worth the risk.'},
       ],
     },
     {

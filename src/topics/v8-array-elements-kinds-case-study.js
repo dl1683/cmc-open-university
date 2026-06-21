@@ -229,6 +229,7 @@ export const article = {
       paragraphs: [
         'JavaScript arrays have one surface API, but real arrays behave very differently. A dense list of small integers, a numeric vector with doubles, a mixed object array, and a sparse array with holes need different machine representations.',
         'V8 array elements kinds exist so the engine can specialize indexed access when the data is predictable, while still preserving JavaScript semantics when arrays become sparse, mixed, or holey.',
+        {type:'callout', text:'Elements kinds make array performance a guarded layout contract: dense and type-stable data keeps fast paths alive, while holes or mixed values force safer representations.'},
       ],
     },
     {

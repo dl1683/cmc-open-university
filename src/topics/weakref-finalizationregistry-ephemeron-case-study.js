@@ -167,6 +167,7 @@ export const article = {
       paragraphs: [
         'JavaScript code often wants to remember data about an object without becoming the reason that object stays alive. A profiler may want per-DOM-node counters. A library may want private metadata for user objects. A renderer may want a wrapper cache that disappears when the wrapped object disappears.',
         'Normal ownership is too strong for those cases. If the side table keeps an object alive, optional metadata becomes a leak. WeakMap, WeakSet, WeakRef, and FinalizationRegistry exist for code that needs to express a relationship without turning that relationship into ordinary reachability.',
+        {type:'callout', text:'Weak structures let code attach optional state to objects without turning that state into a reason the objects stay alive.'},
       ],
     },
     {

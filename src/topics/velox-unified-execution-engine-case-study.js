@@ -227,6 +227,7 @@ export const article = {
         'Velox exists because many data systems repeat the same hard execution work. A SQL engine, dataframe runtime, feature pipeline, and ML data loader may all need fast scans, expression evaluation, joins, aggregations, memory tracking, spilling, and Parquet or ORC connectors.',
         'Duplicating that data plane is expensive. Each system has to tune vector layouts, null handling, dictionary encodings, hash tables, memory pools, spill behavior, connector pushdown, and metrics. Fixing the same bug or performance issue in several engines wastes engineering effort.',
         'Velox is Meta\'s open source unified execution engine: a C++ library of reusable vectorized data-processing components. It is not a full database frontend. It does not mainly give you a SQL parser, dataframe API, cost optimizer, or cluster scheduler. It is the execution substrate other systems embed.',
+        {type:'callout', text:'Velox creates leverage by sharing the physical data plane while leaving each embedding system in charge of language, planning, and semantics.'},
       ],
     },
     {
