@@ -240,6 +240,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The mask-corruption view shows the forward process. A clean sentence starts on the left. Each column moves rightward in time, and tokens are replaced by [M] (mask) according to a noise schedule. Watch which positions vanish first and which survive longest -- that is the schedule at work, not randomness in the animation.',
+        {
+          type: 'callout',
+          text: 'Masked diffusion treats generation as a mutable slot buffer, not a left-to-right append log.',
+        },
         'The parallel-denoise view shows the reverse process. A fully masked buffer appears at step 0. Each column reveals tokens the model commits at that step. Active highlights mark positions being committed now. Found highlights mark positions that remain masked because confidence is too low. The confidence ledger makes the gate explicit: margin scores determine who gets committed and who waits.',
         'The graph view connects the two. Follow the edges from prompt and mask buffer through the Transformer denoiser to logits, then through the confidence gate to either commit or remask. That loop is the entire sampler. Every frame in both views corresponds to one pass through this graph.',
       ],
@@ -276,6 +280,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The framework has two halves: a fixed forward process that corrupts text, and a learned reverse process that recovers it. Austin et al. (2021) formalized this as D3PM -- Discrete Denoising Diffusion Probabilistic Models. The forward process is a Markov chain over a discrete state space (the token vocabulary plus a special absorbing state). At each timestep, each token independently transitions according to a noise matrix Q_t. The absorbing-state variant sets one column of Q_t to push every token toward [MASK] with increasing probability as t grows. By the final timestep, nearly every position is [MASK].',
+        {
+          type: 'image',
+          src: 'https://lilianweng.github.io/posts/2021-07-11-diffusion-models/DDPM.png',
+          alt: 'Diffusion reverse process diagram showing noisy state xT denoised step by step toward x0',
+          caption: 'The learned reverse process turns a high-noise state into data through repeated denoising steps. Source: Lilian Weng diffusion models post, https://lilianweng.github.io/posts/2021-07-11-diffusion-models/.',
+        },
         {
           type: 'diagram',
           label: 'Forward corruption and reverse denoising on a token sequence',

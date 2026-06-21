@@ -107,6 +107,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The graph has six nodes (A through F) connected by weighted edges. Each node carries a distance label d=... showing the cheapest known cost to reach it from the source. At the start, the source A has d=0 and every other node has d=inf (unreached).',
+        {
+          type: 'callout',
+          text: 'Dijkstra is BFS with the frontier ordered by total known cost instead of hop count.',
+        },
         'The active node (highlighted) is the unsettled node with the smallest tentative distance. This is what a priority queue (min-heap) would return. Visited nodes (dimmed) are settled: their distances are final and will never change. When an edge flashes, a relaxation check is happening: the algorithm tests whether routing through the active node gives the neighbor a cheaper path.',
         'The relaxation arithmetic is shown explicitly: dist[active] + edge weight versus the neighbor\'s current distance. If the new value wins, the neighbor\'s label updates. If not, nothing changes. This is the only operation that improves the algorithm\'s knowledge.',
         'At the end, the green path traces parent pointers from target back to source. The cost along that path equals the target\'s settled distance. Watch for the moment the short two-hop route through B (cost 12) loses to the longer four-hop route through C, D, E (cost 9). That moment is the reason Dijkstra exists.',
@@ -139,6 +143,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Replace BFS\'s FIFO queue with a priority queue keyed by tentative distance. Always extract and finalize the node with the smallest tentative cost. Because all edge weights are nonnegative, no future path through a more expensive unsettled node can circle back and undercut the node you just finalized. The cheapest tentative distance is safe to lock in.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Dijkstra_Animation.gif/250px-Dijkstra_Animation.gif',
+          alt: 'Dijkstra algorithm animation showing a weighted graph frontier expanding from the source',
+          caption: 'Dijkstra frontier expansion on a weighted graph. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dijkstra_Animation.gif.',
+        },
         'This single substitution -- priority queue for FIFO queue -- turns BFS into Dijkstra. The FIFO queue guaranteed "fewest hops first." The priority queue guarantees "cheapest cost first."',
       ],
     },

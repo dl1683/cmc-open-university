@@ -201,6 +201,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A distributed system is always in motion. Messages are in flight, machines are at different points in time, clocks disagree, and stopping every participant at the same wall-clock instant is usually impossible. Yet operators still need a coherent picture of the system: for checkpointing, deadlock detection, debugging, recovery, and stream processing.',
+        {
+          type: 'callout',
+          text: 'A snapshot is valid when it preserves causality, not when every machine stops at the same physical instant.',
+        },
         'A distributed snapshot gives that picture without freezing the whole system. It records local process state plus the messages that were in transit across channels at the snapshot boundary. The result is not the state at one physical instant. It is a consistent cut: a causally possible boundary through the execution.',
       ],
     },
@@ -216,6 +220,12 @@ export const article = {
       paragraphs: [
         'The core insight from Chandy and Lamport is to turn a control message into a boundary marker. When a process records its local state, it sends a marker on every outgoing channel before sending more ordinary messages on those channels. The marker tells downstream processes where the snapshot boundary lies for that channel.',
         'A consistent cut is closed under causality. If the cut contains a receive event, it must also contain the matching send event. The marker protocol constructs such a cut by separating ordinary messages into before-boundary, in-flight, and after-boundary regions. In-flight messages are not bugs in the snapshot; they are part of the snapshot state.',
+        {
+          type: 'image',
+          src: 'https://decomposition.al/assets/images/chandy-lamport-8-final-snapshot.png',
+          alt: 'Chandy-Lamport snapshot space-time diagram showing past future and recorded process states',
+          caption: 'A completed Chandy-Lamport snapshot as a consistent cut across three process timelines. Source: Lindsey Kuper, https://decomposition.al/blog/2019/04/26/an-example-run-of-the-chandy-lamport-snapshot-algorithm/.',
+        },
       ],
     },
     {

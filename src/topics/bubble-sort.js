@@ -70,6 +70,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Two highlighted cells are the pair being compared. When they swap, the larger value slides one slot right. When they stay, the scan advances to the next pair. Each left-to-right sweep is one pass.',
+        {
+          type: 'callout',
+          text: 'Bubble sort teaches the pass invariant: every full sweep fixes the largest unsorted value at the right boundary.',
+        },
         'After each pass, a sorted marker appears at the right edge. That position is final and will never be touched again. The sorted boundary grows leftward, one slot per pass, until it swallows the whole array.',
         'Watch for the early-exit moment: if a full pass completes with zero swaps, every remaining position turns sorted at once. That is bubble sort finishing in O(n) on already-sorted input.',
       ],
@@ -85,6 +89,12 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Scan left to right, comparing each adjacent pair. Swap any pair that is out of order. When the scan finishes, start over. Keep scanning until a full pass produces no swaps.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c8/Bubble-sort-example-300px.gif',
+          alt: 'Animated bubble sort pass showing adjacent swaps and the sorted right boundary',
+          caption: 'Bubble sort animation showing adjacent swaps across repeated passes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bubble-sort-example-300px.gif.',
+        },
         'This works. Each pass pushes the largest unsorted value to the right end, like a bubble rising to the surface. After n−1 passes, every element is in place. The logic fits in a nested loop and the code reads like pseudocode.',
       ],
     },
@@ -161,4 +171,3 @@ export const article = {
     },
   ],
 };
-

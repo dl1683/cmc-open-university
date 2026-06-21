@@ -252,6 +252,10 @@ export const article = {
       paragraphs: [
         'The search-trace view runs Boyer-Moore on text "HERE IS A SIMPLE EXAMPLE" looking for pattern "EXAMPLE". Active cells mark the text window currently aligned with the pattern. The compare color highlights the character being tested — always the rightmost unmatched position, because Boyer-Moore scans right to left. Found cells mark characters that matched before a mismatch occurred, or the final complete match.',
         'Watch for the big jumps. When a mismatch character is absent from the pattern, the entire window slides past it in one step. When the mismatched character does appear in the pattern, the window slides just far enough to align that character. Those jumps are why Boyer-Moore often examines fewer characters than the text contains.',
+        {
+          type: 'callout',
+          text: 'Boyer-Moore gets speed by comparing the most informative end of the pattern first, then turning a mismatch into a safe jump.',
+        },
         'The shift-rules view breaks down the two shift mechanisms: the bad character table and the good suffix table. Each step shows which rule fires, how far it shifts, and why the shift is safe — no valid alignment is skipped.',
       ],
     },
@@ -280,6 +284,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Compare the pattern against the text from right to left. A mismatch at the rightmost position is the cheapest possible failure: one comparison eliminates the entire current alignment. A mismatch after several right-to-left matches is more expensive but also more informative, because the matched suffix constrains which future alignments can succeed.',
+        {
+          type: 'image',
+          src: 'https://i.sstatic.net/6cEJT.png',
+          alt: 'Boyer-Moore text alignment trace with mismatches and safe shifts',
+          caption: 'Boyer-Moore trace showing how mismatch characters drive pattern shifts. Source: Stack Overflow answer by Tim Skov Jacobsen, https://stackoverflow.com/questions/53623770/understanding-boyer-moore-visually.',
+        },
         'Two precomputed tables convert mismatch information into shift distances. The bad character rule uses the mismatched text character to find the nearest position in the pattern where it could align. The good suffix rule uses the matched suffix to find the nearest position in the pattern where the same suffix appears preceded by a different character — or, failing that, the longest prefix of the pattern that matches a suffix of the matched portion. Both rules guarantee that the shift skips only impossible alignments. The algorithm takes whichever shift is larger.',
       ],
     },

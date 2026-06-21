@@ -204,6 +204,10 @@ export const article = {
       heading: 'The problem',
       paragraphs: [
         `Ray tracing asks a brutal question many times: given a ray, what is the closest surface it hits? A single rendered frame can contain millions or billions of such queries once reflections, shadows, transparency, anti-aliasing, and path-tracing bounces are included. The scene may contain millions of triangles. Testing every ray against every triangle is correct, but it is not a renderer. It is a demonstration of why acceleration structures exist.`,
+        {
+          type: 'callout',
+          text: `BVH turns one cheap box miss into proof that an entire subtree of triangles cannot matter.`,
+        },
         `The same problem appears outside photorealistic rendering. A physics engine asks which shapes might collide. A CAD tool asks which object the cursor selected. A game asks whether a projectile intersects a mesh. In all of these cases, exact primitive tests are expensive and most primitives are irrelevant to a given query. The data structure has to reject large groups before the exact math begins.`,
       ],
     },
@@ -232,6 +236,12 @@ export const article = {
       heading: 'Construction mechanics',
       paragraphs: [
         `A builder starts with primitive bounds and centroids. It chooses a split, partitions the primitive set, recurses on the two or more child groups, and stores parent boxes as the union of child boxes. Leaves usually contain a small fixed number of primitives. Internal nodes contain only bounds and child references. The result is a tree that subdivides objects, not empty space.`,
+        {
+          type: 'image',
+          src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/BVH_Splitting_Plane.png/250px-BVH_Splitting_Plane.png`,
+          alt: `Two candidate BVH split planes showing how overlap changes traversal quality`,
+          caption: `BVH split-plane choices can create overlapping child boxes or cleaner partitions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:BVH_Splitting_Plane.png.`,
+        },
         `Split quality controls traversal cost. A median split is fast and tends to balance the tree, but it may create boxes that overlap heavily. The surface-area heuristic, or SAH, estimates the expected cost of a split by combining child surface area, primitive counts, and traversal cost. SAH builders spend more time during construction to reduce expected query work. Linear BVH builders use Morton codes or similar spatial ordering to build quickly on GPUs, accepting lower quality when fast rebuilds matter more than perfect traversal.`,
       ],
     },

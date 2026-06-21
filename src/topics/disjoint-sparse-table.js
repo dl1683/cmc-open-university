@@ -186,6 +186,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Disjoint Sparse Table. Static O(1) range queries for any associative operation by combining two precomputed disjoint halves..",
+        {
+          type: "callout",
+          text: "The disjoint sparse table buys O(1) queries by precomputing the exact two halves every crossing range will need.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -209,6 +213,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The disjoint sparse table removes overlap by choosing the level where the query endpoints split around a midpoint. At that level, the table has already stored a suffix aggregate from l up to the midpoint side and a prefix aggregate from the other side to r.',
+        {
+          type: 'image',
+          src: 'https://codeforces.com/predownloaded/a0/06/a0062d5909d856f50fe9e7d3cdc1acb4ffb45173.png',
+          alt: 'Disjoint sparse table visualization showing original array levels and precomputed blocks',
+          caption: 'Disjoint sparse table visualization with precomputed blocks for constant-time range queries. Source: Codeforces blog by peltorator, https://codeforces.com/blog/entry/87940.',
+        },
         'Those two stored cells are disjoint, ordered, and complete. Because the operation is associative, the table does not need to know how the range was parenthesized. It only needs to preserve left-to-right order and avoid counting any element twice.',
       ],
     },

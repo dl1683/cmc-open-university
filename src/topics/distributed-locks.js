@@ -158,6 +158,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The first view computes the canonical lease-expiry race with real arithmetic. A acquires a lease with TTL 10 seconds, pauses at t=2 for 15 seconds, and wakes at t=17 believing it still holds exclusive access. The lock service expired the lease at t=10 and granted it to B. From t=10 to t=17, two clients each hold written proof of ownership. Neither is buggy. Watch for the overlap highlight: that is the window where corruption happens, computed from the timeline, not from any component fault.',
+        {
+          type: 'callout',
+          text: 'A distributed lock is useful only after you decide whether overlap wastes money or corrupts data.',
+        },
         'The second view compares recipes (ZooKeeper, etcd, Redis, Redlock) and then asks the question that decides engineering: is this an efficiency lock or a correctness lock? The final table shows designs that remove the lock entirely. The most important object across both views is the fencing token. A downstream resource that does not check tokens has no defense against a stale holder waking up and overwriting newer work.',
       ],
     },
@@ -179,6 +183,12 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'Three forces break the simple lease model when correctness matters. First, network partitions: the holder loses contact with the lock service but keeps running. The service sees silence, expires the lease, and grants it to another client. The original holder has no way to learn this until its next network round-trip, which may be seconds or minutes away. Second, process pauses: a stop-the-world GC pause, a live VM migration, or a page-fault storm freezes the holder mid-instruction. The pause suspends everything, including the code that would check the lease, including the background renewal thread. A 15-second GC pause on a 10-second lease creates 5 seconds of overlap with zero faulty components. Third, clock skew: if the holder and the lock service disagree on how fast time passes, the holder may believe it has 3 seconds of lease remaining while the service has already expired it and granted it to someone else.',
+        {
+          type: 'image',
+          src: 'https://martin.kleppmann.com/2016/02/unsafe-lock.png',
+          alt: 'Distributed lock lease expiry timeline showing a paused client writing stale data after another client acquires the lock',
+          caption: 'A paused holder can resume after lease expiry and overwrite newer work. Source: Martin Kleppmann, https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html.',
+        },
         'The instinctive patches all share one flaw: they run inside the process that might pause. Checking the lease before writing just moves the race into the gap between check and write. The background renewal thread freezes along with the rest of the process. Shrinking the TTL makes the overlap window shorter but never zero. No client-side cleverness closes the seam because the pause chooses where to land after the code is written.',
       ],
     },

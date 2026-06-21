@@ -204,6 +204,10 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         `Dirty rectangle tracking, also called damage tracking, exists because most frames do not change every pixel. A caret blinks, one line of text changes, a popover moves, a scroll view exposes a strip, or a small counter updates. Redrawing the whole window for every tiny change wastes CPU time, GPU bandwidth, memory bandwidth, battery, and frame budget.`,
+        {
+          type: 'callout',
+          text: `Damage tracking is conservative: repainting too much is slow, repainting too little is wrong.`,
+        },
         `The renderer's job is to turn semantic changes into pixel work. The application says "this node moved" or "this text changed." The display system needs to answer a different question: which pixels might have a different final color than they had last frame? Dirty rectangles are the bridge between those two levels.`,
         `The idea appears in browsers, UI toolkits, terminals, document editors, 2D games, map panes, canvas applications, and compositors. It is not only a performance trick. It is also a correctness discipline: if the damaged region misses a pixel, stale visual data remains on screen.`,
       ],
@@ -253,6 +257,12 @@ export const article = {
       paragraphs: [
         `The simplest representation is a list of rectangles. It is easy to append old and new bounds, easy to intersect with clips, and easy to hand to paint code. The cost is that many rectangles can become expensive to compare against draw commands. A region object can merge rectangles and represent more exact unions, but it is more complex.`,
         `A tile grid is common in GPU-oriented renderers. The screen or layer is divided into fixed-size tiles, and any rectangle touching a tile marks that tile dirty. This can overpaint at tile granularity, but it matches how raster caches and GPU uploads often work. A whole-layer dirty flag is the coarsest representation. It is cheap to track but can discard a large cached surface for a tiny change.`,
+        {
+          type: 'image',
+          src: `https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/images/track-dirty-rects-scroll-rects.png`,
+          alt: `Two-frame dirty rectangle tracking diagram showing copied intersections and updated regions`,
+          caption: `Dirty rectangles across frames require tracking overlaps so stale back-buffer pixels are repaired. Source: Microsoft Learn, https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements.`,
+        },
         `Good systems often use several representations. High-level invalidation may track rectangles in scene coordinates. Raster may track dirty tiles in layer coordinates. The compositor may track damaged layer regions in screen coordinates. Each conversion must preserve conservative coverage.`,
       ],
     },

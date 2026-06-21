@@ -180,6 +180,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A browser has to turn a stream of HTML, CSS, images, fonts, and JavaScript into pixels while the user is waiting. The hard part is that the page is not static. JavaScript can change the DOM, CSS can change which nodes are visible, text can wrap differently after a font arrives, and the user expects scrolling and animation to keep running at frame rate.',
+        {
+          type: 'callout',
+          text: 'Browser rendering is a staged dependency graph: each change is expensive only to the stages it invalidates.',
+        },
         'The rendering pipeline is the browser answer to that problem. It breaks the work into parse, style, layout, paint, and composite stages. Frontend performance is mostly the art of avoiding repeated work in the expensive stages, especially layout and paint.',
       ],
     },
@@ -194,6 +198,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core idea is a dependency graph from document structure to pixels. HTML creates the DOM tree. CSS creates style rules and computed values. The render tree keeps the visible styled boxes. Layout assigns geometry. Paint records drawing commands. Compositing blends painted layers into the final frame.',
+        {
+          type: 'image',
+          src: 'https://developer.chrome.com/static/docs/chromium/renderingng/image/sketch-the-different-ele-d9f18c1bd6186.jpg',
+          alt: 'Chromium RenderingNG pipeline sketch showing script style layout paint composite raster and draw',
+          caption: 'RenderingNG separates main-thread work, compositor work, raster, and final drawing. Source: Chrome for Developers, https://developer.chrome.com/docs/chromium/renderingng.',
+        },
         'Each later stage depends on some earlier stage, but not every change invalidates the whole pipeline. Changing text content can require layout and paint. Changing `background-color` can usually skip layout but still paint. Changing `transform` or `opacity` on a composited layer can often skip layout and paint and only ask the compositor to blend layers differently.',
       ],
     },
