@@ -57,7 +57,7 @@ export function* run(input) {
     yield {
       state: snapshot(`Round ${round}: ${alloc.map((a, i) => `${ARMS[i].id}:${a}`).join('  ')}`),
       highlight: { active: [`arm${ARMS[best].id}:pulls`], found: rows.map((r) => `${r.id}:est`) },
-      explanation: `Round ${round} (${ROUND_TRAFFIC} visitors): ${round === 1 ? `no estimates yet, so the exploit share goes to the first arm by default — early rounds are noisy and that\'s fine` : `current leader is ${ARMS[best].id} (estimated ${est(best).toFixed(1)}%), so it receives ${alloc[best]} visitors while ${explore} each keep auditing the others`}. The explore share is the honesty tax: without it, a lucky early streak on a bad arm could lock in forever.`,
+      explanation: `Round ${round} (${ROUND_TRAFFIC} visitors): ${round === 1 ? `no estimates yet, so the exploit share goes to the first arm by default -- early rounds are noisy and that is fine` : `current leader is ${ARMS[best].id} (estimated ${est(best).toFixed(1)}%), so it receives ${alloc[best]} visitors while ${explore} each keep auditing the others`}. The explore share is the honesty tax: without it, a lucky early streak on a bad arm could lock in forever.`,
       invariant: 'Every arm keeps receiving some traffic — estimates never stop improving.',
     };
   }
@@ -73,7 +73,7 @@ export function* run(input) {
   yield {
     state: snapshot('The explore/exploit spectrum'),
     highlight: {},
-    explanation: 'ε-greedy explores blindly; smarter bandits explore PROPORTIONALLY TO UNCERTAINTY — UCB picks the arm with the highest plausible value ("optimism under uncertainty"), Thompson sampling draws from each arm\'s belief distribution. This is the explore/exploit dilemma of Value Iteration (Reinforcement Learning) in its purest form, and it runs everywhere decisions repeat: headline selection at news sites, ad ranking, Netflix artwork. The honest trade-off versus A/B Testing & p-values: bandits maximize earnings but their adaptive traffic makes clean statistical inference harder — optimize with bandits, PROVE with fixed experiments.',
+    explanation: 'ε-greedy explores blindly; smarter bandits explore PROPORTIONALLY TO UNCERTAINTY -- UCB picks the arm with the highest plausible value ("optimism under uncertainty"), Thompson sampling draws from each arm belief distribution. This is the explore/exploit dilemma of Value Iteration (Reinforcement Learning) in its purest form, and it runs everywhere decisions repeat: headline selection at news sites, ad ranking, Netflix artwork. The honest trade-off versus A/B Testing & p-values: bandits maximize earnings but their adaptive traffic makes clean statistical inference harder -- optimize with bandits, PROVE with fixed experiments.',
   };
 }
 
@@ -88,6 +88,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'A bandit policy is an experiment ledger that turns uncertainty into traffic allocation every round.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Slot_machine.jpg', alt: 'Slot machine front panel with spinning reels', caption: 'The bandit name comes from choosing among slot-machine arms with unknown payoff rates. Source: Wikimedia Commons, Jeff Kubina, CC BY-SA 2.0.'},
         'The table is a live experiment ledger with three arms (A, B, C). Each row tracks one checkout-button variant. Columns show visitors sent, conversions observed, and the current estimated conversion rate.',
         {
           type: 'bullets',
@@ -143,14 +145,12 @@ export const article = {
       paragraphs: [
         'The fixed split keeps sending equal traffic to every arm for the entire experiment, even after early evidence makes some arms look clearly worse. In this animation, arm A converts at 4%. After round 2, the estimate is already near 4%, yet the equal split continues routing 100 visitors per round to A for four more rounds. Those 400 visitors could have gone to B or C and earned more conversions.',
         {
-          type: 'table',
-          headers: ['Metric', 'Fixed equal split', 'Epsilon-greedy (e=0.2)'],
-          rows: [
-            ['Visitors to worst arm (A)', '600', '~140'],
-            ['Visitors to best arm (B)', '600', '~1,400'],
-            ['Total conversions', '~90', '~97'],
-            ['Extra conversions vs. equal', '--', '~7'],
-            ['Clean p-value inference', 'Yes', 'Requires propensity correction'],
+          type: 'bullets',
+          items: [
+            'Worst-arm exposure: a fixed equal split sends about 600 visitors to A; epsilon-greedy with e=0.2 sends about 140.',
+            'Best-arm exposure: a fixed split sends about 600 visitors to B; epsilon-greedy sends about 1,400 once B leads.',
+            'Reward: the toy run earns about 97 conversions under epsilon-greedy versus about 90 under equal split.',
+            'Inference: equal split gives cleaner p-value analysis; adaptive allocation needs propensity-aware analysis.',
           ],
         },
         'The wall is that equal allocation maximizes inferential cleanliness at the cost of cumulative reward. Every round of equal traffic to a known-weak arm is a payment for symmetry the system no longer needs. The gap between what you earned and what you would have earned by always playing the best arm is regret, and a fixed split accumulates regret linearly in the number of rounds spent on inferior arms.',
@@ -192,6 +192,7 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions', caption: 'Uncertainty-aware bandits keep testing arms whose plausible payoff range is still wide. Source: Wikimedia Commons, Inductiveload, public domain.'},
         'Epsilon-greedy works because it prevents two failure modes simultaneously. The exploration share prevents total ignorance: no arm can go unobserved, so the system always has fresh evidence to correct mistakes. The exploitation share converts that evidence into reward: most traffic goes to the arm with the best current estimate, so the system earns while it learns.',
         {
           type: 'quote',
@@ -201,13 +202,12 @@ export const article = {
         'If the reward distributions are stationary (arm payoffs do not change over time) and exploration continues indefinitely, the law of large numbers guarantees that estimated conversion rates converge to true rates. Once estimates are accurate, the exploit share routes almost all traffic to the true best arm. Regret accumulates only from the exploration tax and from early rounds where the wrong arm led.',
         'The method is not regret-optimal. A fixed epsilon keeps spending exploration traffic on clearly inferior arms forever, so cumulative regret grows linearly with time (O(T) for T rounds). Decaying epsilon -- reducing exploration as confidence grows -- can improve this to O(log T). UCB and Thompson sampling achieve O(log T) regret without manual decay schedules by making exploration proportional to uncertainty rather than fixed.',
         {
-          type: 'table',
-          headers: ['Policy', 'Exploration rule', 'Regret growth', 'Tuning required'],
-          rows: [
-            ['Epsilon-greedy (fixed)', 'Uniform random with probability e', 'O(T)', 'Choose epsilon'],
-            ['Epsilon-greedy (decaying)', 'Uniform random, e shrinks over time', 'O(log T)', 'Choose decay schedule'],
-            ['UCB1', 'Pick arm with highest mean + confidence bonus', 'O(k log T)', 'None (parameter-free)'],
-            ['Thompson sampling', 'Sample from posterior, pick highest sample', 'O(k log T)', 'Choose prior (usually Beta)'],
+          type: 'bullets',
+          items: [
+            'Fixed epsilon-greedy: explores uniformly with probability e, is easy to deploy, but keeps paying exploration tax forever.',
+            'Decaying epsilon-greedy: shrinks e over time, improving regret when the environment is stationary.',
+            'UCB1: picks the arm with empirical mean plus confidence bonus, so exploration follows uncertainty.',
+            'Thompson sampling: samples from each posterior and chooses the highest draw, so uncertain arms still win traffic sometimes.',
           ],
         },
         'UCB works by adding a confidence bonus proportional to sqrt(log(t) / n_i) to each arm estimate, where t is total pulls and n_i is pulls for arm i. Under-sampled arms get a larger bonus, so they are tried until uncertainty shrinks. Thompson sampling maintains a Beta distribution for each arm and draws a random sample from each; uncertain arms sometimes produce high samples and get tried. Both make exploration responsive to evidence rather than blind.',
@@ -216,15 +216,15 @@ export const article = {
     {
       heading: 'Cost and complexity',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Standard deviation regions under a normal distribution', caption: 'The engineering cost is not arithmetic; it is logging enough uncertainty and exposure information to analyze adaptive decisions later. Source: Wikimedia Commons, M. W. Toews, public domain.'},
         {
-          type: 'table',
-          headers: ['Operation', 'Time', 'Space'],
-          rows: [
-            ['Choose arm (epsilon-greedy)', 'O(k)', 'O(k) for counts and totals'],
-            ['Choose arm (UCB1)', 'O(k)', 'O(k) for counts, totals, and log terms'],
-            ['Choose arm (Thompson)', 'O(k)', 'O(k) for Beta parameters (alpha, beta per arm)'],
-            ['Update after reward', 'O(1)', 'In-place increment'],
-            ['Contextual bandit (LinUCB)', 'O(k * d^2)', 'O(k * d^2) for per-arm covariance matrices'],
+          type: 'bullets',
+          items: [
+            'Epsilon-greedy selection: O(k) time and O(k) space for counts and totals.',
+            'UCB1 selection: O(k) time and O(k) space for counts, totals, and confidence terms.',
+            'Thompson sampling selection: O(k) time and O(k) space for posterior parameters per arm.',
+            'Reward update: O(1) in-place increment for the selected arm.',
+            'Contextual LinUCB: O(k * d^2) time and space when each arm tracks a d-dimensional covariance matrix.',
           ],
         },
         'For product experiments with k in the range of 2-10 arms, the computational cost is negligible. The bottleneck is measurement quality, not CPU time. What matters is the logging infrastructure.',
@@ -284,13 +284,12 @@ export const article = {
       heading: 'Sources and study next',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Source', 'Why it matters'],
-          rows: [
-            ['Robbins 1952, "Some Aspects of the Sequential Design of Experiments"', 'The original formulation of the multi-armed bandit problem. Defines the explore-exploit tradeoff and sequential allocation.'],
-            ['Auer et al. 2002, "Finite-time Analysis of the Multiarmed Bandit Problem"', 'Proves UCB1 achieves O(log T) regret. The foundational result for confidence-based exploration.'],
-            ['Chapelle & Li 2011, "An Empirical Evaluation of Thompson Sampling"', 'Revived Thompson sampling with empirical evidence that it matches or beats UCB in practice despite being from 1933.'],
-            ['Slivkins 2019, "Introduction to Multi-Armed Bandits"', 'The best modern textbook treatment. Covers stochastic, adversarial, and contextual settings with full proofs.'],
+          type: 'bullets',
+          items: [
+            'Robbins 1952, "Some Aspects of the Sequential Design of Experiments": original sequential-allocation framing for the bandit problem.',
+            'Auer et al. 2002, "Finite-time Analysis of the Multiarmed Bandit Problem": foundational finite-time regret proof for UCB1.',
+            'Chapelle and Li 2011, "An Empirical Evaluation of Thompson Sampling": modern empirical case for posterior sampling.',
+            'Slivkins 2019, "Introduction to Multi-Armed Bandits": broad textbook treatment of stochastic, adversarial, and contextual bandits.',
           ],
         },
         {
@@ -309,4 +308,3 @@ export const article = {
     },
   ],
 };
-

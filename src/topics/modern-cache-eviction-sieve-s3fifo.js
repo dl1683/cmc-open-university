@@ -206,6 +206,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'SIEVE and S3-FIFO move intelligence off the cache-hit path and spend it lazily when eviction pressure appears.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram with input on one side and output on the other', caption: 'SIEVE and S3-FIFO deliberately return to queue-shaped state because FIFO movement is cheap to maintain under load. Source: Wikimedia Commons, Everaldo Coelho and YellowIcon, LGPL.'},
         'The SIEVE view shows a queue of cached objects, each carrying one visited bit. Active nodes mark the current eviction candidate under the hand pointer. Found marks the object about to be evicted -- the first candidate whose bit is zero. When a node is skipped, its bit is cleared (second chance consumed), and the hand advances.',
         'The S3-FIFO view shows three FIFO queues: small (admission filter), main (resident set), and ghost (key-only history). Active marks the queue currently receiving or evicting an object. Found marks the object being dropped or promoted. Watch objects enter small, prove reuse to reach main, and leave metadata behind in ghost.',
         {
@@ -244,6 +246,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Deque-01.svg/250px-Deque-01.svg.png', alt: 'Double-ended queue diagram with inputs and outputs on both ends', caption: 'Queue variants show why cache policies can separate cheap append and removal mechanics from higher-level admission rules. Source: Wikimedia Commons, David Eppstein, public domain.'},
         'SIEVE keeps all cached objects in a single FIFO queue. Each object carries one visited bit, initially zero. On a cache hit, the only mutation is setting that bit to 1 -- no list movement, no lock on shared structure. On eviction, a hand pointer walks the queue from its current position. If the candidate has visited=1, the hand clears the bit (second chance) and advances. If visited=0, the object is evicted and the hand stops.',
         {
           type: 'diagram',
@@ -273,16 +276,15 @@ export const article = {
     {
       heading: 'Cost and complexity',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die showing dense repeated compute and cache structures', caption: 'At high request rates, cache-policy metadata writes compete for the same cache hierarchy that user data depends on. Source: Wikimedia Commons, KL/Intel, public domain.'},
         {
-          type: 'table',
-          headers: ['Policy', 'Hit rate', 'Hit-path cost', 'Eviction cost', 'Metadata per object', 'Implementation complexity'],
-          rows: [
-            ['LRU', 'Good (baseline)', 'O(1) but list splice + lock', 'O(1) remove tail', 'Two pointers (prev/next) + hash entry', 'Low -- but concurrency is hard'],
-            ['CLOCK', 'Fair (~LRU - 5-15%)', 'O(1) set bit', 'O(1) amortized hand scan', 'One bit + circular buffer slot', 'Very low'],
-            ['2Q', 'Good-to-strong', 'O(1) but may promote across lists', 'O(1) per list', 'Two list pointers + queue membership', 'Medium -- two lists, threshold tuning'],
-            ['ARC', 'Strong (adaptive)', 'O(1) but ghost lookup + list move', 'O(1) + adaptation', 'Four lists + ghost entries', 'High -- patents, parameter adaptation'],
-            ['SIEVE', 'Strong (~LRU or better)', 'O(1) set one bit', 'O(1) amortized hand scan', 'One bit + queue position', 'Very low -- ~30 lines of core logic'],
-            ['S3-FIFO', 'Strong (often best on traces)', 'O(1) set freq bit', 'O(1) amortized queue ops', 'Freq bit + queue membership + ghost key', 'Medium -- three queues, size tuning'],
+          type: 'bullets',
+          items: [
+            'LRU: good baseline hit rate, but each hit performs a list splice and usually needs synchronization around shared metadata.',
+            'CLOCK: one reference bit and amortized hand scans, with lower hit-path cost than LRU but weaker ordering information.',
+            '2Q and ARC: stronger mixed-workload behavior, paid for with multiple lists, ghost entries, and more policy state.',
+            'SIEVE: one queue plus one visited bit; hits set the bit, evictions spend the scan work lazily.',
+            'S3-FIFO: three FIFO queues plus ghost keys; newcomers are filtered before they pollute the main resident set.',
           ],
         },
         'SIEVE costs one bit per cached object and zero pointer mutations on hit. Eviction cost is amortized O(1): the hand may scan multiple visited entries before finding a victim, but each scan clears a bit that will not be scanned again until the next cycle. Worst case for a single eviction is O(n) if every object was recently hit, but this is rare in practice and each cleared bit reduces future scan cost.',
@@ -332,25 +334,23 @@ export const article = {
           items: [
             'SIEVE: "SIEVE is Simpler than LRU: an Efficient Turn-Key Eviction Algorithm for Web Caches" -- Zhang et al., NSDI 2024. https://www.usenix.org/conference/nsdi24/presentation/zhang-yazhuo',
             'S3-FIFO: "FIFO Queues Are All You Need for Cache Eviction" -- Yang et al., SOSP 2023. https://dl.acm.org/doi/10.1145/3600006.3613147',
-            'CacheLib: Meta\'s production caching engine where S3-FIFO is integrated. https://cachelib.org/',
+            'CacheLib: Meta production caching engine where S3-FIFO is integrated. https://cachelib.org/',
             'ARC: "ARC: A Self-Tuning, Low Overhead Replacement Cache" -- Megiddo and Modha, FAST 2003.',
             'CLOCK: Corbato, 1968 -- the original second-chance page replacement algorithm that SIEVE extends.',
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'LRU Cache', 'Understand the baseline: doubly-linked list + hash map, per-hit promotion cost, and why it is the default teaching policy.'],
-            ['Prerequisite', 'Hash Table', 'The O(1) lookup that every cache policy depends on for the resident-set check.'],
-            ['Extension', 'W-TinyLFU Cache Admission', 'Admission control as a separate concern from eviction -- uses a Count-Min Sketch to gate entry.'],
-            ['Extension', 'Count-Min Sketch', 'The probabilistic frequency counter that W-TinyLFU and other frequency-aware policies rely on.'],
-            ['Contrast', 'Cache Invalidation', 'The correctness boundary that eviction policies do not address: when cached data becomes stale.'],
-            ['Production', 'Tail Latency', 'Cache misses hit the tail -- understanding P99 impact of eviction policy choices.'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: LRU Cache, to understand the doubly-linked-list baseline and the per-hit promotion cost.',
+            'Prerequisite: Hash Table, because every cache policy still needs O(1) resident-set checks.',
+            'Extension: W-TinyLFU Cache Admission, where admission and eviction become separate decisions.',
+            'Extension: Count-Min Sketch, the probabilistic frequency counter used by frequency-aware admission policies.',
+            'Contrast: Cache Invalidation, the correctness boundary that eviction policies do not address.',
+            'Production: Tail Latency, because eviction quality shows up directly in P99 miss behavior.',
           ],
         },
       ],
     },
   ],
 };
-

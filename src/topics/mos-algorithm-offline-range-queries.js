@@ -222,6 +222,8 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'callout', text: 'The trick is batch freedom: reorder questions so one maintained window can answer them with local edits.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Mo order turns independent queries into a planned route through window states. Source: Wikimedia Commons, David W., public domain.'},
         "Mo's algorithm exists for static range-query problems where each query is expensive from scratch, but the answer can be updated cheaply when one endpoint moves by one position.",
         'It uses an unusual freedom: if all queries are known before answering, input order is not sacred. You can reorder the batch so one maintained window moves a small total distance.',
       ],
@@ -282,6 +284,7 @@ export const article = {
     {
       heading: 'Cost and behavior',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Hilbert-topleft-topright.png/120px-Hilbert-topleft-topright.png', alt: 'Color-coded Hilbert curve construction', caption: 'Hilbert ordering is a common Mo variant because it keeps nearby ranges closer in processing order. Source: Wikimedia Commons, Fredrik Johansson, public domain.'},
         'With the standard square-root ordering, the movement cost is usually taught as O((n + q) * sqrt(n)) endpoint changes, multiplied by the cost of `add` or `remove`. Sorting costs O(q log q). Space is O(q) for answers plus whatever maintained state the problem needs.',
         'If `add` and `remove` are O(1), the method is strong. If each transition is expensive, Mo loses quickly. Block size also matters; `sqrt(n)` is the common default, but workloads with very different `n` and `q` may need tuning.',
         'Odd-even ordering and Hilbert order can reduce movement and improve cache locality. They do not change the core contract: static data, offline queries, and cheap local transitions.',
@@ -290,6 +293,7 @@ export const article = {
     {
       heading: 'Where it wins',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram with input and output ends', caption: 'Mo is not a queue algorithm, but the visual reinforces the key operation: move one maintained frontier instead of rebuilding every range. Source: Wikimedia Commons, Everaldo Coelho and YellowIcon, LGPL.'},
         'Mo wins for offline distinct counts, frequency-based statistics, some mode-like queries, range properties that are cheap to update locally, and tree-path variants after an Euler tour transformation.',
         'It is useful when a segment tree cannot merge the statistic naturally, but a current-window data structure can be patched one element at a time.',
       ],

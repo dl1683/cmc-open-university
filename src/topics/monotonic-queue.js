@@ -176,6 +176,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'A monotonic queue is a moving dominance proof: expired candidates leave the front, and permanently dominated candidates leave the back.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Deque-01.svg/250px-Deque-01.svg.png', alt: 'Double-ended queue diagram with input and output at both ends', caption: 'A monotonic queue relies on deque access: expire old candidates from the front and remove dominated candidates from the back. Source: Wikimedia Commons, David Eppstein, public domain.'},
         "Read the animation as the execution trace for Monotonic Queue. A deque that keeps candidates in decreasing order so every sliding-window maximum is O(1) after amortized O(1) updates..",
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
@@ -185,6 +187,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram with input and output ends', caption: 'The queue baseline explains the time boundary: items arrive in order, and the window advances in the same direction. Source: Wikimedia Commons, Everaldo Coelho and YellowIcon, LGPL.'},
         'A monotonic queue exists for questions where the best value must be maintained while a window moves forward. The standard example is the sliding-window maximum: given a stream of numbers and a window size k, report the maximum after every step. The same shape appears in monitoring, rate limiting, image processing, and dynamic programming. The data arrives in order, old values expire, and the answer is always the best live candidate.',
         'The important word is live. A value may be large, but once its index falls outside the window it can no longer answer the query. Another value may still be inside the window, but if a newer and larger value has arrived, the older smaller value can never be the maximum again. A monotonic queue stores only the values that are both live enough and competitive enough to matter.',
       ],

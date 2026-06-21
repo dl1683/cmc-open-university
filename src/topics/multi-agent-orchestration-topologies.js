@@ -225,6 +225,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'Topology is a data-structure choice: it decides where state lives, how work is partitioned, and how evidence is reduced.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/IntelligentAgent-SimpleReflex.png/250px-IntelligentAgent-SimpleReflex.png', alt: 'Simple reflex agent diagram with sensors and actuators', caption: 'A single agent loop is the baseline coordination shape before any multi-agent topology is justified. Source: Wikimedia Commons, Raul654, public domain.'},
         'The topology map view is a selection chart. A task enters the selector node, which decides whether one agent loop is sufficient or whether the work needs a coordination shape. Active nodes (highlighted) show the path being evaluated. Compare nodes show the alternatives the selector is weighing. Found nodes mark where merged results land.',
         'The research case study view shows a concrete supervisor fan-out. The lead agent decomposes a question into parallel subagents (sub A, B, C), each exploring a different slice. Workers write into a ledger (sources with citations) and a board (normalized claims). The synth node reduces those records. The gate node checks quality; the budget node tracks token and tool-call spend.',
         {
@@ -253,6 +255,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/IntelligentAgent-Learning.svg/250px-IntelligentAgent-Learning.svg.png', alt: 'Learning agent diagram with performance element, critic, and problem generator', caption: 'Learning-agent diagrams show why coordination needs explicit feedback, state, and quality checks instead of loose message passing. Source: Wikimedia Commons, Raul654, public domain.'},
         {
           type: 'quote',
           text: 'The hard part of building a multi-agent system is not getting multiple models to talk. It is making their work add up to one reliable outcome.',
@@ -272,14 +275,13 @@ export const article = {
         'Run one strong agent with a long context window and good tools. This is the correct baseline. It has one conversation state, one tool history, one plan, and one place where intent is preserved. Every decision appears in one trace. Debugging is straightforward because the full causal chain lives in one run.',
         'A single loop is cheaper because no coordination records exist, no reducer needs to merge partial results, and no budget tracker needs to gate further exploration. For sequential work that fits in one context, a single agent with better tools will outperform a multi-agent system with worse tools.',
         {
-          type: 'table',
-          headers: ['Property', 'Single agent', 'Multi-agent'],
-          rows: [
-            ['State location', 'One context window', 'Distributed across workers'],
-            ['Debugging', 'One trace, full causal chain', 'Cross-agent trace stitching'],
-            ['Latency', 'Sequential tool calls', 'Parallel where branches are independent'],
-            ['Cost', 'One model, one context', 'N models, coordination overhead, reducer'],
-            ['Critique', 'Self-generated (same context)', 'Independent (separate context)'],
+          type: 'bullets',
+          items: [
+            'State location: a single agent has one context window; a multi-agent system distributes state across workers and must merge it.',
+            'Debugging: a single loop gives one trace; multi-agent work needs cross-agent trace stitching.',
+            'Latency: a single loop serializes tool calls; fan-out only helps when branches are independent.',
+            'Cost: a single loop pays one model context; multi-agent work pays worker contexts, coordination overhead, and reducer context.',
+            'Critique: self-critique shares the same context; independent critique can expose different evidence if the reducer preserves provenance.',
           ],
         },
       ],
@@ -321,17 +323,17 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Most useful topologies reduce to directed task graphs with explicit worker outputs and reducer edges. Source: Wikimedia Commons, David W., public domain.'},
         'Each topology is defined by its coordination records and merge contract.',
         {
-          type: 'table',
-          headers: ['Topology', 'Coordination record', 'Merge contract', 'Best fit'],
-          rows: [
-            ['Single loop', 'Trace + memory', 'None (one context)', 'Sequential tool work'],
-            ['Supervisor', 'Task DAG + mailboxes', 'Reducer joins structured worker results', 'Independent parallel branches'],
-            ['Handoff', 'State envelope (intent, steps, constraints)', 'Next specialist inherits envelope', 'Role transitions with different tools'],
-            ['Blackboard', 'Shared claim table with provenance and freshness', 'Workers read/write board; coordinator gates synthesis', 'Evolving hypotheses from multiple sources'],
-            ['Contract net', 'Broadcast queue + bid ledger', 'Coordinator awards task to best bidder', 'Scarce or heterogeneous workers'],
-            ['Debate / map-reduce', 'Candidate set + critique set', 'Reducer compares independent answers with explicit criteria', 'High-stakes synthesis needing independent critique'],
+          type: 'bullets',
+          items: [
+            'Single loop: trace plus memory, one context, best for sequential tool work.',
+            'Supervisor: task DAG plus mailboxes, reducer joins structured worker results, best for independent parallel branches.',
+            'Handoff: state envelope carrying intent, steps, constraints, and open questions, best for role transitions with different tools.',
+            'Blackboard: shared claim table with provenance and freshness, best for evolving hypotheses from multiple sources.',
+            'Contract net: broadcast queue plus bid ledger, best when workers are scarce or heterogeneous.',
+            'Debate and map-reduce: candidate set plus critique set, best when high-stakes synthesis needs independent comparison.',
           ],
         },
         'A supervisor decomposes a goal into subquestions or work packets and launches workers. Each worker gets a narrow scope, its own context window, and a result schema. The worker returns structured evidence -- not polished prose. The reducer joins results by claim, source, entity, and uncertainty. If two workers disagree, the reducer exposes the conflict or requests targeted follow-up.',
@@ -403,22 +405,21 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Topology', 'Token cost', 'Latency', 'Coordination overhead', 'Debugging cost'],
-          rows: [
-            ['Single loop', '1x (baseline)', 'Sum of all tool calls', 'None', 'One trace'],
-            ['Supervisor (k workers)', 'k * worker context + reducer', 'Max(workers) + reduce', 'Task DAG, mailbox, reducer', 'k+1 traces to stitch'],
-            ['Handoff (n stages)', 'n * stage context', 'Sum of stages', 'State envelope per handoff', 'n traces, envelope inspection'],
-            ['Blackboard', 'Workers + board reads/writes', 'Varies (async)', 'Board schema, freshness, conflict resolution', 'Board history + worker traces'],
-            ['Contract net', 'Broadcast + bids + winner', 'Bid round + winner execution', 'Bid schema, award logic', 'Bid log + winner trace'],
-            ['Debate (d candidates)', 'd * candidate + critique + reduce', 'Max(candidates) + critique + reduce', 'Candidate isolation, critique schema, reduce criteria', 'd+2 traces'],
+          type: 'bullets',
+          items: [
+            'Single loop: baseline token cost, latency is the sum of tool calls, and debugging stays in one trace.',
+            'Supervisor with k workers: token cost is k worker contexts plus reducer context; latency is roughly the slowest worker plus reduce time.',
+            'Handoff with n stages: token cost grows by stage context, latency remains serial, and correctness depends on the handoff envelope.',
+            'Blackboard: workers spend tokens reading and writing shared records, and debugging requires board history plus worker traces.',
+            'Contract net: bid rounds add latency and logs, but they can prevent scarce or specialized workers from being wasted.',
+            'Debate or map-reduce: candidate isolation improves critique, but the reducer must compare evidence rather than merge fluent prose.',
           ],
         },
         'Token cost scales with the number of workers times their average context size, plus the reducer context. A supervisor fan-out with 5 workers each using 4,000 tokens costs roughly 20,000 worker tokens plus 5,000-10,000 reducer tokens -- compared to perhaps 15,000 for a single agent doing the same work serially. The multi-agent version pays 50-100% more tokens but finishes in wall-clock time equal to the slowest worker, not the sum.',
         'The coordination overhead is not free. Task DAGs, mailboxes, result schemas, budget trackers, and traces are all code that must be built, tested, and maintained. For a one-off task, this overhead exceeds the benefit. For a recurring workflow run thousands of times, the overhead amortizes and the consistency gains compound.',
         {
           type: 'note',
-          text: 'Doubling the number of workers does not double coverage. Each additional worker has diminishing marginal value unless it covers a genuinely independent branch. Five workers searching the same source family will produce redundant claims and waste the reducer\'s context on deduplication.',
+          text: 'Doubling the number of workers does not double coverage. Each additional worker has diminishing marginal value unless it covers a genuinely independent branch. Five workers searching the same source family will produce redundant claims and waste reducer context on deduplication.',
         },
       ],
     },
@@ -476,21 +477,19 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Study next'],
-          rows: [
-            ['Prerequisite', 'Agentic AI Patterns -- understand the single-agent loop before adding topology'],
-            ['Handoff state', 'Agent Model Router & Context Handoff Ledger -- how state envelopes transfer between specialists'],
-            ['Shared evidence', 'Blackboard Architecture Agent Coordination -- how workers read and write a shared claim board'],
-            ['Task allocation', 'Contract Net Agent Task Allocation -- how workers bid for tasks with capability and cost'],
-            ['Provenance', 'Claim Graph & Source Ledger -- how claims link to sources with confidence and freshness'],
-            ['Observability', 'Distributed Tracing -- how to stitch cross-agent traces into one audit record'],
-            ['Async dispatch', 'Message Queue -- how workers receive and acknowledge tasks without blocking the coordinator'],
-            ['Policy gates', 'LLM Guardrail Policy Engine -- how to enforce safety constraints across multiple agents'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Agentic AI Patterns, to understand the single-agent loop before adding topology.',
+            'Handoff state: Agent Model Router and Context Handoff Ledger, for state envelopes between specialists.',
+            'Shared evidence: Blackboard Architecture Agent Coordination, for claim boards with provenance.',
+            'Task allocation: Contract Net Agent Task Allocation, for worker bids with capability and cost.',
+            'Provenance: Claim Graph and Source Ledger, for linking claims to sources with confidence and freshness.',
+            'Observability: Distributed Tracing, for stitching cross-agent traces into one audit record.',
+            'Async dispatch: Message Queue, for worker acknowledgement without blocking the coordinator.',
+            'Policy gates: LLM Guardrail Policy Engine, for enforcing constraints across multiple agents.',
           ],
         },
       ],
     },
   ],
 };
-

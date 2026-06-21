@@ -237,6 +237,8 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'callout', text: 'MLOps is release engineering for systems whose behavior is produced by code, data, labels, and time together.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A production ML system is a directed loop of data, training, validation, deployment, monitoring, and feedback. Source: Wikimedia Commons, David W., public domain.'},
         `MLOps exists because a model is not a finished file. It is a dependency inside a changing data system. The product changes, users change, data pipelines change, labels arrive late, and a model that looked good last month can become wrong without any code deployment.`,
         `The useful frame from the interview-study literature is velocity, validation, and versioning. Velocity is the ability to learn and ship changes quickly. Validation is the set of checks that decide whether a change is safe. Versioning is the lineage that says exactly which code, data, features, labels, model, config, and evaluation suite produced a behavior.`,
         `The three ideas have to live together. A team that moves quickly without validation ships failures quickly. A team that validates without versioning cannot reproduce what passed. A team that versions everything but makes the workflow painful will be bypassed. MLOps is the operating system that keeps these forces in balance.`,
@@ -262,6 +264,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state transition diagram', caption: 'Staged validation works like a state machine: candidates advance only after the right evidence exists for the next state. Source: Wikimedia Commons, MrArifnajafov, CC BY-SA 3.0.'},
         `A healthy MLOps loop starts before training. The team defines the product metric, guardrail metrics, label source, feature contract, and evaluation slices. The training pipeline then creates a candidate from a known code commit and a known data snapshot. The candidate is not just weights. It is weights plus configuration, feature schema, thresholds, and evaluation evidence.`,
         `The first validation stage is offline. The model must beat a baseline on held-out data and important slices. It should pass leakage checks, schema checks, feature freshness checks, calibration checks where relevant, and regression tests against known failure cases. Offline validation is cheap enough to run often, but it is still a proxy.`,
         `The next stages move closer to production. Shadow mode runs the candidate beside the current model without changing user outcomes. A canary sends a small traffic slice through the new path. An online experiment measures business and user effects. Monitors watch drift, latency, prediction distribution, calibration, data quality, and delayed labels after release.`,
@@ -302,6 +305,7 @@ export const article = {
     {
       heading: 'Failure modes',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree model with branches and leaf decisions', caption: 'Failure triage is a decision tree over lineage, serving skew, metric drift, and rollback scope. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         `The first failure mode is offline-only confidence. A model can improve aggregate validation AUC while harming a critical slice, increasing latency, breaking calibration, or changing user behavior in production. Offline metrics are necessary, but they are not a substitute for staged rollout and monitoring.`,
         `The second failure mode is train-serving skew. The feature used in training is not the feature served online, or the online value arrives late, is computed differently, or has a different default. This is why feature contracts and replay tests matter. The model can be correct for the data it saw and wrong for the data it serves.`,
         `The third failure mode is lineage theater. Teams log many artifacts but cannot answer incident questions quickly. If the registry cannot tell what model served, what data trained it, what eval passed, and what to roll back together, the lineage exists as compliance decoration rather than operational machinery.`,

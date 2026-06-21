@@ -199,6 +199,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'MCTS spends search where samples can still change the move choice, while UCT keeps uncertain branches alive.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/MCTS_Algorithm.png/250px-MCTS_Algorithm.png', alt: 'Monte Carlo tree search phases: selection, expansion, simulation, and backpropagation', caption: 'The four MCTS phases are selection, expansion, rollout, and backpropagation. Source: Wikimedia Commons, Yusha, CC BY-SA 4.0.'},
         'The animation shows a game tree growing one node at a time. Each node carries two numbers: wins and visits (e.g., 9/10 means 9 wins out of 10 simulations). Active highlights trace the path the algorithm is currently walking. Found markers show nodes whose statistics just changed.',
         'In the select-expand-rollout-backprop view, follow the four phases in sequence. The first frame shows the full loop. Subsequent frames highlight one phase each: selection walks from root to a frontier node by UCB1 scores, expansion adds one child, rollout simulates to a terminal state, and backpropagation updates win/visit counts on every ancestor.',
         'In the UCT exploration view, the score table breaks UCB1 into parts: Q (win rate), N (visit count), exploration bonus, and total score. The visit plot shows how iterations concentrate on stronger moves over time. Read the table left to right, then watch the plot confirm the pattern.',
@@ -231,6 +233,7 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution curves with different means and variances', caption: 'UCB-style bonuses are an uncertainty policy: estimates with fewer samples keep a wider plausible range. Source: Wikimedia Commons, Inductiveload, public domain.'},
         'Each node stores statistics, not truth: visit count N, total wins W, and average win rate Q = W/N. A child with high Q looks promising but might be lucky. A child with low N is uncertain and might be underestimated.',
         'UCT (Upper Confidence bounds applied to Trees) turns that tension into a formula: UCB1 = w_i/n_i + c * sqrt(ln(N) / n_i). The first term is exploitation: prefer children that win often. The second term is exploration: prefer children that have been visited rarely relative to their parent. The constant c controls the tradeoff. With c = sqrt(2), UCB1 is theoretically optimal for the multi-armed bandit setting (Auer et al. 2002). In practice, c is tuned per domain.',
       ],
@@ -263,6 +266,7 @@ export const article = {
     {
       heading: 'Where it wins',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'AlphaGo-style systems combine tree search with learned policy and value networks instead of pure random rollouts. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'Go is the landmark success. AlphaGo (Silver et al. 2016) combined MCTS with deep neural networks for policy and value estimation, defeating the world champion in 2016. AlphaGo Zero (2017) removed human game data entirely, learning from self-play MCTS alone.',
         'General game playing uses MCTS because it requires no domain-specific evaluation function: give it the rules, and it plays. Planning under uncertainty benefits when the planner can simulate outcomes: robot motion planning, scheduling, and resource allocation. Combinatorial optimization problems like chemical synthesis planning and drug discovery use MCTS to explore large action spaces where greedy heuristics get stuck.',
         'More recently, MCTS structures appear in LLM reasoning: Tree of Thoughts evaluates branching thought paths, and process reward models score intermediate reasoning steps. The reusable structure is the same: a tree with visit counts, value estimates, and budgeted exploration.',
@@ -296,4 +300,3 @@ export const article = {
     },
   ],
 };
-

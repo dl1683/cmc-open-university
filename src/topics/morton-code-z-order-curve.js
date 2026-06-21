@@ -220,6 +220,8 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'callout', text: 'A Morton key is a quadtree path encoded as a sortable integer.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Four-level_Z.svg/330px-Four-level_Z.svg.png', alt: 'Four iterations of the Z-order curve', caption: 'Z-order recursively visits quadrants in the same prefix pattern that Morton bits encode. Source: Wikimedia Commons, David Eppstein, public domain.'},
         'A Morton code, also called a Z-order key, converts a point on an integer grid into one sortable integer by interleaving coordinate bits. In two dimensions the key alternates bits from x and y. In three dimensions it alternates x, y, and z. Sorting by that key walks the grid in a recursive Z pattern: visit a quadrant, then its neighbor, then the quadrant below, then the diagonal child, and repeat the same rule inside each child.',
         'The point is not to compute Euclidean distance. The point is to make ordinary one-dimensional machinery behave spatially enough to be useful. Arrays can be sorted by Morton code. B-trees can index Morton prefixes. Files can be clustered by Z-order columns. GPU builders can sort triangle centroids before constructing a bounding-volume hierarchy. A Morton code is the encoding layer between multidimensional geometry and normal ordered storage.',
       ],
@@ -262,6 +264,7 @@ export const article = {
     {
       heading: 'Costs and tradeoffs',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Hilbert-topleft-topright.png/120px-Hilbert-topleft-topright.png', alt: 'Color-coded Hilbert curve construction', caption: 'Hilbert order often improves locality, but the encoding is harder than Morton bit interleaving. Source: Wikimedia Commons, Fredrik Johansson, public domain.'},
         'Encoding is cheap: spreading and interleaving bits can be done with masks, shifts, lookup tables, or processor-specific bit deposit instructions. The expensive parts are usually before and after the key: quantizing coordinates, sorting n objects by code, decomposing a query window into Morton intervals, and filtering false candidates. A layout pipeline is often compute codes, sort by code, store clustered records, then answer queries by scanning one or more intervals.',
         'The locality guarantee is useful but imperfect. A rectangle rarely maps to one clean interval. Cells that touch across a Z-order block boundary can be close in space but far in key order. Adjacent keys can cross visual boundaries. Hilbert curves often preserve locality better, but Morton codes are simpler, faster, easier to prefix-split, and easier to use in low-level builders that already operate on bits.',
       ],
@@ -269,6 +272,7 @@ export const article = {
     {
       heading: 'Worked examples',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree diagram with keys grouped into nodes', caption: 'Sorted Morton keys can live in ordinary ordered indexes such as B-trees, with exact geometry checks after candidate retrieval. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
         'In a linear-BVH builder, each triangle gets a bounding-box centroid. The centroids are quantized into a fixed grid, converted to Morton codes, and sorted. Neighboring leaves in that sorted order are likely to be spatially related, so the builder can create hierarchy from common prefixes. This is faster and more parallel than carefully testing every possible split, though the resulting tree may be lower quality than a slower surface-area heuristic build.',
         'In a map tile system, a tile at zoom z has integer x and y coordinates. Each zoom step chooses a child quadrant of the previous tile. A quadkey stores those child choices as digits, so parent and child tiles share prefixes. That makes tiles easy to cache, shard, expire by region, and fetch for a viewport. The same prefix idea appears in Z-order clustering for analytical tables, where nearby multidimensional column values are packed into the same files so scans can skip irrelevant blocks.',
       ],

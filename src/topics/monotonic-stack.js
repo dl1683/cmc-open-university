@@ -234,6 +234,8 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'callout', text: 'A monotonic stack keeps unresolved boundaries in order so one future value can settle many earlier questions at once.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Lifo_stack.svg/500px-Lifo_stack.svg.png', alt: 'LIFO stack diagram showing push and pop order', caption: 'The stack discipline matters because only the most recent unresolved candidate can be settled before older candidates below it. Source: Wikimedia Commons, Maxtremus, CC BY-SA 4.0.'},
         'Monotonic stacks exist for nearest-boundary questions: next greater value, next smaller value, stock span, daily temperatures, and histogram rectangles. The naive solution compares each item with many neighbors until it finds the first value that defeats it.',
         'That nested scan can become O(n^2). A monotonic stack keeps only unresolved candidates while scanning once. It is just Stack plus an ordering invariant, but that invariant deletes candidates that can no longer matter.',
       ],
@@ -255,6 +257,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Stack_UML_class_diagram.svg/250px-Stack_UML_class_diagram.svg.png', alt: 'UML class diagram for a stack interface', caption: 'A monotonic stack keeps the ordinary stack interface, then adds one invariant about value order. Source: Wikimedia Commons, Rfc1394, public domain.'},
         'Inspect the stack as a list of unresolved candidates, not as a sorted copy of the input. Every value on the stack is waiting for the first future value that can resolve its boundary question. Popping means the current value has proved something final about that candidate.',
         'The useful question at every step is: which candidates can never matter again? If the current value dominates the stack top under the problem comparison, the top is resolved and removed. If it does not dominate, the current value becomes a new unresolved candidate.',
       ],

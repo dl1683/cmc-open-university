@@ -17,7 +17,7 @@ export const topic = {
 
 const TOKENS = ['the', 'protein', 'folds', 'quickly'];
 const EXPERTS = ['E1', 'E2', 'E3', 'E4'];
-// The router\'s learned probabilities: which expert should process each token.
+// Learned router probabilities: which expert should process each token.
 const ROUTER = [
   [0.70, 0.10, 0.12, 0.08],
   [0.05, 0.78, 0.10, 0.07],
@@ -77,6 +77,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'MoE is sparse compute: the router scores many experts, but each token pays for only the top-k paths.'},
         `The matrix shows a router score table. Each row is a token, each column is an expert (a small feed-forward network). Cell values are the router's learned preference for sending that token to that expert. Highlighted cells are the top-k experts selected for each token — only those experts actually run.`,
         `The first frame shows the dense baseline: every token activates every expert-sized block, so capacity and compute grow together. The second frame reveals the router scores. The third frame applies top-k selection — most cells go dark because those experts skip that token entirely. The fourth frame shows the failure mode: a collapsed router where all tokens crowd into one expert.`,
         `Watch for three things at each step. Which experts light up (where the token spends compute). How many stay dark (the compute saved). And in the collapse frame, how routing degenerates when balancing fails.`,
@@ -85,6 +86,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The layer diagram grounds the dense baseline that MoE replaces with routed expert blocks. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         `Jacobs et al. introduced Mixture of Experts in 1991: instead of one monolithic network, train several specialist networks and a gating function that picks which specialist handles each input. The original motivation was supervised learning with heterogeneous data — different regions of input space benefit from different learned functions.`,
         `The idea became urgent at Transformer scale. GPT-3 has 175 billion parameters, and every token pays for all of them. If a model needs more capacity — more stored knowledge, more specialized circuits — the only dense option is to make the feed-forward layers wider or deeper, which raises cost per token proportionally. MoE breaks that proportionality: total parameters (capacity) can grow independently of active parameters per token (compute).`,
       ],
@@ -113,6 +115,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Routing is a directed dispatch graph: token states choose expert paths, and selected outputs merge back into the layer. Source: Wikimedia Commons, David W., public domain.'},
         `The router is a learned linear projection from the token hidden state to N logits, followed by softmax: g(x) = softmax(W_g * x). This produces a probability distribution over experts. The system takes the top-k entries.`,
         `Dispatch groups tokens by their selected experts. Each expert is a standard two-layer FFN (up-projection, activation, down-projection) with its own parameters. After the selected experts process their assigned tokens, the outputs are weighted by the corresponding router scores and summed back into the token's hidden state. The rest of the Transformer block — attention, layer norm, residual connections — continues unchanged.`,
         `Training requires a load-balancing auxiliary loss. Without it, the router collapses: a few experts receive most tokens, get most gradients, improve fastest, attract even more tokens, and the remaining experts starve. The auxiliary loss penalizes uneven routing by encouraging each expert to receive roughly 1/N of the tokens. A capacity factor caps how many tokens each expert can accept per batch; overflow is dropped or rerouted.`,
@@ -130,6 +133,7 @@ export const article = {
     {
       heading: 'Cost and complexity',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die with many repeated compute blocks', caption: 'MoE saves active FLOPs, but all experts still need memory residency and fast accelerator interconnects. Source: Wikimedia Commons, Nvidia, public domain.'},
         `Mixtral 8x7B (Mistral, 2024) has 8 experts per MoE layer with roughly 7B parameters each, totaling 46.7B parameters. With top-2 routing, only about 13B parameters are active per token. The compute cost per token matches a dense 13B model, but the memory footprint is 46.7B parameters — roughly 94 GB in FP16. MoE trades memory for quality-per-FLOP.`,
         `Communication is the second cost. Expert parallelism places experts on different accelerators. Each MoE layer requires an all-to-all exchange: tokens travel to their expert's device, get processed, and travel back. In Mixtral with 8 GPUs (one expert per GPU), every MoE layer does two all-to-all rounds. With small batches or slow interconnects, this communication can exceed the compute time it saved.`,
         `Load balancing is the third cost. The auxiliary loss pushes for uniform routing, but the data may genuinely need some experts more than others. Too little balancing creates hot experts and wasted capacity. Too much balancing forces tokens to suboptimal experts, hurting quality. Tuning the balance coefficient is an active research problem.`,
@@ -171,4 +175,3 @@ export const article = {
     },
   ],
 };
-
