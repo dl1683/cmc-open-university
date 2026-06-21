@@ -196,6 +196,7 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1f/Eight-queens-animation.gif', alt: 'Animated solution of the eight queens problem showing queens being placed one row at a time with backtracking', caption: 'The eight-queens backtracking search in action: each queen is placed row by row, and dead-end branches are pruned immediately. (Source: Wikimedia Commons)'},
         'Check constraints after each decision, not after all decisions. If placing a queen in row 2, column 1 conflicts with the queen already in row 1, column 1, then every possible completion of that prefix is invalid. Do not explore any of them. Prune the subtree and try the next column.',
         'This turns brute-force enumeration into a tree search with pruning. Each node in the tree is a partial assignment (queens placed in rows 0 through k). Each branch is a column choice for the next row. Pruning cuts entire branches — not just leaves — so one early conflict can eliminate n^(n-k-1) candidates at once.',
       ],

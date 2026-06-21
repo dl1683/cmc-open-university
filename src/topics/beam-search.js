@@ -119,6 +119,7 @@ export const article = {
         "Toggle between greedy and beam (k=2) to see the difference. Greedy keeps exactly one active node per depth level. Beam search keeps two. At the first expansion, greedy commits to 'sat' (50%) and discards 'ran' (30%). Beam search keeps both. By depth three, 'ran away home' reaches 24% total probability while greedy's path through 'sat' lands at 10%.",
         "The returning path at the end traces the winner back to the root. The gap between greedy's result and beam's result is the price of committing too early to a locally dominant token.",
         {type: "callout", text: "Beam search spends fixed memory to keep several plausible prefixes alive until cumulative probability can outrank the locally best token."},
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/3/3b/Beam_search_%28search_width_2%29.svg", alt: "Beam search tree with search width 2, showing how two hypotheses are kept at each level while others are pruned", caption: "Beam search with width 2: at each depth, only the top 2 scored paths survive. (Source: Wikimedia Commons)"},
       ],
     },
     {
@@ -133,6 +134,7 @@ export const article = {
       paragraphs: [
         "Greedy decoding: at every step, pick the single most probable next token, append it, and move on. One forward pass per step, no bookkeeping, no alternatives to track. For many tasks this is fast enough and good enough.",
         "Greedy is appealing because it is the simplest thing that could work. It mirrors how a person might write — choose the best next word and keep going. And when the model is confident and the output is short, greedy often matches the result of more expensive methods.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/a/ad/Greedy_algorithm_36_cents.svg", alt: "Greedy algorithm choosing the locally optimal coin at each step", caption: "Greedy algorithms always pick the locally best option. In decoding, that means the highest-probability token at each step, with no ability to reconsider. (Source: Wikimedia Commons)"},
       ],
     },
     {

@@ -248,6 +248,7 @@ export const article = {
     {
       heading: 'The Core Insight',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2a/Gradient_descent.svg', alt: 'Gradient descent on a surface showing the optimization path toward a minimum', caption: 'Gradient descent follows the steepest downhill direction. Batch size controls how many samples contribute to each gradient estimate, trading noise for compute. (Source: Wikimedia Commons)'},
         'A minibatch gradient is an estimate of the full-data gradient. Larger batches reduce variance in that estimate. That is good up to a point, because each update points more reliably downhill. Past a critical batch size, however, the extra examples mostly confirm a direction that was already clear. The run pays for more examples per update without getting proportional learning progress. The critical batch is not a universal constant; it depends on model, data, optimizer, schedule, and target quality.',
         'The scaling insight is therefore conditional: increase batch size only while time to the same validation target improves. The right objective is not maximum examples per second. It is lower wall-clock time or lower cost to reach a specified quality. A large batch is successful when the hardware parallelism saves more time than the optimization changes lose. This is why large-batch work always needs a matched baseline, not just a throughput chart.',
       ],

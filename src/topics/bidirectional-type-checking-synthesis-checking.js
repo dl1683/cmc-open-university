@@ -141,6 +141,7 @@ export const article = {
         'Full inference works well for small ML-style cores, but modern languages often include subtyping, overloaded operations, higher-rank functions, typed holes, effects, gradual dynamic values, or dependent function types. In those languages, guessing every missing type globally can become expensive, unpredictable, or impossible to explain.',
         'Bidirectional type checking exists to make the flow of type information explicit. Some expressions produce a type from syntax and the environment. Other expressions are checked against a type that the surrounding context already knows.',
         {type: 'callout', text: 'Bidirectional checking makes type information flow where it is available instead of forcing a global solver to guess missing intent.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/da/BNF_of_Simply_Typed_Lambda_Calculus.svg', alt: 'BNF grammar of the simply typed lambda calculus showing term and type syntax', caption: 'The simply typed lambda calculus: the minimal formal system where bidirectional checking was first applied. Types annotate lambda parameters so inference stays local. (Source: Wikimedia Commons)'},
       ],
     },
     {
@@ -156,6 +157,7 @@ export const article = {
       paragraphs: [
         'Split typing into two judgments. In synthesis mode, an expression produces a type: infer(expr) returns A. In checking mode, an expression is verified against an expected type: check(expr, A) succeeds or reports why the expression does not fit A.',
         'The split changes the shape of the implementation. Variables, literals, field access, and many applications synthesize. Lambdas, object literals, pattern branches, and other context-sensitive forms often check. An annotation is the bridge: after e checks against A, the annotated expression (e : A) can synthesize A for the outside world.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Simple_syntax_tree.svg', alt: 'A simple syntax tree showing how expressions decompose into sub-expressions', caption: 'A syntax tree. Bidirectional checking walks this tree: synthesizing types upward from leaves, and pushing expected types downward from annotations and call sites. (Source: Wikimedia Commons)'},
       ],
     },
     {

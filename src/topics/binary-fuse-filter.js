@@ -214,6 +214,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A membership filter answers a narrow question: can this key be absent without checking the expensive source of truth? Bloom filters made that idea practical. Xor filters made static filters smaller and faster. Binary fuse filters push the static-filter branch further.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt: 'Diagram of a Bloom filter showing hash functions mapping elements to a bit array', caption: 'A Bloom filter maps each element through multiple hash functions into a shared bit array. Binary fuse filters inherit this membership-testing idea but solve fingerprint equations over segmented ranges for better space. Source: Wikimedia Commons.'},
         'The setting is usually huge and immutable: SSTables, object manifests, published asset sets, genomic k-mer snapshots, or read-only indexes. At that scale, one extra bit per key can mean gigabytes of memory and worse cache behavior.',
         'Binary fuse filters exist to keep the xor-filter query shape, a few table reads and xor operations, while improving space and construction behavior for static sets.',
         {type: 'callout', text: 'A binary fuse filter moves work to a static build so each query becomes a few deterministic reads and xor checks.'},
@@ -246,6 +247,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Bloom_filter_fp_probability.svg/720px-Bloom_filter_fp_probability.svg.png', alt: 'Graph showing false-positive probability versus number of bits per element for membership filters', caption: 'False-positive probability drops sharply as bits per element increase. Binary fuse filters sit near the theoretical lower bound for static filters. Source: Wikimedia Commons.'},
         'During construction, each key hashes to a fingerprint and to a small set of positions. The positions are chosen with the binary fuse layout so keys spread through overlapping local ranges.',
         'The builder counts how many keys touch each cell. Cells touched by exactly one remaining key go into a peeling queue. Removing that key can create new degree-one cells. If all keys are peeled, the builder has an order in which the equations can be solved.',
         'Assignment runs backward through the peel stack. For a given key, most of its cells may already have values. The builder chooses the remaining cell value so the xor equals the key fingerprint. Construction can fail for a seed if an unpeelable core remains, so builders retry with a different seed or size.',

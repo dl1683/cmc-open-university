@@ -234,6 +234,7 @@ export const article = {
         'Benchmark variance is the reason model comparison is harder than reading one score from one table. A training run is not a pure measurement of an algorithm. It is the result of data sampling, train/test split, initialization, minibatch order, augmentation, nondeterministic kernels, early stopping, hyperparameter search, metric implementation, and sometimes evaluator or judge noise. The same method can score differently across those choices even when the code is correct.',
         'The practical problem is decision risk. A team wants to know whether model A is better than model B, whether a new training recipe deserves more compute, or whether an offline benchmark justifies a production rollout. A single lucky run can make an ordinary method look strong. A single unlucky run can make a strong method look weak. Benchmark variance turns model selection into an estimation problem, not a screenshot problem.',
         {type: 'callout', text: 'A benchmark result is a sampled measurement process, so model selection must estimate the distribution that produced the score.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Bias_and_variance_contributing_to_total_error.svg', alt: 'Diagram showing bias and variance contributing to total error, with the U-shaped tradeoff curve', caption: 'Bias-variance decomposition of total error. Benchmark variance is one component; ignoring it can make a biased estimator look artificially precise. (Source: Wikimedia Commons)'},
       ],
     },
     {
@@ -247,6 +248,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The wall is that "model quality" is not directly observed. We observe scores produced by a benchmarking process. That process includes random variables and human choices. If the process changes, the score can change. If the process is biased, the score can be confidently wrong. If the process is too narrow, the score can be precise about an unrealistic setting and unhelpful for the real decision.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/9a/Big-O_Computational_Complexity.svg', alt: 'Chart of common algorithmic complexity classes showing how cost grows with input size', caption: 'Complexity of exhaustive model comparison grows fast. With k seeds, s splits, and h hyperparameter trials, the budget is k * s * h * T per candidate. (Source: Wikimedia Commons)'},
         'This is why benchmark variance is not only a statistics topic. It is a systems topic. The measurement pipeline has state, budgets, caches, data boundaries, selection rules, and reporting incentives. A benchmark can fail because the model is unstable, because the estimator ignores a source of variation, because the hyperparameter search is asymmetric, or because the final metric is computed on a contaminated test set. The wall is not noise alone. It is unmodeled process.',
       ],
     },

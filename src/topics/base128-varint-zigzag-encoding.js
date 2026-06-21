@@ -217,6 +217,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d6/Huffman_coding_visualisation.svg', alt: 'Huffman coding tree showing how frequently used symbols get shorter codes', caption: 'Variable-length encoding in general: frequent values get shorter representations. Varints apply the same principle at the byte level -- small integers cost fewer bytes. (Source: Wikimedia Commons)'},
         {type: 'quote', text: 'Each key in the streamed message is a varint with the value (field_number << 3) | wire_type -- in other words, the last three bits of the number store the wire type.', attribution: 'Protocol Buffers Encoding Guide, protobuf.dev'},
         'Most serialized integers are small. Field numbers in Protocol Buffers are typically under 16. Length prefixes for strings and embedded messages are usually under a few hundred bytes. Enum values, boolean flags, retry counts, status codes, and delta-encoded document ids all cluster near zero. A fixed 32-bit or 64-bit slot encodes these values correctly, but it wastes space when the information content fits in one or two bytes.',
         'Variable-length integer encoding exploits that skew. A value that fits in 7 bits costs one byte. A value that needs 14 bits costs two bytes. The format only spends more bytes when the value demands more bits. This is why varints appear in Protocol Buffers, Apache Avro, SQLite record headers, Git packfile offsets, LevelDB block metadata, Lucene postings lists, and WebAssembly LEB128 immediates.',
@@ -249,6 +250,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/05/VLQ-en.svg', alt: 'Diagram showing variable-length quantity encoding with continuation bits', caption: 'Variable-length quantity (VLQ) encoding: each byte carries 7 payload bits and one continuation bit. Base-128 varints use the same structure. (Source: Wikimedia Commons)'},
         'Base-128 varint encoding is a loop with three operations per iteration: extract the low 7 bits as the payload, check whether any higher bits remain, and emit one byte with the continuation bit set or clear.',
         {type: 'code', language: 'javascript', text: '// Encode unsigned integer to varint bytes\nfunction encodeVarint(value) {\n  const bytes = [];\n  while (value > 0x7f) {\n    bytes.push((value & 0x7f) | 0x80);  // low 7 bits + continuation\n    value >>>= 7;                        // unsigned shift right\n  }\n  bytes.push(value & 0x7f);              // final byte, no continuation\n  return bytes;\n}\n// encodeVarint(300) => [0xac, 0x02]'},
         'Decoding reverses the process. Read one byte at a time. Mask with 0x7f to isolate the payload. Shift it left by 7 * position and OR into an accumulator. If bit 7 is set, read the next byte. If bit 7 is clear, the integer is complete.',

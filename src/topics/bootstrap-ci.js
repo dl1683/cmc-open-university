@@ -195,6 +195,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Empirical_bootstrap.svg', alt: 'Diagram showing the empirical bootstrap process: original sample resampled with replacement to build a distribution of statistics', caption: 'The bootstrap resamples the original dataset with replacement many times, computing the statistic on each resample to build an empirical sampling distribution. Source: Wikimedia Commons.'},
         'Start with n observed data points. Draw B bootstrap samples, each of size n, sampled with replacement from the original data. Some original values appear multiple times in a resample; others are absent. That is the mechanism -- replacement means each resample is a plausible alternate dataset, not a shuffle.',
         'Compute the statistic of interest (mean, median, whatever) on each of the B bootstrap samples. The collection of B computed statistics is the bootstrap distribution -- an empirical approximation of the sampling distribution.',
         'For a 95 percent confidence interval using the percentile method, sort the B statistics and take the 2.5th and 97.5th percentiles. Those two numbers are the interval bounds. The BCa (bias-corrected and accelerated) method adjusts for bias and skewness in the bootstrap distribution and is more accurate, especially for skewed statistics or small samples.',
@@ -203,6 +204,7 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution showing standard deviation bands and the 68-95-99.7 rule', caption: 'For normal data, 95% of values fall within roughly two standard deviations of the mean. The bootstrap produces intervals that respect the actual shape of the data, not just this symmetric ideal. Source: Wikimedia Commons.'},
         'The empirical distribution function converges to the true population distribution as sample size grows (Glivenko-Cantelli theorem). Resampling from a good approximation of the population produces a good approximation of the sampling distribution. Efron proved this works for "smooth" functionals -- statistics that change continuously as the underlying distribution changes.',
         'With B at 1,000 or more, Monte Carlo noise in the bootstrap distribution becomes small relative to the sampling variability it estimates. The interval inherits the shape of the data: if the data are skewed, the bootstrap distribution is skewed, and the interval is asymmetric. No symmetry assumption is imposed.',
       ],
