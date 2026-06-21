@@ -220,6 +220,7 @@ export const article = {
         'Block-Max WAND exists because ranked search usually asks for the best k results, not the full score for every matching document. An inverted index can enumerate candidates quickly, but broad queries still create long postings lists and many documents that will never reach the result page.',
         'The retrieval engine needs a way to keep exact top-k semantics while refusing to spend scorer time on candidates that are mathematically unable to beat the current heap threshold.',
         'This sits at the boundary between data structures and ranking systems. The inverted index supplies postings, block metadata supplies score ceilings, and the top-k heap supplies the live threshold. The algorithm is useful because those parts exchange enough information to skip work without changing the answer.',
+        {type: 'callout', text: 'Block-Max WAND is exact because every skipped document is excluded by a conservative score ceiling and the current top-k threshold.'},
       ],
     },
     {
@@ -234,6 +235,7 @@ export const article = {
       paragraphs: [
         'Store score upper bounds beside the postings. WAND uses term-level maxima to ask whether a candidate could beat the current top-k threshold. Block-Max WAND makes the bound tighter by storing a maximum impact for each postings block, so the possible score changes as pointers move through the index.',
         'The invariant is that every pruning bound must be a true upper bound for the scoring function over the candidate or block it covers. If the upper bound cannot beat the heap minimum, then no skipped document can enter the exact top k.',
+        {type: 'image', src: 'https://images.logmi.jp/media/article/321219/images/editor/Q19KzcLQcvmWJxeFyw1vog.jpg', alt: 'Lucene dynamic pruning slide for top-k retrieval.', caption: 'Dynamic pruning is safe only when score bounds remain conservative above every skipped document. (Source: logmi.jp)'},
       ],
     },
     {
@@ -247,6 +249,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'For each query term, the scorer has a postings pointer and a maximum contribution. WAND orders current document ids, chooses a pivot, sums upper bounds for terms that could contribute before the pivot, and decides whether the pivot can be competitive. If not, pointers advance toward a more promising document.',
+        {type: 'image', src: 'https://images.logmi.jp/media/article/321219/images/editor/Qtkb2WkPCK1XXXUpnjW3YB.jpg', alt: 'Lucene top-k retrieval slide with postings and pruning logic.', caption: 'Posting-list pointers and score ceilings determine which candidates deserve full scoring. (Source: logmi.jp)'},
         'Block-Max WAND adds per-block impact metadata. A postings block covers a range of document ids and stores the largest contribution that term can make inside the block. During query evaluation, the scorer can replace loose term-wide bounds with these local bounds and skip entire low-impact ranges.',
       ],
     },

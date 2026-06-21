@@ -245,6 +245,7 @@ export const article = {
         'In the metric tree view, every edge label is the Levenshtein distance from parent to child -- not an alphabetical comparison. The word "boon" lands under "books" because d(book, boon) = 2 routes it to "books" first, and d(books, boon) = 1 places it there. The tree shape is determined by insertion order and metric values, not spelling order.',
         'In the radius query view, active (blue) nodes are being tested, removed (red) subtrees are pruned by the triangle inequality, and found (green) nodes satisfy the radius constraint. The key inference: if d(query, pivot) = 2 and radius = 1, only child edges in [1, 3] survive. Edge 4 to "cake" is provably impossible.',
         'In the spellcheck case-study view, the tree outputs a candidate set, not a final answer. The animation separates generation from ranking because real correction quality depends on word frequency, keyboard adjacency, and context -- none of which are metric-space operations.',
+        {type: 'callout', text: 'A BK-tree is useful when distance labels plus the triangle inequality let one expensive comparison rule out whole metric subtrees.'},
         {type: 'note', text: 'Edge labels are distances, not characters. Two words that are alphabetically adjacent (e.g. "book" and "boo") may live far apart in the tree if their distances to earlier pivots differ.'},
       ],
     },
@@ -279,6 +280,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A BK-tree is a rooted tree where each node stores one word from the dictionary. Each outgoing edge is labeled with the exact distance from the parent word to the child word. A node can have at most one child per distinct distance value.',
+        {type: 'image', src: 'https://signal-to-noise.xyz/static/images/bk-tree-2.png', alt: 'BK-tree of words with edit-distance edge labels.', caption: 'BK-tree edges are metric distances from each pivot word, not character choices. (Source: signal-to-noise.xyz)'},
         {type: 'diagram', text: '              book (root)\n             /    \\\n        d=1 /      \\ d=4\n           /        \\\n        books      cake\n        /   \\        /  \\\n   d=2/  d=1\\   d=2/  d=1\\\n     /      \\    /      \\\n   boo    boon cook    cape', label: 'BK-tree built from: book, books, cake, boo, boon, cook, cape'},
         'Insertion: compute d = distance(new_word, current_node). If no child exists at edge d, attach new_word there. If a child exists at edge d, recurse into that child and repeat.',
         'Query with radius r: at each node, compute d = distance(query, node.word). If d <= r, report the node as a match. Then visit only child edges k where d - r <= k <= d + r. Skip every other child edge entirely.',
@@ -310,6 +312,7 @@ export const article = {
           ['Poor root choice', 'Root that is equidistant to most words', 'Shallow pruning at top level'],
         ]},
         'The worst case is O(n) visited nodes. Each visit pays the full cost of a distance computation -- O(m * k) for Levenshtein on words of length m and k. The total worst case is O(n * m * k), identical to the linear scan.',
+        {type: 'image', src: 'https://seekstorm.com/blog/assets/images/bktree_benchmark12.png', alt: 'Benchmark chart of Levenshtein calculations per fuzzy search.', caption: 'Radius and algorithm choice determine how many edit-distance computations survive pruning. (Source: seekstorm.com)'},
         'In practice, for English spellcheck with radius 1-2 over a 100,000-word dictionary, empirical studies report visiting 2-15% of nodes. Doubling the dictionary roughly doubles the tree size but does not double the visited set, because the tree depth grows and each level prunes more branches.',
         'Memory is one node per word plus a sparse child map per node. Overhead is modest compared to n-gram indexes, finite-state transducers, or deletion dictionaries, but the tree can become unbalanced. Insertion order determines root quality, and there is no rebalancing operation.',
       ],

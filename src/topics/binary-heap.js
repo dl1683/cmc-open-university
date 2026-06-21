@@ -106,7 +106,9 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The animation draws the heap as a tree, but the data lives in a flat array. The root sits at array index 0. Children of index i live at 2i+1 and 2i+2; the parent of index i is at floor((i-1)/2). Watch the tree stay complete at every step: all levels full except possibly the last, which fills left to right. That rigid shape is one of the two rules that define the heap.",
+        {type: "callout", text: "A heap buys priority queue speed by combining a complete shape with a weak local order rule that forces only the best item to the root."},
         "During insertion, the new value appears at the next open leaf (the end of the array). If it is larger than its parent, the highlighted pair swaps and the value bubbles upward along one path. During extract-max, the root is removed and the last leaf takes its place. It then sifts downward, always swapping with the larger child, until the heap rule holds again.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Binary_Heap_with_Array_Implementation.JPG/500px-Binary_Heap_with_Array_Implementation.JPG", alt: "Binary heap shown as a tree beside its array representation.", caption: "The tree view and array view are the same heap layout. (Source: Wikimedia Commons)"},
         "Found markers on the root mean the maximum is at index 0, readable in O(1). At any frame, check: is every parent greater than or equal to both children? If yes, the heap invariant holds.",
       ],
     },
@@ -140,6 +142,7 @@ export const article = {
         "Split the problem into two independent rules. Shape rule: the tree must be complete -- all levels full except possibly the last, which fills left to right. Order rule: every parent must be at least as large as its children (max-heap) or at most as large (min-heap).",
         "The shape rule keeps the height at floor(log2 n). The order rule puts the best item at the root. The tree never sorts siblings against each other. It never compares cousins. It only promises that priority never improves as you walk from parent to child. That weak, local promise is enough.",
         "Because the shape is fixed and predictable, the tree can live in a flat array with no pointers. At index i: left child = 2i+1, right child = 2i+2, parent = floor((i-1)/2). The visual tree is a reading of array positions, not a separate allocation.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Max-Heap.svg/250px-Max-Heap.svg.png", alt: "Complete binary max heap with the largest value at the root.", caption: "A max heap needs only parent-child dominance, not sorted siblings. (Source: Wikimedia Commons)"},
       ],
     },
     {
@@ -149,6 +152,7 @@ export const article = {
         "Extract-min (or extract-max): save the root. Move the last array element into the root position and shrink the array by one. This preserves the complete shape but probably violates the order rule at the top. Sift down: compare the moved value with its children. Swap with the better child (smaller in a min-heap, larger in a max-heap). Repeat until the value beats both children or reaches a leaf. Again O(log n).",
         "Build-heap (Floyd's bottom-up construction): given an unordered array, start at the last internal node -- index floor(n/2)-1 -- and sift each node down, moving backward to the root. Leaves are already valid heaps of size one. By the time a parent is processed, both child subtrees are valid heaps, so one sift-down makes the parent's subtree valid. This builds the entire heap in O(n), not O(n log n).",
         "Why O(n) and not O(n log n)? Because most nodes are near the bottom of the tree, where their sift distances are short. Roughly half the nodes are leaves (zero work). A quarter are one level above leaves (at most one swap). An eighth can sift at most two levels. Only the root can sift the full height. Summing the bounded distances across all nodes: n/2 * 0 + n/4 * 1 + n/8 * 2 + ... This geometric series converges to O(n). The naive approach (insert one at a time, each costing O(log n)) gives O(n log n) because it sifts up from the bottom, where most nodes live far from the root.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Binary_heap_bottomup_vs_topdown.svg/250px-Binary_heap_bottomup_vs_topdown.svg.png", alt: "Bottom-up heap construction compared with repeated insertion.", caption: "Bottom-up heapify is linear because most nodes can move only a short distance. (Source: Wikimedia Commons)"},
       ],
     },
     {

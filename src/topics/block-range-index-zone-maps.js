@@ -229,6 +229,7 @@ export const article = {
         'A large table often spends more time moving bytes than comparing predicates. If a query only needs recent events, a narrow time range, or one clustered region, reading every page just to reject it is wasted work. Block-range indexes and zone maps exist to make that rejection cheap.',
         'The structure stores a small summary for each physical chunk of data instead of storing one entry per row. The summary might be min and max, null counts, bloom bits, or another compact fact. If a predicate cannot overlap the summary, the whole chunk can be skipped before the storage engine reads it.',
         'This is the data-warehouse version of asking a cheap question before an expensive one. Instead of opening every row group, page, segment, or block range, the engine asks: could this chunk possibly contain a matching row?',
+        {type: 'callout', text: 'A block-range index is a lossy proof system: no means impossible, yes means scan and recheck.'},
       ],
     },
     {
@@ -285,6 +286,7 @@ export const article = {
       paragraphs: [
         'PostgreSQL calls this family BRIN, for Block Range INdex. It is aimed at very large tables where indexed values correlate with heap location. Time-series tables, append-only ids, and clustered dimensions are natural fits because each block range summarizes a narrow slice.',
         'Columnar systems use the same idea under names such as zone maps, sparse primary indexes, data skipping indexes, row-group statistics, and segment metadata. ClickHouse can avoid granules; Parquet readers can skip row groups or pages during predicate pushdown.',
+        {type: 'image', src: 'https://clickhouse.com/docs/assets/ideal-img/sparse-primary-indexes-09c.bea857c.48.png', alt: 'ClickHouse sparse primary index and projection layout.', caption: 'Sparse primary indexes summarize physical layout so queries can choose fewer candidate ranges. (Source: clickhouse.com)'},
         'It wins in large analytical stores, logs, telemetry, time-series tables, lakehouse files, and append-heavy data where exact per-row indexes would be too large or too expensive to maintain.',
       ],
     },

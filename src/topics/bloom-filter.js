@@ -94,6 +94,7 @@ export const article = {
         'During insertion, highlighted cells show the three hash outputs for that key: the bit positions it maps to. After the bits are set, they turn green to mark the footprint. During a query, the same three positions are highlighted and checked.',
         'Watch for overlap. When two keys share a bit position, the second insertion finds that bit already at 1. The filter cannot tell which key set it. When a query finds all three bits set by other keys\' combined footprints, you are watching a false positive happen.',
         'The safe inference: if any of the three queried bits is 0, the key was never inserted. Insertion would have set all three. One zero is proof of absence.',
+        {type: 'callout', text: 'A Bloom filter saves memory by storing only hash footprints, making every zero bit a proof of absence and every all-one query only a maybe.'},
       ],
     },
     {
@@ -122,6 +123,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A Bloom filter is an m-bit array (all zeros initially) and k independent hash functions. To insert a key, hash it k times to get k bit positions in [0, m-1] and set all k bits to 1. To query, hash the key the same k ways and check the same k positions. If any position is 0, the key was definitely not inserted. If all k are 1, it is probably present. There are no deletions -- bits are never cleared.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png', alt: 'Bloom filter bit array with hash arrows for inserted keys and a query key.', caption: 'Inserted keys set multiple bits, while a missing zero bit proves absence for a query. (Source: Wikimedia Commons)'},
         'The false-positive probability after inserting n elements is approximately (1 - e^(-kn/m))^k. The optimal number of hash functions is k = (m/n) * ln(2). At the optimum, the formula simplifies: for a target false-positive rate p, you need m = -n * ln(p) / (ln(2))^2 bits. At p = 1%, that works out to about 9.6 bits per element regardless of element size, with k = 7.',
         'Real implementations avoid computing k independent hashes. Kirsch and Mitzenmacher (2004) showed that h_i(x) = h1(x) + i * h2(x) mod m, using just two base hashes, preserves the theoretical guarantees. Insert and query both cost O(k), and since k is a small constant (typically 3 to 13), both are effectively O(1).',
       ],
@@ -148,6 +150,7 @@ export const article = {
       paragraphs: [
         'Chrome Safe Browsing shipped a Bloom filter of malicious URLs to every browser. Each URL was checked locally before navigation. A negative meant safe with certainty; a positive triggered server-side verification. Most checks stayed local, and no malicious URL was missed.',
         'LSM-tree storage engines (LevelDB, RocksDB, Cassandra) attach a Bloom filter to each SSTable. A point lookup might otherwise probe dozens of sorted files across multiple levels. The filter turns most of those disk reads into a few hash computations -- if the filter says "definitely not here," the file is skipped.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Bloom_filter_speed.svg/500px-Bloom_filter_speed.svg.png', alt: 'Bloom filter used as a fast gate before slower storage lookup.', caption: 'A Bloom filter is useful when a cheap negative can avoid an expensive storage access. (Source: Wikimedia Commons)'},
         'Akamai and other CDNs use Bloom filters to avoid caching one-hit wonders. An object must appear to have been requested before (pass the filter) to earn a cache slot. This keeps the cache from filling with objects requested once and never again.',
         'Bitcoin SPV nodes send a Bloom filter of their addresses to full nodes. The full node streams back only transactions matching the filter, reducing bandwidth from the full blockchain to a small filtered subset.',
         'Spell checkers store dictionaries as Bloom filters. A word failing the filter is definitely misspelled. A word passing might still be wrong (false positive), but at low enough rates most passes are real words, and the dictionary fits in far less memory than the word list.',

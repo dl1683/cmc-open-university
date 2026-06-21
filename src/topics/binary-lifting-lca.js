@@ -187,6 +187,8 @@ export const article = {
       paragraphs: [
         `Tree ancestry questions look small until they appear inside a hot path. A filesystem may need the nearest shared directory. A permission system may need the common owner of two resources. A compiler may need dominance relations. A graph algorithm may compress marked nodes into a virtual tree. In every case, the question is not "is this node connected?" The question is "where do these two rooted paths first meet?"`,
         `Lowest common ancestor, or LCA, names that meeting point. Given two nodes in a rooted tree, their LCA is the deepest node that is an ancestor of both. Binary lifting exists because a fixed tree often receives many ancestry queries, and walking parent pointers one edge at a time wastes the fact that the topology is already known.`,
+        {type: `callout`, text: `Binary lifting turns long ancestry walks into a small set of cached power-of-two jumps over a fixed tree.`},
+        {type: `image`, src: `https://nthu-cp.github.io/NTHU-CPP/graph/image/lca/def.png`, alt: `Tree with two nodes and their lowest common ancestor highlighted.`, caption: `The LCA is the deepest shared ancestor of two rooted paths. (Source: nthu-cp.github.io)`},
       ],
     },
     {
@@ -201,6 +203,7 @@ export const article = {
       paragraphs: [
         `The insight is to store ancestors at power-of-two distances. For each node v, keep up[v][0] for the 1-step ancestor, up[v][1] for the 2-step ancestor, up[v][2] for the 4-step ancestor, then 8, 16, and so on. Any climb distance can be written as a sum of powers of two, so a long climb becomes a short sequence of jumps.`,
         `The recurrence is the whole data structure: up[v][k] = up[up[v][k - 1]][k - 1]. A jump of length 2^k is two jumps of length 2^(k - 1). This is the same doubling pattern used by binary exponentiation and sparse tables, applied to parent pointers instead of numbers or array ranges.`,
+        {type: `image`, src: `https://nthu-cp.github.io/NTHU-CPP/graph/image/lca/binary_lifting_1.png`, alt: `Binary lifting jump recurrence over a rooted tree.`, caption: `A 2^i jump is two chained 2^(i-1) jumps. (Source: nthu-cp.github.io)`},
       ],
     },
     {
@@ -229,6 +232,7 @@ export const article = {
       paragraphs: [
         `To compute LCA(u, v), first make the depths equal. If u is deeper, lift u by depth[u] - depth[v]. If v is deeper, lift v by the opposite difference. If the two nodes are equal after this step, that node is the LCA because one original node was an ancestor of the other.`,
         `If they are still different, scan jump powers from high to low. For each k, compare up[u][k] and up[v][k]. If both exist and are different, move both nodes to those ancestors. After the loop, u and v are distinct children below the same ancestor, so parent[u] is the LCA. The algorithm uses large safe moves first, then narrows to the edge just below the split.`,
+        {type: `image`, src: `https://nthu-cp.github.io/NTHU-CPP/graph/image/lca/binary_lifting_2.png`, alt: `Ancestor jumps used to approach the LCA without crossing it.`, caption: `High-to-low jumps keep the candidate below the LCA until the final parent step. (Source: nthu-cp.github.io)`},
       ],
     },
     {

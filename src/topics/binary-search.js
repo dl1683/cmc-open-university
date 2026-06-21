@@ -89,6 +89,8 @@ export const article = {
       paragraphs: [
         'The highlighted range is the live search interval: every position where the target could still be. The active marker is the midpoint being tested. Visited positions have been proven impossible by a prior comparison. Found means the target matched.',
         'Watch the range, not just the midpoint. Each step should cut the highlighted region roughly in half. If the range does not shrink, the update rule is wrong. lo and hi move inward; they never move outward. The midpoint is computed as lo + floor((hi - lo) / 2) to avoid integer overflow.',
+        {type: 'callout', text: 'Binary search works because sorted order converts one midpoint comparison into a proof that half the interval is impossible.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array to a target value.', caption: 'Each midpoint comparison removes one side of the sorted interval. (Source: Wikimedia Commons)'},
         'For an 8-element array, the animation should finish in at most 3 comparisons. Count the steps yourself to confirm logarithmic behavior.',
       ],
     },

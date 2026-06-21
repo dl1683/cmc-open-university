@@ -211,6 +211,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. The classic blackboard view shows Hearsay-II-style speech understanding: signal input feeds acoustic, lexical, and semantic knowledge sources that write to a shared board, while a control shell reads the agenda and chooses the next specialist. The research blackboard view shows the same pattern applied to a multi-agent research pipeline: search, extraction, and critic agents write claims and conflicts to a shared claim board, while a synthesizer and gate produce the final answer.',
+        {type: 'callout', text: 'A blackboard turns agent coordination into typed shared state, so scheduling, conflict, and provenance become inspectable instead of hidden in messages.'},
         {
           type: 'table',
           headers: ['Visual marker', 'Meaning'],
@@ -235,6 +236,7 @@ export const article = {
           text: 'The key idea underlying the blackboard model is the use of a global database, called the blackboard, as a communication medium among a set of independent knowledge sources.',
           attribution: 'H. Penny Nii, "Blackboard Systems," AI Magazine, 1986',
         },
+        {type: 'image', src: 'https://image2.slideserve.com/3959647/hearsay-ii-l.jpg', alt: 'Hearsay-II speech recognition blackboard system overview.', caption: 'Hearsay-II used specialist knowledge groups, a shared blackboard, and a scheduler. (Source: slideserve.com)'},
         'A blackboard architecture replaces that tangle with shared working memory. Each knowledge source reads the board, reacts to relevant changes, and writes structured hypotheses. A control shell watches the board and chooses which specialist should run next. The board is the central data structure for coordination -- not a transcript of side conversations, but a typed, inspectable, priority-driven workspace.',
       ],
     },
@@ -266,6 +268,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A blackboard system has three parts: knowledge sources, the board itself, and a control shell.',
+        {type: 'image', src: 'https://image1.slideserve.com/3303151/architecture-l.jpg', alt: 'Blackboard architecture with controller, knowledge sources, and shared board.', caption: 'Knowledge sources communicate through the board while the controller chooses the next action. (Source: slideserve.com)'},
         {
           type: 'bullets',
           items: [
@@ -300,6 +303,7 @@ export const article = {
             'Opportunistic scheduling: the control shell can dynamically shift between bottom-up evidence building and top-down hypothesis verification based on what the board reveals. A cheap check that resolves a major conflict outranks a broad search with low expected information gain.',
           ],
         },
+        {type: 'image', src: 'https://image2.slideserve.com/3959647/sample-of-hearsay-ii-s-blackboard-l.jpg', alt: 'Hearsay-II blackboard with speech waveform, hypotheses, and higher-level interpretations.', caption: 'The blackboard stores layered hypotheses so later specialists can build on earlier evidence. (Source: slideserve.com)'},
         {
           type: 'quote',
           text: 'In Hearsay-II, the scheduling strategy was critical: combining bottom-up evidence from the signal with top-down expectations from language models, without hard-wiring every knowledge source to every other.',
