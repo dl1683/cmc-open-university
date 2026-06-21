@@ -209,6 +209,7 @@ export const article = {
       paragraphs: [
         'Softmax attention is powerful partly because every token can compare itself to every earlier token. The price is that autoregressive decoding keeps a growing KV cache and each new token has more history to address.',
         'Linear attention exists to ask a data-structure question: can the useful part of the past be stored in fixed-size prefix state instead of a full list of keys and values?',
+        {type: 'callout', text: 'Linear attention trades exact token history for updateable prefix state, so memory grows with feature dimension instead of context length.'},
       ],
     },
     {
@@ -236,6 +237,7 @@ export const article = {
       heading: 'Data structures',
       paragraphs: [
         'The core records are phi(q), phi(k), value v, numerator state S, denominator state Z, epsilon or stabilization metadata, precision policy, and per-layer reset policy. S is usually an accumulated sum of key-value outer products. Z is the accumulated key-feature vector used to normalize reads.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'Prefix state is a directed dataflow: key features and values write into S and Z, and later queries read through those states. Source: Wikimedia Commons, David W., public domain.'},
         'This looks like a small database index. Writes add key-value evidence, reads query the index, and normalization keeps scores comparable. The difference is that every operation must remain differentiable and accelerator-friendly.',
       ],
     },
@@ -272,6 +274,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Linear attention wins when the workload benefits from long streaming state and does not require exact token-level recall at every layer. It is attractive for streaming summarization, some long-signal modeling, and hybrid architectures that reserve exact attention for selected layers or windows.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with input, hidden, and output nodes.', caption: 'Linear attention is still a neural layer; the storage contract changes, but the state is trained inside the model graph. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'It is also the conceptual bridge to RetNet, DeltaNet, Gated DeltaNet, Kimi Delta Attention, and SSD-style models. Those systems differ in update rule and gating, but they share the prefix-state question.',
         'It is especially useful as a teaching bridge because it forces the learner to ask what memory means. A KV cache is a list of past token evidence. A prefix state is a compressed sufficient-statistic candidate. Those are different promises.',
       ],

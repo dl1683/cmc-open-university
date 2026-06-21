@@ -249,6 +249,7 @@ export const article = {
         'The animation has two views. "Louvain pass" walks through the greedy local-move and aggregation cycle that produces a hierarchical partition. "Leiden refinement" shows the extra step Leiden inserts to fix badly connected communities before aggregation. Active highlights mark the node or community under evaluation. Found highlights mark a decision that has been locked in. Compare highlights mark alternatives being weighed against the active choice.',
         'In the matrix frames, rows are candidate moves and columns are the quantities that determine whether a move improves modularity. The highlighted cell is the winning option. Follow the delta-modularity column: a positive value means the move is accepted, zero means no improvement, and the algorithm moves on.',
         'At each frame, ask three things: what partition exists right now, what move is being tested, and whether the move improved the objective or exposed a structural flaw.',
+        {type: 'callout', text: 'Leiden adds a repair step to a greedy compression loop, so communities are not allowed to become permanent supernodes while internally broken.'},
       ],
     },
     {
@@ -260,6 +261,7 @@ export const article = {
           text: 'Community structure is one of the most relevant features of graphs representing real systems. Its identification is critical for understanding the function, organization, and dynamics of complex networks.',
           attribution: 'Blondel, Guillaume, Lambiotte, Lefebvre -- "Fast unfolding of communities in large networks" (2008)',
         },
+        {type: 'image', src: 'https://media.springernature.com/lw685/springer-static/image/art%3A10.1038%2Fs41598-019-41695-z/MediaObjects/41598_2019_41695_Fig1_HTML.png', alt: 'Louvain and Leiden community-detection passes showing local moves, refinement, and aggregation.', caption: 'The Leiden paper visualizes the extra refinement step that separates it from Louvain. Source: Traag, Waltman, and van Eck, Scientific Reports 2019, CC BY 4.0.'},
         'Louvain (Blondel et al., 2008) and Leiden (Traag, Waltman, van Eck, 2019) are the two most widely deployed algorithms for this job. Both optimize modularity -- a score that measures how much edge weight falls inside communities compared to what a random graph with the same degree sequence would produce. The output is a hierarchical partition: communities of nodes, then communities of communities, at increasing levels of coarseness.',
       ],
     },
@@ -355,17 +357,17 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Algorithm', 'Time per pass', 'Space', 'Guarantees', 'Key weakness'],
-          rows: [
-            ['Louvain', 'O(m) amortized per level', 'O(n + m)', 'Greedy modularity increase', 'Disconnected communities possible'],
-            ['Leiden', 'O(m) amortized per level', 'O(n + m)', 'Communities are gamma-connected', 'Refinement adds constant-factor overhead'],
-            ['Label propagation', 'O(m) per iteration', 'O(n)', 'None (non-deterministic)', 'Unstable; oscillates on ambiguous graphs'],
-            ['Spectral clustering', 'O(n^3) or O(n*m) with Lanczos', 'O(n^2) for eigenvectors', 'Based on graph Laplacian spectrum', 'Requires k upfront; expensive on large graphs'],
-            ['Infomap', 'O(m) per iteration', 'O(n + m)', 'Minimizes description length (map equation)', 'Different objective; may disagree with modularity'],
+          type: 'bullets',
+          items: [
+            'Louvain: O(m) amortized per level and O(n + m) space; it greedily increases modularity but can leave disconnected communities.',
+            'Leiden: O(m) amortized per level and O(n + m) space; refinement gives gamma-connected communities at a small constant-factor cost.',
+            'Label propagation: O(m) per iteration and O(n) space; it is fast but unstable on ambiguous graphs and offers no strong partition guarantee.',
+            'Spectral clustering: O(n^3), or O(n*m) with Lanczos-style approximations, and often O(n^2) space for eigenvectors; it needs k upfront and is expensive on large graphs.',
+            'Infomap: O(m) per iteration and O(n + m) space; it optimizes a description-length objective, so it may disagree with modularity in useful ways.',
           ],
         },
         'For Louvain and Leiden, the dominant cost is scanning edges during the local move phase. Each node inspects its neighbors and computes modularity gain for each neighboring community. In sparse graphs with good data layouts (compressed sparse row or adjacency arrays), this is close to linear in the number of edges per pass. Multiple passes and multiple levels add constant factors, but the graph shrinks at each level, so total work is typically O(m log n) in practice.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'Community detection starts from a graph; the algorithmic question is which directed or undirected edge evidence belongs inside one compressed group. Source: Wikimedia Commons, David W., public domain.'},
         'Memory is O(n + m): the adjacency structure plus per-node community labels and per-community degree totals. Leiden requires additional bookkeeping for the refinement step -- tracking subcommunities within each community -- but this does not change the asymptotic bound.',
         'The practical cost difference between Louvain and Leiden is small. Leiden is roughly 2-3x slower per pass due to refinement, but it often converges in fewer levels because the refined partition is a better starting point for the next aggregation. For graphs with millions of edges, both run in seconds on a single core.',
       ],
@@ -414,4 +416,3 @@ export const article = {
     },
   ],
 };
-

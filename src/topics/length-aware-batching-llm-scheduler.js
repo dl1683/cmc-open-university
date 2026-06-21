@@ -217,6 +217,7 @@ export const article = {
       paragraphs: [
         `Length-aware batching exists because LLM requests do not cost the same amount of GPU time. A 200-token chat prompt, a 60,000-token retrieval prompt, a short classification output, and a long agent trace can all arrive at the same model server. If the scheduler treats them as interchangeable, batching improves average throughput while wasting padding, crowding KV cache, and damaging tail latency.`,
         `Continuous batching answers when live decode lanes can accept more work. Length-aware batching answers which waiting request should enter next. That choice has to account for prompt length, output budget, prefix-cache hits, service class, and memory footprint. The goal is not perfect sorting. The goal is enough shape awareness to batch compatible work without starving awkward requests.`,
+        {type: 'callout', text: `Length-aware batching is admission control over request shape: it spends a little queue structure to save GPU memory, padding work, and p99 latency.`},
       ],
     },
     {
@@ -231,6 +232,7 @@ export const article = {
       paragraphs: [
         `The wall is that LLM serving has two different phases with different shapes. Prefill processes the prompt and is mostly dense parallel work over many input tokens. Decode emits one token at a time for each active sequence and keeps KV cache alive. A good prefill batch is not always a good decode batch.`,
         `The second wall is memory residency. A request can be a good length match and still be inadmissible if its KV footprint does not fit. Prefix caching can make a long prompt cheap if the prefix hits, while a modest prompt with a long output can occupy memory for many iterations. A scheduler that sees only arrival order misses the real bottleneck.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die showing many compute units on one accelerator.', caption: `GPU serving throughput depends on feeding dense kernels without letting memory residency dominate admission. Source: Wikimedia Commons, Nvidia, public domain.`},
       ],
     },
     {
@@ -272,6 +274,7 @@ export const article = {
       heading: 'Where It Fits',
       paragraphs: [
         `Length-aware batching sits between global routing and the local engine loop. A load balancer or request router chooses a model replica. The local scheduler decides which waiting request or prefill chunk consumes the next admission opportunity. The KV block manager supplies a hard constraint, and the continuous-batching loop executes the admitted work one iteration at a time.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: `A serving path is a directed flow from router to scheduler to KV manager to decode loop; length-aware policy lives on those admission edges. Source: Wikimedia Commons, David W., public domain.`},
         `This pattern lines up with modern serving systems. Orca introduced iteration-level scheduling and selective batching for transformer serving. vLLM documents continuous batching, chunked prefill, prefix caching, PagedAttention, and CUDA graph execution. TensorRT-LLM documents in-flight batching, chunked context, KV cache management, and request scheduling. Length-aware queues are one control layer around those mechanisms.`,
       ],
     },

@@ -104,7 +104,7 @@ function* explainLocally() {
 
   yield {
     state: matrixState({
-      title: 'The explanation: read the surrogate\'s weights',
+      title: "The explanation: read the surrogate's weights",
       rows: [{ id: 'excl', label: 'exclamation marks' }, { id: 'caps', label: 'ALL-CAPS words' }],
       columns: [{ id: 'w', label: 'local weight' }, { id: 'verdict', label: 'reading' }],
       values: [[local.wExcl, 1], [local.wCaps, 2]],
@@ -145,7 +145,7 @@ function* finePrint() {
   yield {
     state: matrixState({
       title: 'Fine print 2 — the scaffolding attack (Slack et al. 2020)',
-      rows: [{ id: 'on', label: 'on real data' }, { id: 'off', label: 'on LIME\'s perturbed samples' }],
+      rows: [{ id: 'on', label: 'on real data' }, { id: 'off', label: "on LIME's perturbed samples" }],
       columns: [{ id: 'behavior', label: 'model behaves…' }],
       values: [[1], [2]],
       format: (v) => ['', 'BIASED (uses a protected feature)', 'innocent (hides the feature)'][v],
@@ -186,6 +186,7 @@ export const article = {
       paragraphs: [
         `LIME exists for the common case where a model affects a decision but the model itself is sealed. You may have an API that returns a fraud score, a medical risk score, a content decision, or a loan denial, but no weights, no gradients, and no source code. A user still needs a reason: which parts of this input pushed the decision up or down?`,
         `The full model may be a neural network, random forest, vendor service, ensemble, or proprietary stack. LIME does not try to open it. It asks a narrower question: around this one input, can a simple model imitate the black box well enough to explain this one prediction?`,
+        {type: 'callout', text: `LIME explains one decision by fitting a small local surrogate, not by discovering the hidden model inside the black box.`},
       ],
     },
     {
@@ -206,6 +207,7 @@ export const article = {
       heading: 'Core Insight',
       paragraphs: [
         `The core insight is that a local imitation can be useful even when a global explanation is impossible. Near a single point, many curved decision surfaces can be approximated by a line or a small sparse model. That simple surrogate is not the black box. It is an explanatory instrument.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branches ending in class labels.', caption: `Interpretable surrogates trade global flexibility for local readability; decision trees are one familiar form of human-readable model. Source: Wikimedia Commons, T-kita, public domain.`},
         `LIME makes this trade explicit. It chooses interpretability first, then asks the black box enough nearby questions to make that interpretable model locally faithful. The explanation is the surrogate's coefficients, not the hidden model's true internals. The right reading is: for this input, under this perturbation scheme, this feature moved the local surrogate most.`,
       ],
     },
@@ -241,6 +243,7 @@ export const article = {
       heading: 'Where It Wins',
       paragraphs: [
         `LIME wins when the model is accessible only through predictions and the user needs an explanation for a single decision. It is useful for model debugging, audit sampling, support tools, and human review screens where a local reason is better than a silent score.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input, hidden, and output nodes.', caption: `A neural network can be queried from the outside even when its internals are unavailable; LIME uses those queries to build a local explanation. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.`},
         `It is especially natural for tabular business models, text classifiers, and image classifiers with clear perturbation units. A credit model can show which features pushed a denial. A text classifier can show which words drove a label. An image classifier can show which superpixels mattered. The common thread is not model type. It is query access plus an input representation that humans can understand.`,
       ],
     },

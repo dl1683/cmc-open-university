@@ -78,6 +78,7 @@ export const article = {
       paragraphs: [
         'Each rectangle is a node. The number inside is the stored value. Arrows between nodes are next pointers -- the only thing connecting one node to the next. The leftmost node is the head; the chain ends where the last arrow would point to null.',
         'An active (highlighted) node is the one the algorithm is currently inspecting or creating. Visited nodes have already been checked and passed over. A removed node is the one being unlinked from the chain. Watch the arrows, not the boxes: every structural change in a linked list is an arrow being redirected.',
+        {type: 'callout', text: 'A linked list makes order explicit in pointers, so insertion can be cheap only when the code already holds the right node reference.'},
       ],
     },
     {
@@ -105,10 +106,11 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
-        'A singly linked list stores each element in a separate node. Every node holds two things: a value and a next pointer to the following node. The last node\'s next pointer is null. A head pointer provides the only entry point into the chain.',
+        "A singly linked list stores each element in a separate node. Every node holds two things: a value and a next pointer to the following node. The last node's next pointer is null. A head pointer provides the only entry point into the chain.",
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by arrows ending at null.', caption: 'A singly linked list is a chain of nodes connected by next pointers; the arrows are the structure. Source: Wikimedia Commons, Lasindi, public domain.'},
         'Insert at head: create a new node, set its next to the current head, move head to the new node. Two pointer operations, O(1). Insert at a known position: given a reference to node A, create a new node N, set N.next = A.next, set A.next = N. Again O(1) -- no traversal needed because the position is already known.',
         'Delete a node: given the predecessor, set predecessor.next = target.next. The target is now unreachable from head and can be freed. Deleting the head is a special case: move head to head.next.',
-        'Search: start at head, compare each node\'s value, follow next until a match or null. O(n) in the worst case. There is no shortcut -- even if the list is sorted, reaching the middle requires n/2 pointer follows.',
+        "Search: start at head, compare each node's value, follow next until a match or null. O(n) in the worst case. There is no shortcut -- even if the list is sorted, reaching the middle requires n/2 pointer follows.",
         'A doubly linked list adds a prev pointer to every node. This costs an extra pointer per node but lets you delete a node in O(1) given only a reference to that node, without needing its predecessor. Sentinel (dummy) nodes at the head and tail of a doubly linked list eliminate edge cases: insert and delete never need to check whether the predecessor or successor is null, because the sentinels are always there.',
       ],
     },
@@ -117,7 +119,7 @@ export const article = {
       paragraphs: [
         'Correctness rests on the chain invariant: starting at head and following next pointers visits exactly the live nodes in order and terminates at null. Every operation must preserve this invariant.',
         'Insertion preserves the chain because the new node adopts the old successor (N.next = A.next) before the predecessor adopts the new node (A.next = N). The order matters: if A.next were overwritten first, the reference to the old successor would be lost and the tail of the list would be orphaned.',
-        'Deletion preserves the chain because the predecessor skips directly to the removed node\'s successor. Every node before and after the removed node keeps its position and reachability. The removed node may still exist in memory until garbage collection or manual deallocation, but it is outside the logical chain.',
+        "Deletion preserves the chain because the predecessor skips directly to the removed node's successor. Every node before and after the removed node keeps its position and reachability. The removed node may still exist in memory until garbage collection or manual deallocation, but it is outside the logical chain.",
       ],
     },
     {
@@ -125,7 +127,7 @@ export const article = {
       paragraphs: [
         'Insert or delete at head: O(1). Insert or delete at a known position (pointer in hand): O(1). Append at tail: O(1) with a tail pointer, O(n) without one. Search or access by index: O(n). Space: O(n), but with per-node overhead -- each singly linked node stores one pointer (8 bytes on 64-bit systems), each doubly linked node stores two (16 bytes). For small values like integers, the pointers can exceed the data itself.',
         'When n doubles, search time doubles. Insert and delete at known positions stay constant. This is the opposite profile from an array, where doubling n keeps random access constant but doubles the worst-case insert cost.',
-        'The hidden constant: cache behavior. An array\'s elements sit in consecutive memory addresses, so traversing them hits the L1 cache almost every time. Linked list nodes are allocated individually on the heap and can land anywhere in memory. Following a next pointer to an arbitrary address typically costs a cache miss -- roughly 5-10ns to L2, 30-50ns to L3, and 100+ ns to main memory. For sequential scans, an array can be 10-50x faster than a linked list of the same length because of this effect alone. Big-O says both scans are O(n), but the constant factor on the linked list is dramatically larger.',
+        "The hidden constant: cache behavior. An array's elements sit in consecutive memory addresses, so traversing them hits the L1 cache almost every time. Linked list nodes are allocated individually on the heap and can land anywhere in memory. Following a next pointer to an arbitrary address typically costs a cache miss -- roughly 5-10ns to L2, 30-50ns to L3, and 100+ ns to main memory. For sequential scans, an array can be 10-50x faster than a linked list of the same length because of this effect alone. Big-O says both scans are O(n), but the constant factor on the linked list is dramatically larger.",
       ],
     },
     {
@@ -142,6 +144,7 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Random access is O(n). There is no formula for the address of the kth node because nodes are scattered across memory. Any algorithm that needs element[k] repeatedly -- binary search, quicksort partition, matrix operations -- is a poor fit.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/40/1D_array_diagram.svg', alt: 'One-dimensional array diagram with contiguous indexed cells.', caption: 'Arrays win random access because an index maps to a predictable offset; linked lists give up that arithmetic shortcut. Source: Wikimedia Commons, Tropwine, CC BY 4.0.'},
         'Cache hostility is the practical killer. On modern hardware, a sequential scan of 10,000 array elements takes microseconds. The same scan over a linked list can take 10-50x longer because each pointer follow risks a cache miss. Bjarne Stroustrup (creator of C++) demonstrated in 2012 that for sequences under a few thousand elements, arrays with O(n) insertion consistently outperform linked lists with O(1) insertion because the cache advantage of contiguous memory overwhelms the shifting cost.',
         'Pointer overhead is nontrivial. A singly linked node carrying a 4-byte integer spends 8 bytes on the next pointer -- the metadata is twice the payload. A doubly linked node spends 16 bytes on pointers. For large collections of small values, the memory footprint can be 3-5x an equivalent array.',
         'Pointer bugs are a common source of errors. Updating pointers in the wrong order during insert or delete can orphan the tail of the list, create cycles, or leave dangling references. Sentinel nodes and careful ordering (always set the new link before breaking the old one) prevent most of these bugs, but the surface area for mistakes is larger than with arrays.',

@@ -236,6 +236,7 @@ export const article = {
       paragraphs: [
         'Many optimization problems reduce to one question: among all lines seen so far, which line has the smallest value at this x? Dynamic programming transitions, route costs, pricing formulas, and scheduling penalties often have exactly this shape.',
         'A Li Chao tree exists for the online version of that question. Lines arrive over time, queries are interleaved with inserts, slopes may be unsorted, and query coordinates may jump around. The structure avoids maintaining the full lower envelope explicitly.',
+        {type: 'callout', text: 'A Li Chao tree stores enough line evidence on one root-to-leaf path to answer each x, instead of maintaining the whole lower envelope.'},
       ],
     },
     {
@@ -250,6 +251,7 @@ export const article = {
       heading: 'Core invariant',
       paragraphs: [
         'Build a segment tree over x-coordinates. Each node owns an interval and stores one line: the line currently best at that interval midpoint among the lines that have been routed through the node.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'A Li Chao query follows one root-to-leaf path through interval decisions; only the line records on that path need evaluation. Source: Wikimedia Commons, David W., public domain.'},
         'The invariant is path coverage. For every coordinate x, the true best line among inserted lines appears in at least one node on the root-to-leaf path for x. A query therefore evaluates only the lines on that path and takes the minimum.',
         'The reason one stored line is enough per node is geometric: two distinct lines intersect at most once. If the new line loses at the midpoint, it can only beat the midpoint winner on one side of the midpoint, so the loser is pushed into only that child interval.',
       ],
@@ -266,6 +268,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'Insertion starts at the root interval. If the node is empty, store the new line there. Otherwise compare the old line and new line at the interval midpoint. Keep the lower line at the midpoint in the node and call the other one the loser for this midpoint.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Convex_polygon_illustration2.svg', alt: 'Line segment crossing a polygon, illustrating a single crossing over an interval.', caption: 'The one-crossing intuition is geometric: with lines, a loser at the midpoint can only become relevant on one side. Source: Wikimedia Commons, CheCheDaWaff and contributors, CC BY-SA 4.0.'},
         'Next compare the two lines at an endpoint. If the loser is better on the left side, recurse into the left child with the loser. If it is better on the right side, recurse into the right child. If it is not better on either side, insertion stops because the stored line dominates it on this interval.',
         'A query for coordinate x descends from root to leaf. At each visited node, evaluate the stored line at x if there is one. The minimum value seen on that path is the answer. A max Li Chao tree is the same structure with comparisons flipped.',
       ],

@@ -200,6 +200,7 @@ export const article = {
         'Active (highlighted) nodes and edges mark the preferred path currently being exposed or modified. Compared (dimmed) nodes are side branches detached as virtual children during access. Found (green) markers show the result: the aggregate value read from the exposed path or the new forest edge after a link.',
         'The matrix frames show what changes before and after each operation. Read them as before/after snapshots of the internal state, not as the final answer.',
         'At each frame, ask: which preferred edges changed, which side branches were detached, and what aggregate is now readable from the auxiliary root.',
+        {type: 'callout', text: 'A link-cut tree keeps the represented forest stable while constantly reshaping auxiliary splay trees so the path you need becomes searchable.'},
       ],
     },
     {
@@ -235,6 +236,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A link-cut tree has two layers. The represented forest is the forest users ask about: the real tree edges, the real parent-child relationships. The auxiliary forest is an implementation layer made of splay trees that the user never sees directly.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/AVL_Tree_Rebalancing.svg', alt: 'Tree rotation cases showing how local rotations preserve inorder structure.', caption: 'Splay trees use rotations with the same local-order preservation idea: reshape the tree without changing the path order. Source: Wikimedia Commons, CyHawk and contributors, CC BY-SA.'},
         {
           type: 'diagram',
           text: 'Represented tree:           Preferred-path decomposition:\n\n      r                     Aux splay tree 1: [r - a - c - d]\n     / \\                      (preferred path, keyed by depth)\n    a   b                   \n    |    \\                  Aux splay tree 2: [b]\n    c     e                   (single-node path)\n    |                       \n    d                       Aux splay tree 3: [e]\n                              (single-node path)\n\n    Virtual edges (dashed) connect aux tree roots\n    to their represented parents in other aux trees.',
@@ -264,20 +266,16 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Link-Cut Tree', 'Euler Tour Tree', 'Top Tree'],
-          rows: [
-            ['access / expose path', 'O(log n) amortized', 'N/A (no path expose)', 'O(log n) amortized'],
-            ['link', 'O(log n) amortized', 'O(log n) amortized', 'O(log n) amortized'],
-            ['cut', 'O(log n) amortized', 'O(log n) amortized', 'O(log n) amortized'],
-            ['path aggregate (sum/min/max)', 'O(log n) amortized', 'O(log n) amortized (with tricks)', 'O(log n) amortized'],
-            ['subtree aggregate', 'O(log n) with extensions', 'O(log n) amortized (native)', 'O(log n) amortized (native)'],
-            ['findRoot', 'O(log n) amortized', 'O(log n) amortized', 'O(log n) amortized'],
-            ['implementation complexity', 'Moderate (splay + lazy reversal)', 'Moderate (balanced BST on Euler tour)', 'High (cluster merge/split interface)'],
-            ['best fit', 'Path queries + dynamic topology', 'Subtree queries + dynamic topology', 'General dynamic tree queries with custom aggregates'],
+          type: 'bullets',
+          items: [
+            'Link-cut tree: O(log n) amortized for access, link, cut, findRoot, and path aggregates; best when dynamic topology and path queries dominate.',
+            'Euler tour tree: O(log n) amortized for link, cut, connectivity, and subtree aggregates; path aggregates need extra machinery.',
+            'Top tree: O(log n) amortized for a broad set of dynamic-tree aggregates; more general but harder to implement because every cluster merge and split needs a contract.',
+            'Implementation tax: link-cut trees need splay rotations and lazy reversal, Euler tour trees need a balanced BST over a changing sequence, and top trees need the highest abstraction burden.',
           ],
         },
         'Each node stores five pointers (left child, right child, parent in the auxiliary tree, path-parent, and a lazy reversal bit), plus whatever aggregate values the application needs. Memory overhead is roughly 5-7 pointers per node compared with 1-2 for a plain parent-pointer tree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes.', caption: 'The represented forest and the auxiliary forest are two graph layers over the same nodes; most bugs come from mixing their edge meanings. Source: Wikimedia Commons, David W., public domain.'},
         'Amortized O(log n) means individual operations can be expensive. A single access on a worst-case path can perform O(n) rotations, but the potential decrease guarantees that future operations on the same nodes are cheap. Over any sequence of m operations on an n-node forest, total work is O(m log n).',
         'When n doubles, each operation adds roughly one more splay step. For 1,000 nodes, access touches about 10 auxiliary tree levels. For 1,000,000 nodes, about 20. The dominant cost is splay rotations during access; link, cut, and query are thin wrappers around access.',
       ],

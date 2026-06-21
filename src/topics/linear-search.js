@@ -60,12 +60,14 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: 'callout', text: "Linear search is the honest baseline: without reusable structure, each failed comparison can rule out only the item it just checked."},
       ],
     },
     {
       heading: `Why this exists`,
       paragraphs: [
         `Linear search exists for data that gives you no structure to exploit. The values may be unsorted, streaming from a file, changing constantly, or too small to justify an index. In that setting, every unchecked item could still be the target.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/40/1D_array_diagram.svg', alt: 'One-dimensional array diagram with indexed cells.', caption: `A scan walks a sequence one cell at a time because ordinary index positions alone do not prove anything about the next value. Source: Wikimedia Commons, Tropwine, CC BY 4.0.`},
         `It is also the baseline that makes other searches meaningful. Binary Search buys speed with sorted random-access data. Hash Table lookup buys speed with hashing and a table built ahead of time. Linear search needs only a way to read the next item.`,
       ],
     },
@@ -153,6 +155,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array by testing the midpoint.', caption: `Binary search is the contrast case: sorted order lets one comparison remove a whole interval instead of one item. Source: Wikimedia Commons.`},
         `Study Binary Search to see how sorted order lets one comparison reject many positions. Study Hash Table to see how preprocessing makes repeated exact lookup average O(1). Study Bloom Filter for fast negative answers with false positives. Big-O Growth Rates gives scale intuition, while Sliding Window and Two Pointers show how controlled scans become more targeted than a plain one-cursor pass.`,
       ],
     },

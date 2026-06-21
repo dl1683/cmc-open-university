@@ -56,7 +56,7 @@ function* diagnosis() {
       markers: [{ id: 'ceiling', x: 1600, y: 74, label: 'converged at 74%' }],
     }),
     highlight: { active: ['ceiling'], visited: ['train', 'val'] },
-    explanation: 'Patient two, same disease on the surface (mediocre accuracy), opposite anatomy: training accuracy is LOW from the start — 78% — and falling toward validation, which rises to meet it. By 800 examples the curves have fused at 74% and flatlined. No gap, no variance — this model cannot even fit the data it HAS. That is BIAS: the hypothesis is too simple for the pattern (a straight line chasing a curve, Logistic Regression\'s one-boundary limit). The brutal corollary: ten million more examples would land on the same 74% ceiling. Anyone who says "just get more data" without looking at this plot is prescribing before diagnosing.',
+    explanation: `Patient two, same disease on the surface (mediocre accuracy), opposite anatomy: training accuracy is LOW from the start — 78% — and falling toward validation, which rises to meet it. By 800 examples the curves have fused at 74% and flatlined. No gap, no variance — this model cannot even fit the data it HAS. That is BIAS: the hypothesis is too simple for the pattern (a straight line chasing a curve, Logistic Regression's one-boundary limit). The brutal corollary: ten million more examples would land on the same 74% ceiling. Anyone who says "just get more data" without looking at this plot is prescribing before diagnosing.`,
     invariant: 'Converged-and-low curves mean bias: the ceiling is the model, not the data.',
   };
 
@@ -87,7 +87,7 @@ function* anatomy() {
       format: (v) => `${v}%`,
     }),
     highlight: { compare: ['varm:var', 'biasm:bias'], found: ['sweet:total'] },
-    explanation: 'The bookkeeping behind the curves. Every model\'s expected error splits into three accounts: BIAS² — error from the hypothesis being too simple (it would persist with infinite data); VARIANCE — error from sensitivity to which particular sample you drew (retrain on a new sample, get a different model); NOISE — the irreducible floor no model escapes. The memorizer and the straight line both total 28%, by opposite routes. The art is the bottom row: accept a LITTLE bias to slash a LOT of variance — exactly the trade λ executes in Regularization, one knob sliding error between the two accounts.',
+    explanation: `The bookkeeping behind the curves. Every model's expected error splits into three accounts: BIAS² — error from the hypothesis being too simple (it would persist with infinite data); VARIANCE — error from sensitivity to which particular sample you drew (retrain on a new sample, get a different model); NOISE — the irreducible floor no model escapes. The memorizer and the straight line both total 28%, by opposite routes. The art is the bottom row: accept a LITTLE bias to slash a LOT of variance — exactly the trade λ executes in Regularization, one knob sliding error between the two accounts.`,
     invariant: 'Bias and variance trade against each other; only their sum (plus noise) is what you pay.',
   };
 
@@ -119,7 +119,7 @@ function* anatomy() {
       markers: [{ id: 'peak', x: 11, y: 26, label: 'interpolation point' }],
     }),
     highlight: { active: ['modern'], compare: ['peak'] },
-    explanation: 'The modern plot twist: keep turning the dial past the point where the model can memorize the ENTIRE training set (the interpolation point, the U\'s worst peak) — and validation error can fall AGAIN. This is DOUBLE DESCENT, the curve that startled deep learning: wildly overparameterized networks (more weights than data) often generalize BETTER than right-sized ones, because among the many ways to fit the data perfectly, gradient descent gravitates toward the smoothest. The classical U still governs the regimes where most practitioners tune; deep learning lives on the far slope. Know which side of the peak you are standing on before you trust the old rules.',
+    explanation: `The modern plot twist: keep turning the dial past the point where the model can memorize the ENTIRE training set (the interpolation point, the U's worst peak) — and validation error can fall AGAIN. This is DOUBLE DESCENT, the curve that startled deep learning: wildly overparameterized networks (more weights than data) often generalize BETTER than right-sized ones, because among the many ways to fit the data perfectly, gradient descent gravitates toward the smoothest. The classical U still governs the regimes where most practitioners tune; deep learning lives on the far slope. Know which side of the peak you are standing on before you trust the old rules.`,
     invariant: 'Classical bias–variance governs underparameterized models; past interpolation, implicit regularization changes the curve.',
   };
 
@@ -156,6 +156,7 @@ export const article = {
         'The animation has two views. "The learning-curve diagnosis" plots training accuracy (blue) and validation accuracy (orange) against training-set size for two patients: one with high variance, one with high bias. Watch the gap between curves and the level where they settle. The prescription matrix at the end maps each shape to a treatment.',
         '"The bias-variance anatomy" dissects total error into bias-squared, variance, and noise, then sweeps model complexity to show the classical U-curve and the modern double-descent extension. Active markers highlight the current diagnostic signal. Found markers show conclusions the curve has already proven. Compare markers show the second curve that gives the diagnosis its meaning.',
         'At each frame, ask three questions: which curve moved, what that movement means about the model, and whether the gap grew or shrank. The gap is the entire diagnostic.',
+        {type: 'callout', text: 'A learning curve is a budget test: the gap says whether more data, more capacity, or better measurement is the next move.'},
       ],
     },
     {
@@ -163,6 +164,7 @@ export const article = {
       paragraphs: [
         'A model is stuck at 86% validation accuracy and the team is arguing. One engineer wants more labeled data (three months, two annotators). Another wants a bigger architecture (retraining cost, latency risk). A third wants stronger regularization (might crush performance further). All three interventions are expensive, and two of the three will make the problem worse depending on the actual failure mode. Without a diagnostic, the team picks by seniority or by whichever budget happens to be available.',
         'A learning curve is the cheapest diagnostic in supervised learning. Retrain the same model on growing slices of the data you already have -- 50 examples, then 100, 200, 400, 800, 1600 -- and plot training accuracy against validation accuracy. The shape of those two curves tells you whether the model is starved for data (high variance), too weak to fit the pattern (high bias), or already near the noise floor (ship it). The plot prescribes before anyone spends the budget.',
+        {type: 'image', src: 'https://scikit-learn.org/0.16/_images/plot_learning_curve_001.png', alt: 'Learning curves for a Naive Bayes classifier showing training and cross-validation scores converging.', caption: 'The training-validation gap is the signal: the red curve falls, the green curve rises, and the remaining distance diagnoses variance or ceiling. Source: scikit-learn documentation, BSD License.'},
         'The cost is a handful of extra training runs on data you already own. The payoff is avoiding months of wasted labeling or weeks of architecture redesign aimed at the wrong failure mode.',
       ],
     },
@@ -179,18 +181,15 @@ export const article = {
       paragraphs: [
         'The deeper wall is that bias and variance are invisible in a single evaluation. You cannot see variance from one training run -- variance is the spread across different training samples. You cannot see bias from training accuracy alone -- bias is the gap between your hypothesis class and the true function. Learning curves make both visible by varying the one thing you can control cheaply: training-set size.',
         {
-          type: 'table',
-          headers: ['Symptom', 'High Bias', 'High Variance'],
-          rows: [
-            ['Training accuracy', 'Low (cannot fit training data)', 'High (memorizes training data)'],
-            ['Validation accuracy', 'Low (close to training)', 'Low (far below training)'],
-            ['Train-val gap', 'Small or zero', 'Large'],
-            ['Effect of more data', 'No improvement -- curves already fused', 'Validation climbs, gap narrows'],
-            ['Curves converge at', 'Low ceiling (model limit)', 'Still moving apart at right edge'],
-            ['Treatment', 'More capacity, richer features, less regularization', 'More data, more regularization, dropout, simpler model'],
+          type: 'bullets',
+          items: [
+            'High bias: training accuracy is low, validation accuracy is low, the gap is small, and more data barely moves the fused curves.',
+            'High variance: training accuracy is high, validation accuracy is low, the gap is large, and more data can lift validation while shrinking the gap.',
+            'Low noise floor: both curves settle high and close together, so the next gain likely needs a better task, metric, or data source rather than another routine tuning pass.',
+            'Treatment rule: add capacity for bias, add data or regularization for variance, and stop spending when both curves are high and flat.',
           ],
         },
-        'The table is the entire diagnostic. Read the gap, read the level, read the trend. Each row points to one and only one disease. Applying the wrong treatment makes the patient sicker.',
+        'The comparison is the entire diagnostic. Read the gap, read the level, read the trend. Each signal points to one disease. Applying the wrong treatment makes the patient sicker.',
       ],
     },
     {
@@ -223,6 +222,7 @@ export const article = {
       paragraphs: [
         'A learning curve costs k * m training runs, where k is the number of cross-validation folds and m is the number of training-set sizes. For a cheap model (logistic regression, small random forest), m = 10 sizes with k = 5 folds finishes in minutes. For an expensive model (large neural network), m = 4 sizes with k = 1 (single held-out split) may be all you can afford. Even a rough curve with three points is more informative than no curve.',
         'Performance follows power-law scaling in many settings. Validation error often drops as error = a * n^(-alpha) + noise_floor, where n is training-set size and alpha is typically between 0.1 and 0.5 depending on the task and model class. This means each doubling of data buys a fixed percentage improvement until you approach the noise floor. Kaplan et al. (2020) showed that large language models follow remarkably clean power laws across data size, model size, and compute budget simultaneously -- loss scales as a power law in each resource when the others are held fixed, with exponents around 0.076 for data and 0.095 for parameters.',
+        {type: 'image', src: 'https://scikit-learn.org/0.16/_images/plot_learning_curve_002.png', alt: 'Learning curves for an SVM classifier with a training score near one and a validation score that rises with more data.', caption: 'The SVM curve shows a high-capacity model with validation still climbing, which is the kind of shape that justifies more data. Source: scikit-learn documentation, BSD License.'},
         {
           type: 'note',
           text: 'Neural scaling laws (Kaplan 2020, Hoffmann/Chinchilla 2022) extended learning curves from a diagnostic tool to a planning tool. By fitting the power-law exponents on small runs, teams extrapolate how much data and compute a larger model will need before committing millions in training cost. The Chinchilla result showed that most large models were undertrained relative to their size -- a learning-curve diagnosis at planetary scale.',
@@ -274,4 +274,3 @@ export const article = {
     },
   ],
 };
-
