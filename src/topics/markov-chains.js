@@ -168,6 +168,7 @@ export const article = {
       paragraphs: [
         'States are nodes; transition probabilities label the edges. The highlighted node is the current state. In the weather view, the table rows show the full probability distribution after each round of matrix multiplication. Watch the numbers settle: when successive rows stop changing, the chain has found its stationary distribution.',
         'In the absorbing-chain view, probability flows into states with no exits (churned, upgraded). The percentages answer "what fraction eventually lands here?" without simulating individual paths. Active nodes are live states; removed nodes are absorbers already holding their final mass.',
+        {type: 'callout', text: 'A Markov chain is useful when the current state is enough memory to make the next-step distribution computable.'},
       ],
     },
     {
@@ -192,6 +193,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The Markov property collapses all history into the current state: P(X_{t+1} | X_t, X_{t-1}, ..., X_0) = P(X_{t+1} | X_t). Instead of k^T histories, you need one k-by-k transition matrix P, where P[i][j] is the probability of moving from state i to state j. Each row sums to 1. The entire long-run behavior of the system -- its stationary distribution, its mixing time, its absorption probabilities -- is encoded in this single matrix.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Markovkate_01.svg', alt: 'Two-state Markov chain diagram with transition probabilities and self loops', caption: 'A Markov chain is a directed probabilistic graph: edges carry transition probabilities and self-loops carry probability that stays in place. Source: Wikimedia Commons, Joxemai4, CC BY-SA 3.0 or GFDL.'},
         'The stationary distribution pi satisfies pi*P = pi: push the distribution through one more step and nothing changes. It is the eigenvector of P with eigenvalue 1. Power iteration -- multiplying any starting distribution by P repeatedly -- converges to pi geometrically. The animation shows this convergence live.',
       ],
     },
@@ -245,4 +247,3 @@ export const article = {
     },
   ],
 };
-

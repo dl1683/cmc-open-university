@@ -222,6 +222,7 @@ export const article = {
       paragraphs: [
         'Matryoshka Representation Learning (MRL) trains embeddings so useful representations are nested inside larger representations. A 768-dimensional vector is not treated as one indivisible object. Its first 64 dimensions should be useful, its first 128 dimensions should be better, and the full vector should be best. The name comes from nesting dolls: smaller representations live inside larger ones.',
         'The paper asks a deployment question: downstream tasks have different compute, storage, latency, and data constraints, but standard representation learning produces one rigid vector size. MRL makes capacity elastic. A retrieval system can use a short prefix for fast search and a longer prefix for reranking without retraining a separate embedding model.',
+        {type: 'callout', text: 'MRL makes vector length a runtime policy knob by training every prefix to carry usable semantics.'},
       ],
     },
     {
@@ -242,6 +243,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Train the representation so prefixes are intentionally useful. The first dimensions learn a coarse representation; later dimensions refine it. This turns vector length into a runtime policy choice instead of a model-family decision.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/71/Russian-Matroshka.jpg', alt: 'Russian matryoshka nesting dolls arranged from large to small', caption: 'The nesting-doll metaphor is literal: smaller useful objects sit inside larger ones, just as short embedding prefixes sit inside longer vectors. Source: Wikimedia Commons, Russian-Matroshka image.'},
         'The result is one embedding that can serve several cost-quality points. A retrieval system can search the whole corpus with 64 or 128 dimensions, rerank candidates with 256 or 512, and use the full vector only where final precision is worth the cost.',
       ],
     },

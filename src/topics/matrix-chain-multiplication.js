@@ -155,6 +155,7 @@ export const article = {
         'The grid is an n-by-n DP table. Cell m[i][j] holds the minimum scalar multiplications needed to compute the product of matrices i through j. The main diagonal is zero because multiplying a single matrix costs nothing.',
         'Each diagonal pass fills cells for chains of a given length. Active cells are being computed now. Visited cells are the subproblems the current cell depends on -- for m[i][j], those are every pair m[i][k] and m[k+1][j] for each candidate split k. When a diagonal finishes, every chain of that length has its optimal cost locked in.',
         'The found marker on the top-right cell is the final answer: the cheapest way to multiply the entire chain. The split table s[i][j] (shown in the step explanations) records which k achieved that minimum, so you can reconstruct the optimal parenthesization by recursing on s.',
+        {type: 'callout', text: 'Matrix-chain DP works because every full parenthesization is one split plus two smaller optimal chains.'},
       ],
     },
     {
@@ -168,6 +169,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Try all possible parenthesizations and pick the cheapest. Every parenthesization corresponds to a full binary tree whose leaves are the matrices. For n matrices, the number of such trees is the Catalan number C(n-1).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6b/Convex_Polygon_Triangulations_Annotated.svg', alt: 'Annotated convex polygon triangulations showing several ways to split a polygon', caption: 'Parenthesizing a matrix chain is structurally the same counting problem as triangulating a convex polygon: many shapes, one final object. Source: Wikimedia Commons, Jespa, CC BY-SA 4.0.'},
         'C(2) = 2, C(3) = 5, C(4) = 14. Manageable for small chains. For three matrices you just compare two groupings and you are done.',
       ],
     },

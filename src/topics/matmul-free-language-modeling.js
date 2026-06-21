@@ -232,6 +232,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: 'callout', text: 'MatMul-free language modeling changes the primitive operation, so the real question is quality per watt on the hardware that will actually run it.'},
       ],
     },
     {
@@ -245,6 +246,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         `The reasonable first attempt is to keep the Transformer and make its matrices cheaper. Quantize activations and weights. Use sparsity. Fuse kernels. Batch requests so tensor cores stay full. This is not a weak baseline; it is the reason dense Transformers became practical at all. The hardware, compilers, and serving stacks already know how to multiply dense tiles extremely fast.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/eb/Matrix_multiplication_diagram_2.svg', alt: 'Matrix multiplication diagram showing rows and columns forming output entries', caption: 'Dense language-model layers spend their work in repeated matrix products: rows and columns produce each output activation. Source: Wikimedia Commons, Lakeworks, CC BY-SA 3.0 or GFDL.'},
         `The wall is that these techniques usually keep the same operation shape. A quantized matrix multiply is still a matrix multiply. A sparse matrix multiply can lose regularity and become bandwidth-bound. A smaller dense model may save compute but also lose capacity. If the goal is to run language models on cheaper, colder, or more specialized hardware, improving dense matmul may not be enough. The operation mix itself becomes the design target.`,
       ],
     },
@@ -274,6 +276,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         `The headline savings come from compact weights, simpler arithmetic, and lower memory traffic. A ternary weight can be represented with far fewer bits than a floating-point weight, and zero weights skip work entirely. If the kernel is fused well, fewer bytes move through memory and fewer expensive arithmetic units are needed per token.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die showing many compute blocks', caption: 'Modern GPU silicon is heavily optimized around dense tensor throughput, so a MatMul-free model must prove that simpler operations map well to the target device. Source: Wikimedia Commons, Nvidia, public domain.'},
         `The hidden costs are just as real. Recurrent token mixing may change parallelism across sequence positions. Quantization and scaling add bookkeeping. Custom kernels add engineering risk. On GPUs, dense matmul benefits from years of hardware and compiler investment, so a theoretically cheaper operation can lose if it maps poorly to the machine. On FPGAs or future specialized accelerators, the balance may change because additions, bit-level storage, and simple datapaths can be designed directly into the hardware.`,
         `This is why the right comparison is end to end: quality at a fixed training budget, latency at realistic batch sizes, memory use under the serving stack, and energy on the target device. Counting fewer multiplies is only a proxy. The bottleneck may move to memory bandwidth, recurrence scheduling, kernel launch overhead, or the cost of keeping enough model capacity after the weight restriction.`,
       ],
@@ -300,4 +303,3 @@ export const article = {
     }
   ],
 };
-

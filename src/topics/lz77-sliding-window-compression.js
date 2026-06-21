@@ -218,6 +218,7 @@ export const article = {
           type: 'note',
           text: 'When a back-reference has distance smaller than length, the copy overlaps with bytes being written. The decoder handles this by copying one byte at a time, so newly written bytes become available for the rest of the copy. This is not a bug -- it is how LZ77 compresses long runs from a single seed.',
         },
+        {type: 'callout', text: 'LZ77 works because the decoder output is also the dictionary: every back-reference points backward into bytes already reconstructed.'},
       ],
     },
     {
@@ -253,6 +254,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The encoder maintains two regions over the input: a search buffer (history) of W bytes already encoded, and a lookahead buffer of L bytes not yet encoded. Together they form the sliding window.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/Image1_lz77.svg', alt: 'LZ77 sliding-window diagram showing search buffer and lookahead buffer over a byte stream', caption: 'The sliding window is the implicit dictionary: recent history is searched for a prefix of the lookahead. Source: Wikimedia Commons, cisseR, CC BY-SA 4.0.'},
         {
           type: 'diagram',
           text: '  already encoded          next to encode\n  <-- search buffer -->    <-- lookahead -->\n  |  a  b  c  a  b  c  |  a  b  c  x  |  ...\n  |_____ W bytes _______|___ L bytes ___|',
@@ -284,13 +286,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Time', 'Space', 'What dominates'],
-          rows: [
-            ['Decode one token', 'O(length) for copy, O(1) for literal', 'O(W) for window buffer', 'Memory copy speed; W is typically 32 KB to 8 MB'],
-            ['Decode full stream', 'O(N) where N = output size', 'O(W)', 'Linear scan, no random access needed'],
-            ['Encode (hash chain)', 'O(N * chain_depth) amortized', 'O(W) + hash table', 'Chain depth is capped (e.g., 4096 in zlib level 9)'],
-            ['Encode (optimal parse)', 'O(N * W) worst case', 'O(W) + DP table', 'Rarely used; ratio gain is 1-3% over lazy matching'],
+          type: 'bullets',
+          items: [
+            'Decode one token: O(length) for a copy and O(1) for a literal, with O(W) window space. Memory-copy speed dominates.',
+            'Decode the full stream: O(N) in output size and O(W) memory. The decoder is a linear scan with no match search.',
+            'Encode with hash chains: roughly O(N * chain_depth) after the chain-depth cap, plus O(W) window and hash-table storage.',
+            'Encode with optimal parsing: O(N * W) in the worst case plus parser state. It can improve ratio, but the CPU bill is usually too high for default settings.',
           ],
         },
         'Decoding is always fast. It is a single left-to-right pass that copies bytes. No hash tables, no search, no decisions. This asymmetry -- expensive encoding, cheap decoding -- is why LZ77 formats dominate web content delivery. A server compresses once; millions of clients decompress.',
@@ -302,17 +303,14 @@ export const article = {
       paragraphs: [
         'LZ77 wins wherever byte-level repetition is common and local. Text, source code, logs, markup, serialized data, and executable binaries all contain repeated substrings within practical window distances. The combination of LZ77 with an entropy coder is the backbone of the most widely deployed compression formats on earth.',
         {
-          type: 'table',
-          headers: ['Method', 'Family', 'Dictionary', 'Entropy coder', 'Typical use'],
-          rows: [
-            ['LZ77 (1977)', 'Sliding window', 'Implicit (output history)', 'None (raw tokens)', 'Foundation; not used alone'],
-            ['LZ78 (1978)', 'Phrase table', 'Explicit table built during parse', 'None (index codes)', 'Historic (compress, GIF via LZW)'],
-            ['Huffman (1952)', 'Statistical', 'N/A', 'Prefix-free bit codes', 'Used as LZ77 backend in DEFLATE'],
-            ['Arithmetic (1976)', 'Statistical', 'N/A', 'Fractional-bit encoding', 'JPEG, CABAC in H.264/H.265'],
-            ['DEFLATE (1996)', 'LZ77 + Huffman', 'Implicit, 32 KB window', 'Dynamic Huffman trees', 'gzip, ZIP, PNG, HTTP, TLS'],
-            ['Zstandard (2016)', 'LZ77 + FSE/Huffman', 'Implicit + optional preset dict', 'FSE (tANS) + Huffman', 'Linux kernel, databases, CDNs'],
-            ['LZ4 (2011)', 'LZ77 variant', 'Implicit, 64 KB window', 'Minimal (byte-aligned)', 'Real-time: databases, filesystems'],
-            ['Snappy (2011)', 'LZ77 variant', 'Implicit, 32 KB blocks', 'None (length-prefixed)', 'RPC, log storage, low-latency paths'],
+          type: 'bullets',
+          items: [
+            'LZ77: sliding-window dictionary, implicit output history, raw length-distance tokens. It is the foundation, not usually the full format.',
+            'LZ78 and LZW: explicit phrase dictionaries built during the parse. They explain historic formats such as compress and GIF.',
+            'Huffman and arithmetic coding: statistical coders that shorten frequent symbols after LZ has exposed the token stream.',
+            'DEFLATE: LZ77-style matches plus dynamic Huffman trees, used by gzip, ZIP, PNG, HTTP content encoding, and many archives.',
+            'Zstandard: LZ matching plus FSE and Huffman coding, with optional dictionaries and modern speed-ratio tradeoffs.',
+            'LZ4 and Snappy: LZ77-family formats tuned for low-latency systems where decompression speed matters more than maximum ratio.',
           ],
         },
         'DEFLATE is LZ77 plus Huffman, and it is everywhere: gzip compresses HTTP responses, ZIP archives use it, PNG images use it on filtered pixel rows. Zstandard uses LZ77-style matching with FSE (finite state entropy) and achieves better ratios and faster decompression than DEFLATE. LZ4 and Snappy trade ratio for speed, targeting real-time applications like database page compression and RPC payloads where decompression latency matters more than size.',
@@ -355,4 +353,3 @@ export const article = {
     },
   ],
 };
-

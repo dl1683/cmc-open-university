@@ -226,6 +226,7 @@ export const article = {
         'Search systems often return near-duplicates. A vector search for a refund-policy question may return five chunks from the same policy page. A news search may return ten syndicated copies of the same article. A RAG system may spend its whole prompt budget on one repeated fact and miss the adjacent fact that answers the user.',
         'Maximal Marginal Relevance exists to make selection diversity-aware. It chooses items that are relevant to the query and not redundant with items already selected. In retrieval, it reduces duplicate evidence. In summarization, it helps cover distinct points. In RAG, it protects scarce context budget.',
         'The algorithm is simple enough to be practical: start with a candidate pool, choose greedily, and penalize candidates that look too similar to the selected set. The power is not in complex math. It is in making the selected set part of the scoring process.',
+        {type: 'callout', text: 'MMR prices each candidate by marginal value: relevant evidence loses value when it repeats what the selected set already contains.'},
       ],
     },
     {
@@ -247,6 +248,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Score each remaining candidate by relevance minus redundancy. Relevance measures similarity to the query. Redundancy measures the maximum similarity to any item already selected. The selected set becomes the memory of what the context budget has already bought.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A retrieval candidate pool is a graph of relationships: query edges measure relevance, and candidate-candidate edges expose redundancy. Source: Wikimedia Commons, David W., public domain.'},
         'A common formula is lambda * Sim(candidate, query) - (1 - lambda) * max Sim(candidate, selected_item). Lambda controls the relevance-diversity tradeoff. High lambda behaves close to pure relevance. Low lambda pushes harder for novelty.',
         'The algorithm is greedy. Pick the best remaining candidate under this score, add it to the selected set, and repeat until the budget is full. Greedy selection is not globally perfect, but it is simple, fast, and usually good enough over a moderate candidate pool.',
       ],

@@ -182,6 +182,7 @@ export const article = {
         'The animation shows a 4-user, 5-movie ratings matrix with 13 observed cells and 7 holes. Highlighted cells mark the missing entries the algorithm must predict. The first view runs alternating least squares live in your browser: you watch learned taste vectors converge, then see predictions appear in the empty cells alongside their hidden ground truth.',
         'The second view demonstrates failure modes. Cold-start frames show what happens when a user or item has zero observations: the least-squares system has no equations and produces no vector. Feedback-loop frames trace how recommendations filter tomorrow\'s training data, compounding popularity bias with every retrain cycle.',
         'At each frame, read the explanation text for the invariant being preserved or violated. When predicted values appear next to held-out truth, compare the error: the gap between interpolation (shared structure) and extrapolation (unseen combinations) is the generalization story of matrix completion.',
+        {type: 'callout', text: 'Matrix completion is useful only when missing cells are constrained by shared low-rank structure rather than independent guesses.'},
       ],
     },
     {
@@ -221,6 +222,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The low-rank assumption is the foundation. If the true rating matrix M has rank k, then M = P * Q^T where P is n-by-k (one row per user) and Q is m-by-k (one row per item). Each user compresses to k taste coordinates; each item compresses to k profile coordinates. The predicted rating for user i and item j is the dot product p_i . q_j. For our animation, k=2: two hidden axes that turn out to capture something like "action affinity" and "romance affinity."',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/eb/Matrix_multiplication_diagram_2.svg', alt: 'Matrix multiplication diagram showing row and column vectors forming output entries', caption: 'Matrix factorization predicts one missing entry by taking a dot product between a user vector and an item vector. Source: Wikimedia Commons, Lakeworks, CC BY-SA 3.0 or GFDL.'},
         'The theoretical approach from Candes and Recht is nuclear norm minimization: find the matrix X that agrees with all observed entries and has the smallest sum of singular values (the nuclear norm, which is the convex relaxation of rank). This is a semidefinite program -- solvable in polynomial time but impractical for millions of users. The incoherence condition ensures recovery works: the true matrix must spread its energy across many entries rather than concentrating it in a few rows or columns. A matrix where one user accounts for all the variance would need nearly every entry observed to recover.',
         {
           type: 'code',
@@ -248,13 +250,12 @@ export const article = {
       paragraphs: [
         'Storage: O((n + m) * k) for the factor matrices plus O(nnz) for the sparse observation matrix, where nnz is the number of observed entries. The full n-by-m matrix is never materialized. One prediction costs O(k) -- a single dot product. Generating top-k recommendations for one user by scoring all items costs O(m * k), which is why production systems use approximate nearest-neighbor indexes (HNSW, ScaNN) to avoid the full scan.',
         {
-          type: 'table',
-          headers: ['Method', 'Per-sweep cost', 'Parallelism', 'Convergence', 'Best for'],
-          rows: [
-            ['Nuclear norm (SDP)', 'O(n^2 * m) or worse', 'Limited', 'Global optimum (convex)', 'Theory and small problems'],
-            ['ALS', 'O(nnz * k^2 + (n+m) * k^3)', 'Embarrassingly parallel', 'Local minimum (benign landscape)', 'Medium-scale, distributed systems'],
-            ['SGD', 'O(nnz * k)', 'Sequential per entry', 'Local minimum (noisy path)', 'Large-scale, streaming data'],
-            ['Weighted ALS (implicit)', 'O(nnz * k^2 + n * m * k)', 'Parallel', 'Local minimum', 'Implicit feedback (clicks, views)'],
+          type: 'bullets',
+          items: [
+            'Nuclear norm optimization gives the clean convex recovery story, but it is limited to theory and small problems because the solve is far heavier than factorized training.',
+            'ALS costs roughly O(nnz * k^2 + (n + m) * k^3) per sweep. It is attractive in distributed systems because each user solve is independent while item vectors are fixed.',
+            'SGD costs O(nnz * k) per pass and streams naturally over huge data, but it follows a noisier path and parallelizes less cleanly than ALS.',
+            'Weighted ALS for implicit feedback treats clicks and views as confidence-weighted observations. It scales with observed interactions, but dense confidence terms need careful algebra to avoid an n * m scan.',
           ],
         },
         'ALS sweeps are dominated by the k-by-k system solves. For small k (10-200 in practice), these are cheap. The embarrassingly parallel structure -- every user solve is independent when item factors are fixed -- makes ALS the natural choice for distributed systems (Spark MLlib uses ALS as its primary recommender). SGD has lower per-entry cost but less parallelism; it is the default for single-machine training on huge datasets.',
@@ -305,4 +306,3 @@ export const article = {
     },
   ],
 };
-

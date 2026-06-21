@@ -84,12 +84,14 @@ export const article = {
         "The animation shows the life cycle of an LSM tree: writes arrive one at a time, each landing in a sorted in-memory buffer (the memtable). When the memtable fills, it freezes and flushes to disk as an immutable sorted file (an SSTable). At the end, compaction merges the SSTables into one clean sorted run.",
         "Active (highlighted) items mark the key currently being inserted into the memtable. Sorted markers appear when a memtable is frozen and ready to flush. After compaction, the merged result shows the final sorted state on disk.",
         "Watch the memtable grow, flush, and regrow. Each flush is a large sequential write, not a random page update. The merge at the end is the same operation as the merge step of merge sort: two sorted inputs, one sorted output, streaming and cheap.",
+        {type: 'callout', text: 'An LSM tree makes the foreground write path cheap by turning random updates into append, flush, and merge work that can be scheduled later.'},
       ],
     },
     {
       heading: `Why this exists`,
       paragraphs: [
         `Some databases are dominated by writes: events, metrics, logs, time-series data, counters, and replicated key-value updates. The storage engine has to acknowledge many small changes without seeking to a different old page for each one.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/LSM_Tree.png/800px-LSM_Tree.png', alt: 'LSM tree diagram with a memtable, immutable memtable, SSTables, and levels', caption: 'The LSM layout separates memory writes, flushed sorted files, and compaction levels. Source: Wikimedia Commons, LSM Tree image.'},
         `A Log-Structured Merge tree changes the foreground path. It logs the write, stores the newest value in memory, flushes immutable sorted files, and merges those files later. The database trades random page updates now for sequential writes and background compaction.`,
       ],
     },
@@ -168,6 +170,7 @@ export const article = {
       heading: 'LSM trees vs B-trees',
       paragraphs: [
         "B-trees update data in place: one write touches one page (plus the WAL). Reads follow one root-to-leaf path. The cost is random I/O per write and the need to maintain page splits and merges on the foreground path.",
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/B-tree.svg/800px-B-tree.svg.png', alt: 'B-tree diagram with sorted keys packed into wide internal nodes', caption: 'A B-tree keeps search paths shallow by packing many separator keys into each page-sized node. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
         "LSM trees never update in place: writes are sequential appends and flushes. The cost moves to compaction (background sequential I/O) and reads that check multiple files. Bloom filters and caching reduce but do not eliminate the read tax.",
         "At low-to-moderate write rates with heavy reads, B-trees usually win. At high write rates (event streams, time-series, counters, log ingestion), LSM trees dominate because sequential I/O is 10-100x faster than random I/O on both spinning disks and SSDs.",
         "In practice, many production systems use both: RocksDB (LSM) as the embedded storage engine inside higher-level systems, and B-tree indexes (PostgreSQL, MySQL) for OLTP. The right choice depends on the read/write ratio, not on which structure is 'better' in general.",

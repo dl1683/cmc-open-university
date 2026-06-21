@@ -226,6 +226,7 @@ export const article = {
       paragraphs: [
         'A spin lock is the smallest synchronization tool that can protect a short critical section: keep trying to acquire a word, run the protected code, then release the word. For one or two contenders, that directness is hard to beat. There is no scheduler handoff, no sleeping path, and no heavy queue in the uncontended case.',
         'MCS exists for the moment when that one lock word becomes the busiest object in the machine. On a many-core system, every waiter repeatedly reading or writing the same cache line can generate more coherence traffic than useful work. The algorithm keeps the spin-lock style, but changes what each thread spins on.',
+        {type: 'callout', text: 'MCS scales by moving waiting from one shared cache line into per-thread queue nodes with one-successor handoff.'},
       ],
     },
     {
@@ -239,6 +240,7 @@ export const article = {
       heading: 'Core Insight and Invariant',
       paragraphs: [
         'MCS turns contention into an explicit FIFO queue. A contender atomically appends its queue node to the shared tail, learns its predecessor, links itself after that predecessor, and then spins on a flag in its own node. The shared lock object is mostly a tail pointer, not the hot polling location for every core.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list diagram with nodes connected by next pointers', caption: 'An MCS lock is a linked queue at heart: each node points to the successor that will be woken next. Source: Wikimedia Commons, Lasindi, public domain.'},
         'The key invariant is local waiting: every non-owner waits for exactly one predecessor, and every predecessor wakes exactly one successor. The shared tail orders arrivals, but the waiting loop reads a per-waiter flag instead of the global lock word. That is the data-structure move that makes the lock scalable.',
       ],
     },
@@ -281,6 +283,7 @@ export const article = {
       heading: 'Cost and Tradeoffs',
       paragraphs: [
         'The contended path uses O(1) remote synchronization steps per acquire and release, and the waiting loop is local. The shared tail is touched when a thread joins and sometimes when the owner releases with no visible successor. Waiting itself happens on the caller node. That is why MCS scales on SMP and NUMA machines better than locks whose waiters share one polling word.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel processor die photograph showing compute regions and cache structures', caption: 'Spin-lock scalability is a hardware story: cache-line ownership moves across cores on real silicon, not in abstract pseudocode. Source: Wikimedia Commons, KL and Intel, public domain.'},
         'The tradeoff is machinery. Every acquisition needs a qnode with stable lifetime, the release code has a race to handle, and correct implementations require careful memory ordering. There is also pointer chasing and extra state compared with a tiny test-and-set lock. Under light contention, that extra work can lose.',
       ],
     },

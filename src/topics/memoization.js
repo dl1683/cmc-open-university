@@ -110,6 +110,7 @@ export const article = {
         'The animation draws the recursive call tree for fib(n). Each node is one function call. An active node (highlighted) is currently computing. A returned node shows its result and has stored that result in the cache.',
         'The key event is the cache hit: a node lights up, finds its answer already stored, and returns instantly without spawning children. The entire subtree that plain recursion would have built is gone. Every cache hit is a pruned exponential branch.',
         'The cache panel below the tree shows every stored result. Each key appears exactly once, the first time that subproblem is solved. Compare the final tree shape to what plain recursion produces (see the Recursion topic). The memoized tree is a thin spine; the naive tree is a bushy explosion.',
+        {type: 'callout', text: 'Memoization changes recursion from one call tree per path into one computation per distinct subproblem key.'},
       ],
     },
     {
@@ -130,6 +131,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'Trace fib(6) by hand. fib(6) calls fib(5) and fib(4). fib(5) calls fib(4) and fib(3). Now fib(4) is being computed twice. Each copy of fib(4) calls fib(3) and fib(2). fib(3) is computed three times. fib(2) is computed five times. The total call count for fib(6) is 25. For fib(10) it is 177. For fib(50) it is roughly 25 billion.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/05/Recursion_Tree.jpg', alt: 'Recursion tree diagram showing repeated branches across levels', caption: 'A recursion tree makes duplicate subproblem work visible: the same shapes appear in many branches unless a cache cuts them off. Source: Wikimedia Commons, Dr. Ghodsi, CC0 1.0.'},
         'The call count grows as O(1.618^n) because the tree branches at every non-base node and the same subproblems appear on many branches. The problem is not recursion itself. The problem is that the call tree forgets every answer the moment it returns. fib(4) is solved from scratch each time it is needed, even though its answer never changes. This is the overlapping-subproblems wall: the number of recursive calls explodes exponentially, but the number of distinct questions is only n.',
       ],
     },
@@ -160,6 +162,7 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'The general formula: time = (number of unique subproblems) * (time to solve each subproblem once its dependencies are available). For Fibonacci: n subproblems, O(1) per subproblem, so O(n) total. For edit distance on strings of length m and n: m*n subproblems, O(1) each, so O(mn). For knapsack with n items and capacity W: n*W subproblems, O(1) each, so O(nW).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'CPU cache hierarchy diagram from registers through storage', caption: 'A memo table is a software cache, and its practical speed depends on lookup cost, memory footprint, and locality in the machine cache hierarchy. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         'Space is the table size plus any recursion overhead. Memoized Fibonacci uses O(n) cache space and O(n) stack depth. Bottom-up Fibonacci uses O(n) table space but no stack. With a rolling array (keeping only the last two values), bottom-up Fibonacci uses O(1) space. This space optimization works whenever a subproblem depends only on a bounded window of earlier subproblems. Edit distance can drop from O(mn) to O(min(m,n)) by keeping only two rows.',
         'Top-down memoization has recursion overhead (stack frames, function-call cost) but only solves reachable subproblems. Bottom-up tabulation avoids recursion but fills every cell in the table, even unreachable ones. When the reachable state space is much smaller than the full table, memoization wins. When nearly all states are reachable and iteration is cache-friendly, tabulation wins.',
       ],
@@ -197,4 +200,3 @@ export const article = {
     },
   ],
 };
-
