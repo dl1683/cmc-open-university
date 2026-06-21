@@ -126,6 +126,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The grid has one row per character of X (plus a row for the empty prefix) and one column per character of Y (plus a column for the empty prefix). Cell (i, j) holds the length of the longest common subsequence of the first i characters of X and the first j characters of Y.',
+        {type: 'callout', text: 'LCS works because every cell is a promise about two prefixes, so the full sequence problem becomes a grid of reusable prefix facts.'},
         'Active cells (highlighted) are the row currently being filled. Visited cells mark the neighbors that determined the active cell\'s value: the diagonal cell (used when characters match) and the cells above and to the left (used when they do not). When a character match occurs, the value increases by one from the diagonal. When there is no match, the value copies the larger of the two neighbors.',
         'After the table is complete, the found marker lands on the bottom-right corner — the LCS length for the full sequences. The backtrack path then lights up, tracing from that corner back toward the origin. Each diagonal step corresponds to a matched character in the LCS. Horizontal and vertical steps skip characters that are not part of the LCS.',
       ],
@@ -134,6 +135,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Two sequences can share characters without those characters being adjacent. "ABCBDAB" and "BDCAB" both contain "BCAB" in order, but not as a contiguous block. The longest common subsequence (LCS) measures how much structure two sequences share, ignoring gaps.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/Nubio_Diff_Screenshot3.png/500px-Nubio_Diff_Screenshot3.png', alt: 'Diff view showing changed and unchanged lines between two text versions', caption: 'A diff view is the practical face of LCS: shared ordered lines become the stable spine, and the rest becomes insertions or deletions. Source: Wikimedia Commons, Nubio Diff screenshot.'},
         'This matters wherever you need to compare sequences without requiring exact contiguous matches. Unix diff compares files line by line: the lines that both versions share, in order, form the LCS, and everything else is an insertion or deletion. Git diff works the same way. DNA sequence alignment finds shared genetic segments across species. Plagiarism detectors find the longest ordered overlap between documents. Merge-conflict resolution tools identify the common base between divergent edits.',
       ],
     },
@@ -183,6 +185,7 @@ export const article = {
       paragraphs: [
         'Diff and patch: Unix diff computes the LCS of two files (treating each line as a character). Lines in the LCS are unchanged; lines not in the LCS are insertions or deletions. The output is a minimal edit script. Git diff, diff3, and merge tools all build on this.',
         'DNA and protein alignment: matching nucleotides or amino acids across two biological sequences is LCS with a scoring matrix. The Needleman-Wunsch algorithm is LCS generalized to allow weighted matches and gap penalties.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Needleman-Wunsch_pairwise_sequence_alignment.png/250px-Needleman-Wunsch_pairwise_sequence_alignment.png', alt: 'Needleman Wunsch alignment table with arrows for traceback', caption: 'Sequence-alignment DP uses the same grid dependency pattern as LCS, with scoring added for gaps and mismatches. Source: Wikimedia Commons.'},
         'Plagiarism detection: the LCS of two documents (at the word or sentence level) reveals ordered overlap that simple substring matching would miss. A long LCS relative to document length suggests copying.',
         'Version control merge: three-way merge identifies a common ancestor, computes the LCS of each branch against the ancestor, and combines the non-overlapping changes. Conflicts arise only where both branches modify the same region outside the LCS.',
       ],

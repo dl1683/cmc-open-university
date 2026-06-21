@@ -129,6 +129,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for The Loss Landscape, in 3D. A real two-basin surface in WebGL: gradient descent gets trapped, momentum vaults the ridge — computed live, draped in 3D..",
+        {type: "callout", text: "The 3D surface is a controlled slice: it teaches why local slope, basin shape, and optimizer memory can decide different endings."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -138,6 +139,7 @@ export const article = {
       heading: `Why a 3D loss surface matters`,
       paragraphs: [
         `A loss surface turns optimization into terrain. The horizontal axes are parameters, and the vertical axis is loss. In real machine learning there may be millions or billions of parameters, so the full surface cannot be drawn. This page chooses two parameters and renders a real surface in 3D so the geometry becomes visible: two valleys, a ridge between them, steep walls in one direction, and a starting point that sends different optimizers to different endings.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg`, alt: `Rosenbrock function surface with a curved optimization valley`, caption: `A classic optimization surface makes the same lesson visible: the route through curvature can dominate the simple height story. Source: Wikimedia Commons, Oleg Alexandrov, public domain.`},
         `The topic exists because loss curves hide too much. A training chart tells you whether loss went down, but not why the optimizer moved the way it did. A 3D surface shows the missing cause. It makes the phrase "stuck in a basin" literal. It shows why one learning rate can be too large for a steep wall and too small for a flat floor. It also shows why momentum can do something plain gradient descent cannot do: carry motion through a short uphill region after a long downhill run.`,
       ],
     },
@@ -145,6 +147,7 @@ export const article = {
       heading: `The obvious approach`,
       paragraphs: [
         `The naive story says gradient descent should follow the steepest downhill direction until it finds a good minimum. That is true only locally. The gradient at one point knows the slope immediately around that point. It does not know that a better valley exists across a ridge. If every legal step is chosen by the current local downhill direction, the optimizer can settle in the first basin that captures it, even when a lower basin is visible to us from outside the problem.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Gradient_descent.svg/250px-Gradient_descent.svg.png`, alt: `Gradient descent path moving across contour lines`, caption: `The contour view shows the local rule: move against the current gradient and hope that local descent reaches a useful basin. Source: Wikimedia Commons, Gradient descent illustration.`},
         `On this surface, plain gradient descent starts high on the right wall. Its first steps are dominated by the steep y direction, so it drops quickly into the ravine. Once it reaches the floor, the slope becomes gentler, and the path bends toward the shallow right basin. From there, moving toward the deeper left basin would require climbing. Plain gradient descent has no stored motion and no reason to go uphill, so it stops in the shallow minimum. The algorithm has not made a mistake by its own rules. The rules are local.`,
       ],
     },
@@ -221,4 +224,3 @@ export const article = {
     },
 ],
 };
-

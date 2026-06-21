@@ -114,6 +114,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The array displays your input sequence. Each element is processed left to right. The active highlight marks the element currently being placed. Range highlights mark the indices whose values sit in the tails array -- the compact bookkeeping structure that tracks the best subsequence endings found so far.',
+        {type: 'callout', text: 'The tails array does not store the answer; it stores the cheapest possible ending for each answer length.'},
         'Two things can happen at each step. If the current element is larger than every tail, it extends the tails array and the LIS length grows by one. If not, a binary search finds the first tail that is greater than or equal to the current element and replaces it. The length stays the same, but the tails array now has a smaller value at that position -- a better springboard for future growth.',
         'At the end, found highlights trace the actual longest increasing subsequence recovered through parent pointers. The tails array itself is not the LIS. It is the working structure that makes O(n log n) possible.',
       ],
@@ -123,6 +124,7 @@ export const article = {
       paragraphs: [
         'Given a sequence, find the longest subsequence whose elements are strictly increasing. The elements do not need to be adjacent -- they just need to appear in left-to-right order with each value larger than the last.',
         'LIS measures how "sorted" a sequence already is. A fully sorted sequence has LIS length n. A fully reversed sequence has LIS length 1. Everything else falls somewhere between, and the LIS length tells you the largest monotone thread you can pull from the data without rearranging anything.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/LISDemo.gif/500px-LISDemo.gif', alt: 'Animated demo of a longest increasing subsequence in a numeric sequence', caption: 'The highlighted subsequence shows the rule visually: keep original order, skip anything needed, and preserve strict increase. Source: Wikimedia Commons, LIS demo.'},
         'The problem appears everywhere. Patience sorting is literally the LIS algorithm dealing cards into piles. Version control systems reduce longest common subsequence (LCS) to LIS when comparing file versions. Bioinformatics uses LIS to anchor genome alignments. Scheduling problems -- box stacking, Russian doll envelopes -- reduce to LIS on pairs. Ulam studied the expected LIS length in random permutations in the 1960s; the Erdos-Szekeres theorem guarantees that any sequence of more than n*m elements contains either an increasing subsequence of length n+1 or a decreasing one of length m+1.',
       ],
     },
@@ -147,6 +149,7 @@ export const article = {
       paragraphs: [
         'The O(n^2) DP builds a table. dp[i] = 1 + max(dp[j] for all j < i where values[j] < values[i]), or 1 if no such j exists. After filling the table, the answer is the largest dp[i]. To recover the actual subsequence, store which j gave the maximum at each i and trace back from the position with the overall maximum.',
         'The O(n log n) patience/tails algorithm replaces that table with a single sorted array called tails. tails[k] holds the smallest ending element of any increasing subsequence of length k+1 found so far. Because tails is always sorted (proven below), binary search works.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array by testing the midpoint', caption: 'Binary search is the operation that turns each tails placement from a scan into logarithmic work. Source: Wikimedia Commons.'},
         'For each input element: if it is larger than tails[last], append it -- the LIS length grows. Otherwise, binary-search for the leftmost tail >= the element and replace it. The replacement does not change the LIS length, but it installs a smaller ending value at that position, keeping the door open for longer subsequences later.',
         'To reconstruct the actual subsequence, maintain parent pointers. When element at index i is placed at position pos in tails, record that its predecessor is the element currently at position pos - 1 in tails. After processing all elements, walk parent pointers backward from the end of the longest subsequence.',
       ],

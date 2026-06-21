@@ -82,6 +82,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The animation draws a doubly linked list ordered by recency: head (left) is the most recently used item, tail (right) is the eviction candidate. Behind the list sits a hash map that you do not see drawn, but every hit proves it exists -- the cache jumps to the right node without walking.",
+        {type: "callout", text: "LRU is two data structures acting as one: a map finds nodes, and a list makes eviction order explicit."},
         "Green nodes are cache hits: the hash map found them in O(1) and they are about to move to the head. Red nodes are eviction victims: they sit at the tail when the cache is full and a new entry needs space. Highlighted nodes are freshly inserted or just promoted.",
         "The key moment is the move-to-front after a hit. One access changes the entire eviction order. Watch which node ends up at the tail after each promotion -- that node is now closest to death, even if it was safe a moment ago.",
       ],
@@ -91,6 +92,7 @@ export const article = {
       paragraphs: [
         "Memory is fast. Disk, network, and recomputation are slow. A cache spends a small amount of fast memory to avoid repeating slow work. The problem is that fast memory is finite. A cache that never evicts eventually holds everything and becomes the slow store it was supposed to avoid. A cache that evicts the wrong entry wastes a slot and pays a miss on the next request for that entry.",
         "Belady showed in 1966 that the optimal eviction policy (MIN) replaces the entry whose next use is farthest in the future. MIN requires knowing the future, so it is useful as a benchmark but impossible to run in practice. LRU approximates MIN by betting on temporal locality: what was used recently will probably be used again soon. This bet pays off in CPU instruction streams, database page accesses, web requests, and DNS lookups -- anywhere the working set is smaller than the total key space and recent access predicts near-future access.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/8/88/Lruexample.png", alt: "Graphic example of LRU cache replacement over an access sequence", caption: "The access trace makes the policy visible: the item with the oldest recent-use rank becomes the victim. Source: Wikimedia Commons, LRU example."},
       ],
     },
     {
@@ -112,6 +114,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         "Fuse the two structures. A hash map maps each key to a direct pointer to a node in a doubly linked list. The list maintains recency order: head is most recent, tail is least recent. The hash map handles the job the list cannot do (fast key lookup), and the list handles the job the hash map cannot do (ordered eviction and O(1) promotion).",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg", alt: "Linked list nodes connected by arrows ending at null", caption: "The list supplies the physical recency order; LRU uses a doubly linked version so promotion and removal are local pointer edits. Source: Wikimedia Commons, Lasindi, public domain."},
         "get(k): look up k in the hash map. If present, follow the pointer to the node, read its value, and move the node to the head of the list (two pointer swaps -- O(1) because the list is doubly linked). If absent, it is a cache miss.",
         "put(k, v): if k exists, update the value and move the node to the head. If k is new and the cache is full, remove the tail node (O(1)), delete its key from the hash map, then insert the new node at the head and record it in the hash map. If k is new and the cache has room, just insert at the head.",
         "Every operation is O(1). The doubly linked list gives O(1) node detachment because each node knows both its predecessor and successor. The hash map gives O(1) access to any node without walking.",
@@ -137,6 +140,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         "CPU caches (L1, L2, L3) approximate LRU in hardware. True LRU for a 16-way set-associative cache would require tracking 16! orderings per set -- impossible in silicon. CPUs use pseudo-LRU (a tree of bits) or CLOCK (a circular buffer with reference bits) to approximate recency in nanoseconds.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg", alt: "Cache hierarchy from CPU registers through storage", caption: "LRU-style replacement exists because every layer of a memory hierarchy is smaller and faster than the one below it. Source: Wikimedia Commons, CC BY-SA 4.0."},
         "Database buffer pools keep hot disk pages in RAM. PostgreSQL uses a CLOCK-sweep variant; MySQL's InnoDB uses a modified LRU with midpoint insertion (new pages enter at the 3/8 mark so a full table scan does not flush the hot end).",
         "Web browsers cache HTTP responses (HTML, CSS, JS, images) in memory and on disk. When the cache exceeds its size budget, the least recently used responses are evicted. HTTP Cache-Control headers govern freshness; LRU governs space.",
         "CDN edge caches (Cloudflare, Fastly, Akamai) use LRU-like eviction to decide which origin responses to keep at each edge node. Some layer frequency scoring on top to protect steadily popular URLs from bursts of unique traffic.",
@@ -175,4 +179,3 @@ export const article = {
     },
   ],
 };
-

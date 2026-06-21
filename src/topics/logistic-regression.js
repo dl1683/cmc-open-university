@@ -156,6 +156,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The 'boundary learn' view shows 10 emails as dots on a plane: x-axis is exclamation marks, y-axis is ALL-CAPS words. Spam dots cluster in the upper right; ham dots cluster in the lower left. A line (the decision boundary where p=0.5) appears and rotates over training epochs. Each dot's label shows the model's current predicted probability of spam.",
+        {type: 'callout', text: 'A logistic model is a linear evidence score plus one calibrated bend: the boundary is flat, but the output is a probability.'},
         "Watch three things per frame: (1) the boundary angle — it rotates toward the true separating direction as weights update; (2) the per-point probability labels — points far from the boundary approach 0 or 1 while borderline points hover near 0.5; (3) the loss number — it should decrease each epoch. Highlighted dots in the 'compare' color are currently misclassified.",
         "The 'sigmoid up close' view plots the sigmoid curve and the cross-entropy loss curve. The sigmoid shows how raw evidence scores map to probabilities, with saturation in the tails. The loss curve shows why confidently wrong predictions are punished far more than uncertain ones — the penalty is -log(p), which climbs steeply toward infinity as the assigned probability of the true class approaches zero.",
       ],
@@ -165,6 +166,7 @@ export const article = {
       paragraphs: [
         'Logistic regression exists because many decisions need a probability score, not just a label. A fraud system, ad click model, spam filter, medical triage tool, or churn model needs to rank cases by risk, choose thresholds, explain feature effects, and calibrate confidence. A hard yes/no rule is usually too crude.',
         'The model is intentionally simple. It computes a weighted sum of features, turns that evidence score into a probability with the sigmoid curve, and learns the weights from labeled examples. The result is a linear decision boundary with a probabilistic interpretation.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/88/Logistic-curve.svg', alt: 'Logistic sigmoid curve mapping evidence scores into probabilities', caption: 'The logistic curve shows the probability bend that turns a linear score into bounded confidence. Source: Wikimedia Commons, Qef, public domain.'},
         'That simplicity is the point. Logistic regression is often the baseline a more complex model must beat. It trains quickly, predicts cheaply, handles sparse features well, and gives coefficients that can be inspected as changes in log-odds. When it fails, the failure is usually informative.',
       ],
     },
@@ -277,6 +279,7 @@ export const article = {
       paragraphs: [
         'SVM with a linear kernel also finds a separating hyperplane, but maximizes the margin — the distance from the boundary to the nearest training points. Logistic regression maximizes likelihood, which cares about all points, not just the ones near the boundary. SVMs give no calibrated probability without extra work (Platt scaling). Logistic regression gives probabilities natively. When you need ranked scores or cost-sensitive thresholds, logistic regression is usually the better starting point. When the margin matters more than calibration, SVM can generalize better on small data.',
         'A single-layer neural network with one sigmoid output and cross-entropy loss IS logistic regression. Adding hidden layers lets the network learn nonlinear feature combinations that logistic regression cannot represent. The cost: the loss surface becomes non-convex (many local minima), training is slower, the model is harder to interpret, and overfitting requires careful regularization (dropout, weight decay, early stopping). Logistic regression is the right choice when the features are already good or the data is too small for a deep model to learn useful representations.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A neural network stacks many weighted sums and nonlinear bends; logistic regression is the single-output baseline version. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'Softmax regression generalizes logistic regression to K classes. Instead of one sigmoid producing p(class 1), softmax produces K probabilities that sum to 1. For two classes, softmax reduces to logistic regression exactly. For multi-class problems like digit recognition or language identification, softmax is the standard output layer — and the gradient still has the same clean (p - y) * x form, just extended to vectors.',
       ],
     },
@@ -297,4 +300,3 @@ export const article = {
     },
 ],
 };
-

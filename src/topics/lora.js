@@ -95,6 +95,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows four frames. The first is a frozen weight matrix W, colored to show it never changes. The second shows the two skinny trainable matrices A and B that form the LoRA adapter. The third multiplies A and B into a full-size correction. The fourth adds that correction to the frozen base, producing the adapted layer.',
+        {type: 'callout', text: 'LoRA treats adaptation as a low-rank delta, so task behavior moves while the pretrained matrix stays fixed.'},
         'Frozen means no gradients, no optimizer state, no modification. Trainable means these values receive gradient updates during fine-tuning. The rank control lets you compare rank 1 (one direction of change, every row a scaled copy of the same pattern) against rank 2 (two directions, richer corrections). Watch how few numbers move to reshape the entire layer.',
       ],
     },
@@ -102,6 +103,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Large pretrained models already know a lot. GPT-3 learned syntax, facts, and reasoning from 300 billion tokens. A ResNet-50 trained on ImageNet learned edges, textures, shapes, and object parts from 1.2 million images. Training anything like that from scratch demands data, hardware, and time that most practitioners do not have.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A pretrained network stores broad behavior in many weight matrices; LoRA adapts selected matrices without retraining the whole stack. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'Transfer learning is the fix: take a model pretrained on a broad task and adapt it to your specific problem. Fine-tuning is the most common form. Replace the final layer, lower the learning rate, train on your data. BERT fine-tuned on 10,000 movie reviews reaches 94% sentiment accuracy in under an hour on one GPU. Training a comparable model from scratch on the same data would overfit badly because 10,000 examples cannot teach a model what language is.',
         'But full fine-tuning has its own cost problem. A 7B-parameter model needs gradients and Adam optimizer states for every weight: roughly 56 GB of GPU memory just for training state, on top of the 14 GB model itself. Each downstream task produces a separate 14 GB checkpoint. LoRA exists because the useful change a fine-tune makes to a weight matrix usually has far less structure than the matrix itself.',
       ],
@@ -125,6 +127,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Hu et al. (2022) observed that the weight change produced by fine-tuning is approximately low-rank. A 4096-by-4096 weight matrix has 16.7 million entries, but the fine-tuning delta can be well-approximated by the product of two skinny matrices: A (r-by-4096) and B (4096-by-r), where r is 4, 8, or 16. The delta has rank at most r.',
+        {type: 'image', src: 'https://arxiv.org/html/2106.09685/x1.png', alt: 'LoRA paper diagram showing frozen pretrained weights plus trainable low-rank matrices', caption: 'The LoRA paper diagram shows frozen pretrained weights with trainable low-rank matrices injected beside them. Source: Hu et al. 2022, arXiv.'},
         'Freeze W. Train only A and B. The forward pass becomes y = Wx + (alpha/r) * B(Ax). The frozen W carries general knowledge. The skinny product BA carries task-specific steering. For rank 8, that is 65,536 trainable parameters per layer instead of 16.7 million: a 256x reduction.',
         'The bet is that useful adaptation lives in a low-dimensional subspace. The adapter does not relearn the language or the visual hierarchy. It redirects what the base model already knows toward a new objective.',
       ],
@@ -151,6 +154,7 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'Full fine-tuning a LLaMA-7B model: 70+ GB GPU memory, 8 hours on 8 A100s, produces a 14 GB checkpoint per task. LoRA fine-tuning the same model at rank 16: 18 GB GPU memory, 3 hours on 1 A100, produces a 30 MB adapter file. That is a 10-100x reduction in compute, memory, and storage.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die showing many compute regions', caption: 'Parameter-efficient fine-tuning matters because training memory and optimizer state must fit on real accelerator hardware. Source: Wikimedia Commons, Nvidia, public domain.'},
         'QLoRA (Dettmers et al. 2023) goes further. Quantize the frozen base to 4-bit NormalFloat, train the LoRA adapter in FP16. A 65B model fits in 24 GB. A 7B model fits on a consumer RTX 4090. Quality lands within 1-2% of full fine-tuning on most benchmarks.',
         'Inference cost is unchanged after merging. The adapted model is the same size and speed as the original. Unmerged adapters add one extra small matrix multiply per adapted layer, negligible for typical ranks.',
         'The hidden cost is hyperparameter search. Rank, alpha, target modules, learning rate, and training duration all interact. A rank too low underfits the task. A rank too high overfits or wastes memory. Typical starting points: r=8 for simple tasks (sentiment, NER), r=16-64 for complex tasks (instruction following, code generation), r=256 when approaching full fine-tuning quality.',

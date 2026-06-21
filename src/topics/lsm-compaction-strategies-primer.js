@@ -221,7 +221,9 @@ export const article = {
       heading: 'Why compaction exists',
       paragraphs: [
         'An LSM tree gets its write speed by refusing to update disk pages in place. A write is appended to a log, inserted into a memory table, and later flushed as a sorted immutable file. That is the good part: random user updates become sequential writes. The cost is that the disk gradually fills with many sorted files, old versions, delete markers, and overlapping key ranges. Compaction is the background policy that turns that pile of files back into a usable index.',
+        {type: 'callout', text: 'Compaction is the LSM control loop that buys read shape, space cleanup, and tombstone safety with background rewrite I/O.'},
         'Without compaction, the write path would still look fast for a while, but every other part of the system would degrade. Point reads would have to search more files. Range scans would merge more runs. Disk space would hold duplicate history. Deletes would leave tombstones that hide old values but do not reclaim space. Eventually the database would slow or stop writes because background cleanup could not catch up.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/LSM_Tree.png/250px-LSM_Tree.png', alt: 'Diagram illustrating compaction of data in a log structured merge tree', caption: 'The LSM shape shows why compaction is physical design: flushed sorted runs must be merged into levels or tiers. Source: Wikimedia Commons, LSM tree diagram.'},
         'The word compaction can sound like simple compression, but in an LSM it means much more. It is physical design. A compaction strategy decides which SSTables are merged, which output level receives them, how much overlap remains, when old versions can disappear, and which amplification the system is willing to pay.',
       ],
     },
@@ -253,6 +255,7 @@ export const article = {
       heading: 'Amplification vocabulary',
       paragraphs: [
         'Write amplification is the extra data written because compaction rewrites bytes that users did not modify. If the user writes 1 GB but the device writes 12 GB after flushes and compactions, the write amplification is high. This matters for SSD wear, ingest throughput, and tail latency. Leveled compaction often pays more write amplification than tiered compaction because it keeps the structure cleaner.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/03/Hdd_and_ssd.JPG', alt: 'Hard disk drive and solid state drive hardware side by side', caption: 'Write amplification is paid by real storage hardware through bandwidth, wear, and queue contention. Source: Wikimedia Commons, Evan-Amos, public domain.'},
         'Read amplification is the extra work a lookup or scan performs because data is spread across files. Bloom filters can reduce unnecessary data-block reads for point lookups, but they do not remove every cost. Range scans still have to merge ordered streams. L0 overlap is especially painful because each L0 file may cover the same key range. A compaction policy that leaves many overlapping runs is borrowing read cost from the future.',
         'Space amplification is old or redundant data that remains on disk. It includes overwritten values, tombstones, files that cannot yet be dropped, and partially overlapped output during compaction. Stall risk is the operational version of the same debt. If flush and compaction fall behind, L0 files and pending compaction bytes can trip write slowdowns or hard stalls.',
       ],

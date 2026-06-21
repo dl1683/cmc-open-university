@@ -152,6 +152,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Loss Landscapes & Optimization Geometry. The terrain under gradient descent: trapping basins, stalling saddles, and why flat minima generalize..",
+        {type: "callout", text: "A loss landscape turns training symptoms into geometry: path, slope, curvature, basin width, and final robustness all become inspectable."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -161,6 +162,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A loss landscape is the geometry created by a model, a dataset, and a loss function. Each possible setting of the model weights is a point. The height at that point is the loss. Training is the path an optimizer takes through that surface. Gradient descent, momentum, Adam, minibatch noise, initialization, normalization, weight decay, and learning-rate schedules matter because they change the path.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock function surface with a narrow curved valley', caption: 'The Rosenbrock valley is a classic optimization surface where curvature, direction, and step size interact. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'},
         'This topic exists because a scalar loss curve hides too much. A training chart can tell you that loss fell from 2.1 to 0.4, but it cannot tell you whether the optimizer crossed a ravine, crawled through a saddle, bounced out of a sharp slot, or settled in a broad basin. The local shape around the solution affects training speed, numerical stability, sensitivity to weight perturbations, and generalization to new data.',
         'Two models can reach the same training loss and still behave differently. One may sit in a narrow region where tiny parameter changes or data shifts cause loss to rise sharply. Another may sit in a wide region where nearby parameters also work. Loss landscapes turn that difference into a geometric question instead of a vague statement about "better training."',
       ],
@@ -185,6 +187,7 @@ export const article = {
       heading: 'Basins and paths',
       paragraphs: [
         'A basin is a region whose local downhill directions lead toward the same minimum or valley. The first visual shows a one-dimensional slice with two basins. Plain gradient descent starts on the right and moves downhill into the shallow basin even though the left basin is lower. The better region is nearby in the drawing, but reaching it requires going uphill over a ridge.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Gradient_descent.svg/250px-Gradient_descent.svg.png', alt: 'Gradient descent path crossing contour lines toward a minimum', caption: 'Contour lines make local descent visible: each step reads only nearby slope, not the whole terrain. Source: Wikimedia Commons, Gradient descent illustration.'},
         'The lesson is not that real networks are one-dimensional. The lesson is that local descent has no global map. It follows the slope it can see. Initialization, batch order, learning rate, optimizer state, and noise can choose the basin of attraction before the run has any chance to compare alternatives.',
         'This is why repeated seeds matter. One successful run does not prove the landscape is easy. One failed seed does not prove the architecture is broken. Variation across seeds is evidence about basin size, optimizer stability, and the degree to which training depends on early accidents.',
       ],
@@ -272,4 +275,3 @@ export const article = {
     },
 ],
 };
-

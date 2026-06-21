@@ -224,6 +224,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "encode topology" view walks the LOUDS pipeline: trie nodes are visited breadth-first, each node emits a unary degree code (one 1 per child, then a 0), and the codes concatenate into a single bitvector. Active highlights mark the node being encoded. Found highlights mark the rank/select layer that makes the bitvector navigable.',
+        {type: 'callout', text: 'LOUDS keeps trie semantics but replaces pointers with bit positions, counts, and jumps.'},
         'The "navigate labels" view traces a key lookup through the finished structure. Active highlights show the child-range computation via rank/select; found highlights show the label match that advances the path. The terminal-bit check at the end confirms whether the path is a stored key or only a prefix.',
         'At each frame, track three things: which node is being processed, what bits it contributes to the bitvector, and how rank/select recovers the same parent-child relationship that a pointer would have stored explicitly.',
       ],
@@ -232,6 +233,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A trie indexes strings by following the key one symbol at a time. The problem is cost. A pointer-based trie node carries an object header, a child map or array (often sparse), a terminal flag, and one pointer per child. For an English dictionary with a million entries, the pointer and object overhead can exceed the actual character data by an order of magnitude.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/Radix_tree.svg', alt: 'Radix tree diagram showing prefix branches from a root', caption: 'A trie shares common prefixes; LOUDS keeps that prefix tree while changing the storage layout. Source: Wikimedia Commons, Cmglee, CC BY-SA 4.0.'},
         'Guy Jacobson introduced LOUDS in his 1989 thesis to solve this: encode the tree topology as a bitvector of roughly 2n+1 bits for n nodes, then navigate it with rank and select instead of pointers. The trie idea stays intact -- prefix lookup, ordered traversal, common-prefix sharing -- but the representation shrinks from tens of bytes per node to about two bits per node for topology alone.',
         'LOUDS matters whenever the trie is built once and queried many times: static dictionaries, autocomplete indexes, IP routing tables, and succinct range filters inside storage engines.',
       ],
@@ -254,6 +256,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Visit every node in breadth-first (level) order. For each node, write one 1-bit for each child, then write a 0-bit to end that node\'s run. A node with two children contributes "110". A node with one child contributes "10". A leaf contributes "0". Prepend a superroot sentinel "10" so that the root itself has a parent entry. Concatenating all runs produces the LOUDS bitvector.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Rank and select recover parent-child movement from ordered markers rather than from stored pointers. Source: Wikimedia Commons, David W., public domain.'},
         {
           type: 'diagram',
           label: 'BFS traversal producing the LOUDS bitstring',
@@ -281,13 +284,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Representation', 'Topology bits/node', 'Navigation', 'Mutation', 'Notes'],
-          rows: [
-            ['Pointer trie', '~256-512 (64-bit ptrs + object headers)', 'O(1) pointer chase', 'O(1) insert/delete', 'Simple but memory-heavy'],
-            ['LOUDS', '~2', 'O(1) with rank/select', 'O(n) rebuild', '2n+1 bits; Jacobson 1989'],
-            ['DFUDS', '~2', 'O(1) with rank/select', 'O(n) rebuild', 'Depth-first; degree before children'],
-            ['BP (balanced parens)', '~2', 'O(1) with support tables', 'O(n) rebuild', 'Open/close parens; richer queries'],
+          type: 'bullets',
+          items: [
+            'Pointer trie: roughly 256-512 topology bits per node after object headers and pointers; navigation is direct pointer chasing; mutation is easy; memory is the tax.',
+            'LOUDS: roughly two topology bits per node plus rank/select directories; navigation is O(1) with arithmetic; mutation usually means rebuilding shifted bits and labels.',
+            'DFUDS: roughly two topology bits per node with depth-first unary degree encoding; similar static-update cost, different traversal formulas.',
+            'Balanced parentheses: roughly two topology bits per node with support tables; richer subtree queries, but still a static succinct-tree layout in practice.',
           ],
         },
         'The LOUDS bitvector costs 2n+1 bits for n nodes. Rank/select support structures add o(n) bits -- typically about 6-25% overhead depending on the implementation. Labels cost one byte per edge. Terminal bits cost one bit per node. The total is roughly 2-3 bytes per node instead of 50-100+ bytes in a pointer trie.',
